@@ -1,0 +1,107 @@
+/* RAWCHUNKS DESIGN TOKENS & RESPONSIVE SCALING ENGINE */
+
+:root {
+  /* Brand Palette */
+  --primary: #00ff41;         /* Neon Acid Green */
+  --secondary: #ff00a0;       /* Hot Punk Magenta */
+  --accent: #00ccff;          /* Cyber Cyan */
+  --warning: #ffaa00;         /* Electric Amber */
+  --error: #ff0066;           /* Danger Neon */
+
+  /* Backgrounds & Surfaces */
+  --bg: #000000;
+  --surface: #0a0a0a;
+  --surface-alt: #121212;
+  --surface-raised: #181818;
+  --surface-elevated: #121212;
+
+  /* Text Colors */
+  --text: #ffffff;
+  --text-dim: #aaaaaa;
+  --text-muted: #666666;
+  --text-secondary: #888888;
+  --text-tertiary: #444444;
+
+  /* Borders & Glows */
+  --border: #1a1a1a;
+  --border-dim: rgba(0, 255, 65, 0.2);
+  --border-bright: #333333;
+  --border-active: #00ff41;
+  --border-magenta: rgba(255, 0, 160, 0.3);
+  --glow-primary: 0 0 12px rgba(0, 255, 65, 0.35);
+  --glow-secondary: 0 0 12px rgba(255, 0, 160, 0.35);
+  --glow-accent: 0 0 12px rgba(0, 204, 255, 0.35);
+
+  /* Typography */
+  --font-family: 'Courier New', Courier, monospace;
+  --font-mono: 'Courier New', Courier, monospace;
+  --letter-spacing-tight: clamp(0.5px, 0.08vw, 1px);
+  --letter-spacing-base: clamp(1px, 0.15vw, 2px);
+  --letter-spacing-wide: clamp(1.5px, 0.25vw, 3px);
+
+  /* Fluid Font Sizes */
+  --font-xs: clamp(9px, 0.65vw + 0.3vh, 11px);
+  --font-sm: clamp(11px, 0.75vw + 0.35vh, 13px);
+  --font-md: clamp(12px, 0.9vw + 0.4vh, 14px);
+  --font-base: var(--font-md);
+  --font-lg: clamp(15px, 1.1vw + 0.5vh, 18px);
+  --font-xl: clamp(18px, 1.4vw + 0.6vh, 24px);
+  --font-title: clamp(22px, 2.2vw + 1vh, 40px);
+
+  /* Structural Responsive Dimensions */
+  --header-height: clamp(50px, 4.2vh + 1.2vw, 70px);
+  --player-height: clamp(62px, 7.5dvh, 72px);
+  --touch-target: 44px;
+
+  /* Fluid Header Brand Scaling System */
+  --header-brand-font: clamp(12.5px, 1.1vw + 0.5vh, 28px);
+  --header-brand-tag-font: clamp(9px, 0.45vw + 0.25vh, 13px);
+  --header-brand-tag-pad: clamp(1px, 0.2vh, 3px) clamp(4px, 0.35vw, 8px);
+
+  /* Fluid Button Dimensions & Proportional Scaling Engine */
+  --btn-h-xs: clamp(28px, 2vh + 1.2vw, 34px);
+  --btn-h-sm: clamp(34px, 2.6vh + 1.5vw, 42px);
+  --btn-h-md: clamp(40px, 3.4vh + 1.8vw, 48px);
+  --btn-h-lg: clamp(46px, 4.2vh + 2.2vw, 56px);
+
+  --btn-pad-xs: clamp(3px, 0.5vh, 6px) clamp(8px, 1vw, 12px);
+  --btn-pad-sm: clamp(6px, 0.8vh, 10px) clamp(12px, 1.4vw, 18px);
+  --btn-pad-md: clamp(8px, 1.1vh, 12px) clamp(16px, 1.8vw, 24px);
+  --btn-pad-lg: clamp(12px, 1.5vh, 18px) clamp(22px, 2.4vw, 32px);
+
+  --btn-font-xs: clamp(10px, 0.65vw + 0.35vh, 12px);
+  --btn-font-sm: clamp(11px, 0.75vw + 0.4vh, 13px);
+  --btn-font-md: clamp(12px, 0.9vw + 0.45vh, 15px);
+  --btn-font-lg: clamp(14px, 1.1vw + 0.55vh, 18px);
+
+  /* Fluid Header Actions & Connector Scaling */
+  --header-btn-h: clamp(32px, 2.2vw + 1.8vh, 42px);
+  --header-btn-pad: clamp(5px, 0.7vh, 9px) clamp(14px, 1.4vw, 24px);
+  --header-btn-font: clamp(11px, 0.75vw + 0.35vh, 14px);
+  --header-btn-min-w: clamp(120px, 8vw + 2vh, 160px);
+  --header-icon-size: clamp(14px, 1.1vw, 18px);
+
+  /* Fluid Modal Scaling System */
+  --modal-w: clamp(340px, 28vw + 12vh, 520px);
+  --modal-pad: clamp(16px, 1.6vw + 0.8vh, 28px);
+  --modal-btn-h: clamp(40px, 2.4vw + 1.8vh, 50px);
+  --modal-font: clamp(12px, 0.8vw + 0.35vh, 15px);
+  --modal-icon-size: clamp(18px, 1.3vw, 24px);
+
+  /* Safe Area Insets for Mobile Notches & Navigation Bars */
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+
+  /* Industry-Standard Stem Audio Palette */
+  --stem-master: #a855f7;
+  --stem-vocals: #00f0ff;
+  --stem-drums: #ff5500;
+  --stem-bass: #ffb700;
+  --stem-synth: #d946ef;
+  --stem-keys: #ec4899;
+  --stem-guitar: #10b981;
+  --stem-other: #00e676;
+  --stem-instrumental: #3b82f6;
+}

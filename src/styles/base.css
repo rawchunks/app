@@ -1,0 +1,130 @@
+/* RAWCHUNKS BASE RESETS, CRT OVERLAYS & VIEWPORT GEOMETRY */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  height: 100dvh;
+  min-height: -webkit-fill-available;
+  overflow: hidden;
+  background-color: var(--bg);
+  color: var(--text);
+  font-family: var(--font-family);
+  font-size: var(--font-sm);
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#root {
+  width: 100%;
+  height: 100%;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+  background-color: var(--bg);
+}
+
+/* Cyberpunk Background Grid & Vignette */
+#root::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(0, 255, 65, 0.05) 0%, transparent 65%),
+    linear-gradient(rgba(0, 255, 65, 0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 255, 65, 0.02) 1px, transparent 1px);
+  background-size: 100% 100%, 32px 32px, 32px 32px;
+  background-position: 0 0, -1px -1px, -1px -1px;
+  z-index: 1;
+}
+
+/* CRT Scanline & Grain Overlay */
+.scanlines {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 999;
+  background: linear-gradient(
+    rgba(18, 16, 16, 0) 50%,
+    rgba(0, 0, 0, 0.25) 50%
+  ), linear-gradient(
+    90deg,
+    rgba(255, 0, 0, 0.03),
+    rgba(0, 255, 0, 0.01),
+    rgba(0, 0, 255, 0.03)
+  );
+  background-size: 100% 3px, 6px 100%;
+  opacity: 0.65;
+}
+
+/* Responsive Fluid Scrollable Areas */
+.scrollable {
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-dim) transparent;
+  -webkit-overflow-scrolling: touch;
+}
+
+.scrollable::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+.scrollable::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollable::-webkit-scrollbar-thumb {
+  background: var(--border-dim);
+  border-radius: 2px;
+}
+
+.scrollable::-webkit-scrollbar-thumb:hover {
+  background: var(--primary);
+}
+
+/* Base Panel Primitive */
+.panel {
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  position: relative;
+  box-sizing: border-box;
+}
+
+.panel-elevated {
+  background-color: var(--surface-elevated);
+  border: 1px solid var(--border-bright);
+}
+
+/* Typography Defaults */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-family);
+  font-weight: 700;
+  letter-spacing: var(--letter-spacing-base);
+  text-transform: uppercase;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button, input, textarea, select {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  outline: none;
+}
