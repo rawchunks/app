@@ -211,4 +211,189 @@ class DAWEngine {
 
     if (this.onTimeCallback) this.onTimeCallback(target);
   }
+
+  public auditionTake(url: string, startSec = 0, endSec?: number, timelineStart = startSec) {
+    if (typeof window === 'undefined' || !url) return;
+    this.pauseTransport();
+    if (!this.auditionTakeAudio) {
+      this.auditionTakeAudio = new Audio();
+      this.auditionTakeAudio.crossOrigin = 'anonymous';
+      this.auditionTakeAudio.preload = 'auto';
+      this.auditionTakeAudio.addEventListener('ended', () => {
+        this.stopTimeTracker();
+        useDawStore.getState().setPlaying(false);
+      });
+    }
+
+    const safeStart = Math.max(0, startSec);
+    this.auditionOffset = timelineStart - safeStart;
+    this.auditionStart = timelineStart;
+    this.auditionEnd = endSec !== undefined ? Math.max(safeStart + 0.1, endSec) + this.auditionOffset : null;
+    this.isAuditionLooping = false;
+
+    const playTake = () => {
+      if (!this.auditionTakeAudio) return;
+      try {
+        this.auditionTakeAudio.currentTime = safeStart;
+      } catch (err) {
+        console.warn('Take seek deferred:', err);
+      }
+      this.seek(timelineStart);
+      this.auditionTakeAudio.play().catch((e) => console.warn('Take audition error:', e));
+      useDawStore.getState().setPlaying(true);
+      this.startTimeTracker();
+    };
+
+    if (this.auditionTakeAudio.src !== url) {
+      this.auditionTakeAudio.src = url;
+      this.auditionTakeAudio.load();
+      if (this.auditionTakeAudio.readyState >= 1) {
+        playTake();
+      } else {
+        const onCanPlay = () => {
+          this.cancelAuditionReady();
+          playTake();
+        };
+        this.auditionReadyHandler = onCanPlay;
+        this.auditionTakeAudio.addEventListener('canplay', onCanPlay, { once: true });
+      }
+    } else {
+      playTake();
+    }
+  }
+
+  private cancelAuditionReady() {
+    if (this.auditionReadyHandler) {
+      this.auditionTakeAudio?.removeEventListener('canplay', this.auditionReadyHandler);
+      this.auditionReadyHandler = null;
+    }
+  }
+
+  public stopAuditionTake(restoreMixer = true) {
+    if (restoreMixer && (this.auditionTrackId || this.auditionLayerIds)) {
+      this.auditionTrackId = null;
+      this.auditionLayerIds = null;
+      this.updateTrackMixer('master');
+    }
+    this.cancelAuditionReady();
+    if (this.auditionTakeAudio) {
+      this.auditionTakeAudio.pause();
+      this.auditionTakeAudio.currentTime = 0;
+    }
+    this.stopTimeTracker();
+    useDawStore.getState().setPlaying(false);
+    useDawStore.setState({ auditionId: null });
+  }
+
+  public setBpm(bpm: number) {
+    if (Tone.getTransport()?.bpm?.rampTo) {
+      Tone.getTransport().bpm.rampTo(bpm, 0.05);
+    } else if (Tone.getTransport()?.bpm) {
+      Tone.getTransport().bpm.value = bpm;
+    }
+  }
+
+  public setLoop(loop: boolean, start = 0, end = 30) {
+    Tone.getTransport().loop = loop;
+    Tone.getTransport().loopStart = start;
+    Tone.getTransport().loopEnd = end;
+    this.isAuditionLooping = loop;
+    if (loop) {
+      this.auditionStart = start;
+      this.auditionEnd = end;
+    } else {
+      this.auditionStart = null;
+      this.auditionEnd = null;
+    }
+  }
+
+  public async auditionSection(start: number, end: number, loop = false) {
+    const safeStart = Math.max(0, start);
+    const safeEnd = Math.max(safeStart + 0.1, end);
+
+    this.seek(safeStart);
+    await this.startTransport();
+    this.auditionStart = safeStart;
+    this.auditionEnd = safeEnd;
+    this.isAuditionLooping = loop;
+  }
+
+  public async auditionLayer(ids: string[], start: number, end: number) {
+    if (!ids.length) throw new Error('Select original or take audio to play');
+    this.auditionTrackId = null;
+    this.auditionLayerIds = ids;
+    this.seek(start);
+    await this.startTransport(true);
+    this.auditionStart = start;
+    this.auditionEnd = end;
+    this.isAuditionLooping = false;
+  }
+
+  private startTimeTracker() {
+    if (this.timeUpdateTimer !== null) clearInterval(this.timeUpdateTimer);
+
+    const trackerStartTime = Date.now();
+
+    this.timeUpdateTimer = window.setInterval(() => {
+      const isToneRunning = Tone.getTransport().state === 'started';
+      const isTakeRunning = this.auditionTakeAudio && !this.auditionTakeAudio.paused;
+
+      if (isToneRunning || isTakeRunning) {
+        const sec = isTakeRunning && this.auditionTakeAudio
+          ? this.auditionTakeAudio.currentTime + this.auditionOffset
+          : Tone.getTransport().seconds;
+
+        if (this.onTimeCallback) {
+          this.onTimeCallback(sec);
+        }
+        const state = useDawStore.getState();
+        const end = Math.max(state.duration, ...state.tracks.filter(track => track.activeTakeId && !track.muted).flatMap(track => track.clips.map(clip => clip.startTime + clip.duration)));
+        if (!isTakeRunning && !Tone.getTransport().loop && sec >= end) { this.stopTransport(); return; }
+
+        // Real-time Section Gain Automation across selection bounds
+        const selection = useDawStore.getState().selection;
+        const masterNodes = this.trackNodes.get('master');
+        if (masterNodes?.sectionGain) {
+          const inSection = selection && sec >= selection.start && sec <= selection.end;
+          const targetGain = inSection ? (this.currentSectionGainLinear ?? 1.0) : 1.0;
+          if (Math.abs(masterNodes.sectionGain.gain.value - targetGain) > 0.02) {
+            masterNodes.sectionGain.gain.rampTo(targetGain, 0.04);
+          }
+        }
+
+        // Audition boundary enforcement (require at least 150ms elapsed and seeking settled to prevent premature abort)
+        if (this.auditionEnd !== null && Date.now() - trackerStartTime > 150) {
+          if (this.auditionStart !== null && sec < this.auditionStart - 0.25) {
+            return;
+          }
+
+          if (sec >= this.auditionEnd) {
+            const restartPos = this.auditionStart ?? 0;
+            if (this.isAuditionLooping) {
+              this.seek(restartPos);
+              if (isTakeRunning && this.auditionTakeAudio && this.auditionTakeAudio.paused) {
+                this.auditionTakeAudio.play().catch(() => {});
+              }
+            } else {
+              this.pauseTransport();
+              this.seek(restartPos);
+            }
+          }
+        }
+      }
+    }, 25);
+  }
+
+  private stopTimeTracker() {
+    this.auditionEnd = null;
+    this.auditionStart = null;
+    if (this.timeUpdateTimer !== null) {
+      clearInterval(this.timeUpdateTimer);
+      this.timeUpdateTimer = null;
+    }
+  }
+
+  /**
+   * Builds or updates the Tone.js node graph for a track (lazily created if not exists)
+   */
 }
