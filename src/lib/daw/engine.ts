@@ -396,4 +396,206 @@ class DAWEngine {
   /**
    * Builds or updates the Tone.js node graph for a track (lazily created if not exists)
    */
+  public getOrCreateTrackNodes(trackOrId: string | DAWTrack): TrackAudioNodes {
+    const trackId = typeof trackOrId === 'string' ? trackOrId : trackOrId.id;
+    let nodes = this.trackNodes.get(trackId);
+
+    if (typeof window === 'undefined' || typeof globalThis.AudioContext === 'undefined') {
+      throw new Error('Audio playback is unavailable in this browser');
+    }
+
+    let track: DAWTrack | undefined;
+    if (typeof trackOrId === 'string') {
+      track = useDawStore.getState().tracks.find((t: DAWTrack) => t.id === trackId);
+    } else {
+      track = trackOrId;
+    }
+
+    if (nodes) {
+      const currentType = track?.type || useDawStore.getState().tracks.find((t: DAWTrack) => t.id === trackId)?.type;
+      if ((currentType === 'pianoroll' || currentType === 'strudel') && !nodes.polySynth) {
+        nodes.polySynth = new Tone.PolySynth(Tone.Synth, {
+          oscillator: { type: 'triangle' },
+          envelope: { attack: 0.02, decay: 0.1, sustain: 0.3, release: 0.8 },
+        });
+        nodes.polySynth.connect(nodes.input);
+      }
+      if ((currentType === 'sequencer' || currentType === 'strudel') && !nodes.drumSynths) {
+        const kick = new Tone.MembraneSynth({
+          pitchDecay: 0.05, octaves: 8, oscillator: { type: 'sine' }, envelope: { attack: 0.001, decay: 0.4, sustain: 0.01, release: 0.4 },
+        });
+        const snare = new Tone.NoiseSynth({
+          noise: { type: 'white' }, envelope: { attack: 0.001, decay: 0.2, sustain: 0 },
+        });
+        const hihat = new Tone.MetalSynth({
+          envelope: { attack: 0.001, decay: 0.05, release: 0.05 }, harmonicity: 5.1, modulationIndex: 32, resonance: 4000, octaves: 1.5,
+        });
+        const clap = new Tone.NoiseSynth({
+          noise: { type: 'pink' }, envelope: { attack: 0.005, decay: 0.15, sustain: 0 },
+        });
+        const tom = new Tone.MembraneSynth({
+          pitchDecay: 0.03, octaves: 4, oscillator: { type: 'sine' }, envelope: { attack: 0.001, decay: 0.3, sustain: 0.01, release: 0.3 },
+        });
+        const perc = new Tone.MembraneSynth({
+          pitchDecay: 0.02, octaves: 4, oscillator: { type: 'triangle' }, envelope: { attack: 0.001, decay: 0.15, sustain: 0.01, release: 0.2 },
+        });
+        const crash = new Tone.MetalSynth({
+          envelope: { attack: 0.001, decay: 0.8, release: 0.8 }, harmonicity: 3.2, modulationIndex: 64, resonance: 2000, octaves: 2.0,
+        });
+
+        kick.connect(nodes.input);
+        snare.connect(nodes.input);
+        hihat.connect(nodes.input);
+        clap.connect(nodes.input);
+        tom.connect(nodes.input);
+        perc.connect(nodes.input);
+        crash.connect(nodes.input);
+
+        nodes.drumSynths = { kick, snare, hihat, clap, tom, perc, crash };
+      }
+      return nodes;
+    }
+
+    const trackType = track?.type || 'stem';
+    const volumeVal = track?.volume ?? 0.9;
+    const panVal = track?.pan ?? 0;
+    const mutedVal = track?.muted ?? false;
+    const fxConfig = track?.fx || {
+      eq: { enabled: true, low: 0, mid: 0, high: 0 },
+      compressor: { enabled: false, threshold: -20, ratio: 4, attack: 0.005, release: 0.2 },
+      reverb: { enabled: false, decay: 2.5, wet: 0.3 },
+      delay: { enabled: false, delayTime: 0.35, feedback: 0.4, wet: 0.25 },
+      distortion: { enabled: false, drive: 0.4, wet: 0.3 },
+      chorus: { enabled: false, rate: 1.5, depth: 0.7, wet: 0.3 },
+      filter: { enabled: false, cutoff: 8000, resonance: 1.0, type: 'lowpass' },
+    };
+
+    const input = new Tone.Gain(1.0);
+    const source = track?.id === 'master' ? new Tone.Gain(1).connect(input) : undefined;
+    const eq = new Tone.EQ3({
+      low: fxConfig.eq.enabled ? fxConfig.eq.low : 0,
+      mid: fxConfig.eq.enabled ? fxConfig.eq.mid : 0,
+      high: fxConfig.eq.enabled ? fxConfig.eq.high : 0,
+    });
+    const filter = new Tone.Filter({
+      frequency: fxConfig.filter.enabled ? fxConfig.filter.cutoff : 20000,
+      type: fxConfig.filter.type,
+      Q: fxConfig.filter.resonance,
+    });
+    const distortion = new Tone.Distortion({
+      distortion: fxConfig.distortion.drive,
+      wet: fxConfig.distortion.enabled ? fxConfig.distortion.wet : 0,
+    });
+    const chorus = new Tone.Chorus({
+      frequency: fxConfig.chorus.rate,
+      depth: fxConfig.chorus.depth,
+      wet: fxConfig.chorus.enabled ? fxConfig.chorus.wet : 0,
+    });
+    const delay = new Tone.FeedbackDelay({
+      delayTime: fxConfig.delay.delayTime,
+      feedback: fxConfig.delay.feedback,
+      wet: fxConfig.delay.enabled ? fxConfig.delay.wet : 0,
+    });
+    const reverb = new Tone.Reverb({
+      decay: fxConfig.reverb.decay,
+      wet: fxConfig.reverb.enabled ? fxConfig.reverb.wet : 0,
+    });
+    const compressor = new Tone.Compressor({
+      threshold: fxConfig.compressor.threshold,
+      ratio: fxConfig.compressor.enabled ? fxConfig.compressor.ratio : 1,
+      attack: fxConfig.compressor.attack,
+      release: fxConfig.compressor.release,
+    });
+    const panner = new Tone.Panner(panVal);
+    const volume = new Tone.Volume(Tone.gainToDb(Math.max(0.0001, volumeVal)))
+    volume.mute = mutedVal;
+
+    const sectionGain = new Tone.Gain(1.0);
+    const meter = new Tone.Meter({ smoothing: 0.8 });
+    volume.connect(meter);
+
+    // Connect DSP Serial Chain:
+    // Input -> EQ -> Filter -> SectionGain -> Distortion -> Chorus -> Delay -> Reverb -> Compressor -> Panner -> Volume -> MasterCompressor
+    input.chain(
+      eq,
+      filter,
+      sectionGain,
+      distortion,
+      chorus,
+      delay,
+      reverb,
+      compressor,
+      panner,
+      volume,
+      track && track.id === track.activeTakeId ? this.getOrCreateTrackNodes('master').input : this.ensureMasterBus()
+    );
+
+    const players = new Map<string, Tone.Player>();
+    let polySynth: Tone.PolySynth | undefined;
+    let drumSynths: TrackAudioNodes['drumSynths'] | undefined;
+
+    if (trackType === 'pianoroll' || trackType === 'strudel') {
+      polySynth = new Tone.PolySynth(Tone.Synth, {
+        oscillator: { type: 'triangle' },
+        envelope: { attack: 0.02, decay: 0.1, sustain: 0.3, release: 0.8 },
+      });
+      polySynth.connect(input);
+    }
+
+    if (trackType === 'sequencer' || trackType === 'strudel') {
+      const kick = new Tone.MembraneSynth({
+        pitchDecay: 0.05, octaves: 8, oscillator: { type: 'sine' }, envelope: { attack: 0.001, decay: 0.4, sustain: 0.01, release: 0.4 },
+      });
+      const snare = new Tone.NoiseSynth({
+        noise: { type: 'white' }, envelope: { attack: 0.001, decay: 0.2, sustain: 0 },
+      });
+      const hihat = new Tone.MetalSynth({
+        envelope: { attack: 0.001, decay: 0.05, release: 0.05 }, harmonicity: 5.1, modulationIndex: 32, resonance: 4000, octaves: 1.5,
+      });
+      const clap = new Tone.NoiseSynth({
+        noise: { type: 'pink' }, envelope: { attack: 0.005, decay: 0.15, sustain: 0 },
+      });
+      const tom = new Tone.MembraneSynth({
+        pitchDecay: 0.03, octaves: 4, oscillator: { type: 'sine' }, envelope: { attack: 0.001, decay: 0.3, sustain: 0.01, release: 0.3 },
+      });
+      const perc = new Tone.MembraneSynth({
+        pitchDecay: 0.02, octaves: 4, oscillator: { type: 'triangle' }, envelope: { attack: 0.001, decay: 0.15, sustain: 0.01, release: 0.2 },
+      });
+      const crash = new Tone.MetalSynth({
+        envelope: { attack: 0.001, decay: 0.8, release: 0.8 }, harmonicity: 3.2, modulationIndex: 64, resonance: 2000, octaves: 2.0,
+      });
+
+      kick.connect(input);
+      snare.connect(input);
+      hihat.connect(input);
+      clap.connect(input);
+      tom.connect(input);
+      perc.connect(input);
+      crash.connect(input);
+
+      drumSynths = { kick, snare, hihat, clap, tom, perc, crash };
+    }
+
+    nodes = {
+      input,
+      source,
+      eq,
+      filter,
+      sectionGain,
+      distortion,
+      chorus,
+      delay,
+      reverb,
+      compressor,
+      panner,
+      volume,
+      meter,
+      players,
+      polySynth,
+      drumSynths,
+    };
+
+    this.trackNodes.set(trackId, nodes);
+    return nodes;
+  }
 }
