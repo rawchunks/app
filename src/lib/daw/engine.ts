@@ -598,4 +598,170 @@ class DAWEngine {
     this.trackNodes.set(trackId, nodes);
     return nodes;
   }
+
+  public level(trackId: string): number {
+    const value = this.trackNodes.get(trackId)?.meter.getValue();
+    return typeof value === 'number' ? value : -Infinity;
+  }
+
+  public getCurrentTime(): number {
+    if (this.auditionTakeAudio && !this.auditionTakeAudio.paused) {
+      return this.auditionTakeAudio.currentTime + this.auditionOffset;
+    }
+    return Tone.getTransport().seconds;
+  }
+
+  public setSectionGain(gainDb: number, trackId = 'master') {
+    const linear = gainDb <= -24 ? 0 : Tone.dbToGain(gainDb);
+    this.currentSectionGainLinear = Math.max(0, Math.min(2.0, linear));
+    const nodes = this.getOrCreateTrackNodes(trackId);
+    if (nodes?.sectionGain) {
+      const sec = this.getCurrentTime();
+      const selection = useDawStore.getState().selection;
+      const inSection = selection && sec >= selection.start && sec <= selection.end;
+      const targetGain = inSection ? this.currentSectionGainLinear : 1.0;
+      nodes.sectionGain.gain.rampTo(targetGain, 0.04);
+    }
+  }
+
+  public setSectionTone(lowDb: number, midDb: number, highDb: number, trackId = 'master') {
+    const nodes = this.getOrCreateTrackNodes(trackId);
+    if (nodes?.eq) {
+      nodes.eq.low.rampTo(Math.max(-24, Math.min(12, lowDb)), 0.05);
+      nodes.eq.mid.rampTo(Math.max(-24, Math.min(12, midDb)), 0.05);
+      nodes.eq.high.rampTo(Math.max(-24, Math.min(12, highDb)), 0.05);
+    }
+  }
+
+  /**
+   * Client-side lossless extraction of an audio slice into a 16-bit PCM WAV Blob
+   */
+  public async extractAudioSection(
+    audioUrl: string,
+    startTime: number,
+    endTime: number
+  ): Promise<{ blobUrl: string; duration: number }> {
+    const res = await fetch(audioUrl);
+    const arrayBuffer = await res.arrayBuffer();
+    const rawCtx = (Tone.getContext().rawContext as AudioContext) || new (window.AudioContext || (window as any).webkitAudioContext)();
+    const audioBuffer = await rawCtx.decodeAudioData(arrayBuffer);
+
+    const safeStart = Math.max(0, Math.min(startTime, audioBuffer.duration));
+    const safeEnd = Math.max(safeStart + 0.05, Math.min(endTime, audioBuffer.duration));
+    const duration = safeEnd - safeStart;
+
+    const sampleRate = audioBuffer.sampleRate;
+    const startSample = Math.floor(safeStart * sampleRate);
+    const endSample = Math.floor(safeEnd * sampleRate);
+    const numSamples = Math.max(1, endSample - startSample);
+    const numChannels = audioBuffer.numberOfChannels;
+
+    const channels: Float32Array[] = [];
+    for (let c = 0; c < numChannels; c++) {
+      channels.push(audioBuffer.getChannelData(c).slice(startSample, endSample));
+    }
+
+    const wavBlob = this.encodeWavBlob(channels, sampleRate, numSamples);
+    const blobUrl = URL.createObjectURL(wavBlob);
+
+    return { blobUrl, duration };
+  }
+
+  public encodeWavBlob(channels: Float32Array[], sampleRate: number, numSamples: number, floating = false): Blob {
+    const numChannels = channels.length;
+    const bytesPerSample = floating ? 4 : 2;
+    const blockAlign = numChannels * bytesPerSample;
+    const byteRate = sampleRate * blockAlign;
+    const dataSize = numSamples * blockAlign;
+    const buffer = new ArrayBuffer(44 + dataSize);
+    const view = new DataView(buffer);
+
+    const writeStr = (offset: number, str: string) => {
+      for (let i = 0; i < str.length; i++) {
+        view.setUint8(offset + i, str.charCodeAt(i));
+      }
+    };
+
+    writeStr(0, 'RIFF');
+    view.setUint32(4, 36 + dataSize, true);
+    writeStr(8, 'WAVE');
+    writeStr(12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, floating ? 3 : 1, true);
+    view.setUint16(22, numChannels, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, byteRate, true);
+    view.setUint16(32, blockAlign, true);
+    view.setUint16(34, bytesPerSample * 8, true);
+    writeStr(36, 'data');
+    view.setUint32(40, dataSize, true);
+
+    let offset = 44;
+    for (let i = 0; i < numSamples; i++) {
+      for (let c = 0; c < numChannels; c++) {
+        const sample = channels[c][i] || 0;
+        if (floating) view.setFloat32(offset, sample, true);
+        else { const s = Math.max(-1, Math.min(1, sample)); view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true); }
+        offset += bytesPerSample;
+      }
+    }
+
+    return new Blob([buffer], { type: 'audio/wav' });
+  }
+
+  /**
+   * Syncs an audio clip to Tone.Transport
+   */
+  public loadClip(trackId: string, clipId: string, url: string, startTime: number, offset = 0, duration?: number): Promise<void> {
+    const key = `${trackId}:${clipId}`;
+    const signature = JSON.stringify([url, startTime, offset, duration]);
+    const previous = this.clipLoads.get(key);
+    if (previous?.signature === signature) return previous.promise;
+    const project = this.project;
+    const entry = { signature, promise: Promise.resolve() };
+    entry.promise = Promise.resolve().then(async () => {
+      if (!this.offline) await this.init();
+      if (project !== this.project || this.clipLoads.get(key) !== entry) return;
+      const nodes = this.getOrCreateTrackNodes(trackId);
+      nodes.players.get(clipId)?.dispose();
+      const player = new Tone.Player({ autostart: false });
+      player.connect(nodes.source ?? nodes.input);
+      nodes.players.set(clipId, player);
+      try {
+        await player.load(url);
+        if (project !== this.project || this.clipLoads.get(key) !== entry || nodes.players.get(clipId) !== player) return;
+        player.sync().start(startTime, offset, duration);
+      } catch (error) {
+        if (project !== this.project || this.clipLoads.get(key) !== entry) return;
+        nodes.players.delete(clipId);
+        player.dispose();
+        throw error;
+      }
+    }).finally(() => {
+      if (this.loading.get(key) === entry.promise) this.loading.delete(key);
+    });
+    this.clipLoads.set(key, entry);
+    this.loading.set(key, entry.promise);
+    return entry.promise.catch(error => {
+      if (this.clipLoads.get(key) === entry) this.clipLoads.delete(key);
+      throw error;
+    });
+  }
+
+  /**
+   * Re-syncs player transport bounds when clip is dragged, trimmed or slip-edited
+   */
+  public updateClipTransport(trackId: string, clipId: string, startTime: number, offset = 0, duration?: number) {
+    const trackNode = this.trackNodes.get(trackId);
+    if (!trackNode) return;
+    const player = trackNode.players.get(clipId);
+    if (player && player.loaded) {
+      player.unsync();
+      player.sync().start(startTime, offset, duration);
+    }
+  }
+
+  /**
+   * Play real-time synthesis note preview or triggered note
+   */
 }
