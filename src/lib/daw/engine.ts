@@ -764,4 +764,263 @@ class DAWEngine {
   /**
    * Play real-time synthesis note preview or triggered note
    */
+  public async playNote(pitch: string, duration = '8n', velocity = 0.8, trackId?: string) {
+    await this.resumeAudioContext();
+    const targetTrackId = trackId || useDawStore.getState().selectedTrackId || 'master';
+    const trackNode = this.getOrCreateTrackNodes(targetTrackId);
+    if (!trackNode.polySynth) {
+      trackNode.polySynth = new Tone.PolySynth(Tone.Synth, {
+        oscillator: { type: 'triangle' },
+        envelope: { attack: 0.02, decay: 0.1, sustain: 0.3, release: 0.8 },
+      });
+      trackNode.polySynth.connect(trackNode.input);
+    }
+    trackNode.polySynth.triggerAttackRelease(pitch, duration, undefined, velocity);
+  }
+
+  public triggerNote(trackId: string, pitch: string, duration = '8n', velocity = 0.8) {
+    this.playNote(pitch, duration, velocity, trackId);
+  }
+
+  /**
+   * Trigger drum step hit directly for an instrument voice
+   */
+  public async triggerDrumStep(instrument: string, time?: number, velocity = 0.8, trackId?: string) {
+    await this.resumeAudioContext();
+    const targetTrackId = trackId || useDawStore.getState().selectedTrackId || 'master';
+    const trackNode = this.getOrCreateTrackNodes(targetTrackId);
+    if (!trackNode.drumSynths) {
+      const kick = new Tone.MembraneSynth({
+        pitchDecay: 0.05, octaves: 8, oscillator: { type: 'sine' }, envelope: { attack: 0.001, decay: 0.4, sustain: 0.01, release: 0.4 },
+      });
+      const snare = new Tone.NoiseSynth({
+        noise: { type: 'white' }, envelope: { attack: 0.001, decay: 0.2, sustain: 0 },
+      });
+      const hihat = new Tone.MetalSynth({
+        envelope: { attack: 0.001, decay: 0.05, release: 0.05 }, harmonicity: 5.1, modulationIndex: 32, resonance: 4000, octaves: 1.5,
+      });
+      const clap = new Tone.NoiseSynth({
+        noise: { type: 'pink' }, envelope: { attack: 0.005, decay: 0.15, sustain: 0 },
+      });
+      const tom = new Tone.MembraneSynth({
+        pitchDecay: 0.03, octaves: 4, oscillator: { type: 'sine' }, envelope: { attack: 0.001, decay: 0.3, sustain: 0.01, release: 0.3 },
+      });
+      const perc = new Tone.MembraneSynth({
+        pitchDecay: 0.02, octaves: 4, oscillator: { type: 'triangle' }, envelope: { attack: 0.001, decay: 0.15, sustain: 0.01, release: 0.2 },
+      });
+      const crash = new Tone.MetalSynth({
+        envelope: { attack: 0.001, decay: 0.8, release: 0.8 }, harmonicity: 3.2, modulationIndex: 64, resonance: 2000, octaves: 2.0,
+      });
+
+      kick.connect(trackNode.input);
+      snare.connect(trackNode.input);
+      hihat.connect(trackNode.input);
+      clap.connect(trackNode.input);
+      tom.connect(trackNode.input);
+      perc.connect(trackNode.input);
+      crash.connect(trackNode.input);
+
+      trackNode.drumSynths = { kick, snare, hihat, clap, tom, perc, crash };
+    }
+
+    this.playDrum(trackNode, instrument, time ?? Tone.now(), velocity);
+  }
+
+  private playDrum(trackNode: TrackAudioNodes, instrument: string, triggerTime: number, velocity: number) {
+    if (!trackNode.drumSynths) throw new Error('Drum instrument is unavailable');
+    const inst = instrument.toLowerCase();
+
+    if (inst === 'kick' || inst === 'bd') {
+      trackNode.drumSynths.kick.triggerAttackRelease('C1', '8n', triggerTime, velocity);
+    } else if (inst === 'snare' || inst === 'sd') {
+      trackNode.drumSynths.snare.triggerAttackRelease('8n', triggerTime, velocity);
+    } else if (inst === 'hihat' || inst === 'hi-hat' || inst === 'hh') {
+      trackNode.drumSynths.hihat.triggerAttackRelease('16n', triggerTime, velocity);
+    } else if (inst === 'clap' || inst === 'cp') {
+      trackNode.drumSynths.clap.triggerAttackRelease('16n', triggerTime, velocity);
+    } else if (inst === 'tom') {
+      trackNode.drumSynths.tom.triggerAttackRelease('G1', '8n', triggerTime, velocity);
+    } else if (inst === 'perc' || inst === 'rim') {
+      trackNode.drumSynths.perc.triggerAttackRelease('G2', '16n', triggerTime, velocity);
+    } else if (inst === 'crash' || inst === 'cymbal' || inst === 'cr') {
+      trackNode.drumSynths.crash.triggerAttackRelease('8n', triggerTime, velocity);
+    }
+  }
+
+  public triggerDrum(trackIdOrVoice: string, voiceOrVelocity?: string | number, maybeVelocity?: number) {
+    if (typeof voiceOrVelocity === 'number' || voiceOrVelocity === undefined) {
+      // Called as triggerDrum(voice, velocity)
+      this.triggerDrumStep(trackIdOrVoice, undefined, (voiceOrVelocity as number) || 0.8);
+    } else {
+      // Called as triggerDrum(trackId, voice, velocity)
+      this.triggerDrumStep(voiceOrVelocity, undefined, maybeVelocity || 0.8, trackIdOrVoice);
+    }
+  }
+
+  /**
+   * Schedules a 16-step sequencer pattern on the transport
+   */
+  public scheduleSequencer(track: DAWTrack) {
+    const existingScheduleId = this.sequencerScheduleIds.get(track.id);
+    if (existingScheduleId !== undefined) {
+      Tone.getTransport().clear(existingScheduleId);
+      this.sequencerScheduleIds.delete(track.id);
+    }
+
+    if (track.type !== 'sequencer' || !track.sequencerVoices) return;
+
+    const voices = track.sequencerVoices;
+    const trackNode = this.getOrCreateTrackNodes(track);
+
+    const scheduleId = Tone.getTransport().scheduleRepeat((time) => {
+      const ticks = Tone.getTransport().getTicksAtTime(time);
+      const step = Math.floor(ticks / (Tone.getTransport().PPQ / BEAT_STEPS)) % DRUM_STEPS;
+      if (!this.offline) Tone.getDraw().schedule(() => {
+        if (this.onStepCallback) {
+          this.onStepCallback(step);
+        }
+        useDawStore.getState().setSequencerStep(track.id, step);
+      }, time);
+
+      if (trackNode.drumSynths) {
+        voices.forEach((voice) => {
+          if (voice.steps[step] && !voice.muted) {
+            this.playDrum(trackNode, voice.name, time, voice.velocity[step] ?? 0.8);
+          }
+        });
+      }
+
+    }, '16n');
+
+    this.sequencerScheduleIds.set(track.id, scheduleId);
+  }
+
+  /**
+   * Schedules a Strudel live coding algorithmic pattern on Tone.Transport
+   */
+  public scheduleStrudel(trackId: string, patternCode: string, bpm?: number) {
+    const existingScheduleId = this.strudelScheduleIds.get(trackId);
+    if (existingScheduleId !== undefined) {
+      Tone.getTransport().clear(existingScheduleId);
+      this.strudelScheduleIds.delete(trackId);
+    }
+
+    if (!patternCode || !patternCode.trim()) return;
+
+    if (bpm && bpm > 0) {
+      this.setBpm(bpm);
+    }
+
+    const parsed = parseStrudelPattern(patternCode);
+    if (!parsed.events || parsed.events.length === 0) return;
+    const track = useDawStore.getState().tracks.find(track => track.id === trackId);
+    const nodes = this.getOrCreateTrackNodes(track ?? trackId);
+
+    const currentBpm = bpm && bpm > 0 ? bpm : (Tone.getTransport()?.bpm?.value || 120);
+    const baseCycleSeconds = (60 / currentBpm) * 4;
+    const cycleDurationSeconds = baseCycleSeconds / Math.max(0.1, parsed.rateModifier);
+
+    if (Tone.getTransport()?.scheduleRepeat) {
+      const scheduleId = Tone.getTransport().scheduleRepeat((time) => {
+        for (const event of parsed.events) {
+          const eventTime = time + event.time * cycleDurationSeconds;
+          const eventDuration = Math.max(0.05, event.duration * cycleDurationSeconds);
+
+          if (event.type === 'sound') {
+            this.playDrum(nodes, event.value, eventTime, 0.8);
+          } else if (event.type === 'note') {
+            nodes.polySynth?.triggerAttackRelease(event.value, eventDuration, eventTime, 0.8);
+          }
+        }
+      }, cycleDurationSeconds);
+
+      this.strudelScheduleIds.set(trackId, scheduleId);
+    }
+  }
+
+  public schedulePiano(track: DAWTrack) {
+    for (const id of this.pianoScheduleIds.get(track.id) ?? []) Tone.getTransport().clear(id);
+    this.pianoScheduleIds.delete(track.id);
+    if (!track.pianoRollNotes?.length) return;
+    const nodes = this.getOrCreateTrackNodes(track);
+    const schedules = track.pianoRollNotes.map(note => Tone.getTransport().scheduleRepeat(time => {
+      nodes.polySynth?.triggerAttackRelease(note.pitch, Tone.Time(note.duration * Tone.getTransport().PPQ / BEAT_STEPS, 'i').toSeconds(), time, note.velocity);
+    }, '2m', `${note.startTime * Tone.getTransport().PPQ / BEAT_STEPS}i`));
+    this.pianoScheduleIds.set(track.id, schedules);
+  }
+
+  public scheduleTrack(track: DAWTrack) {
+    if (track.type === 'sequencer') this.scheduleSequencer(track);
+    if (track.type === 'pianoroll') this.schedulePiano(track);
+    if (track.type === 'strudel') this.scheduleStrudel(track.id, track.strudelCode ?? '');
+  }
+
+  public async render(trackIds: string[], duration: number, commit = false): Promise<Blob> {
+    if (!trackIds.length || !Number.isFinite(duration) || duration <= 0) throw new Error('Select reference lanes with a valid duration');
+    const state = useDawStore.getState();
+    const tracks = trackIds.map(id => {
+      const track = state.tracks.find(track => track.id === id);
+      if (!track) throw new Error('A reference lane is unavailable');
+      return structuredClone(track);
+    });
+    this.pauseTransport();
+    const original = Tone.getContext();
+    const buffers = new Map<string, AudioBuffer>();
+    for (const track of tracks) for (const clip of track.clips) {
+      if (buffers.has(clip.url)) continue;
+      const response = await fetch(clip.url);
+      if (!response.ok) throw new Error('Could not load reference audio');
+      buffers.set(clip.url, await original.decodeAudioData(await response.arrayBuffer()));
+    }
+    const context = new Tone.OfflineContext(2, duration, original.sampleRate);
+    const engine = new DAWEngine(true);
+    const solo = state.tracks.some(track => track.solo);
+    try {
+      Tone.setContext(context);
+      context.transport.bpm.value = state.bpm;
+      for (const track of tracks) {
+        const nodes = engine.getOrCreateTrackNodes(track);
+        engine.updateTrackFx(track.id, track.fx);
+        nodes.volume.mute = (track.id !== 'master' && track.muted) || (solo && !track.solo && !(track.id === 'master' && state.tracks.some(child => child.id === child.activeTakeId && child.solo)));
+        if (commit && track.id === 'master') {
+          nodes.input.disconnect();
+          nodes.input.toDestination();
+        }
+        if (!commit && track.id === 'master' && state.selection) {
+          nodes.sectionGain?.gain.setValueAtTime(state.sectionGain, state.selection.start);
+          nodes.sectionGain?.gain.setValueAtTime(1, state.selection.end);
+        }
+        if (track.id === 'master') {
+          const muted = track.muted || (solo && !track.solo);
+          (nodes.source ?? nodes.input).gain.setValueAtTime(muted ? 0 : 1, 0);
+          const boundaries = [...new Set(state.originals.flatMap(region => [region.start, region.end]))].sort((a,b) => a-b);
+          for (const time of boundaries) (nodes.source ?? nodes.input).gain.setValueAtTime(muted || state.originals.some(region => time >= region.start && time < region.end) ? 0 : 1, time);
+        }
+        for (const clip of track.clips) {
+          const player = new Tone.Player(buffers.get(clip.url)!);
+          player.connect(nodes.source ?? nodes.input);
+          nodes.players.set(clip.id, player);
+          player.sync().start(clip.startTime, clip.offset, clip.duration);
+        }
+        engine.scheduleTrack(track);
+      }
+      context.transport.start(0);
+      Tone.setContext(original);
+      await Promise.all([...engine.trackNodes.values()].map(nodes => nodes.reverb.ready));
+      const result = await context.render();
+      const channels = Array.from({ length: result.numberOfChannels }, (_, index) => result.getChannelData(index));
+      if (!channels.some(channel => channel.some(value => Math.abs(value) > 0))) throw new Error('Selected reference lanes contain no audible sound');
+      return this.encodeWavBlob(channels, result.sampleRate, result.length, commit);
+    } finally {
+      for (const track of tracks) engine.disposeTrack(track.id, context.transport);
+      engine.masterCompressor?.dispose();
+      engine.masterLimiter?.dispose();
+      Tone.setContext(original);
+      context.dispose();
+    }
+  }
+
+  /**
+   * Update mixer parameters in real-time and evaluate solo logic
+   */
 }
