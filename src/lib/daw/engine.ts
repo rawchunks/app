@@ -1023,4 +1023,282 @@ class DAWEngine {
   /**
    * Update mixer parameters in real-time and evaluate solo logic
    */
+  public updateTrackMixer(
+    trackId: string,
+    volumeOrMixer?: number | { volume?: number; pan?: number; muted?: boolean; solo?: boolean },
+    panArg?: number,
+    mutedArg?: boolean,
+    soloArg?: boolean
+  ) {
+    this.getOrCreateTrackNodes(trackId);
+
+    let volumeVal: number | undefined;
+    let panVal: number | undefined;
+    let mutedVal: boolean | undefined;
+    let soloVal: boolean | undefined;
+
+    if (typeof volumeOrMixer === 'object' && volumeOrMixer !== null) {
+      volumeVal = volumeOrMixer.volume;
+      panVal = volumeOrMixer.pan;
+      mutedVal = volumeOrMixer.muted;
+      soloVal = volumeOrMixer.solo;
+    } else if (typeof volumeOrMixer === 'number') {
+      volumeVal = volumeOrMixer;
+      panVal = panArg;
+      mutedVal = mutedArg;
+      soloVal = soloArg;
+    }
+
+    const storeTracks = useDawStore.getState().tracks;
+
+    const tracksToEval = storeTracks.length > 0 ? storeTracks : Array.from(this.trackNodes.keys()).map((id) => ({
+      id,
+      volume: id === trackId && volumeVal !== undefined ? volumeVal : 0.9,
+      pan: id === trackId && panVal !== undefined ? panVal : 0,
+      muted: id === trackId && mutedVal !== undefined ? mutedVal : false,
+      solo: id === trackId && soloVal !== undefined ? soloVal : false,
+      mixer: id === trackId ? { volume: volumeVal ?? 0.9, pan: panVal ?? 0, muted: mutedVal ?? false, solo: soloVal ?? false } : undefined,
+    }));
+
+    const hasSolo = tracksToEval.some((t: any) => {
+      const isTrackSolo = t.id === trackId && soloVal !== undefined ? soloVal : (t.mixer?.solo ?? t.solo ?? false);
+      return Boolean(isTrackSolo);
+    });
+
+    const allTrackIds = new Set([
+      ...tracksToEval.map((t: any) => t.id),
+      ...Array.from(this.trackNodes.keys()),
+    ]);
+
+    for (const id of allTrackIds) {
+      const nodes = this.trackNodes.get(id);
+      if (!nodes) continue;
+
+      const trackObj = tracksToEval.find((t: any) => t.id === id);
+
+      const vol = id === trackId && volumeVal !== undefined
+        ? volumeVal
+        : (trackObj as any)?.mixer?.volume ?? trackObj?.volume ?? 0.9;
+
+      const pan = id === trackId && panVal !== undefined
+        ? panVal
+        : (trackObj as any)?.mixer?.pan ?? trackObj?.pan ?? 0;
+
+      const isMuted = id === trackId && mutedVal !== undefined
+        ? mutedVal
+        : Boolean((trackObj as any)?.mixer?.muted ?? trackObj?.muted ?? false);
+
+      const isSoloed = id === trackId && soloVal !== undefined
+        ? soloVal
+        : Boolean((trackObj as any)?.mixer?.solo ?? trackObj?.solo ?? false);
+
+      const targetDb = Tone.gainToDb(Math.max(0.0001, vol));
+      nodes.volume.volume.rampTo(targetDb, 0.05);
+      nodes.panner.pan.rampTo(pan, 0.05);
+
+      const childSoloed = id === 'master' && tracksToEval.some((track: any) => track.id === track.activeTakeId && (track.id === trackId && soloVal !== undefined ? soloVal : track.solo));
+      const shouldBeMuted = this.auditionLayerIds
+        ? (id !== 'master' && isMuted) || (!this.auditionLayerIds.includes(id) && !(id === 'master' && tracksToEval.some((track: any) => track.id === track.activeTakeId && this.auditionLayerIds!.includes(track.id))))
+        : this.auditionTrackId
+        ? id !== this.auditionTrackId && !(id === 'master' && tracksToEval.some((track: any) => track.id === this.auditionTrackId && track.id === track.activeTakeId))
+        : (id !== 'master' && isMuted) || (hasSolo && !isSoloed && !childSoloed);
+      nodes.volume.mute = shouldBeMuted;
+    }
+    this.syncOriginals();
+  }
+
+  /**
+   * Resets DAW Engine state for a clean project switch or editor re-entry.
+   */
+  public resetProject() {
+    this.project++;
+    this.pauseTransport();
+    this.stopAuditionTake();
+    for (const id of this.originalScheduleIds) Tone.getTransport().clear(id);
+    this.originalScheduleIds = [];
+    this.loading.clear();
+    this.clipLoads.clear();
+    this.disposeTrack('master');
+
+    for (const id of [...this.trackNodes.keys()]) {
+      if (id !== 'master') this.disposeTrack(id);
+    }
+    Tone.getTransport().stop();
+    Tone.getTransport().seconds = 0;
+
+    // Reset master DSP nodes
+    const masterNodes = this.trackNodes.get('master');
+    if (masterNodes) {
+      try {
+        masterNodes.volume.volume.rampTo(0, 0.05);
+        masterNodes.volume.mute = false;
+        masterNodes.filter.frequency.rampTo(20000, 0.05);
+        masterNodes.panner.pan.rampTo(0, 0.05);
+        masterNodes.eq.low.rampTo(0, 0.05);
+        masterNodes.eq.mid.rampTo(0, 0.05);
+        masterNodes.eq.high.rampTo(0, 0.05);
+        masterNodes.sectionGain?.gain.rampTo(1.0, 0.05);
+      } catch {}
+    }
+
+    Tone.getDestination().mute = false;
+    this.isAuditionLooping = false;
+    this.auditionStart = null;
+    this.auditionEnd = null;
+    this.setLoop(false);
+    this.currentSectionGainLinear = 1.0;
+  }
+
+  /**
+   * Audition an individual track exclusively (soloed)
+   */
+  public auditionTrack(trackId: string, startSec?: number, endSec?: number) {
+    const store = useDawStore.getState();
+    const tracks = store.tracks;
+    if (!tracks.some(track => track.id === trackId)) return;
+    this.auditionTrackId = trackId;
+    this.updateTrackMixer(trackId);
+
+    if (startSec !== undefined && startSec >= 0) {
+      this.seek(startSec);
+    }
+
+    if (endSec !== undefined && endSec > (startSec ?? 0)) {
+      this.setLoop(true, startSec ?? 0, endSec);
+    }
+
+    void this.startTransport(true);
+    useDawStore.setState({ auditionId: trackId });
+  }
+
+  /**
+   * Update DSP effects parameters in real-time
+   */
+  public updateTrackFx(trackId: string, fx: DSPFxConfig): void;
+  public updateTrackFx<K extends keyof DSPFxConfig>(trackId: string, fxKey: K, partial: Partial<DSPFxConfig[K]>): void;
+  public updateTrackFx(trackId: string, fxOrKey: any, partial?: any) {
+    const nodes = this.getOrCreateTrackNodes(trackId);
+
+    if (typeof fxOrKey === 'string') {
+      const fxKey = fxOrKey as keyof DSPFxConfig;
+      if (fxKey === 'eq' && partial) {
+        if (partial.low !== undefined) nodes.eq.low.rampTo(partial.low, 0.05);
+        if (partial.mid !== undefined) nodes.eq.mid.rampTo(partial.mid, 0.05);
+        if (partial.high !== undefined) nodes.eq.high.rampTo(partial.high, 0.05);
+      } else if (fxKey === 'filter' && partial) {
+        if (partial.cutoff !== undefined) nodes.filter.frequency.rampTo(partial.cutoff, 0.05);
+        if (partial.resonance !== undefined) nodes.filter.Q.rampTo(partial.resonance, 0.05);
+        if (partial.type !== undefined) nodes.filter.type = partial.type;
+      } else if (fxKey === 'distortion' && partial) {
+        if (partial.drive !== undefined) nodes.distortion.distortion = partial.drive;
+        if (partial.wet !== undefined) nodes.distortion.wet.rampTo(partial.wet, 0.05);
+      } else if (fxKey === 'chorus' && partial) {
+        if (partial.rate !== undefined) nodes.chorus.frequency.rampTo(partial.rate, 0.05);
+        if (partial.depth !== undefined) nodes.chorus.depth = partial.depth;
+        if (partial.wet !== undefined) nodes.chorus.wet.rampTo(partial.wet, 0.05);
+      } else if (fxKey === 'delay' && partial) {
+        if (partial.delayTime !== undefined) nodes.delay.delayTime.rampTo(partial.delayTime, 0.05);
+        if (partial.feedback !== undefined) nodes.delay.feedback.rampTo(partial.feedback, 0.05);
+        if (partial.wet !== undefined) nodes.delay.wet.rampTo(partial.wet, 0.05);
+      } else if (fxKey === 'reverb' && partial) {
+        if (partial.decay !== undefined) nodes.reverb.decay = partial.decay;
+        if (partial.wet !== undefined) nodes.reverb.wet.rampTo(partial.wet, 0.05);
+      } else if (fxKey === 'compressor' && partial) {
+        if (partial.threshold !== undefined) nodes.compressor.threshold.rampTo(partial.threshold, 0.05);
+        if (partial.ratio !== undefined) nodes.compressor.ratio.rampTo(partial.ratio, 0.05);
+        if (partial.attack !== undefined) nodes.compressor.attack.rampTo(partial.attack, 0.05);
+        if (partial.release !== undefined) nodes.compressor.release.rampTo(partial.release, 0.05);
+      }
+      return;
+    }
+
+    const fx: DSPFxConfig = fxOrKey;
+
+    // EQ3
+    nodes.eq.low.rampTo(fx.eq.enabled ? fx.eq.low : 0, 0.05);
+    nodes.eq.mid.rampTo(fx.eq.enabled ? fx.eq.mid : 0, 0.05);
+    nodes.eq.high.rampTo(fx.eq.enabled ? fx.eq.high : 0, 0.05);
+
+    // Filter
+    nodes.filter.frequency.rampTo(fx.filter.enabled ? fx.filter.cutoff : 20000, 0.05);
+    nodes.filter.Q.rampTo(fx.filter.resonance, 0.05);
+    nodes.filter.type = fx.filter.type;
+
+    // Distortion
+    nodes.distortion.distortion = fx.distortion.drive;
+    nodes.distortion.wet.rampTo(fx.distortion.enabled ? fx.distortion.wet : 0, 0.05);
+
+    // Chorus
+    nodes.chorus.frequency.rampTo(fx.chorus.rate, 0.05);
+    nodes.chorus.depth = fx.chorus.depth;
+    nodes.chorus.wet.rampTo(fx.chorus.enabled ? fx.chorus.wet : 0, 0.05);
+
+    // Delay
+    nodes.delay.delayTime.rampTo(fx.delay.delayTime, 0.05);
+    nodes.delay.feedback.rampTo(fx.delay.feedback, 0.05);
+    nodes.delay.wet.rampTo(fx.delay.enabled ? fx.delay.wet : 0, 0.05);
+
+    // Reverb
+    nodes.reverb.decay = fx.reverb.decay;
+    nodes.reverb.wet.rampTo(fx.reverb.enabled ? fx.reverb.wet : 0, 0.05);
+
+    // Compressor
+    nodes.compressor.threshold.rampTo(fx.compressor.threshold, 0.05);
+    nodes.compressor.ratio.rampTo(fx.compressor.enabled ? fx.compressor.ratio : 1, 0.05);
+    nodes.compressor.attack.rampTo(fx.compressor.attack, 0.05);
+    nodes.compressor.release.rampTo(fx.compressor.release, 0.05);
+  }
+
+  public disposeTrack(trackId: string, transport = Tone.getTransport()) {
+    for (const key of this.clipLoads.keys()) if (key.startsWith(`${trackId}:`)) {
+      this.clipLoads.delete(key);
+      this.loading.delete(key);
+    }
+    const scheduleId = this.sequencerScheduleIds.get(trackId);
+    if (scheduleId !== undefined) {
+      transport.clear(scheduleId);
+      this.sequencerScheduleIds.delete(trackId);
+    }
+
+    const strudelScheduleId = this.strudelScheduleIds.get(trackId);
+    if (strudelScheduleId !== undefined) {
+      transport.clear(strudelScheduleId);
+      this.strudelScheduleIds.delete(trackId);
+    }
+    for (const id of this.pianoScheduleIds.get(trackId) ?? []) transport.clear(id);
+    this.pianoScheduleIds.delete(trackId);
+
+    const nodes = this.trackNodes.get(trackId);
+    if (!nodes) return;
+
+    nodes.players.forEach((p) => p.dispose());
+    nodes.players.clear();
+    nodes.polySynth?.dispose();
+    if (nodes.drumSynths) {
+      nodes.drumSynths.kick.dispose();
+      nodes.drumSynths.snare.dispose();
+      nodes.drumSynths.hihat.dispose();
+      nodes.drumSynths.clap.dispose();
+      nodes.drumSynths.tom.dispose();
+      nodes.drumSynths.perc.dispose();
+      nodes.drumSynths.crash.dispose();
+    }
+    nodes.source?.dispose();
+    nodes.input.dispose();
+    nodes.sectionGain?.dispose();
+    nodes.eq.dispose();
+    nodes.filter.dispose();
+    nodes.distortion.dispose();
+    nodes.chorus.dispose();
+    nodes.delay.dispose();
+    nodes.reverb.dispose();
+    nodes.compressor.dispose();
+    nodes.panner.dispose();
+    nodes.volume.dispose();
+    nodes.meter.dispose();
+
+    this.trackNodes.delete(trackId);
+  }
 }
+
+export const dawEngine = new DAWEngine();
