@@ -1,0 +1,1441 @@
+/* RAWCHUNKS REUSABLE COMPONENT DESIGN SYSTEM */
+
+/* ==========================================================================
+   BUTTONS
+   ========================================================================== */
+.btn-base {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-family: var(--font-family);
+  font-weight: 900;
+  letter-spacing: var(--letter-spacing-base);
+  text-transform: uppercase;
+  text-decoration: none;
+  border-radius: 2px;
+  overflow: hidden;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  flex-shrink: 0;
+  background-color: rgba(5, 5, 5, 0.85);
+  backdrop-filter: blur(6px);
+  transition: all 0.15s ease;
+  min-height: var(--btn-h-md);
+  box-sizing: border-box;
+}
+
+.btn-base:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+/* Button Sizes - Proportional Fluid Scaling */
+.btn-size-xs {
+  padding: var(--btn-pad-xs);
+  font-size: var(--btn-font-xs);
+  min-height: var(--btn-h-xs);
+}
+
+.btn-size-sm {
+  padding: var(--btn-pad-sm);
+  font-size: var(--btn-font-sm);
+  min-height: var(--btn-h-sm);
+}
+
+.btn-size-md {
+  padding: var(--btn-pad-md);
+  font-size: var(--btn-font-md);
+  min-height: var(--btn-h-md);
+}
+
+.btn-size-lg {
+  padding: var(--btn-pad-lg);
+  font-size: var(--btn-font-lg);
+  min-height: var(--btn-h-lg);
+}
+
+/* Button Variants */
+.btn-variant-primary {
+  border: 1px solid var(--primary);
+  color: var(--primary);
+  box-shadow: 0 0 10px rgba(0, 255, 65, 0.15);
+}
+
+.btn-variant-primary:hover:not(:disabled) {
+  background-color: rgba(0, 255, 65, 0.12);
+  box-shadow: 0 0 16px rgba(0, 255, 65, 0.4);
+}
+
+.btn-variant-primary:active:not(:disabled) {
+  transform: scale(0.98);
+  box-shadow: 0 0 20px rgba(0, 255, 65, 0.6);
+  text-shadow: 0 0 6px rgba(0, 255, 65, 0.8);
+}
+
+.btn-variant-secondary {
+  border: 1px solid var(--secondary);
+  color: var(--secondary);
+  box-shadow: 0 0 10px rgba(255, 0, 160, 0.15);
+}
+
+.btn-variant-secondary:hover:not(:disabled) {
+  background-color: rgba(255, 0, 160, 0.12);
+  box-shadow: 0 0 16px rgba(255, 0, 160, 0.4);
+}
+
+.btn-variant-secondary:active:not(:disabled) {
+  transform: scale(0.98);
+  box-shadow: 0 0 20px rgba(255, 0, 160, 0.6);
+  text-shadow: 0 0 6px rgba(255, 0, 160, 0.8);
+}
+
+.btn-variant-accent {
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  box-shadow: 0 0 10px rgba(0, 204, 255, 0.15);
+}
+
+.btn-variant-accent:hover:not(:disabled) {
+  background-color: rgba(0, 204, 255, 0.12);
+  box-shadow: 0 0 16px rgba(0, 204, 255, 0.4);
+}
+
+.btn-variant-accent:active:not(:disabled) {
+  transform: scale(0.98);
+  box-shadow: 0 0 20px rgba(0, 204, 255, 0.6);
+  text-shadow: 0 0 6px rgba(0, 204, 255, 0.8);
+}
+
+.btn-variant-ghost {
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: var(--text-dim);
+  background-color: transparent;
+}
+
+.btn-variant-ghost:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.35);
+  color: var(--text);
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.btn-variant-ghost:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.btn-glow-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.35;
+  transition: opacity 0.15s ease;
+}
+
+.btn-base:hover .btn-glow-overlay {
+  opacity: 0.65;
+}
+
+.btn-content-wrap {
+  position: relative;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+/* ==========================================================================
+   BADGES
+   ========================================================================== */
+.cyber-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  font-family: var(--font-family);
+  font-size: var(--font-xs);
+  font-weight: 700;
+  letter-spacing: var(--letter-spacing-tight);
+  text-transform: uppercase;
+  user-select: none;
+  white-space: nowrap;
+  border-radius: 2px;
+  transition: all 0.15s ease;
+  line-height: 1.2;
+}
+
+.cyber-badge-primary {
+  background-color: rgba(0, 255, 65, 0.08);
+  border: 1px solid var(--primary);
+  color: var(--primary);
+}
+
+.cyber-badge-primary.active {
+  background-color: rgba(0, 255, 65, 0.25);
+  box-shadow: 0 0 8px rgba(0, 255, 65, 0.3);
+}
+
+.cyber-badge-secondary {
+  background-color: rgba(255, 0, 160, 0.08);
+  border: 1px solid var(--secondary);
+  color: var(--secondary);
+}
+
+.cyber-badge-secondary.active {
+  background-color: rgba(255, 0, 160, 0.25);
+  box-shadow: 0 0 8px rgba(255, 0, 160, 0.3);
+}
+
+.cyber-badge-accent {
+  background-color: rgba(0, 204, 255, 0.08);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+}
+
+.cyber-badge-accent.active {
+  background-color: rgba(0, 204, 255, 0.25);
+  box-shadow: 0 0 8px rgba(0, 204, 255, 0.3);
+}
+
+.cyber-badge-warning {
+  background-color: rgba(255, 170, 0, 0.08);
+  border: 1px solid var(--warning);
+  color: var(--warning);
+}
+
+.cyber-badge-warning.active {
+  background-color: rgba(255, 170, 0, 0.25);
+  box-shadow: 0 0 8px rgba(255, 170, 0, 0.3);
+}
+
+.cyber-badge-muted {
+  background-color: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: var(--text-dim);
+}
+
+.cyber-badge-clickable {
+  cursor: pointer;
+}
+
+.cyber-badge-clickable:hover {
+  filter: brightness(1.2);
+}
+
+/* ==========================================================================
+   INPUTS & TEXTAREAS
+   ========================================================================== */
+.cyber-input-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+
+.cyber-input-label {
+  font-size: var(--font-xs);
+  color: var(--primary);
+  text-transform: uppercase;
+  letter-spacing: var(--letter-spacing-base);
+  font-weight: 700;
+}
+
+.cyber-input-field {
+  width: 100%;
+  padding: 8px 12px;
+  background-color: rgba(12, 12, 12, 0.9);
+  border: 1px solid var(--border-dim);
+  border-radius: 2px;
+  color: var(--text);
+  font-family: var(--font-family);
+  font-size: var(--font-sm);
+  letter-spacing: var(--letter-spacing-tight);
+  box-sizing: border-box;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  min-height: var(--touch-target);
+}
+
+.cyber-input-field:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 10px rgba(0, 255, 65, 0.25);
+}
+
+.cyber-input-field::placeholder {
+  color: var(--text-dim);
+  opacity: 0.7;
+}
+
+.cyber-input-field:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+textarea.cyber-input-field {
+  resize: vertical;
+  min-height: 80px;
+}
+
+/* ==========================================================================
+   SLIDERS
+   ========================================================================== */
+.cyber-slider-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+
+.cyber-slider-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: var(--font-xs);
+  color: var(--text-dim);
+  letter-spacing: var(--letter-spacing-tight);
+}
+
+.cyber-slider-label {
+  text-transform: uppercase;
+  letter-spacing: var(--letter-spacing-base);
+}
+
+.cyber-slider-val {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.cyber-slider-track {
+  position: relative;
+  height: 24px;
+  display: flex;
+  align-items: center;
+}
+
+.cyber-slider-input {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  outline: none;
+  cursor: pointer;
+  margin: 0;
+  border-radius: 2px;
+}
+
+.cyber-slider-input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  background-color: var(--primary);
+  border: 1px solid #000;
+  border-radius: 2px;
+  box-shadow: 0 0 6px var(--primary);
+  cursor: pointer;
+}
+
+.cyber-slider-input::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  background-color: var(--primary);
+  border: 1px solid #000;
+  border-radius: 2px;
+  box-shadow: 0 0 6px var(--primary);
+  cursor: pointer;
+}
+
+/* ==========================================================================
+   CHECKBOX
+   ========================================================================== */
+.cyber-checkbox {
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 2px;
+  border: 1px solid #444;
+  background-color: #0d0d12;
+  cursor: pointer;
+  color: var(--primary);
+  padding: 0;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+
+.cyber-checkbox[aria-checked="true"] {
+  border-color: var(--primary);
+  background-color: rgba(0, 255, 65, 0.2);
+}
+
+.cyber-checkbox:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+
+/* ==========================================================================
+   GLITCH COMPONENT
+   ========================================================================== */
+.glitch-text-only {
+  font-family: var(--font-family);
+  display: inline-block;
+  letter-spacing: var(--letter-spacing-base);
+}
+
+.glitch-box-container {
+  position: relative;
+  border: 1px solid var(--border-dim);
+  background-color: rgba(8, 8, 8, 0.75);
+  overflow: hidden;
+}
+
+.glitch-visual-line {
+  position: absolute;
+  pointer-events: none;
+  z-index: 1;
+  transition: all 0.08s ease;
+}
+
+.glitch-inner-content {
+  position: relative;
+  z-index: 2;
+  height: 100%;
+  width: 100%;
+}
+
+/* ==========================================================================
+   MODALS & DIALOGS
+   ========================================================================== */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: clamp(12px, 3vw, 24px);
+}
+
+.modal-container {
+  width: 100%;
+  max-width: min(580px, calc(100vw - 24px));
+  max-height: 90dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-inner-card {
+  padding: clamp(14px, 2vw, 20px);
+  border: 1px solid var(--primary);
+  box-shadow: var(--glow-primary);
+  background-color: rgba(8, 8, 12, 0.98);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-height: 85dvh;
+  overflow-y: auto;
+  border-radius: 4px;
+}
+
+.modal-body-wrap {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  width: 100%;
+}
+
+.modal-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border-dim);
+  padding-bottom: 10px;
+}
+
+.modal-title-text {
+  color: var(--primary);
+  font-size: var(--font-md);
+  margin: 0;
+  letter-spacing: var(--letter-spacing-base);
+}
+
+/* ==========================================================================
+   ICONS & GLYPHS
+   ========================================================================== */
+.glyph {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.glyph-icon {
+  width: 16px;
+  height: 16px;
+  color: var(--primary);
+  flex-shrink: 0;
+}
+
+.icon {
+  width: 14px;
+  height: 14px;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.icon-fold {
+  width: 12px;
+  height: 12px;
+  margin-left: 2px;
+  opacity: 0.7;
+}
+
+.icon-gold {
+  color: var(--warning);
+}
+
+/* ==========================================================================
+   BUTTON UTILITY SYSTEM
+   ========================================================================== */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(4px, 0.6vw, 8px);
+  font-family: var(--font-family);
+  font-size: var(--btn-font-sm);
+  min-height: var(--btn-h-sm);
+  padding: var(--btn-pad-sm);
+  font-weight: 700;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  box-sizing: border-box;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.btn-ghost {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.btn-ghost:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: rgba(0, 255, 65, 0.08);
+}
+
+.btn-solid {
+  background: var(--primary);
+  border: 1px solid var(--primary);
+  color: #000;
+  font-weight: 900;
+}
+
+.btn-solid:hover {
+  box-shadow: 0 0 12px rgba(0, 255, 65, 0.5);
+}
+
+/* ==========================================================================
+   WALLET CONNECTOR
+   ========================================================================== */
+.connect,
+.tw-connect-wallet {
+  cursor: pointer;
+  height: var(--header-btn-h) !important;
+  min-height: var(--header-btn-h) !important;
+  padding: var(--header-btn-pad) !important;
+  font-size: var(--header-btn-font) !important;
+  font-family: var(--font-family) !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: clamp(4px, 0.6vw, 8px) !important;
+  min-width: var(--header-btn-min-w) !important;
+  max-width: none !important;
+  width: auto !important;
+  white-space: nowrap !important;
+  box-sizing: border-box !important;
+  border-radius: 4px !important;
+  flex-shrink: 0 !important;
+  letter-spacing: 1.5px !important;
+}
+
+.connect .icon,
+.tw-connect-wallet .icon {
+  width: var(--header-icon-size);
+  height: var(--header-icon-size);
+  flex-shrink: 0;
+}
+
+.connect-avatar {
+  width: var(--header-icon-size);
+  height: var(--header-icon-size);
+  border-radius: 2px;
+  object-fit: cover;
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.connect-dim {
+  opacity: 0.6;
+}
+
+.connect-balance {
+  color: var(--primary);
+  font-weight: 700;
+  font-size: var(--header-btn-font);
+  letter-spacing: var(--letter-spacing-base);
+  white-space: nowrap;
+}
+
+.connect-address {
+  color: var(--text-dim);
+  font-family: var(--font-family);
+  font-size: clamp(10px, 0.75vw + 0.3vh, 13px);
+  letter-spacing: var(--letter-spacing-tight);
+  white-space: nowrap;
+}
+
+.menu-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.menu-chain {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #fff;
+}
+
+.menu-total {
+  font-size: 11px;
+  color: var(--primary);
+  font-weight: 700;
+}
+
+.menu-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.menu-address {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-family: var(--font-family);
+  word-break: break-all;
+}
+
+.menu-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.menu-icon-btn {
+  padding: 4px;
+  border-radius: 3px;
+  color: var(--text-dim);
+  background: rgba(255, 255, 255, 0.05);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border: none;
+  transition: all 0.15s ease;
+}
+
+.menu-icon-btn:hover {
+  color: var(--primary);
+  background: rgba(0, 255, 65, 0.15);
+}
+
+.menu-note {
+  font-size: 10px;
+  color: var(--warning);
+  margin-top: 4px;
+  word-break: break-word;
+}
+
+/* ==========================================================================
+   DIALOG & DISCLAIMER MODAL
+   ========================================================================== */
+.dialog-content {
+  width: 100%;
+  max-width: min(560px, calc(100vw - 24px));
+  max-height: min(92dvh, 760px);
+  background-color: #08080c;
+  border: 1px solid var(--primary);
+  box-shadow: 0 0 30px rgba(0, 255, 65, 0.15);
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.dialog-header {
+  padding: clamp(12px, 2.5vw, 16px) clamp(14px, 3vw, 20px);
+  border-bottom: 1px solid #1a1a24;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.dialog-side {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dialog-title {
+  margin: 0;
+  font-size: clamp(13px, 2.8vw, 15px);
+  color: var(--primary);
+  font-family: var(--font-family);
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+
+.dialog-version {
+  font-size: 9px;
+  color: var(--text-muted);
+  letter-spacing: 1px;
+}
+
+.dialog-description {
+  margin: 0;
+  font-size: var(--font-xs);
+  color: #888899;
+  font-family: var(--font-family);
+  line-height: 1.5;
+}
+
+.dialog-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: clamp(12px, 2.5vw, 16px) clamp(14px, 3vw, 20px);
+  display: flex;
+  flex-direction: column;
+  gap: clamp(10px, 1.8vw, 14px);
+  font-family: var(--font-family);
+  box-sizing: border-box;
+}
+
+.terms {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: clamp(130px, 25vh, 220px);
+  overflow-y: auto;
+  padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.spec {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 11px;
+  color: #ccc;
+}
+
+.spec-num {
+  color: var(--primary);
+  font-weight: 700;
+  font-size: 10px;
+}
+
+.spec-term {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+
+.spec-text {
+  color: var(--text-dim);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.checks {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 11px;
+  color: #ccc;
+  cursor: pointer;
+  line-height: 1.45;
+}
+
+.check strong {
+  color: var(--primary);
+}
+
+.signing {
+  font-size: 11px;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+.signing b {
+  color: var(--primary);
+  word-break: break-all;
+}
+
+.dialog-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(0, 0, 0, 0.2);
+  border-top-color: #000;
+  border-radius: 50%;
+  display: inline-block;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ==========================================================================
+   DROPDOWN & SELECT POPUPS
+   ========================================================================== */
+.dropdown-menu-wrapper,
+.select-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dropdown-menu-content {
+  position: absolute;
+  top: calc(100% + 6px);
+  z-index: 999;
+  min-width: min(280px, calc(100vw - 32px));
+  max-width: calc(100vw - 16px);
+  background-color: #0a0a0f;
+  border: 1px solid #1f2937;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.8), 0 0 12px rgba(0, 255, 65, 0.08);
+  border-radius: 4px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  box-sizing: border-box;
+}
+
+.dropdown-menu-align-end {
+  right: 0;
+  left: auto;
+}
+
+.dropdown-menu-align-start {
+  left: 0;
+  right: auto;
+}
+
+.dropdown-menu-item,
+.select-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 2px;
+  cursor: pointer;
+  color: var(--text);
+  font-family: var(--font-family);
+  font-size: var(--font-xs);
+  transition: all 0.15s ease;
+  min-height: 34px;
+  box-sizing: border-box;
+  background: transparent;
+  border: none;
+  width: 100%;
+  text-align: left;
+}
+
+.dropdown-menu-item:hover,
+.select-item:hover {
+  background-color: rgba(0, 255, 65, 0.1);
+  color: var(--primary);
+}
+
+.select-content {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 999;
+  min-width: min(220px, calc(100vw - 32px));
+  max-width: calc(100vw - 16px);
+  background-color: #08080c;
+  border: 1px solid var(--primary);
+  box-shadow: 0 4px 20px rgba(0, 255, 65, 0.15);
+  border-radius: 4px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  box-sizing: border-box;
+}
+
+.select-item-selected {
+  background-color: rgba(0, 255, 65, 0.12);
+  color: var(--primary);
+}
+
+.select-item b {
+  color: #fff;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.select-item span {
+  margin-left: auto;
+  color: var(--primary);
+  font-size: var(--font-xs);
+  font-weight: 700;
+  padding-left: 8px;
+}
+
+.select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  background: #0d0d12;
+  border: 1px solid #222;
+  border-radius: 4px;
+  padding: 6px 10px;
+  color: #fff;
+  font-family: var(--font-family);
+  font-size: var(--font-sm);
+}
+
+.select-trigger-bare {
+  background: transparent !important;
+  border: none !important;
+  padding: 4px !important;
+}
+
+.header-network-trigger {
+  height: var(--header-btn-h);
+  min-height: var(--header-btn-h);
+  padding: var(--header-btn-pad);
+  font-size: var(--header-btn-font);
+  font-family: var(--font-family);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(4px, 0.6vw, 8px);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-bright);
+  border-radius: 4px;
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+
+.header-network-trigger:hover {
+  border-color: var(--primary);
+  background: rgba(0, 255, 65, 0.08);
+  box-shadow: 0 0 10px rgba(0, 255, 65, 0.2);
+}
+
+.network-trigger-name {
+  font-size: clamp(10px, 0.75vw + 0.3vh, 12px);
+  font-weight: 700;
+  letter-spacing: var(--letter-spacing-base);
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.header-network-content {
+  right: 0 !important;
+  left: auto !important;
+}
+
+/* ==========================================================================
+   THIRDWEB CONNECT MODAL & OVERLAY (Authentic Cyberpunk Compact Styling)
+   ========================================================================== */
+
+/* Backdrop overlay */
+div[data-state="open"].css-je1heg,
+div[data-radix-portal] > div[data-state="open"]:not(.tw-modal) {
+  background-color: rgba(0, 0, 0, 0.85) !important;
+  backdrop-filter: blur(8px) !important;
+}
+
+/* Modal Dialog Window - Proportional Fluid Scaling */
+.tw-modal,
+.tw-modal__connect-wallet,
+[data-thirdweb="modal"],
+div[data-state][class*="tw-modal"] {
+  font-family: var(--font-family, 'Courier New', monospace) !important;
+  background-color: #08080c !important;
+  border: 1px solid var(--primary) !important;
+  border-radius: 4px !important;
+  box-shadow: 0 0 35px rgba(0, 255, 65, 0.25), 0 25px 60px rgba(0, 0, 0, 0.95) !important;
+  color: #ffffff !important;
+  width: var(--modal-w) !important;
+  max-width: min(var(--modal-w), calc(100vw - 24px)) !important;
+  overflow: hidden !important;
+}
+
+/* Override Thirdweb's fixed calculated container height */
+.tw-modal > div,
+.tw-modal div[style*="transition: height"],
+.tw-modal div[style*="max-height: 660px"] {
+  height: auto !important;
+  max-height: none !important;
+}
+
+/* Modal Header Bar */
+.tw-modal div[style*="padding: 24px 24px 8px"],
+.tw-modal div[style*="padding: 20px 20px 8px"] {
+  padding: clamp(16px, 2.2vh, 24px) var(--modal-pad) clamp(14px, 1.8vh, 20px) !important;
+  border-bottom: 1px solid rgba(0, 255, 65, 0.25) !important;
+  background: linear-gradient(180deg, rgba(0, 255, 65, 0.06) 0%, rgba(0, 0, 0, 0.5) 100%) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: flex-start !important;
+  justify-content: center !important;
+  min-height: clamp(56px, 6vh, 68px) !important;
+  position: relative !important;
+  box-sizing: border-box !important;
+}
+
+.tw-modal .tw-header {
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  flex-wrap: wrap !important;
+  gap: clamp(8px, 0.8vw, 12px) !important;
+}
+
+.tw-modal .tw-header::after {
+  content: "AUTHENTICATE // CONNECT WALLET" !important;
+  flex-basis: 100% !important;
+  width: 100% !important;
+  font-family: var(--font-family, monospace) !important;
+  font-size: clamp(9px, 0.7vw + 0.2vh, 11px) !important;
+  font-weight: 500 !important;
+  letter-spacing: 1.5px !important;
+  color: var(--text-dim) !important;
+  text-transform: uppercase !important;
+  margin-top: 4px !important;
+  display: block !important;
+}
+
+/* Brand Title in Header */
+.tw-modal .tw-header h2,
+.tw-modal h2.css-1fbrxjr {
+  font-family: var(--font-family, monospace) !important;
+  font-weight: 800 !important;
+  font-size: clamp(15px, 1vw + 0.4vh, 19px) !important;
+  letter-spacing: var(--letter-spacing-wide) !important;
+  text-transform: uppercase !important;
+  color: var(--primary) !important;
+  text-shadow: 0 0 10px rgba(0, 255, 65, 0.6) !important;
+  margin: 0 !important;
+  background: transparent !important;
+  border: none !important;
+  display: inline-flex !important;
+  align-items: center !important;
+}
+
+/* Brand Icon in Header */
+.tw-modal .tw-header img {
+  width: clamp(22px, 1.4vw + 0.4vh, 28px) !important;
+  height: clamp(22px, 1.4vw + 0.4vh, 28px) !important;
+  border-radius: 2px !important;
+  box-shadow: 0 0 8px rgba(0, 255, 65, 0.4) !important;
+}
+
+/* Close Button Positioning & Cyberpunk styling */
+.tw-modal div[style*="position: absolute; right: 24px; top: 24px"] {
+  top: clamp(14px, 1.8vh, 20px) !important;
+  right: var(--modal-pad) !important;
+  transform: none !important;
+}
+
+.tw-modal button[aria-label="Close"] {
+  width: clamp(26px, 1.8vw + 0.8vh, 34px) !important;
+  height: clamp(26px, 1.8vw + 0.8vh, 34px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  background: rgba(255, 255, 255, 0.04) !important;
+  border-radius: 2px !important;
+  color: #888899 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 0 !important;
+  transition: all 0.15s ease !important;
+}
+
+.tw-modal button[aria-label="Close"]:hover {
+  border-color: var(--primary) !important;
+  color: var(--primary) !important;
+  background-color: rgba(0, 255, 65, 0.12) !important;
+  box-shadow: 0 0 8px rgba(0, 255, 65, 0.4) !important;
+}
+
+.tw-modal button[aria-label="Close"] svg {
+  width: clamp(12px, 1vw, 16px) !important;
+  height: clamp(12px, 1vw, 16px) !important;
+}
+
+/* Modal Inner Body & Lists */
+.tw-modal ul.css-3hdqca,
+.tw-modal ul {
+  padding: clamp(8px, 1vh, 14px) 0 0 0 !important;
+  margin: 0 !important;
+  max-height: none !important;
+}
+
+.tw-modal div[style*="padding-left: 8px; padding-right: 8px"],
+.tw-modal div[style*="padding: 0px 24px 24px"],
+.tw-modal div[style*="padding: 0px 20px 20px"] {
+  padding-left: var(--modal-pad) !important;
+  padding-right: var(--modal-pad) !important;
+  padding-bottom: var(--modal-pad) !important;
+}
+
+/* Social Buttons Row */
+.tw-modal div[style*="justify-content: center"] {
+  gap: clamp(4px, 0.6vw, 8px) !important;
+}
+
+.tw-modal .tw-social-button {
+  height: var(--modal-btn-h) !important;
+  min-height: var(--modal-btn-h) !important;
+  padding: clamp(4px, 0.6vh, 8px) !important;
+  background-color: rgba(255, 255, 255, 0.03) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  border-radius: 2px !important;
+  transition: all 0.15s ease !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.tw-modal .tw-social-button:hover {
+  background-color: rgba(0, 255, 65, 0.08) !important;
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 10px rgba(0, 255, 65, 0.3) !important;
+}
+
+.tw-modal .tw-social-button img,
+.tw-modal .tw-social-button svg {
+  width: var(--modal-icon-size) !important;
+  height: var(--modal-icon-size) !important;
+}
+
+/* Email Input Container */
+.tw-modal .tw-input-container,
+.tw-modal .tw-input-container__email {
+  background-color: #0d0d14 !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  border-radius: 2px !important;
+  height: var(--modal-btn-h) !important;
+  min-height: var(--modal-btn-h) !important;
+  box-sizing: border-box !important;
+  overflow: hidden !important;
+  margin-top: 2px !important;
+}
+
+.tw-modal .tw-input-container:focus-within {
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 10px rgba(0, 255, 65, 0.35) !important;
+}
+
+.tw-modal .tw-input-container input {
+  font-family: var(--font-family, monospace) !important;
+  font-size: var(--modal-font) !important;
+  padding: 6px clamp(8px, 1.2vw, 14px) !important;
+  color: #ffffff !important;
+  background: transparent !important;
+  border: none !important;
+  letter-spacing: 0.5px !important;
+}
+
+.tw-modal .tw-input-container button {
+  background-color: rgba(0, 255, 65, 0.08) !important;
+  border: none !important;
+  border-left: 1px solid rgba(0, 255, 65, 0.25) !important;
+  color: var(--primary) !important;
+  padding: 0 clamp(8px, 1.2vw, 16px) !important;
+  height: 100% !important;
+  border-radius: 0 !important;
+  transition: all 0.15s ease !important;
+}
+
+.tw-modal .tw-input-container button:hover {
+  background-color: rgba(0, 255, 65, 0.25) !important;
+  color: #ffffff !important;
+  box-shadow: 0 0 8px rgba(0, 255, 65, 0.4) !important;
+}
+
+.tw-modal .tw-input-container button svg {
+  width: clamp(12px, 1vw, 16px) !important;
+  height: clamp(12px, 1vw, 16px) !important;
+}
+
+/* Passkey, Guest, and Connect Wallet Selection Buttons */
+.tw-modal .tw-select-button,
+.tw-modal .tw-select-button__passkey,
+.tw-modal .tw-select-button__guest,
+.tw-modal .tw-select-connect-a-wallet-button {
+  background-color: rgba(0, 255, 65, 0.03) !important;
+  border: 1px solid rgba(0, 255, 65, 0.2) !important;
+  border-radius: 2px !important;
+  padding: clamp(6px, 0.8vh, 12px) clamp(10px, 1.4vw, 18px) !important;
+  min-height: var(--modal-btn-h) !important;
+  height: var(--modal-btn-h) !important;
+  transition: all 0.15s ease !important;
+  box-sizing: border-box !important;
+}
+
+.tw-modal .tw-select-button:hover,
+.tw-modal .tw-select-connect-a-wallet-button:hover {
+  background-color: rgba(0, 255, 65, 0.1) !important;
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 12px rgba(0, 255, 65, 0.25) !important;
+}
+
+.tw-modal .tw-select-button span,
+.tw-modal .tw-select-connect-a-wallet-button span {
+  font-family: var(--font-family, monospace) !important;
+  font-size: var(--modal-font) !important;
+  font-weight: 600 !important;
+  letter-spacing: 1px !important;
+  color: #e0e0e0 !important;
+}
+
+.tw-modal .tw-select-button:hover span,
+.tw-modal .tw-select-connect-a-wallet-button:hover span {
+  color: #ffffff !important;
+}
+
+.tw-modal .tw-select-button svg,
+.tw-modal .tw-select-connect-a-wallet-button svg {
+  color: var(--primary) !important;
+  width: var(--modal-icon-size) !important;
+  height: var(--modal-icon-size) !important;
+}
+
+/* OR divider */
+.tw-modal div[class*="css-c8p4k5"],
+.tw-modal .css-c8p4k5 {
+  margin: clamp(3px, 0.6vh, 8px) 0 !important;
+  padding: 0 !important;
+}
+
+.tw-modal div[class*="css-c8p4k5"] span,
+.tw-modal .css-c8p4k5 span {
+  font-family: var(--font-family, monospace) !important;
+  font-size: clamp(9px, 0.6vw + 0.3vh, 11px) !important;
+  color: #666677 !important;
+  letter-spacing: 2px !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+}
+
+/* Wallet items in list view */
+.tw-modal .tw-wallet-select-wallet-button,
+.tw-modal button[class*="tw-wallet-select-wallet-button"] {
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  background: rgba(255, 255, 255, 0.02) !important;
+  border-radius: 2px !important;
+  margin-bottom: 4px !important;
+  min-height: var(--modal-btn-h) !important;
+  padding: clamp(6px, 0.8vh, 12px) clamp(10px, 1.4vw, 18px) !important;
+  font-size: var(--modal-font) !important;
+  transition: all 0.15s ease !important;
+}
+
+.tw-modal .tw-wallet-select-wallet-button:hover,
+.tw-modal button[class*="tw-wallet-select-wallet-button"]:hover {
+  border-color: var(--primary) !important;
+  background: rgba(0, 255, 65, 0.08) !important;
+  box-shadow: 0 0 10px rgba(0, 255, 65, 0.25) !important;
+}
+
+.tw-modal .tw-wallet-select-wallet-button img,
+.tw-modal .tw-wallet-select-wallet-button svg {
+  width: var(--modal-icon-size) !important;
+  height: var(--modal-icon-size) !important;
+}
+
+.tw-modal .tw-back-button {
+  color: var(--text-dim) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  background: rgba(255, 255, 255, 0.03) !important;
+  border-radius: 2px !important;
+  width: clamp(26px, 1.8vw + 0.8vh, 34px) !important;
+  height: clamp(26px, 1.8vw + 0.8vh, 34px) !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.tw-modal .tw-back-button:hover {
+  border-color: var(--primary) !important;
+  color: var(--primary) !important;
+  box-shadow: 0 0 8px rgba(0, 255, 65, 0.4) !important;
+}
+
+/* Proportional breathing room spacer between header and connection options */
+.tw-modal div[style*="height: 24px"] {
+  height: clamp(14px, 1.8vh, 22px) !important;
+  display: block !important;
+}
+
+.tw-modal div[style*="padding-left: 24px; padding-right: 24px"] {
+  padding-left: var(--modal-pad) !important;
+  padding-right: var(--modal-pad) !important;
+  padding-bottom: clamp(10px, 1.2vh, 16px) !important;
+  gap: clamp(6px, 0.8vh, 10px) !important;
+}
+
+/* ==========================================================================
+   DAW REUSABLE HOVER & TOUCH TOOLTIP SYSTEM
+   ========================================================================== */
+.daw-tooltip-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.daw-tooltip-bubble {
+  position: absolute;
+  z-index: 10000;
+  background: rgba(5, 5, 5, 0.96);
+  border: 1px solid var(--primary);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.8), 0 0 10px rgba(0, 255, 65, 0.25);
+  border-radius: 4px;
+  padding: 6px 10px;
+  pointer-events: none;
+  white-space: normal;
+  width: max-content;
+  max-width: 250px;
+  text-align: left;
+  font-family: var(--font-family);
+  backdrop-filter: blur(8px);
+  animation: tooltipFadeIn 0.12s ease-out;
+}
+
+.daw-tooltip-portal {
+  position: fixed !important;
+  pointer-events: none !important;
+}
+
+@keyframes tooltipFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.daw-tooltip-top {
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.daw-tooltip-bottom {
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.daw-tooltip-left {
+  right: calc(100% + 6px);
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.daw-tooltip-right {
+  left: calc(100% + 6px);
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.daw-tooltip-title {
+  font-size: var(--font-xs);
+  font-weight: 800;
+  color: var(--primary);
+  letter-spacing: 0.05em;
+  margin-bottom: 2px;
+  text-transform: uppercase;
+}
+
+.daw-tooltip-desc {
+  font-size: 10px;
+  color: var(--text-dim);
+  line-height: 1.35;
+  letter-spacing: 0.02em;
+}
+
+
