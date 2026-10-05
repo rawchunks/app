@@ -1,0 +1,814 @@
+/* RAWCHUNKS UNIFIED DAW BOARD STYLES */
+
+:root {
+  --board-header-w: clamp(160px, 16vw, 240px);
+  --board-row-h: clamp(68px, 9vh, 92px);
+  --board-master-row-h: clamp(88px, 11vh, 120px);
+  --board-section-h: clamp(24px, 3vh, 30px);
+  --board-ruler-h: clamp(24px, 3vh, 30px);
+}
+
+/* ==========================================================================
+   UNIFIED BOARD CONTAINER
+   ========================================================================== */
+.board-container {
+  width: 100%;
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+  box-sizing: border-box;
+}
+
+/* Master Transport Header */
+.board-transport {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: clamp(8px, 1vw, 14px);
+  padding: clamp(6px, 0.8vh, 10px) clamp(10px, 1.2vw, 16px);
+  background: var(--surface-elevated);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  z-index: 10;
+}
+
+.board-transport-cluster {
+  display: flex;
+  align-items: center;
+  gap: clamp(4px, 0.5vw, 8px);
+  flex-wrap: wrap;
+}
+
+.board-transport-btn {
+  background: transparent;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  padding: clamp(4px, 0.6vh, 6px) clamp(8px, 0.8vw, 12px);
+  border-radius: 3px;
+  font-family: var(--font-family);
+  font-size: var(--font-xs);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.board-transport-btn:hover {
+  color: var(--text);
+  border-color: var(--border-bright);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.board-transport-btn.active {
+  background: var(--primary);
+  color: #000;
+  border-color: var(--primary);
+  font-weight: 700;
+  box-shadow: var(--glow-primary);
+}
+
+.board-transport-time {
+  display: flex;
+  align-items: center;
+  gap: clamp(8px, 1.2vw, 16px);
+  font-family: var(--font-family);
+  font-size: var(--font-xs);
+  color: var(--text-dim);
+}
+
+.board-time-display {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(0, 0, 0, 0.5);
+  padding: 4px 10px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+}
+
+.board-time-label {
+  color: var(--text-secondary);
+  font-size: var(--font-xs);
+  letter-spacing: 0.5px;
+}
+
+.board-time-value {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.board-section-value {
+  color: var(--warning);
+  font-weight: 700;
+}
+
+/* ==========================================================================
+   SCROLLABLE BOARD WORKSPACE (Left Headers + Right Timelines)
+   ========================================================================== */
+.board-viewport {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overflow-x: hidden;
+  position: relative;
+  background: var(--bg);
+}
+
+/* Time Ruler Header Row */
+.board-ruler-row {
+  display: flex;
+  height: var(--board-ruler-h);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  flex-shrink: 0;
+}
+
+.board-ruler-corner {
+  width: var(--board-header-w);
+  min-width: var(--board-header-w);
+  border-right: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px;
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+  background: var(--surface);
+  box-sizing: border-box;
+}
+
+.board-ruler-timeline {
+  flex: 1 1 0;
+  min-width: 0;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+}
+
+.board-ruler-ticks {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.board-ruler-marker {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  font-size: 9px;
+  font-family: var(--font-family);
+  color: var(--text-muted);
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+  padding-left: 3px;
+  pointer-events: none;
+}
+
+/* Unified Track Segment Row */
+.board-row {
+  display: flex;
+  height: var(--board-row-h);
+  min-height: var(--board-row-h);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  position: relative;
+  transition: background 0.15s ease;
+  box-sizing: border-box;
+}
+
+.board-row.master {
+  height: var(--board-master-row-h);
+  min-height: var(--board-master-row-h);
+}
+
+.board-row:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.board-row.selected {
+  z-index: 2;
+  background: rgba(0, 255, 65, 0.08);
+  box-shadow: inset 3px 0 0 var(--primary), inset 0 0 24px rgba(0, 255, 65, 0.06);
+  border-left: 3px solid var(--primary);
+}
+
+.board-row.dimmed {
+  opacity: 0.35;
+  filter: grayscale(40%);
+  transition: opacity 0.2s ease, filter 0.2s ease;
+}
+
+.board-row.dimmed:hover {
+  opacity: 0.85;
+  filter: grayscale(0%);
+}
+
+/* Left-Side Unified Track Header */
+.board-track-header {
+  width: var(--board-header-w);
+  min-width: var(--board-header-w);
+  height: 100%;
+  border-right: 1px solid var(--border);
+  background: var(--surface-elevated);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: clamp(6px, 0.8vh, 8px) clamp(8px, 1vw, 12px);
+  box-sizing: border-box;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.board-track-header-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+
+.board-track-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1 1 0;
+  overflow: hidden;
+}
+
+.board-track-badge {
+  font-size: 10px;
+  font-weight: 900;
+  padding: 1px 5px;
+  border-radius: 2px;
+  background: var(--accent);
+  color: #000;
+  flex-shrink: 0;
+  font-family: var(--font-family);
+}
+
+.board-track-name {
+  font-size: var(--font-xs);
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1 1 0;
+  cursor: pointer;
+}
+
+.board-track-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.board-btn-mini {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  border-radius: 2px;
+  padding: 2px 5px;
+  font-size: 9px;
+  font-family: var(--font-family);
+  font-weight: 700;
+  cursor: pointer;
+  line-height: 1;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.board-btn-mini:hover {
+  border-color: var(--border-bright);
+  color: var(--text);
+}
+
+.board-btn-mini.play {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.board-btn-mini.play:hover {
+  background: rgba(0, 255, 65, 0.15);
+  box-shadow: 0 0 8px rgba(0, 255, 65, 0.3);
+}
+
+.board-btn-mini.play.active,
+.board-btn-mini.play.playing {
+  background: var(--primary);
+  color: #000;
+  border-color: var(--primary);
+  box-shadow: var(--glow-primary);
+}
+
+.board-btn-mini.solo.active {
+  background: var(--warning);
+  color: #000;
+  border-color: var(--warning);
+}
+
+.board-btn-mini.mute.active {
+  background: var(--error);
+  color: #fff;
+  border-color: var(--error);
+}
+
+.board-btn-mini.arm.active {
+  background: var(--secondary);
+  color: #fff;
+  border-color: var(--secondary);
+}
+
+/* Track Header Bottom: Fader & Meter */
+.board-track-header-bottom {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 9px;
+  color: var(--text-secondary);
+}
+
+.board-fader-wrap {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.board-slider {
+  width: 100%;
+  height: 4px;
+  appearance: none;
+  background: #222;
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+
+.board-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 10px;
+  height: 12px;
+  background: var(--accent);
+  border-radius: 1px;
+  cursor: ew-resize;
+  border: none;
+}
+
+.board-fader-val {
+  font-size: 9px;
+  font-family: var(--font-family);
+  color: var(--text-dim);
+  width: 28px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+/* ==========================================================================
+   RIGHT-SIDE TIMELINE LANE
+   ========================================================================== */
+.board-track-lane {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+/* Grid Lines Behind Waveform */
+.board-lane-grid {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-size: calc(100% / 16) 100%;
+  background-image: linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+}
+
+.board-notes {
+  position: absolute;
+  inset: 6px 0;
+  width: 100%;
+  height: calc(100% - 12px);
+  pointer-events: none;
+}
+
+/* Shared Playhead Needle */
+.board-playhead-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+  z-index: 15;
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+.board-playhead-cap {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 8px;
+  height: 8px;
+  background: var(--accent);
+  clip-path: polygon(50% 100%, 0 0, 100% 0);
+}
+
+/* ==========================================================================
+   FOLDABLE SECTION SEPARATORS (LANES & EXTRACTED)
+   ========================================================================== */
+.board-section-separator {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: var(--board-section-h);
+  min-height: var(--board-section-h);
+  background: var(--surface-raised);
+  border-bottom: 1px solid var(--border);
+  padding: 0 clamp(8px, 1vw, 12px);
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s ease;
+  z-index: 5;
+  box-sizing: border-box;
+}
+
+.board-section-separator:hover {
+  background: #202020;
+}
+
+.board-section-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--font-xs);
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: var(--text-dim);
+}
+
+.board-section-left:hover {
+  color: var(--text);
+}
+
+.board-section-chevron {
+  transition: transform 0.2s ease;
+  color: var(--accent);
+}
+
+.board-section-separator.collapsed .board-section-chevron {
+  transform: rotate(-90deg);
+}
+
+.board-section-badge {
+  font-size: 9px;
+  padding: 1px 6px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-dim);
+  font-family: var(--font-family);
+}
+
+.board-section-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Compact Folded Placeholder Bar */
+.board-folded-preview {
+  height: 24px;
+  background: rgba(0, 0, 0, 0.6);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  font-size: 10px;
+  color: var(--text-muted);
+  gap: 12px;
+}
+
+/* Add Track Action Bar */
+.board-add-track-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  flex-shrink: 0;
+}
+
+.board-add-btn {
+  background: transparent;
+  border: 1px dashed var(--border-bright);
+  color: var(--text-dim);
+  border-radius: 3px;
+  padding: 4px 10px;
+  font-size: var(--font-xs);
+  font-family: var(--font-family);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: all 0.15s ease;
+}
+
+.board-add-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: rgba(0, 255, 65, 0.05);
+}
+
+/* ==========================================================================
+   BOARD RESPONSIVE RULES (Mobile & Tablet)
+   ========================================================================== */
+@media (max-width: 768px) {
+  :root {
+    --board-header-w: clamp(140px, 35vw, 185px);
+    --board-row-h: clamp(76px, 10vh, 95px);
+    --board-master-row-h: clamp(90px, 12vh, 115px);
+  }
+
+  .board-transport-bar {
+    padding: 6px 10px;
+    gap: 8px;
+  }
+
+  .board-transport-controls {
+    gap: 4px;
+  }
+
+  .board-btn {
+    padding: 3px 6px;
+    font-size: 10px;
+  }
+
+  .board-display-group {
+    font-size: 10px;
+    padding: 2px 6px;
+  }
+
+  .board-track-fader-row {
+    display: none;
+  }
+
+  .board-track-name {
+    max-width: 70px;
+  }
+}
+
+/* ==========================================================================
+   WAVEFORM BOX & FLOATING HUD OVERLAY
+   ========================================================================== */
+.waveform-box {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.waveform-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* Responsive Clip Waveform Container & Canvas */
+.stem-clip-waveform-container {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+  display: block;
+}
+
+.stem-clip-waveform-canvas {
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
+}
+
+/* ==========================================================================
+   DAW PINCHER (Precision Section Selector & Steppers)
+   ========================================================================== */
+.daw-pincher {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: clamp(6px, 1vw, 12px);
+  padding: clamp(6px, 0.8vh, 10px) clamp(10px, 1.2vw, 16px);
+  background: rgba(9, 9, 12, 0.96);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border-bright, rgba(255, 255, 255, 0.15));
+  border-radius: 6px;
+  margin-top: 6px;
+  font-size: var(--font-xs, 11px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
+  flex-shrink: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.daw-pincher-group {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.daw-pincher-label {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.daw-pincher-input {
+  width: 54px;
+  background: #111420;
+  border: 1px solid #272d45;
+  color: #fff;
+  border-radius: 3px;
+  padding: 2px 4px;
+  text-align: center;
+  font-size: 11px;
+  font-family: monospace;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.daw-pincher-input:focus {
+  border-color: var(--primary);
+}
+
+.daw-pincher-badge {
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+  border: 1px solid #3f3f46;
+  border-radius: 3px;
+  padding: 2px 6px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* ==========================================================================
+   CATEGORY BADGES SWAPPER & ACCORDION (EXTRACTED LANES)
+   ========================================================================== */
+.board-category-badges-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  width: 100%;
+  margin-top: 2px;
+}
+
+.board-category-badges-list {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-wrap: wrap;
+  overflow-x: auto;
+  max-width: calc(100% - 22px);
+  scrollbar-width: none;
+}
+
+.board-category-badges-list::-webkit-scrollbar {
+  display: none;
+}
+
+.board-take-badge-pill {
+  font-size: 9px;
+  font-weight: 700;
+  font-family: var(--font-family);
+  color: var(--text-dim);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  padding: 1px 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  line-height: 1.2;
+}
+
+.board-take-badge-pill:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.board-take-badge-pill.selected {
+  background: var(--accent);
+  color: #000;
+  border-color: var(--accent);
+  box-shadow: 0 0 6px rgba(0, 255, 255, 0.4);
+}
+
+.board-take-badge-pill.mix-active {
+  border-color: var(--primary);
+}
+
+.board-take-badge-pill.mix-active.selected {
+  background: var(--primary);
+  color: #000;
+}
+
+.board-category-chevron-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 3px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.board-category-chevron-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+}
+
+.board-category-chevron-btn.expanded {
+  background: rgba(0, 255, 255, 0.15);
+  color: var(--accent);
+  border-color: rgba(0, 255, 255, 0.4);
+}
+
+.board-take-indented-row {
+  background: rgba(0, 0, 0, 0.35) !important;
+  border-left: 3px solid var(--accent) !important;
+  margin-left: 8px;
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.08) !important;
+}
+
+.board-take-indented-row .board-track-header {
+  padding-left: 10px;
+}
+.board-row.master.expanded { height: auto; min-height: var(--board-master-row-h); flex-shrink: 0; }
+.board-row.master.expanded .board-track-lane { height: auto; }
+.board-row.master.expanded.dimmed { opacity: 1; filter: none; }
+.board-overlays { position: absolute; inset: 0; pointer-events: none; }
+.board-overlay { position: absolute; inset-block: 0; box-sizing: border-box; opacity: .8; pointer-events: auto; }
+.board-overlay.selected { z-index: 2; opacity: 1; }
+.board-overlay.muted { opacity: .25; }
+.board-overlay-wave { width: 100%; height: 100%; padding: 0; border: 0; background: transparent; cursor: grab; touch-action: none; }
+.board-overlay-actions { --board-overlay-actions-w: 112px; position: absolute; inset-block-end: 2px; z-index: 6; display: flex; flex-wrap: nowrap; max-width: 100%; width: var(--board-overlay-actions-w); box-sizing: border-box; pointer-events: auto; background: var(--surface); border: 1px solid var(--accent); }
+.board-overlay-actions .daw-tooltip-wrapper { flex: 1; min-width: 0; }
+.board-overlay-actions button { width: 100%; height: 28px; display: grid; place-items: center; flex: 1 1 auto; border: 0; background: transparent; color: var(--accent); font: inherit; font-size: 9px; padding: 6px; cursor: pointer; }
+.board-overlay-actions button[aria-pressed="true"] { background: var(--primary); color: var(--bg); }
+.board-overlay-actions button:disabled { opacity: .4; cursor: wait; }
+.board-overlay-player { flex: 1; min-width: 0; height: 28px; display: grid; grid-template-rows: 16px 12px; }
+.board-overlay-choices { display: flex; min-width: 0; }
+.board-overlay-player > .daw-tooltip-wrapper button { height: 16px; padding: 0; }
+.board-overlay-choices button { height: 12px; padding: 0; font-size: 6px; line-height: 1; }
+.board-operation { display: flex; flex-wrap: wrap; gap: 12px; padding: 10px; border-block-end: 1px solid var(--accent); font-size: 11px; }
+
+.board-master-badges { display: flex; flex-wrap: wrap; gap: 3px; margin: 5px 0; }
+.board-master-badges .board-track-badge { border: 1px solid transparent; cursor: pointer; padding: 1px 4px; }
+.board-master-badges .board-track-badge.selected { border-color: var(--text); box-shadow: 0 0 4px currentColor; }
+.board-row.master .board-track-header { justify-content: flex-start; }
+.board-row.master .board-track-header-bottom { margin-top: auto; }
+
+.waveform-box { position: relative; }
+.waveform-selection { position: absolute; inset: 0; pointer-events: none; z-index: 5; }
+.waveform-range { position: absolute; top: 0; height: 100%; width: 14px; padding: 0; border: 0; background: transparent; pointer-events: auto; touch-action: none; cursor: ew-resize; transform: translateX(-50%); }
+.waveform-range.pan { height: 12px; transform: none; cursor: grab; }
