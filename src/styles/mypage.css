@@ -1,0 +1,518 @@
+/* RAWCHUNKS MY-PAGE (TRACK REPOSITORY & LICENSING) */
+
+.mypage-container {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: clamp(10px, 2vw, 20px);
+  gap: clamp(10px, 1.5vw, 16px);
+  box-sizing: border-box;
+  overflow-y: auto;
+  overflow-x: hidden;
+  position: relative;
+}
+
+.mypage-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.mypage-title-text {
+  font-size: var(--font-lg);
+  font-weight: 900;
+  color: var(--primary);
+  letter-spacing: var(--letter-spacing-base);
+}
+
+.mypage-subtitle {
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+.mypage-list {
+  flex: 1 1 0;
+  min-height: 0;
+  padding: clamp(10px, 1.5vw, 16px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mypage-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+/* Responsive Song Card */
+.mypage-song-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  position: relative;
+  transition: border-color 0.15s ease;
+}
+
+.mypage-song-card.active {
+  border-color: var(--primary);
+  box-shadow: 0 0 10px rgba(0, 255, 65, 0.15);
+}
+
+.mypage-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mypage-card-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 1;
+}
+
+.mypage-card-text {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.mypage-card-title {
+  font-size: var(--font-sm);
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mypage-card-meta {
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mypage-card-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  font-size: var(--font-xs);
+}
+
+.mypage-card-pricing {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  color: var(--text-secondary);
+  flex-wrap: wrap;
+}
+
+.mypage-card-right-tools {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.mypage-menu-dropdown {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  background-color: #09090e;
+  border: 1px solid var(--border-bright);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.9), 0 0 12px rgba(0, 255, 65, 0.15);
+  border-radius: 4px;
+  padding: 6px;
+  z-index: 100;
+  min-width: 140px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mypage-menu-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  color: #ffffff;
+  padding: 8px 12px;
+  text-align: left;
+  cursor: pointer;
+  font-size: var(--font-xs);
+  font-family: var(--font-family);
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  transition: all 0.15s ease;
+  min-height: 34px;
+  box-sizing: border-box;
+}
+
+.mypage-menu-item.mypage-item-edit {
+  color: var(--primary);
+  background-color: rgba(0, 255, 65, 0.06);
+  border-color: rgba(0, 255, 65, 0.3);
+}
+
+.mypage-menu-item.mypage-item-edit:hover {
+  color: #000000;
+  background-color: var(--primary);
+  border-color: var(--primary);
+  box-shadow: 0 0 10px rgba(0, 255, 65, 0.6);
+}
+
+.mypage-menu-item.mypage-item-download {
+  color: var(--accent);
+  background-color: rgba(0, 204, 255, 0.06);
+  border-color: rgba(0, 204, 255, 0.3);
+}
+
+.mypage-menu-item.mypage-item-download:hover {
+  color: #000000;
+  background-color: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 0 10px rgba(0, 204, 255, 0.6);
+}
+
+.mypage-menu-item.mypage-item-delete {
+  color: #ff3366;
+  background-color: rgba(255, 51, 102, 0.06);
+  border-color: rgba(255, 51, 102, 0.3);
+}
+
+.mypage-menu-item.mypage-item-delete:hover {
+  color: #ffffff;
+  background-color: #ff3366;
+  border-color: #ff3366;
+  box-shadow: 0 0 10px rgba(255, 51, 102, 0.6);
+}
+
+.mypage-creator-address {
+  color: var(--accent);
+}
+
+.mypage-empty-title {
+  font-size: var(--font-base);
+  letter-spacing: 1px;
+}
+
+.mypage-empty-desc {
+  font-size: var(--font-xs);
+  color: var(--text-dim);
+}
+
+.mypage-menu-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.mypage-menu-btn {
+  padding: var(--btn-pad-xs) !important;
+  font-size: var(--btn-font-xs) !important;
+  letter-spacing: 2px;
+}
+
+.mypage-price-stream {
+  color: var(--primary);
+  font-weight: 700;
+}
+
+.mypage-price-license {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.mypage-toggle-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mypage-toggle-label {
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.mypage-toggle-input-wrap {
+  display: inline-flex;
+  cursor: pointer;
+  position: relative;
+}
+
+.mypage-toggle-checkbox {
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+.dropdown-item-danger {
+  color: var(--error) !important;
+}
+
+/* ==========================================================================
+   MYPAGE PROFILE SECTION (i)
+   ========================================================================== */
+.mypage-profile-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: clamp(12px, 1.5vw, 18px);
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  flex-shrink: 0;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.mypage-profile-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+
+.mypage-profile-avatar {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--primary);
+  background: rgba(0, 0, 0, 0.4);
+  box-shadow: 0 0 12px rgba(0, 255, 65, 0.2);
+  flex-shrink: 0;
+}
+
+.mypage-profile-avatar-placeholder {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed rgba(0, 255, 65, 0.4);
+  background: rgba(0, 0, 0, 0.4);
+  color: var(--primary);
+  flex-shrink: 0;
+}
+
+.mypage-profile-details {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.mypage-profile-nickname-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mypage-profile-nickname {
+  font-size: var(--font-base);
+  font-weight: 800;
+  color: var(--text);
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mypage-profile-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid var(--border-bright);
+  border-radius: 4px;
+  padding: 4px 6px;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.mypage-profile-edit-btn:hover {
+  color: var(--primary);
+  border-color: var(--primary);
+  background: rgba(0, 255, 65, 0.08);
+  box-shadow: 0 0 8px rgba(0, 255, 65, 0.25);
+}
+
+.mypage-profile-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--font-xs);
+  color: var(--text-dim);
+  flex-wrap: wrap;
+}
+
+.mypage-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 0;
+  font-size: var(--font-xs);
+  font-family: var(--font-mono);
+  transition: color 0.15s ease;
+}
+
+.mypage-copy-btn:hover {
+  color: var(--primary);
+}
+
+.mypage-profile-stats {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-left: auto;
+}
+
+.mypage-profile-stat-box {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.mypage-profile-stat-val {
+  font-size: var(--font-base);
+  font-weight: 800;
+  color: var(--primary);
+  font-family: var(--font-mono);
+  line-height: 1;
+}
+
+.mypage-profile-stat-label {
+  font-size: 9px;
+  color: var(--text-dim);
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  margin-top: 2px;
+}
+
+/* ==========================================================================
+   MYPAGE SECTIONS & GRIDS (ii, iii, iv)
+   ========================================================================== */
+.mypage-section-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 6px 0 16px 0;
+}
+
+.mypage-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.mypage-album-card,
+.mypage-voice-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  position: relative;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.mypage-album-card:hover,
+.mypage-voice-card:hover {
+  border-color: var(--border-bright);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.mypage-album-cover {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 3px;
+  object-fit: cover;
+  background: #08080c;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.mypage-album-cover-placeholder {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 3px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: rgba(18, 18, 24, 0.8);
+  border: 1px dashed rgba(255, 255, 255, 0.15);
+  color: var(--text-dim);
+}
+
+.mypage-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mypage-item-title {
+  font-size: var(--font-sm);
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mypage-item-desc {
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+  line-height: 1.4;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.mypage-item-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: auto;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
