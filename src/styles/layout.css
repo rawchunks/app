@@ -1,0 +1,285 @@
+/* RAWCHUNKS APP LAYOUT, HEADER & TRANSPORT DOCK */
+
+.app-viewport {
+  width: 100%;
+  height: 100%;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+  background-color: var(--bg);
+}
+
+/* ==========================================================================
+   APP HEADER
+   ========================================================================== */
+.app-header {
+  height: var(--header-height);
+  width: 100%;
+  background-color: rgba(5, 5, 5, 0.96);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 clamp(8px, 2vw, 24px);
+  padding-top: var(--sat);
+  position: relative;
+  z-index: 50;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  gap: 8px;
+}
+
+.header-brand {
+  display: flex;
+  align-items: center;
+  gap: clamp(6px, 0.6vw, 12px);
+  cursor: pointer;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.header-brand-logo {
+  font-size: var(--header-brand-font) !important;
+  font-weight: 900 !important;
+  color: var(--primary) !important;
+  letter-spacing: clamp(1.2px, 0.15vw + 0.05vh, 3.5px) !important;
+  line-height: 1 !important;
+  text-shadow: 0 0 clamp(4px, 0.5vw, 16px) rgba(0, 255, 65, 0.45) !important;
+  transition: text-shadow 0.2s ease, transform 0.15s ease;
+  white-space: nowrap !important;
+}
+
+.header-brand:hover .header-brand-logo {
+  text-shadow: 0 0 clamp(8px, 1vw, 20px) rgba(0, 255, 65, 0.85) !important;
+}
+
+.header-brand-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--header-brand-tag-font);
+  font-weight: 700;
+  color: var(--text-muted);
+  border: 1px solid var(--border-bright);
+  padding: var(--header-brand-tag-pad);
+  border-radius: 2px;
+  letter-spacing: clamp(0.6px, 0.08vw, 1.2px);
+  line-height: 1;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Service Switcher Navigation */
+.service-switcher {
+  display: flex;
+  align-items: center;
+  gap: clamp(4px, 1vw, 8px);
+  background-color: rgba(18, 18, 18, 0.7);
+  border: 1px solid var(--border);
+  padding: 3px;
+  border-radius: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.service-switcher::-webkit-scrollbar {
+  display: none;
+}
+
+.service-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: clamp(4px, 0.6vw, 8px);
+  padding: var(--header-btn-pad);
+  height: var(--header-btn-h);
+  min-height: var(--header-btn-h);
+  font-family: var(--font-family);
+  font-size: var(--header-btn-font);
+  font-weight: 700;
+  letter-spacing: var(--letter-spacing-base);
+  text-transform: uppercase;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  border-radius: 2px;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+  box-sizing: border-box;
+}
+
+.service-nav-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.service-nav-icon .nav-icon-svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 2.2;
+}
+
+.service-nav-label {
+  display: inline;
+}
+
+.service-nav-btn:hover {
+  color: var(--text);
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.service-nav-btn.active {
+  color: var(--primary);
+  background-color: rgba(0, 255, 65, 0.12);
+  border-color: var(--primary);
+  box-shadow: 0 0 8px rgba(0, 255, 65, 0.2);
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* ==========================================================================
+   MAIN VIEWPORT CONTAINER
+   ========================================================================== */
+.main-viewport {
+  flex: 1 1 0;
+  min-height: 0;
+  width: 100%;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ==========================================================================
+   BOTTOM TRANSPORT PLAYER
+   ========================================================================== */
+.app-player {
+  height: var(--player-height);
+  width: 100%;
+  background-color: rgba(5, 5, 5, 0.98);
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  position: relative;
+  z-index: 60;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  padding-bottom: var(--sab);
+}
+
+.player-scrubber {
+  width: 100%;
+  height: 4px;
+  background-color: rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.player-scrubber-progress {
+  height: 100%;
+  background-color: var(--primary);
+  box-shadow: 0 0 6px var(--primary);
+  transition: width 0.05s linear;
+}
+
+.player-scrubber-selection {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background-color: rgba(255, 0, 160, 0.5);
+  pointer-events: none;
+}
+
+.player-transport-row {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 clamp(8px, 2vw, 24px);
+  gap: clamp(8px, 1.5vw, 16px);
+  min-height: 0;
+}
+
+.player-track-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1 1 auto;
+  max-width: 320px;
+}
+
+.player-track-avatar {
+  width: 32px;
+  height: 32px;
+  background-color: var(--surface-elevated);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--primary);
+  font-weight: 900;
+  font-size: 12px;
+}
+
+.player-track-text {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.player-track-title {
+  font-size: var(--font-sm);
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.player-track-meta {
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.player-controls {
+  display: flex;
+  align-items: center;
+  gap: clamp(6px, 1.2vw, 12px);
+  flex-shrink: 0;
+}
+
+.player-play-btn {
+  min-width: clamp(70px, 9vw, 90px);
+}
+
+.player-time-readout {
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.player-volume-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+  width: clamp(60px, 8vw, 90px);
+}
+
