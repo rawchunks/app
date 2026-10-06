@@ -1,0 +1,359 @@
+/* RAWCHUNKS RESPONSIVE ENGINE & MOBILE BREAKPOINTS */
+
+/* ==========================================================================
+   MEDIUM / TABLET BREAKPOINT (<= 900px)
+   ========================================================================== */
+@media (max-width: 900px) {
+  .editor-header-bar {
+    gap: 8px;
+    padding-bottom: 4px;
+  }
+}
+
+/* ==========================================================================
+   MOBILE & SMALL SCREENS (<= 768px)
+   ========================================================================== */
+@media (max-width: 768px) {
+  /* Studio: Enable Pocket Switcher Bar */
+  .studio-container {
+    display: flex;
+    flex-direction: column;
+    padding: 8px;
+    gap: 8px;
+  }
+
+  .studio-pocket-bar {
+    display: flex;
+  }
+
+  .studio-panel-config,
+  .studio-panel-feed {
+    flex: 1 1 0;
+    max-width: 100%;
+    width: 100%;
+    padding: 12px;
+  }
+
+  /* Studio pocket view switching */
+  .studio-container[data-pocket="create"] .studio-panel-feed {
+    display: none;
+  }
+
+  .studio-container[data-pocket="feed"] .studio-panel-config {
+    display: none;
+  }
+
+  /* Header adjustments */
+  .app-header {
+    padding: 0 8px;
+    padding-top: var(--sat);
+    gap: 6px;
+  }
+
+  .header-brand-tag {
+    display: none;
+  }
+
+  .service-nav-btn {
+    padding: 0 8px !important;
+    font-size: var(--header-btn-font);
+    height: var(--header-btn-h);
+    min-width: unset;
+  }
+
+  .service-nav-label {
+    display: none !important;
+  }
+
+  .network-trigger-name {
+    display: none !important;
+  }
+
+  .header-network-trigger {
+    padding: 0 8px !important;
+  }
+
+  /* Wallet connector in header - Proportional Scaling */
+  .connect,
+  .tw-connect-wallet {
+    padding: var(--header-btn-pad) !important;
+    font-size: var(--header-btn-font) !important;
+    height: var(--header-btn-h) !important;
+    min-height: var(--header-btn-h) !important;
+    min-width: unset !important;
+    max-width: none !important;
+    gap: clamp(4px, 0.6vw, 6px) !important;
+  }
+
+  .connect-address {
+    max-width: clamp(70px, 15vw, 110px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .dropdown-menu-content {
+    right: 0 !important;
+    left: auto !important;
+    min-width: min(280px, calc(100vw - 24px));
+    max-width: calc(100vw - 16px);
+  }
+
+  /* Bottom Player Mobile Ergonomics */
+  .app-player {
+    height: auto;
+    min-height: 60px;
+  }
+
+  .player-transport-row {
+    padding: 4px 8px;
+    gap: 8px;
+  }
+
+  .player-volume-wrap {
+    display: none; /* Hidden on mobile to make room for transport controls */
+  }
+
+  .player-track-info {
+    max-width: 180px;
+  }
+
+  /* Market & MyPage */
+  .market-container,
+  .mypage-container {
+    padding: 8px;
+    gap: 10px;
+  }
+
+  .market-grid {
+    padding: 8px;
+    grid-template-columns: 1fr;
+  }
+
+  .mypage-list {
+    padding: 8px;
+  }
+
+}
+
+/* ==========================================================================
+   EXTRA SMALL / PHONES (<= 520px)
+   ========================================================================== */
+@media (max-width: 520px) {
+  /* Service switcher on mobile: larger icons and keep active page label visible */
+  .service-switcher {
+    padding: 2px;
+    gap: 3px;
+  }
+
+  .service-nav-btn {
+    padding: 4px 6px;
+    min-height: 30px;
+    gap: 4px;
+  }
+
+  /* Make header page icons noticeably bigger and clearer */
+  .service-nav-btn span:first-child {
+    font-size: 15px;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Inactive page buttons hide text label to conserve space */
+  .service-nav-btn:not(.active) {
+    padding: 4px 7px;
+  }
+
+  .service-nav-btn:not(.active) span:last-child {
+    display: none;
+  }
+
+  /* Active page button shows full "/ ${page}" label */
+  .service-nav-btn.active {
+    padding: var(--header-btn-pad);
+    background-color: rgba(0, 255, 65, 0.14);
+    border-color: var(--primary);
+  }
+
+  .service-nav-btn.active span:last-child {
+    display: inline-block;
+    font-size: var(--header-btn-font);
+    font-weight: 700;
+    margin-left: 2px;
+  }
+
+  /* Connect button fluid on phones */
+  .connect,
+  .tw-connect-wallet {
+    padding: var(--header-btn-pad) !important;
+    font-size: var(--header-btn-font) !important;
+    height: var(--header-btn-h) !important;
+    min-height: var(--header-btn-h) !important;
+    min-width: unset !important;
+    max-width: none !important;
+    white-space: nowrap !important;
+  }
+
+  /* Address smoothly truncates rather than vanishing */
+  .connect-address {
+    max-width: clamp(54px, 14vw, 85px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: inline-block;
+  }
+}
+
+/* ==========================================================================
+   EXTRA SMALL / PHONES (<= 480px)
+   ========================================================================== */
+@media (max-width: 480px) {
+  .app-header {
+    gap: 4px;
+  }
+
+  .service-switcher {
+    padding: 2px;
+    gap: 2px;
+  }
+
+  .service-nav-btn {
+    padding: 3px 6px;
+    min-height: 30px;
+  }
+
+  .service-nav-btn span:first-child {
+    font-size: 15px;
+  }
+
+  .studio-pricing-grid,
+  .market-pricing-box {
+    grid-template-columns: 1fr;
+  }
+
+
+
+  .player-track-info {
+    max-width: 120px;
+  }
+
+  .player-controls {
+    gap: 4px;
+  }
+
+  .player-play-btn {
+    min-width: 60px;
+    padding: 4px 8px;
+  }
+
+  .modal-inner-card {
+    padding: 12px;
+    max-height: 94dvh;
+  }
+
+  .dialog-content {
+    max-height: 94dvh;
+    max-width: calc(100vw - 16px);
+  }
+
+  .dialog-header {
+    padding: 10px 14px;
+  }
+
+  .dialog-body {
+    padding: 10px 14px;
+    gap: 10px;
+  }
+
+  .terms {
+    max-height: clamp(110px, 20vh, 160px);
+  }
+
+  .dialog-actions {
+    flex-direction: row;
+    gap: 8px;
+  }
+
+  .dialog-actions > * {
+    flex: 1 1 0;
+    min-height: 38px;
+  }
+}
+
+/* ==========================================================================
+   ULTRA-COMPACT PHONES (<= 380px)
+   ========================================================================== */
+@media (max-width: 380px) {
+  .app-header {
+    padding: 0 4px;
+    gap: 3px;
+  }
+
+  .service-switcher {
+    gap: 2px;
+    padding: 1px;
+  }
+
+  .service-nav-btn {
+    padding: var(--btn-pad-xs);
+    height: var(--header-btn-h);
+    min-height: var(--header-btn-h);
+    gap: 3px;
+  }
+
+  .service-nav-btn span:first-child {
+    font-size: 13px;
+  }
+
+  .service-nav-btn.active {
+    padding: var(--btn-pad-xs);
+  }
+
+  .service-nav-btn.active span:last-child {
+    font-size: var(--btn-font-xs);
+    margin-left: 1px;
+  }
+
+  .connect,
+  .tw-connect-wallet {
+    padding: var(--btn-pad-xs) !important;
+    font-size: var(--btn-font-xs) !important;
+    height: var(--header-btn-h) !important;
+    min-height: var(--header-btn-h) !important;
+    min-width: unset !important;
+    max-width: none !important;
+  }
+
+  /* Only hide address text on ultra-narrow <=360px screens */
+  .connect-address {
+    display: none;
+  }
+}
+
+/* ==========================================================================
+   THIRDWEB CONNECT MODAL MOBILE (Centered, sleek, compact)
+   ========================================================================== */
+@media (max-width: 640px) {
+  .tw-modal,
+  .tw-modal__connect-wallet,
+  [data-thirdweb="modal"],
+  div[data-state][class*="tw-modal"] {
+    position: fixed !important;
+    left: 50% !important;
+    top: 50% !important;
+    bottom: auto !important;
+    right: auto !important;
+    transform: translate(-50%, -50%) !important;
+    width: var(--modal-w) !important;
+    max-width: min(var(--modal-w), calc(100vw - 20px)) !important;
+    max-height: 92dvh !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    border-radius: 4px !important;
+    border: 1px solid var(--primary) !important;
+    box-shadow: 0 0 35px rgba(0, 255, 65, 0.25), 0 20px 60px rgba(0, 0, 0, 0.95) !important;
+    padding-bottom: 0 !important;
+    margin: 0 !important;
+    box-sizing: border-box !important;
+  }
+}
