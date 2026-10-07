@@ -1,0 +1,7 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <rect width="512" height="512" fill="#000000"/>
+  <rect x="100" y="100" width="312" height="312" fill="none" stroke="#00ff41" stroke-width="6" transform="rotate(5 256 256)"/>
+  <rect x="106" y="106" width="300" height="300" fill="none" stroke="#ff00a0" stroke-width="2" opacity="0.6" transform="rotate(-3 256 256)"/>
+  <text x="256" y="320" font-family="'Courier New', monospace" font-size="220" font-weight="900" fill="#ff00a0" text-anchor="middle" letter-spacing="-4">R</text>
+  <path d="M 60 256 L 160 256 L 180 210 L 210 300 L 240 230 L 270 280 L 300 240 L 330 270 L 350 256 L 452 256" fill="none" stroke="#00ff41" stroke-width="3" opacity="0.7"/>
+</svg>

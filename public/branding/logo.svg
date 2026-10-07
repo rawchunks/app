@@ -1,0 +1,15 @@
+<svg width="600" height="120" viewBox="0 0 600 120" xmlns="http://www.w3.org/2000/svg">
+  <rect width="600" height="120" fill="transparent"/>
+  <!-- Tilted neon mark -->
+  <g transform="translate(10, 10)">
+    <rect x="10" y="10" width="80" height="80" fill="none" stroke="#00ff41" stroke-width="4" transform="rotate(5 50 50)"/>
+    <text x="50" y="68" font-family="'Courier New', monospace" font-size="58" font-weight="900" fill="#ff00a0" text-anchor="middle">R</text>
+  </g>
+  <!-- Wordmark -->
+  <text x="120" y="74" font-family="'Courier New', monospace" font-size="44" font-weight="900" fill="#ffffff" letter-spacing="6px">
+    RAW<tspan fill="#00ff41">CHUNKS</tspan>
+  </text>
+  <text x="122" y="96" font-family="'Courier New', monospace" font-size="11" font-weight="bold" fill="#00ccff" letter-spacing="3px">
+    DISRUPT · GENERATE · INPAINT
+  </text>
+</svg>
