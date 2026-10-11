@@ -2,11 +2,7 @@ import { ComposeSDK } from "@compose-market/sdk";
 import type { NetworkId } from "@compose-market/sdk/chains";
 
 const env = import.meta.env ?? {};
-const baseUrl = (
-  typeof window !== "undefined"
-    ? window.location.origin
-    : (env.VITE_API_URL ?? "http://api.rawchunks.space")
-).replace(/\/+$/, "");
+const baseUrl = (env.VITE_API_URL || "https://api.rawchunks.space").replace(/\/+$/, "");
 
 const retry = { maxRetries: 2, initialDelayMs: 400, maxDelayMs: 6_000, jitter: true };
 

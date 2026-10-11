@@ -115,6 +115,7 @@ export function DisclaimerModal({
       // Record consent in Neon User DB
       const res = await sdk.fetch("/api/user/consent", {
         method: "POST",
+        userAddress: activeAddress,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           address: activeAddress,
@@ -128,7 +129,8 @@ export function DisclaimerModal({
       });
 
       if (!res.ok) {
-        throw new Error("Failed to record consent in database.");
+        const result = await res.json().catch(() => null);
+        throw new Error(result?.error || `Could not record consent (HTTP ${res.status}).`);
       }
 
       await queryClient.invalidateQueries({
@@ -142,7 +144,7 @@ export function DisclaimerModal({
       setTermsAgreed(false);
       setOpen(false);
     } catch (cause) {
-      toast.error("Failed to sign disclaimer", {
+      toast.error("Could not complete disclaimer", {
         description: cause instanceof Error ? cause.message : "An unexpected error occurred.",
       });
     } finally {
