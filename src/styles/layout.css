@@ -38,21 +38,28 @@
   cursor: pointer;
   flex-shrink: 0;
   user-select: none;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  min-height: 44px;
 }
 
 .header-brand-logo {
-  font-size: var(--header-brand-font) !important;
-  font-weight: 900 !important;
-  color: var(--primary) !important;
-  letter-spacing: clamp(1.2px, 0.15vw + 0.05vh, 3.5px) !important;
-  line-height: 1 !important;
-  text-shadow: 0 0 clamp(4px, 0.5vw, 16px) rgba(0, 255, 65, 0.45) !important;
-  transition: text-shadow 0.2s ease, transform 0.15s ease;
-  white-space: nowrap !important;
+  display: block;
+  width: clamp(150px, 15.5vw, 230px);
+  height: auto;
 }
 
-.header-brand:hover .header-brand-logo {
-  text-shadow: 0 0 clamp(8px, 1vw, 20px) rgba(0, 255, 65, 0.85) !important;
+.header-brand:focus-visible {
+  outline: 1px solid var(--primary);
+  outline-offset: 4px;
+}
+
+@media (max-width: 768px) {
+  .header-brand-logo {
+    width: clamp(80px, calc(50vw - 80px), 180px);
+    height: auto;
+  }
 }
 
 .header-brand-tag {
@@ -282,4 +289,3 @@
   flex-shrink: 0;
   width: clamp(60px, 8vw, 90px);
 }
-

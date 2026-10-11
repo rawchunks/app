@@ -1,9 +1,9 @@
 import React, { useEffect } from 'react';
 import { AudioWaveform, Radio, FileMusic } from 'lucide-react';
-import { Glitch } from './glitch';
 import { Player } from './player';
 import { store } from '../lib/store';
 import { NetworkSelector } from './network';
+import { SessionControl } from './session';
 import { WalletConnector } from './connector';
 import { useSelectedUserAddress } from '../hooks/use-address';
 import { useChain } from '../contexts/Network';
@@ -44,13 +44,10 @@ export const Layout: React.FC<Props> = ({ current, onNavigate, children }) => {
       {/* Top Header Navigation */}
       <header className="app-header">
         {/* Brand */}
-        <div className="header-brand" onClick={() => onNavigate('studio')}>
-          <Glitch
-            text="RAWCHUNKS"
-            className="header-brand-logo"
-          />
+        <button type="button" className="header-brand" onClick={() => onNavigate('studio')} aria-label="Rawchunks — open Studio">
+          <img src="/branding/logo.svg" alt="Rawchunks" className="header-brand-logo" width={590} height={88} />
           <span className="header-brand-tag">v1.5</span>
-        </div>
+        </button>
 
         {/* The 3 Core Visible Pages */}
         <nav className="service-switcher" aria-label="Services">
@@ -71,9 +68,10 @@ export const Layout: React.FC<Props> = ({ current, onNavigate, children }) => {
           })}
         </nav>
 
-        {/* Network Selector & Smart Account Connector */}
+        {/* Network Selector, Session Control, and Smart Account Connector */}
         <div className="header-actions">
           <NetworkSelector />
+          <SessionControl />
           <WalletConnector compact />
         </div>
       </header>

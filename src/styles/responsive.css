@@ -69,8 +69,25 @@
     display: none !important;
   }
 
-  .header-network-trigger {
+  .header-network-trigger,
+  .header-session-trigger {
     padding: 0 8px !important;
+  }
+
+  .session-trigger-label {
+    display: none !important;
+  }
+
+  .session-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .session-duration-pills {
+    flex-wrap: wrap;
+  }
+
+  .session-duration-btn {
+    flex: 1 1 calc(50% - 6px);
   }
 
   /* Wallet connector in header - Proportional Scaling */

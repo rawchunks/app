@@ -1,18 +1,43 @@
 import { ComposeSDK } from "@compose-market/sdk";
 import type { NetworkId } from "@compose-market/sdk/chains";
 
-const env = import.meta.env ?? {};
-const baseUrl = (env.VITE_API_URL || "https://api.rawchunks.space").replace(/\/+$/, "");
+const env = (import.meta as any).env ?? {};
+
+export const COMPOSE_API_URL = (env.VITE_COMPOSE_API_URL || "https://api.compose.market").replace(/\/+$/, "");
+export const RAWCHUNKS_API_URL = (env.VITE_API_URL || "https://api.rawchunks.space").replace(/\/+$/, "");
 
 const retry = { maxRetries: 2, initialDelayMs: 400, maxDelayMs: 6_000, jitter: true };
 
+// ComposeSDK powers the Facilitator SDK (@compose-market)
 export const sdk: ComposeSDK = new ComposeSDK({
-  baseUrl,
+  baseUrl: COMPOSE_API_URL,
   userAgent: "rawchunks-web",
   retry,
 });
 
-export const API_BASE_URL = sdk.baseUrl;
+export const API_BASE_URL = RAWCHUNKS_API_URL;
+
+// Match endpoints that belong to Rawchunks' backend service
+const RAWCHUNKS_PATH_REGEX = /^\/?(?:api\/)?(songs|albums|user|generation|editing|voices?|options|status|sample|format|repaint|layer|extend|remix|separate)(\/|$|\?)/;
+
+const originalFetch = sdk.fetch.bind(sdk);
+
+// Transparently route Rawchunks API calls to RAWCHUNKS_API_URL while Facilitator/Compose endpoints stay on COMPOSE_API_URL
+sdk.fetch = async function patchedFetch(
+  input: RequestInfo | URL,
+  init?: Parameters<ComposeSDK["fetch"]>[1]
+): Promise<Response> {
+  let target = input;
+  if (typeof target === "string" && !target.startsWith("http://") && !target.startsWith("https://")) {
+    const normalized = target.startsWith("/") ? target : `/${target}`;
+    if (RAWCHUNKS_PATH_REGEX.test(normalized)) {
+      target = `${RAWCHUNKS_API_URL}${normalized}`;
+    } else {
+      target = `${COMPOSE_API_URL}${normalized}`;
+    }
+  }
+  return originalFetch(target, init);
+};
 
 export function attachWallet(address: string | null, network: NetworkId | null): void {
   if (address && network) {
@@ -22,50 +47,71 @@ export function attachWallet(address: string | null, network: NetworkId | null):
   }
 }
 
-
-export async function watch(path: string, signal: AbortSignal, receive: (value: any) => boolean | Promise<boolean>, options?: Parameters<ComposeSDK['fetch']>[1]): Promise<void> {
+export async function watch(
+  path: string,
+  signal: AbortSignal,
+  receive: (value: any) => boolean | Promise<boolean>,
+  options?: Parameters<ComposeSDK["fetch"]>[1]
+): Promise<void> {
   for (let attempt = 0; !signal.aborted; attempt++) {
     let response: Response | undefined;
     let disconnected: unknown;
-    try { response = await sdk.fetch(path, { ...options, signal }); }
-    catch (error) { disconnected = error; }
+    try {
+      response = await sdk.fetch(path, { ...options, signal });
+    } catch (error) {
+      disconnected = error;
+    }
     if (signal.aborted) return;
     if (response && !response.ok) {
       const result = await response.json();
-      throw new Error(result.error || 'Could not follow generation');
+      throw new Error(result.error || "Could not follow generation");
     }
     if (response) {
-      if (!response.body) throw new Error('Generation stream is unavailable');
+      if (!response.body) throw new Error("Generation stream is unavailable");
       const reader = response.body.getReader();
-      const abort = () => { void reader.cancel().catch(() => {}); };
-      signal.addEventListener('abort', abort, { once: true });
+      const abort = () => {
+        void reader.cancel().catch(() => {});
+      };
+      signal.addEventListener("abort", abort, { once: true });
       const decoder = new TextDecoder();
-      let buffer = '';
+      let buffer = "";
       try {
         while (!signal.aborted) {
           let chunk: ReadableStreamReadResult<Uint8Array>;
-          try { chunk = await reader.read(); }
-          catch (error) { disconnected = error; break; }
-          if (chunk.done) { disconnected = new Error('Generation stream interrupted'); break; }
+          try {
+            chunk = await reader.read();
+          } catch (error) {
+            disconnected = error;
+            break;
+          }
+          if (chunk.done) {
+            disconnected = new Error("Generation stream interrupted");
+            break;
+          }
           buffer += decoder.decode(chunk.value, { stream: true });
           let newline: number;
-          while ((newline = buffer.indexOf('\n')) >= 0) {
-            const line = buffer.slice(0, newline); buffer = buffer.slice(newline + 1);
-            if (line.trim() && await receive(JSON.parse(line))) return;
+          while ((newline = buffer.indexOf("\n")) >= 0) {
+            const line = buffer.slice(0, newline);
+            buffer = buffer.slice(newline + 1);
+            if (line.trim() && (await receive(JSON.parse(line)))) return;
           }
         }
       } finally {
-        signal.removeEventListener('abort', abort);
+        signal.removeEventListener("abort", abort);
         await reader.cancel().catch(() => {});
         reader.releaseLock();
       }
     }
     if (signal.aborted) return;
     if (attempt >= retry.maxRetries) throw disconnected;
-    await new Promise<void>(resolve => {
-      const done = () => { clearTimeout(timer); signal.removeEventListener('abort', done); resolve(); };
+    await new Promise<void>((resolve) => {
+      const done = () => {
+        clearTimeout(timer);
+        signal.removeEventListener("abort", done);
+        resolve();
+      };
       const timer = setTimeout(done, Math.min(retry.initialDelayMs * 2 ** attempt, retry.maxDelayMs));
-      signal.addEventListener('abort', done, { once: true });
+      signal.addEventListener("abort", done, { once: true });
     });
   }
 }
