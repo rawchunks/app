@@ -1,15 +1,7 @@
 import { createThirdwebClient, defineChain, getContract } from "thirdweb";
-import { arbitrum, base, baseSepolia, arbitrumSepolia } from "thirdweb/chains";
-import type { Chain } from "thirdweb/chains";
+import type { Chain } from "thirdweb";
 import type { SmartWalletOptions } from "thirdweb/wallets";
 import type { EvmNetworkId, FacilitatorChain, NetworkId } from "@compose-market/sdk/chains";
-
-const THIRDWEB_PRESETS: Record<number, Chain> = {
-  42161: arbitrum,
-  421614: arbitrumSepolia,
-  8453: base,
-  84532: baseSepolia,
-};
 
 export { CONTRACT_ADDRESSES, getContractAddress, getContractAddressForChain } from "./performance/chains-data";
 export { formatUsdcPrice, weiToUsdc, usdcToWei } from "./performance/chains-data";
@@ -25,17 +17,9 @@ type AppChain = FacilitatorChain & {
   explorerQuery?: string;
 };
 
-export function getConfiguredChains(): FacilitatorChain[] {
-  const chains: FacilitatorChain[] = JSON.parse(env.VITE_NETWORKS ?? '[]');
-  if (!Array.isArray(chains) || chains.some(chain => !chain.network || !chain.name || !chain.rpcUrl || !chain.explorer || !chain.assetAddress)) throw new Error('Invalid network configuration');
-  return chains;
-}
-
-let resolvedChains: AppChain[] = getConfiguredChains().map(normalizeChain);
-let resolvedChainObjects: Map<number, Chain> = new Map(
-  Object.entries(THIRDWEB_PRESETS).map(([id, chain]) => [Number(id), chain])
-);
-let resolvedDefaultNetwork = env.VITE_DEFAULT_NETWORK as NetworkId;
+let resolvedChains: AppChain[] = [];
+let resolvedChainObjects = new Map<number, Chain>();
+let resolvedDefaultNetwork: NetworkId | undefined;
 
 export function isEvmNetwork(network: NetworkId | string | null | undefined): network is EvmNetworkId {
   return typeof network === "string" && network.startsWith("eip155:");
@@ -68,30 +52,25 @@ function normalizeChain(chain: FacilitatorChain): AppChain {
 }
 
 export function setChainRegistry(chains: FacilitatorChain[], defaultNetwork: NetworkId): void {
-  resolvedChains = [...new Map([...chains, ...getConfiguredChains()].map(chain => [chain.network, normalizeChain(chain)])).values()];
-  resolvedDefaultNetwork = env.VITE_DEFAULT_NETWORK as NetworkId || defaultNetwork;
-  if (!resolvedChains.some(chain => chain.network === resolvedDefaultNetwork)) throw new Error('The default network is not configured');
-  resolvedChainObjects = new Map(
-    Object.entries(THIRDWEB_PRESETS).map(([id, chain]) => [Number(id), chain])
-  );
-  for (const c of resolvedChains) {
+  const nextChains = chains.map(normalizeChain);
+  if (!nextChains.some(chain => chain.network === defaultNetwork)) throw new Error('The default network is not advertised');
+  const nextObjects = new Map<number, Chain>();
+  for (const c of nextChains) {
     if (c.chainId == null) continue;
     const isEvm = c.namespace === "eip155" || (c.network ?? "").startsWith("eip155:");
     if (!isEvm) continue;
-    const preset = THIRDWEB_PRESETS[c.chainId];
-    if (preset) {
-      resolvedChainObjects.set(c.chainId, preset);
-    } else {
-      resolvedChainObjects.set(c.chainId, defineChain({
+    if (!c.rpcUrl) throw new Error(`RPC URL is unavailable for ${c.network}`);
+    nextObjects.set(c.chainId, defineChain({
         id: c.chainId,
         rpc: c.rpcUrl,
         name: c.name,
-        nativeCurrency: { decimals: 18, name: c.asset, symbol: c.asset },
         ...(c.isTestnet ? { testnet: true as const } : {}),
         blockExplorers: [{ name: "Explorer", url: c.explorer }],
       }));
-    }
   }
+  resolvedChains = nextChains;
+  resolvedChainObjects = nextObjects;
+  resolvedDefaultNetwork = defaultNetwork;
 }
 
 export function getChains(): AppChain[] {
@@ -108,7 +87,7 @@ export function getDefaultNetwork(): NetworkId {
 }
 
 export function getDefaultEvmNetwork(): EvmNetworkId {
-  return requireEvmNetwork(resolvedDefaultNetwork, "Default EVM network");
+  return requireEvmNetwork(getDefaultNetwork(), "Default EVM network");
 }
 
 export function getDefaultChainId(): number {
@@ -156,7 +135,7 @@ export const CHAIN_OBJECTS = new Proxy({} as Record<number, Chain>, {
 });
 
 export function getChainObject(chainId: number): Chain | undefined {
-  return resolvedChainObjects.get(chainId) ?? THIRDWEB_PRESETS[chainId] ?? defineChain(chainId);
+  return resolvedChainObjects.get(chainId);
 }
 
 export function getEvmChainObject(network: EvmNetworkId): Chain | undefined {
@@ -271,13 +250,14 @@ export function getPaymentChain(): Chain {
 }
 
 export function getPaymentToken() {
+  const config = getChainConfig(getDefaultChainId());
   const usdcAddress = getUsdcAddress(getDefaultChainId());
   if (!usdcAddress) throw new Error("USDC address not available for default chain");
   return {
     address: usdcAddress,
-    symbol: "USDC",
-    decimals: 6,
-    name: "USD Coin",
+    symbol: config!.asset,
+    decimals: config!.decimals,
+    name: config!.asset,
   };
 }
 

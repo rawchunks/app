@@ -5,8 +5,9 @@ import {
 } from "react";
 import React from "react";
 import { Globe } from "lucide-react";
-import { fetchChains, type FacilitatorChain, type NetworkId } from "@compose-market/sdk/chains";
-import { evmChainId, getChainByNetwork, getChains, getConfiguredChains, getDefaultNetwork, isEvmNetwork, setChainRegistry } from "@/lib/chains";
+import { fetchChains, type FacilitatorChainsResponse, type NetworkId } from "@compose-market/sdk/chains";
+import { evmChainId, isEvmNetwork, setChainRegistry } from "@/lib/chains";
+import { COMPOSE_API_URL } from "@/lib/sdk";
 import { Network, useNetwork, type NetworkValue } from "@/hooks/use-network";
 import { cn } from "@/lib/utils";
 
@@ -20,23 +21,6 @@ export const NETWORK_LOGOS: Record<string, string> = {
   "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1": "/networks/solanaDevnet.jpeg",
   "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp": "/networks/solana.jpeg",
 };
-
-const ALLOWED: ReadonlySet<string> = new Set(
-    [
-      "eip155:42161",
-      "eip155:421614",
-      "eip155:8453",
-      "eip155:84532",
-      "eip155:4217",
-      "eip155:42431",
-      "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
-      "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
-    ],
-);
-
-function allow(chains: FacilitatorChain[]): FacilitatorChain[] {
-  return chains.filter((chain) => ALLOWED.has(chain.network));
-}
 
 export function networkLogo(network: string | undefined | null): string | undefined {
   if (!network) return undefined;
@@ -71,139 +55,143 @@ export function NetworkGlyph({
 export { NetworkGlyph as NetworkLogo };
 export { useNetwork as useChain };
 
-const STORAGE_KEY = "selected_network";
-const REGISTRY_CACHE_KEY = "chain_registry";
-const FETCH_CHAINS_TIMEOUT_MS = 8_000;
+type RegistryStorage = Pick<Storage, "getItem" | "setItem">;
+export const REGISTRY_VERSION = 2;
+export const SELECTED_NETWORK_KEY = "selected_network";
+export const FETCH_CHAINS_TIMEOUT_MS = 8_000;
+export const VISIBLE_NETWORKS: readonly NetworkId[] = [
+  "eip155:84532",
+  "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
+  "eip155:42431",
+  "eip155:8453",
+  "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+];
 
-interface CachedChainRegistry {
-  chains: FacilitatorChain[];
-  defaultNetwork: NetworkId;
-  fetchedAt: number;
+export function visibleRegistry(registry: FacilitatorChainsResponse): FacilitatorChainsResponse {
+  const chains = VISIBLE_NETWORKS.flatMap(network => registry.chains.filter(c => c.network === network));
+  if (!chains.length) throw new Error("The facilitator has no supported Rawchunks networks");
+  const defaultNetwork = chains.find(c => c.network === registry.defaultNetwork)?.network
+    ?? chains.find(c => c.network === "eip155:8453")?.network ?? chains[0].network;
+  return { chains, defaultNetwork };
 }
 
-function readCachedRegistry(): CachedChainRegistry | null {
-  if (typeof window === "undefined") return null;
+export function registryCacheKey(apiUrl: string): string {
+  return `rawchunks:chain-registry:v${REGISTRY_VERSION}:${apiUrl.replace(/\/+$/, "")}`;
+}
+
+export function validateRegistry(value: FacilitatorChainsResponse): FacilitatorChainsResponse {
+  if (!Array.isArray(value?.chains) || value.chains.length === 0
+    || value.chains.some(c => !c.name || !c.rpcUrl || !c.explorer || !c.assetAddress
+      || !Array.isArray(c.schemes) || c.decimals !== 6
+      || !c.network?.startsWith(`${c.namespace}:`)
+      || (c.namespace !== "eip155" && c.namespace !== "solana"))
+    || new Set(value.chains.map(c => c.network)).size !== value.chains.length
+    || !value.chains.some(c => c.network === value.defaultNetwork)) {
+    throw new Error("The facilitator returned an invalid network registry");
+  }
+  return value;
+}
+
+export function readRegistry(storage: RegistryStorage | undefined, apiUrl: string): FacilitatorChainsResponse | null {
   try {
-    const raw = localStorage.getItem(REGISTRY_CACHE_KEY);
+    const raw = storage?.getItem(registryCacheKey(apiUrl));
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as CachedChainRegistry;
-    if (!Array.isArray(parsed?.chains) || parsed.chains.length === 0) return null;
-    if (typeof parsed?.defaultNetwork !== "string" || !parsed.defaultNetwork) return null;
-    return parsed;
-  } catch {
-    return null;
-  }
+    const parsed = JSON.parse(raw);
+    if (parsed.version !== REGISTRY_VERSION) return null;
+    return validateRegistry(parsed);
+  } catch { return null; }
 }
 
-function writeCachedRegistry(chains: FacilitatorChain[], defaultNetwork: NetworkId): void {
+export function writeRegistry(storage: RegistryStorage | undefined, apiUrl: string, registry: FacilitatorChainsResponse): void {
   try {
-    localStorage.setItem(
-      REGISTRY_CACHE_KEY,
-      JSON.stringify({ chains, defaultNetwork, fetchedAt: Date.now() } satisfies CachedChainRegistry),
-    );
-  } catch {
-    // quota or private-mode failures are non-fatal: next reload just refetches
-  }
+    storage?.setItem(registryCacheKey(apiUrl), JSON.stringify({ ...registry, version: REGISTRY_VERSION, fetchedAt: Date.now() }));
+  } catch { /* Private mode and quota failures do not prevent discovery. */ }
 }
 
-function initialNetwork(): NetworkId {
-  if (typeof window !== "undefined") {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) return stored as NetworkId;
-  }
-  return getDefaultNetwork();
+export function selectNetwork(registry: FacilitatorChainsResponse, selected: string | null): NetworkId {
+  return registry.chains.find(c => c.network === selected)?.network ?? registry.defaultNetwork;
 }
 
-function registry(chains: FacilitatorChain[], defaultNetwork: NetworkId) {
-  setChainRegistry(allow(chains), defaultNetwork);
-  return { chains: getChains(), defaultNetwork: getDefaultNetwork() };
+export async function discoverRegistry(apiUrl: string, signal: AbortSignal): Promise<FacilitatorChainsResponse> {
+  return validateRegistry(await fetchChains({ baseUrl: apiUrl, signal }));
+}
+
+function browserStorage(): Storage | undefined {
+  try { return typeof window === "undefined" ? undefined : window.localStorage; }
+  catch { return undefined; }
 }
 
 export function ChainProvider({ children }: { children: ReactNode }) {
-  const [cachedRegistry] = useState<CachedChainRegistry | null>(() => {
-    const cached = readCachedRegistry();
-    if (cached) {
-      const allowed = allow(cached.chains);
-      if (allowed.length > 0) {
-        return { ...cached, ...registry(allowed, cached.defaultNetwork) };
-      }
-    }
-    return null;
+  const [registry, setRegistry] = useState<FacilitatorChainsResponse | null>(() => {
+    const fullRegistry = readRegistry(browserStorage(), COMPOSE_API_URL);
+    let cached: FacilitatorChainsResponse | null = null;
+    try { cached = fullRegistry ? visibleRegistry(fullRegistry) : null; } catch { /* Refetch a cache with no visible networks. */ }
+    if (cached) setChainRegistry(cached.chains, cached.defaultNetwork);
+    return cached;
   });
-  const [chains, setChains] = useState<FacilitatorChain[]>(cachedRegistry?.chains ?? getConfiguredChains());
-  const [defaultNetwork, setDefaultNetwork] = useState<NetworkId>(
-    cachedRegistry?.defaultNetwork ?? getDefaultNetwork(),
-  );
-  const [isLoading, setIsLoading] = useState(!cachedRegistry);
+  const [savedSelection, setSavedSelection] = useState<string | null>(() => {
+    try { return browserStorage()?.getItem(SELECTED_NETWORK_KEY) ?? null; }
+    catch { return null; }
+  });
   const [error, setError] = useState<Error | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let current = true;
     const controller = new AbortController();
     const timeout = globalThis.setTimeout(() => controller.abort(), FETCH_CHAINS_TIMEOUT_MS);
-    fetchChains({ signal: controller.signal }).then(result => registry(result.chains, result.defaultNetwork)).then(
-      (result) => {
+    setError(null);
+    discoverRegistry(COMPOSE_API_URL, controller.signal).then(
+      result => {
         if (!current) return;
-        writeCachedRegistry(result.chains, result.defaultNetwork);
-        setChains(result.chains);
-        setDefaultNetwork(result.defaultNetwork);
-        setIsLoading(false);
+        const visible = visibleRegistry(result);
+        setChainRegistry(visible.chains, visible.defaultNetwork);
+        writeRegistry(browserStorage(), COMPOSE_API_URL, result);
+        setRegistry(visible);
       },
-      (err: unknown) => {
+    ).catch((cause: unknown) => {
         if (!current) return;
-        setError(err instanceof Error ? err : new Error("Failed to fetch chains"));
-        setIsLoading(false);
-      },
-    );
+        setError(cause instanceof Error ? cause : new Error("Failed to fetch networks"));
+      }).finally(() => globalThis.clearTimeout(timeout));
     return () => {
       current = false;
       globalThis.clearTimeout(timeout);
       controller.abort();
     };
-    // cachedRegistry is the constant mount-time snapshot; revalidation runs once.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [attempt]);
 
-  const evmChains = chains.filter((c) => c.namespace === "eip155" || (c.network ?? "").startsWith("eip155:"));
-  const solanaChains = chains.filter((c) => c.namespace === "solana" || (c.network ?? "").startsWith("solana:"));
-
-  const getChainById = (chainId: number) =>
-    evmChains.find((c) => isEvmNetwork(c.network) && evmChainId(c.network) === chainId);
-
-  const getChainByNetworkId = (network: string) =>
-    getChainByNetwork(network) ?? chains.find((c) => c.network === network);
-
-  const [selectedNetwork, setSelectedNetworkState] = useState<NetworkId>(initialNetwork);
-
+  const selectedNetwork = registry ? selectNetwork(registry, savedSelection) : null;
   useEffect(() => {
-    if (!isLoading && chains.length > 0) {
-      setSelectedNetworkState((prev) => {
-        const chain = getChainByNetworkId(prev);
-        if (chain) return prev;
-        return defaultNetwork;
-      });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoading, chains.length, defaultNetwork]);
+    if (!selectedNetwork) return;
+    try { browserStorage()?.setItem(SELECTED_NETWORK_KEY, selectedNetwork); } catch { /* Optional persistence. */ }
+    setSavedSelection(selectedNetwork);
+  }, [selectedNetwork]);
 
-  const setSelectedNetwork = (network: NetworkId) => {
-    setSelectedNetworkState(network);
-    localStorage.setItem(STORAGE_KEY, network);
-  };
+  if (!registry || !selectedNetwork) {
+    return <div className="session-modal-content" role={error ? "alert" : "status"}>
+      <p>{error ? "Failed to load network configuration" : "Loading networks..."}</p>
+      {error ? <button className="btn btn-solid" onClick={() => setAttempt(value => value + 1)}>Retry</button> : null}
+    </div>;
+  }
 
+  const { chains, defaultNetwork } = registry;
+  const evmChains = chains.filter(c => c.namespace === "eip155");
+  const solanaChains = chains.filter(c => c.namespace === "solana");
   const value: NetworkValue = {
     selectedNetwork,
-    setSelectedNetwork,
+    setSelectedNetwork: network => {
+      if (!chains.some(c => c.network === network)) throw new Error(`Network is not advertised: ${network}`);
+      setSavedSelection(network);
+    },
     paymentNetwork: selectedNetwork,
     chains,
     evmChains,
     solanaChains,
     defaultNetwork,
-    isLoading,
+    isLoading: false,
     error,
-    getChainById,
-    getChainByNetworkId,
+    getChainById: chainId => evmChains.find(c => isEvmNetwork(c.network) && evmChainId(c.network) === chainId),
+    getChainByNetworkId: network => chains.find(c => c.network === network),
   };
-
   return <Network.Provider value={value}>{children}</Network.Provider>;
 }
