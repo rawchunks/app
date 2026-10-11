@@ -66,7 +66,7 @@ export const Player: React.FC<Props> = ({ className = '', style = {} }) => {
         {/* Track Info */}
         <div className="player-track-info">
           <div className="player-track-avatar">
-            R
+            <img src="/branding/mark.svg" alt="Rawchunks" width={24} height={24} />
           </div>
           <div className="player-track-text">
             <div className="player-track-title">
