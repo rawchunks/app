@@ -1,15 +1,1 @@
-<svg width="600" height="120" viewBox="0 0 600 120" xmlns="http://www.w3.org/2000/svg">
-  <rect width="600" height="120" fill="transparent"/>
-  <!-- Tilted neon mark -->
-  <g transform="translate(10, 10)">
-    <rect x="10" y="10" width="80" height="80" fill="none" stroke="#00ff41" stroke-width="4" transform="rotate(5 50 50)"/>
-    <text x="50" y="68" font-family="'Courier New', monospace" font-size="58" font-weight="900" fill="#ff00a0" text-anchor="middle">R</text>
-  </g>
-  <!-- Wordmark -->
-  <text x="120" y="74" font-family="'Courier New', monospace" font-size="44" font-weight="900" fill="#ffffff" letter-spacing="6px">
-    RAW<tspan fill="#00ff41">CHUNKS</tspan>
-  </text>
-  <text x="122" y="96" font-family="'Courier New', monospace" font-size="11" font-weight="bold" fill="#00ccff" letter-spacing="3px">
-    DISRUPT · GENERATE · INPAINT
-  </text>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 590 88" role="img" aria-labelledby="title desc"><title id="title">Rawchunks logo</title><desc id="desc">Original Rawchunks lettering and a detached audio-chunk R.</desc><g transform="translate(8 12)"><g transform="scale(1.185185)"><g transform="translate(-6 -6)"><path fill="#00ff41" fill-rule="evenodd" d="M6 6H38L54 22V32L40 44H22V58H6ZM22 18V32H34L42 26V22L38 18Z"/><path fill="#ff00a0" d="M30 48H46L58 60H42Z"/></g></g><g transform="translate(72)" fill="#ffffff" fill-rule="evenodd"><path transform="translate(0)" d="M0 64L18 0H38L56 64H40L36 49H19L15 64ZM23 35H32L28 15Z"/><path transform="translate(60)" d="M0 0H16L24 42L33 10H43L52 42L60 0H76L61 64H45L38 40L31 64H15Z"/><path transform="translate(146)" d="M16 0H49V14H23L16 21V43L23 50H49V64H16L0 48V16Z"/><path transform="translate(204)" d="M0 0H16V25H34V0H50V64H34V39H16V64H0Z"/><path transform="translate(264)" d="M0 0H16V43L23 50H27L34 43V0H50V48L34 64H16L0 48Z"/><path transform="translate(324)" d="M0 64V0H16L38 36V0H54V64H38L16 28V64Z"/><path transform="translate(388)" d="M0 0H16V26L36 0H55L30 32L55 64H36L16 39V64H0Z"/><path transform="translate(452)" d="M16 0H50V14H23L16 21V25H34L50 41V48L34 64H0V50H27L34 43V39H16L0 23V16Z"/></g></g></svg>
