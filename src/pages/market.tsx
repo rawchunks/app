@@ -7,6 +7,9 @@ import { useSongs } from '../hooks/use-songs';
 import { Licenses } from '../components/licenses';
 import { groupSongs } from '../lib/versions';
 import { Versions } from '../components/versions';
+import { useSession, promptSessionModal } from '../components/session';
+import { useSelectedUserAddress } from '../hooks/use-address';
+import { toast } from 'sonner';
 
 export interface Props {
   className?: string;
@@ -18,6 +21,8 @@ export const Market: React.FC<Props> = ({ className = '', style = {} }) => {
   const [filterTag, setFilterTag] = useState<string | null>(null);
   const [selected, setSelected] = useState<Record<string, string>>({});
   const { data: publicSongs = [], isPending, error } = useSongs();
+  const { session } = useSession();
+  const { userAddress } = useSelectedUserAddress();
 
   useEffect(() => {
     return store.subscribe(state => {
@@ -119,6 +124,16 @@ export const Market: React.FC<Props> = ({ className = '', style = {} }) => {
                       if (isPlayingThis) {
                         store.setPlaying(false);
                       } else {
+                        const isCreator = Boolean(
+                          userAddress && song.creator && (
+                            userAddress.toLowerCase() === song.creator.toLowerCase()
+                          )
+                        );
+                        if (!isCreator && !session.active) {
+                          toast.error('Active session required to stream music. Please create a session.');
+                          promptSessionModal();
+                          return;
+                        }
                         store.setActiveSong(song);
                         store.setPlaying(true);
                       }

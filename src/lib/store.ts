@@ -1,6 +1,9 @@
 import { Song, Track } from './schema';
 import { audio } from './audio';
 import { bus } from './bus';
+import { sdk } from './sdk';
+import { toast } from 'sonner';
+import { promptSessionModal } from '../components/session';
 
 export interface State {
   songs: Song[];
@@ -20,6 +23,13 @@ type Listener = (state: State) => void;
 class Store {
   private state: State;
   private listeners: Set<Listener> = new Set();
+  private authorizedSongId: string | null = null;
+  private isExemptCreator: boolean = false;
+  private isAuthorizing: boolean = false;
+  private currentPaymentIntentId: string | null = null;
+  private accumulatedListenedSeconds: number = 0;
+  private lastReportedSeconds: number = 0;
+  private lastPlayhead: number = 0;
 
   constructor() {
     this.state = {
@@ -40,12 +50,27 @@ class Store {
         this.state = { ...this.state, isPlaying: false };
         audio.pause();
         this.notify();
+        void this.reportStreamCheckpoint(false);
       }
     });
 
     audio.setOnTimeUpdate((time) => {
       this.state = { ...this.state, playhead: time };
       this.notify();
+
+      if (this.state.isPlaying && !this.isExemptCreator) {
+        if (this.lastPlayhead > 0 && time > this.lastPlayhead && (time - this.lastPlayhead) < 5) {
+          this.accumulatedListenedSeconds += (time - this.lastPlayhead);
+        }
+        this.lastPlayhead = time;
+
+        // Checkpoint every 20 seconds of playback
+        if (this.accumulatedListenedSeconds - this.lastReportedSeconds >= 20) {
+          void this.reportStreamCheckpoint(false);
+        }
+      } else {
+        this.lastPlayhead = time;
+      }
     });
 
     audio.setOnDuration((duration) => {
@@ -70,9 +95,53 @@ class Store {
     });
 
     audio.setOnEnd(() => {
+      void this.reportStreamCheckpoint(true);
+      this.currentPaymentIntentId = null;
+      this.accumulatedListenedSeconds = 0;
+      this.lastReportedSeconds = 0;
+      this.lastPlayhead = 0;
       this.state = { ...this.state, isPlaying: false, playhead: 0 };
       this.notify();
     });
+  }
+
+  private async reportStreamCheckpoint(isTerminal = false) {
+    if (this.isExemptCreator || !this.currentPaymentIntentId || !this.authorizedSongId) {
+      return;
+    }
+
+    const listenedSeconds = Math.round(this.accumulatedListenedSeconds);
+    if (listenedSeconds <= this.lastReportedSeconds && !isTerminal) {
+      return;
+    }
+    if (listenedSeconds <= 0) {
+      return;
+    }
+
+    const songId = this.authorizedSongId;
+    const paymentIntentId = this.currentPaymentIntentId;
+    this.lastReportedSeconds = listenedSeconds;
+
+    try {
+      const res = await sdk.fetch(`/api/songs/${songId}/stream/checkpoint`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          paymentIntentId,
+          listenedSeconds,
+        }),
+      });
+
+      if (res.status === 402) {
+        audio.pause();
+        this.state = { ...this.state, isPlaying: false };
+        this.notify();
+        toast.error('Session budget exhausted for streaming. Please top up your session.');
+        promptSessionModal();
+      }
+    } catch (err) {
+      console.warn('[Stream Checkpoint] Failed to report checkpoint:', err);
+    }
   }
 
   public getState(): State {
@@ -107,9 +176,6 @@ class Store {
       playhead: 0,
       isPlaying: false,
     };
-    if (song.url) {
-      audio.load(song.url);
-    }
     this.notify();
   }
 
@@ -141,7 +207,16 @@ class Store {
   }
 
   public setActiveSong(song: Song | null) {
+    if (this.currentPaymentIntentId && this.accumulatedListenedSeconds > this.lastReportedSeconds) {
+      void this.reportStreamCheckpoint(true);
+    }
     audio.pause();
+    this.authorizedSongId = null;
+    this.isExemptCreator = false;
+    this.currentPaymentIntentId = null;
+    this.accumulatedListenedSeconds = 0;
+    this.lastReportedSeconds = 0;
+    this.lastPlayhead = 0;
     const dur = typeof song?.duration === 'number' && song.duration > 0 ? song.duration : 0;
     this.state = {
       ...this.state,
@@ -150,9 +225,6 @@ class Store {
       playhead: 0,
       isPlaying: false,
     };
-    if (song && song.url) {
-      audio.load(song.url);
-    }
     this.notify();
   }
 
@@ -165,30 +237,106 @@ class Store {
     this.notify();
   }
 
-  public setPlaying(isPlaying: boolean) {
-    if (isPlaying) {
-      const url = this.state.activeSong?.url;
-      if (!url && !audio.hasSource()) {
-        console.warn('Playback prevented: No audio URL available for song');
-        return;
-      }
-      bus.request('player');
-      if (url && !audio.hasSource()) {
-        audio.load(url);
-      }
-      this.state = { ...this.state, isPlaying: true };
-      audio.play(this.state.playhead, this.state.duration);
-    } else {
+  public async setPlaying(isPlaying: boolean): Promise<boolean> {
+    if (!isPlaying) {
       bus.release('player');
       this.state = { ...this.state, isPlaying: false };
       audio.pause();
+      this.notify();
+      void this.reportStreamCheckpoint(false);
+      return false;
     }
-    this.notify();
+
+    const song = this.state.activeSong;
+    if (!song) {
+      console.warn('Playback prevented: No active song');
+      return false;
+    }
+
+    const userAddr = this.state.userAddress || sdk.wallets.current()?.address || '';
+    const isCreator = Boolean(
+      userAddr && song.creator && (
+        userAddr.toLowerCase() === song.creator.toLowerCase()
+      )
+    );
+
+    if (this.authorizedSongId === song.id && audio.hasSource()) {
+      bus.request('player');
+      this.state = { ...this.state, isPlaying: true };
+      this.lastPlayhead = this.state.playhead || 0;
+      audio.play(this.state.playhead, this.state.duration);
+      this.notify();
+      return true;
+    }
+
+    const token = sdk.keys.currentToken();
+    if (!isCreator && !token) {
+      toast.error('An active session is required to stream music. Please create a session.');
+      promptSessionModal();
+      this.state = { ...this.state, isPlaying: false };
+      this.notify();
+      return false;
+    }
+
+    if (this.isAuthorizing) return false;
+    this.isAuthorizing = true;
+
+    try {
+      const response = await sdk.fetch(`/api/songs/${song.id}/stream`, {
+        headers: { 'Accept': 'application/json' },
+      });
+
+      if (response.status === 402) {
+        toast.error('Session payment required or budget exhausted. Please top up your session.');
+        promptSessionModal();
+        this.state = { ...this.state, isPlaying: false };
+        this.notify();
+        return false;
+      }
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        toast.error(errData.error || `Stream authorization failed (${response.status})`);
+        this.state = { ...this.state, isPlaying: false };
+        this.notify();
+        return false;
+      }
+
+      const data = await response.json();
+      if (!data.url) {
+        toast.error('Audio stream URL not returned by server');
+        this.state = { ...this.state, isPlaying: false };
+        this.notify();
+        return false;
+      }
+
+      this.authorizedSongId = song.id;
+      this.isExemptCreator = Boolean(data.isCreator);
+      this.currentPaymentIntentId = data.paymentIntentId || null;
+      this.accumulatedListenedSeconds = 0;
+      this.lastReportedSeconds = 0;
+      this.lastPlayhead = this.state.playhead || 0;
+
+      audio.load(data.url);
+      bus.request('player');
+      this.state = { ...this.state, isPlaying: true };
+      audio.play(this.state.playhead, this.state.duration);
+      this.notify();
+      return true;
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to authorize stream playback');
+      this.state = { ...this.state, isPlaying: false };
+      this.notify();
+      return false;
+    } finally {
+      this.isAuthorizing = false;
+    }
   }
 
   public setPlayhead(time: number) {
     this.state = { ...this.state, playhead: time };
     audio.seek(time);
+    this.lastPlayhead = time;
     this.notify();
   }
 
