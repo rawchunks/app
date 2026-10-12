@@ -1,5 +1,15 @@
 import { getContract, type ThirdwebClient, type Chain } from "thirdweb";
+import { createPublicClient, http } from "viem";
 import { getContractAddress } from "./performance/chains-data";
+import type { ContractName } from "./performance/chains-data";
+
+export async function requireEvmDeployment(chain: Chain, names: ContractName[]): Promise<void> {
+  const client = createPublicClient({ transport: http(chain.rpc) });
+  await Promise.all(names.map(async name => {
+    const code = await client.getCode({ address: getContractAddress(name) });
+    if (!code || code === "0x") throw new Error(`Rawchunks ${name} contract is not deployed on eip155:${chain.id}`);
+  }));
+}
 
 export const FACTORY_ABI = [
   {

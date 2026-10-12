@@ -104,6 +104,16 @@ export function getRawchunksDeployment(network: NetworkId) {
   };
 }
 
+export async function requireSolanaDeployment(input: { network: SolanaNetworkId; rpcUrl: string }, names: SolanaProgramName[]): Promise<void> {
+  const deployment = getRawchunksSolanaDeployment();
+  const ids = { Factory: deployment.factoryProgramId, Remix: deployment.remixProgramId, Royalties: deployment.royaltiesProgramId };
+  const rpc = createSolanaRpcFromNetwork(input.network, input.rpcUrl);
+  await Promise.all(names.map(async name => {
+    const info = await rpc.getAccountInfo(ids[name], { encoding: "base64" }).send();
+    if (!info.value?.executable) throw new Error(`Rawchunks ${name} program is not deployed on ${input.network}`);
+  }));
+}
+
 // Binary / Serialization Helpers
 function decodeBase64(value: string): Uint8Array {
   const binary = globalThis.atob(value);
@@ -416,7 +426,7 @@ export function buildSolanaBuyLicenseInstruction(input: {
 
 export async function relaySolanaBuyLicense(input: {
   network: SolanaNetworkId; rpcUrl: string; selectedSvmAddress: string; evmSignerAddress: string;
-  signMessage: (message: Uint8Array) => Promise<string>; songId: bigint;
+  signMessage: (message: Uint8Array) => Promise<string>; songId: bigint; assertCurrent?: () => void;
 }): Promise<void> {
   if (await fetchSolanaHasLicense({ ...input, user: input.selectedSvmAddress })) return;
   const deployment = getRawchunksSolanaDeployment();
@@ -705,9 +715,12 @@ export async function relaySolanaInstructions(input: {
   signMessage: (message: Uint8Array) => Promise<string>;
   instructions: readonly Instruction[];
   memo?: string;
+  assertCurrent?: () => void;
 }): Promise<{ signature: string; confirmed: boolean }> {
+  input.assertCurrent?.();
   const feePayer = address(input.feePayer ?? (await sdk.svm.feePayer()).feePayer);
   const swigConfigAddress = await deriveSwigConfigAddress(input.evmSignerAddress);
+  input.assertCurrent?.();
   const unsignedTransaction = await buildSwigInstructionTransaction({
     swigConfigAddress,
     expectedWalletAddress: input.selectedSvmAddress,
@@ -717,9 +730,15 @@ export async function relaySolanaInstructions(input: {
     rpcUrl: input.rpcUrl,
     instructions: input.instructions,
     memo: input.memo,
-    signMessage: input.signMessage,
+    signMessage: async message => {
+      input.assertCurrent?.();
+      const signature = await input.signMessage(message);
+      input.assertCurrent?.();
+      return signature;
+    },
   });
 
+  input.assertCurrent?.();
   return sdk.svm.relay({
     unsignedTransaction,
     network: input.network,
@@ -737,6 +756,7 @@ export async function relaySolanaMintSong(input: {
   streamPrice: bigint | number;
   remixable: boolean;
   metadataUri: string;
+  assertCurrent?: () => void;
 }): Promise<{ signature: string; songId: bigint; songAddress: SvmAddress }> {
   const deployment = getRawchunksSolanaDeployment();
   const factoryConfig = await fetchSolanaFactoryConfig({
@@ -761,6 +781,7 @@ export async function relaySolanaMintSong(input: {
   });
 
   const res = await relaySolanaInstructions({
+    assertCurrent: input.assertCurrent,
     network: input.network,
     rpcUrl: input.rpcUrl,
     selectedSvmAddress: input.selectedSvmAddress,
@@ -789,6 +810,7 @@ export async function relaySolanaRemixSong(input: {
   licensePrice: bigint | number;
   streamPrice: bigint | number;
   metadataUri: string;
+  assertCurrent?: () => void;
 }): Promise<{ signature: string; remixSongId: bigint; remixSongAddress: SvmAddress }> {
   const deployment = getRawchunksSolanaDeployment();
   const factoryConfig = await fetchSolanaFactoryConfig({
@@ -834,6 +856,7 @@ export async function relaySolanaRemixSong(input: {
   });
 
   const res = await relaySolanaInstructions({
+    assertCurrent: input.assertCurrent,
     network: input.network,
     rpcUrl: input.rpcUrl,
     selectedSvmAddress: input.selectedSvmAddress,
