@@ -688,12 +688,7 @@ async function loadSwigSigningContext(input: {
 }): Promise<{ swig: Swig; swigWalletAddress: SvmAddress; roleId: number }> {
     const { rpc, swigConfigAddress, expectedWalletAddress, evmSignerAddress } = input;
 
-    let swig: Swig | null;
-    try {
-        swig = await fetchNullableSwig(rpc as any, swigConfigAddress);
-    } catch {
-        swig = null;
-    }
+    const swig = await fetchNullableSwig(rpc as any, swigConfigAddress);
     if (!swig) {
         throw new Error("Swig account not initialized on-chain at the derived address");
     }

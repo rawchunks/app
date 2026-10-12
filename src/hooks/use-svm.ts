@@ -1,3 +1,10 @@
+import type { Account } from "thirdweb/wallets";
+import type { FacilitatorChain } from "@compose-market/sdk/chains";
+import { getSwigWalletAddress } from "@swig-wallet/kit";
+import { deriveSwigId, deriveSwigConfigAddress, deriveSwigWalletAddress, recoverEvmSecp256k1Pubkey, SWIG_AUTH_SIGN_MESSAGE } from "@/lib/svm/account";
+import { createSolanaRpcFromNetwork, fetchSwigAccount, readSvmTokenBalance, buildSelfFundedCreateSwigTransaction, buildUsdcFundedCreateSwigTransaction, SVM_ACTIVATION_MINIMUM_LAMPORTS } from "@/lib/svm/swig";
+import { sdk } from "@/lib/sdk";
+
 /**
  * useSolanaSmartAccount — deterministic Solana Swig smart account per
  * Thirdweb smart-account admin signer.
@@ -20,298 +27,189 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAdminWallet } from "thirdweb/react";
-import { sdk } from "@/lib/sdk";
 import { useChain } from "@/contexts/Network";
 import { isEvmNetwork } from "@/lib/chains";
-import { clearSwigCreated, readSwigCreated, writeSwigCreated } from "@/lib/cache";
-import {
-    deriveSwigId,
-    deriveSwigConfigAddress,
-    deriveSwigWalletAddress,
-    recoverEvmSecp256k1Pubkey,
-    SWIG_AUTH_SIGN_MESSAGE,
-} from "@/lib/svm/account";
-import {
-    createSolanaRpcFromNetwork,
-    fetchSwigAccount,
-    buildSelfFundedCreateSwigTransaction,
-    buildUsdcFundedCreateSwigTransaction,
-    readSvmTokenBalance,
-    SVM_ACTIVATION_MINIMUM_LAMPORTS,
-} from "@/lib/svm/swig";
+import { clearSwigCreated, writeSwigCreated } from "@/lib/cache";
+
+export const SOLANA_MAINNET = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";
+export interface SolanaActivationResult {
+  signature: string;
+  confirmed: boolean;
+  reimbursementLamports: bigint;
+}
+
+const activationDependencies = {
+  rpc: createSolanaRpcFromNetwork,
+  config: deriveSwigConfigAddress,
+  deriveWallet: deriveSwigWalletAddress,
+  fetch: fetchSwigAccount,
+  wallet: getSwigWalletAddress,
+  balance: readSvmTokenBalance,
+  pubkey: recoverEvmSecp256k1Pubkey,
+  selfFunded: buildSelfFundedCreateSwigTransaction,
+  usdcFunded: buildUsdcFundedCreateSwigTransaction,
+  feePayer: () => sdk.svm.feePayer(),
+  relay: (input: Parameters<typeof sdk.svm.relay>[0]) => sdk.svm.relay(input),
+};
+
+export function createActivationService(deps = activationDependencies) {
+  const pending = new Map<string, Promise<SolanaActivationResult | null>>();
+  return function activate(input: {
+    chain: FacilitatorChain;
+    signer: Account;
+    walletAddress: string;
+    assertCurrent: () => void;
+    onFunding?: (balance: bigint) => void;
+  }): Promise<SolanaActivationResult | null> {
+    const { chain, signer, walletAddress, assertCurrent } = input;
+    assertCurrent();
+    const key = `${signer.address.toLowerCase()}:${chain.network}:${chain.rpcUrl}:${chain.assetAddress}:${walletAddress}`;
+    const existingPromise = pending.get(key);
+    if (existingPromise) return existingPromise.then(result => { assertCurrent(); return result; });
+
+    const operation = (async () => {
+      const rpc = deps.rpc(chain.network, chain.rpcUrl);
+      const config = await deps.config(signer.address);
+      assertCurrent();
+      const derivedWallet = await deps.deriveWallet(signer.address);
+      assertCurrent();
+      if (derivedWallet !== walletAddress) throw new Error("Derived Swig wallet does not match the selected Solana address");
+      const verify = async (swig: NonNullable<Awaited<ReturnType<typeof fetchSwigAccount>>>) => {
+        if (await deps.wallet(swig) !== walletAddress) throw new Error("Swig wallet does not match the selected Solana address");
+        if (!swig.findRolesBySecp256k1SignerAddress(signer.address).length) throw new Error("The admin signer has no role on the Swig account");
+      };
+      const swig = await deps.fetch(rpc, config);
+      assertCurrent();
+      if (swig) { await verify(swig); assertCurrent(); return null; }
+
+      const balance = (await rpc.getBalance(walletAddress as any).send()).value;
+      assertCurrent();
+      input.onFunding?.(balance);
+      const useUsdc = balance < SVM_ACTIVATION_MINIMUM_LAMPORTS && chain.network === SOLANA_MAINNET;
+      const availableUsdc = useUsdc ? await deps.balance({ owner: walletAddress as any, mint: chain.assetAddress, rpc }) : 0n;
+      assertCurrent();
+      if (balance < SVM_ACTIVATION_MINIMUM_LAMPORTS && availableUsdc === 0n) {
+        throw new Error(`Fund Solana account ${walletAddress} with at least 0.05 SOL before activation`);
+      }
+      const { feePayer } = await deps.feePayer();
+      assertCurrent();
+      const signature = await signer.signMessage({ message: SWIG_AUTH_SIGN_MESSAGE });
+      assertCurrent();
+      const evmPubkey = await deps.pubkey(signature, SWIG_AUTH_SIGN_MESSAGE);
+      assertCurrent();
+      const signMessage = async (message: Uint8Array) => {
+        assertCurrent();
+        const signed = await signer.signMessage({ message: { raw: message } });
+        assertCurrent();
+        return signed;
+      };
+      const args = { swigId: deriveSwigId(signer.address), evmPubkey, feePayer: feePayer as any, usdcMint: chain.assetAddress, rpc, signMessage };
+      const activation = useUsdc
+        ? await deps.usdcFunded({ ...args, availableUsdc, network: chain.network })
+        : await deps.selfFunded(args);
+      assertCurrent();
+      const relayed = await deps.relay({ unsignedTransaction: activation.unsignedTransaction, network: chain.network });
+      assertCurrent();
+      if (!relayed.confirmed) throw new Error("Solana activation is awaiting confirmation");
+      const created = await deps.fetch(rpc, config);
+      assertCurrent();
+      if (!created) throw new Error("Solana account creation relayed but Swig account was not found");
+      await verify(created);
+      assertCurrent();
+      return { ...relayed, reimbursementLamports: activation.reimbursementLamports };
+    })();
+    pending.set(key, operation);
+    void operation.finally(() => { if (pending.get(key) === operation) pending.delete(key); }).catch(() => undefined);
+    return operation;
+  };
+}
+
+export const activateSolanaAccount = createActivationService();
 
 const ACTIVATION_POLL_MS = 5_000;
-const SOLANA_MAINNET = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";
 
-export interface SolanaActivationResult {
-    signature: string;
-    confirmed: boolean;
-    reimbursementLamports: bigint;
-}
+export function useSolanaSmartAccount() {
+  const adminWallet = useAdminWallet();
+  const signer = adminWallet?.getAccount();
+  const adminAddress = signer?.address ?? null;
+  const { paymentNetwork, solanaChains } = useChain();
+  const selectedChain = useMemo(() => isEvmNetwork(paymentNetwork)
+    ? solanaChains[0] : solanaChains.find(chain => chain.network === paymentNetwork), [paymentNetwork, solanaChains]);
+  const [derived, setDerived] = useState<{ owner: string; address: string } | null>(null);
+  const swigAddress = derived?.owner === adminAddress ? derived.address : null;
+  const [creation, setCreation] = useState<{ key: string; generation: number; pending: boolean; error: string | null }>({ key: "", generation: 0, pending: false, error: null });
+  const scopeKey = `${adminAddress}:${paymentNetwork}:${selectedChain?.rpcUrl}:${selectedChain?.assetAddress}`;
+  const current = useRef({ key: scopeKey, generation: 0 });
+  if (current.current.key !== scopeKey) current.current = { key: scopeKey, generation: current.current.generation + 1 };
+  const generation = current.current.generation;
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 
-const activationPromises = new Map<string, Promise<SolanaActivationResult>>();
-
-export interface SolanaSmartAccountState {
-    swigAddress: string | null;
-    evmSignerAddress: string | null;
-    isActivated: boolean;
-    isCreating: boolean;
-    requiredFundingLamports: bigint | null;
-    currentFundingLamports: bigint | null;
-    error: string | null;
-}
-
-export function useSolanaSmartAccount(): SolanaSmartAccountState & {
-    create: () => Promise<SolanaActivationResult | null>;
-} {
-    const adminWallet = useAdminWallet();
-    const { paymentNetwork, solanaChains } = useChain();
-    const [swigAddress, setSwigAddress] = useState<string | null>(null);
-    const [evmSignerAddress, setEvmSignerAddress] = useState<string | null>(null);
-    const [isActivated, setIsActivated] = useState(false);
-    const [isCreating, setIsCreating] = useState(false);
-    const [requiredFundingLamports, setRequiredFundingLamports] = useState<bigint | null>(null);
-    const [currentFundingLamports, setCurrentFundingLamports] = useState<bigint | null>(null);
-    const [error, setError] = useState<string | null>(null);
-    const creatingRef = useRef(false);
-    const checkedKeyRef = useRef<string | null>(null);
-
-    const selectedSolanaChain = useMemo(() => {
-        const defaultSolanaChain = solanaChains.at(0) ?? null;
-        if (!isEvmNetwork(paymentNetwork)) {
-            return solanaChains.find((chain) => chain.network === paymentNetwork) ?? defaultSolanaChain;
-        }
-        return defaultSolanaChain;
-    }, [paymentNetwork, solanaChains]);
-
-    const selectedSolanaNetwork = selectedSolanaChain?.network ?? null;
-    const selectedSolanaRpcUrl = selectedSolanaChain?.rpcUrl ?? null;
-
-    const adminAddress = adminWallet?.getAccount?.()?.address ?? null;
-
-    const create = useCallback(async () => {
-        if (!adminAddress) throw new Error("EVM signer account not available");
-        if (!swigAddress) throw new Error("Solana account address is still resolving");
-        if (!selectedSolanaNetwork || !selectedSolanaRpcUrl || !selectedSolanaChain) {
-            throw new Error("Solana network configuration is not available");
-        }
-
-        const swigId = deriveSwigId(adminAddress);
-        const configPda = await deriveSwigConfigAddress(adminAddress);
-        const checkedKey = `${adminAddress.toLowerCase()}:${selectedSolanaNetwork}:${configPda}`;
-        const sharedActivation = activationPromises.get(checkedKey);
-        if (sharedActivation) {
-            setIsCreating(true);
-            try {
-                const activationResult = await sharedActivation;
-                setIsActivated(true);
-                setRequiredFundingLamports(null);
-                setCurrentFundingLamports(null);
-                setError(null);
-                return activationResult;
-            } catch (err) {
-                const failure = err instanceof Error ? err : new Error(String(err));
-                setError(failure.message);
-                throw failure;
-            } finally {
-                setIsCreating(false);
-            }
-        }
-        if (creatingRef.current) {
-            throw new Error("Solana account activation is already in progress");
-        }
-
-        creatingRef.current = true;
-        setIsCreating(true);
-        setError(null);
-        try {
-            const rpc = createSolanaRpcFromNetwork(selectedSolanaNetwork, selectedSolanaRpcUrl);
-
-            const existing = await fetchSwigAccount(rpc, configPda);
-            if (existing) {
-                writeSwigCreated(adminAddress, selectedSolanaNetwork);
-                checkedKeyRef.current = checkedKey;
-                setIsActivated(true);
-                setRequiredFundingLamports(null);
-                setCurrentFundingLamports(null);
-                return null;
-            }
-
-            setIsActivated(false);
-
-            const walletBalance = await rpc.getBalance(swigAddress as any).send();
-            setRequiredFundingLamports(SVM_ACTIVATION_MINIMUM_LAMPORTS);
-            setCurrentFundingLamports(walletBalance.value);
-            const useUsdcFallback = walletBalance.value < SVM_ACTIVATION_MINIMUM_LAMPORTS
-                && selectedSolanaNetwork === SOLANA_MAINNET;
-            const availableUsdc = useUsdcFallback
-                ? await readSvmTokenBalance({
-                    owner: swigAddress as any,
-                    mint: selectedSolanaChain.assetAddress,
-                    rpc,
-                })
-                : 0n;
-            if (walletBalance.value < SVM_ACTIVATION_MINIMUM_LAMPORTS && availableUsdc === 0n) {
-                throw new Error(
-                    `Fund Solana account ${swigAddress} with at least ${SVM_ACTIVATION_MINIMUM_LAMPORTS} lamports before activation`,
-                );
-            }
-
-            const activationPromise = (async () => {
-                const account = adminWallet?.getAccount?.();
-                if (!account) throw new Error("EVM account not available for signing");
-
-                const { feePayer } = await sdk.svm.feePayer();
-                const signature = await account.signMessage({
-                    message: SWIG_AUTH_SIGN_MESSAGE,
-                });
-                const evmPubkey = await recoverEvmSecp256k1Pubkey(signature, SWIG_AUTH_SIGN_MESSAGE);
-                const signMessage = async (message: Uint8Array) => {
-                    return account.signMessage({ message: { raw: message } as any });
-                };
-                const activation = useUsdcFallback
-                    ? await buildUsdcFundedCreateSwigTransaction({
-                        swigId,
-                        evmPubkey,
-                        feePayer: feePayer as any,
-                        usdcMint: selectedSolanaChain.assetAddress,
-                        availableUsdc,
-                        network: selectedSolanaNetwork,
-                        rpc,
-                        signMessage,
-                    })
-                    : await buildSelfFundedCreateSwigTransaction({
-                        swigId,
-                        evmPubkey,
-                        feePayer: feePayer as any,
-                        usdcMint: selectedSolanaChain.assetAddress,
-                        rpc,
-                        signMessage,
-                    });
-                const relayed = await sdk.svm.relay({
-                    unsignedTransaction: activation.unsignedTransaction,
-                    network: selectedSolanaNetwork,
-                });
-                return {
-                    ...relayed,
-                    reimbursementLamports: activation.reimbursementLamports,
-                };
-            })();
-            activationPromises.set(checkedKey, activationPromise);
-            void activationPromise.finally(() => {
-                if (activationPromises.get(checkedKey) === activationPromise) {
-                    activationPromises.delete(checkedKey);
-                }
-            }).catch(() => undefined);
-            const activationResult = await activationPromise;
-
-            const created = await fetchSwigAccount(rpc, configPda);
-            if (!created) {
-                throw new Error("Solana account creation relayed but Swig account was not found");
-            }
-            writeSwigCreated(adminAddress, selectedSolanaNetwork);
-            checkedKeyRef.current = checkedKey;
-            setIsActivated(true);
-            setRequiredFundingLamports(null);
-            setCurrentFundingLamports(null);
-            return activationResult;
-        } catch (err) {
-            const failure = err instanceof Error ? err : new Error(String(err));
-            console.error("[useSolanaSmartAccount] Failed:", failure.message);
-            setError(failure.message);
-            throw failure;
-        } finally {
-            creatingRef.current = false;
-            setIsCreating(false);
-        }
-    }, [adminAddress, adminWallet, selectedSolanaChain, selectedSolanaNetwork, selectedSolanaRpcUrl, swigAddress]);
-
-    useEffect(() => {
-        checkedKeyRef.current = null;
-        setIsActivated(false);
-        setRequiredFundingLamports(null);
-        setCurrentFundingLamports(null);
-        setError(null);
-    }, [adminAddress, selectedSolanaNetwork]);
-
-    useEffect(() => {
-        if (!adminAddress) {
-            setSwigAddress(null);
-            setEvmSignerAddress(null);
-            setIsActivated(false);
-            setRequiredFundingLamports(null);
-            setCurrentFundingLamports(null);
-            setError(null);
-            checkedKeyRef.current = null;
-            return;
-        }
-
-        setEvmSignerAddress(adminAddress);
-
-        let cancelled = false;
-        setError(null);
-        checkedKeyRef.current = null;
-        (async () => {
-            try {
-                const walletPda = await deriveSwigWalletAddress(adminAddress);
-                if (cancelled) return;
-                setSwigAddress(walletPda);
-            } catch (err) {
-                if (cancelled) return;
-                console.error("[useSolanaSmartAccount] Derive failed:", err);
-            }
-        })();
-
-        return () => { cancelled = true; };
-    }, [adminAddress]);
-
-    useEffect(() => {
-        if (!adminAddress || !selectedSolanaNetwork) return;
-        if (readSwigCreated(adminAddress, selectedSolanaNetwork)) {
-            setIsActivated(true);
-            setRequiredFundingLamports(null);
-            setCurrentFundingLamports(null);
-        }
-    }, [adminAddress, selectedSolanaNetwork]);
-
-    const status = useQuery({
-        queryKey: ['swig', adminAddress?.toLowerCase(), selectedSolanaNetwork, selectedSolanaRpcUrl, swigAddress],
-        enabled: Boolean(adminAddress && swigAddress && selectedSolanaNetwork && selectedSolanaRpcUrl),
-        retry: false,
-        staleTime: ACTIVATION_POLL_MS,
-        refetchInterval: ACTIVATION_POLL_MS,
-        queryFn: async () => {
-            const rpc = createSolanaRpcFromNetwork(selectedSolanaNetwork!, selectedSolanaRpcUrl!);
-            const configPda = await deriveSwigConfigAddress(adminAddress!);
-            const existing = await fetchSwigAccount(rpc, configPda);
-            const balance = existing ? null : (await rpc.getBalance(swigAddress as any).send()).value;
-            return { configPda, activated: Boolean(existing), balance };
-        },
+  useEffect(() => {
+    if (!adminAddress) { setDerived(null); return; }
+    let cancelled = false;
+    void deriveSwigWalletAddress(adminAddress).then(address => {
+      if (!cancelled) setDerived({ owner: adminAddress, address });
+    }).catch(error => {
+      if (!cancelled) setCreation({ key: scopeKey, generation, pending: false, error: error.message });
     });
+    return () => { cancelled = true; };
+  }, [adminAddress]);
 
-    useEffect(() => {
-        if (!adminAddress || !selectedSolanaNetwork || !status.data) return;
-        checkedKeyRef.current = `${adminAddress.toLowerCase()}:${selectedSolanaNetwork}:${status.data.configPda}`;
-        if (status.data.activated) writeSwigCreated(adminAddress, selectedSolanaNetwork);
-        else clearSwigCreated(adminAddress, selectedSolanaNetwork);
-        setIsActivated(status.data.activated);
-        setRequiredFundingLamports(status.data.activated ? null : SVM_ACTIVATION_MINIMUM_LAMPORTS);
-        setCurrentFundingLamports(status.data.balance);
-        setError(null);
-    }, [adminAddress, selectedSolanaNetwork, status.data, status.dataUpdatedAt]);
+  const status = useQuery({
+    queryKey: ['swig', adminAddress, selectedChain?.network, selectedChain?.rpcUrl, selectedChain?.assetAddress, swigAddress],
+    enabled: Boolean(adminAddress && swigAddress && selectedChain),
+    retry: false,
+    staleTime: ACTIVATION_POLL_MS,
+    refetchInterval: ACTIVATION_POLL_MS,
+    queryFn: async () => {
+      const rpc = createSolanaRpcFromNetwork(selectedChain!.network, selectedChain!.rpcUrl);
+      const config = await deriveSwigConfigAddress(adminAddress!);
+      const existing = await fetchSwigAccount(rpc, config);
+      const balance = existing ? null : (await rpc.getBalance(swigAddress as any).send()).value;
+      return { activated: Boolean(existing), balance };
+    },
+  });
+  useEffect(() => {
+    if (!adminAddress || !selectedChain || !status.data) return;
+    if (status.data.activated) writeSwigCreated(adminAddress, selectedChain.network);
+    else clearSwigCreated(adminAddress, selectedChain.network);
+  }, [adminAddress, selectedChain, status.data]);
 
-    useEffect(() => {
-        if (status.error) setError(status.error.message);
-    }, [status.error]);
-
-    return {
-        swigAddress,
-        evmSignerAddress,
-        isActivated,
-        isCreating,
-        requiredFundingLamports,
-        currentFundingLamports,
-        error,
-        create,
+  const create = useCallback(async (): Promise<SolanaActivationResult | null> => {
+    if (!signer || !adminAddress) throw new Error("EVM signer account not available");
+    if (!swigAddress) throw new Error("Solana account address is still resolving");
+    if (!selectedChain || isEvmNetwork(paymentNetwork)) throw new Error("Select a configured Solana network before activation");
+    const assertCurrent = () => {
+      if (!mounted.current || current.current.generation !== generation || current.current.key !== scopeKey || adminWallet?.getAccount()?.address !== adminAddress) {
+        throw new Error("The signer or selected network changed; retry the operation");
+      }
     };
+    assertCurrent();
+    setCreation({ key: scopeKey, generation, pending: true, error: null });
+    try {
+      const result = await activateSolanaAccount({ chain: selectedChain, signer, walletAddress: swigAddress, assertCurrent });
+      assertCurrent();
+      writeSwigCreated(adminAddress, selectedChain.network);
+      await status.refetch();
+      assertCurrent();
+      return result;
+    } catch (cause) {
+      if (mounted.current && current.current.generation === generation) setCreation({ key: scopeKey, generation, pending: false, error: cause instanceof Error ? cause.message : String(cause) });
+      throw cause;
+    } finally {
+      if (mounted.current && current.current.generation === generation) setCreation(value => ({ ...value, pending: false }));
+    }
+  }, [signer, adminAddress, swigAddress, selectedChain, paymentNetwork, scopeKey, generation, adminWallet, status.refetch]);
+
+  return {
+    swigAddress,
+    evmSignerAddress: adminAddress,
+    isActivated: status.data?.activated ?? false,
+    isCreating: creation.key === scopeKey && creation.generation === generation && creation.pending,
+    requiredFundingLamports: status.data?.activated ? null : SVM_ACTIVATION_MINIMUM_LAMPORTS,
+    currentFundingLamports: status.data?.balance ?? null,
+    error: creation.key === scopeKey && creation.generation === generation && creation.error ? creation.error : status.error?.message ?? null,
+    create,
+  };
 }
