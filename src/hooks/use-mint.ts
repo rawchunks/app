@@ -4,8 +4,8 @@ import { prepareContractCall, readContract, sendTransaction, simulateTransaction
 import { parseEventLogs } from 'viem';
 import { useSelectedUserAddress } from './use-address';
 import { getEvmChainObject, isEvmNetwork, getNetworkRpcUrl, thirdwebClient, usdcToWei } from '../lib/chains';
-import { getFactoryContract, getRemixContract } from '../lib/contracts';
-import { fetchSolanaFactoryConfig, fetchSolanaSong, relaySolanaMintSong, relaySolanaRemixSong } from '../lib/programs';
+import { getFactoryContract, getRemixContract, requireEvmDeployment } from '../lib/contracts';
+import { fetchSolanaFactoryConfig, fetchSolanaSong, relaySolanaMintSong, relaySolanaRemixSong, requireSolanaDeployment } from '../lib/programs';
 import { uploadSongMetadata } from '../lib/pinata';
 import { mintSong, type Mint } from '../lib/mint';
 import { sdk } from '../lib/sdk';
@@ -39,7 +39,7 @@ async function loadSong(id: string, userAddress: string): Promise<Song> {
 
 export function useMint() {
   const account = useActiveAccount();
-  const { userAddress, svmAddress, paymentNetwork } = useSelectedUserAddress();
+  const { userAddress, svmAddress, paymentNetwork, captureSolanaOperation, assertCurrent } = useSelectedUserAddress();
   const pending = useSyncExternalStore(listener => { listeners.add(listener); return () => { listeners.delete(listener); }; }, () => [...jobs.keys()].join(','));
 
   const ensure = (input: Song): Promise<Song> => {
@@ -51,6 +51,9 @@ export function useMint() {
       if (mint) localStorage.setItem(key, JSON.stringify(mint));
       else localStorage.removeItem(key);
     };
+    let solana: ReturnType<typeof captureSolanaOperation> | null = null;
+    let originalSongId = 0n;
+    let transaction: PreparedTransaction<any> | null = null;
     const factory = (network: string) => {
       if (!isEvmNetwork(network)) throw new Error('The song network is unavailable');
       const chain = getEvmChainObject(network);
@@ -96,10 +99,12 @@ export function useMint() {
       },
       write,
       prepare: async song => {
+        assertCurrent();
         if (!account) throw new Error('Connect your wallet');
         const network = song.metadata_cid && song.network ? song.network : song.source ? (await loadSong(song.source, userAddress)).network : paymentNetwork;
         if (!network) throw new Error('The source song network is unavailable');
         const cid = song.metadata_cid || await uploadSongMetadata(song, song.title);
+        assertCurrent();
         return { network, cid, after: song.metadata_cid ? '0' : (await total(network)).toString(), submitted: false };
       },
       verify,
@@ -116,22 +121,36 @@ export function useMint() {
         return null;
       },
       preflight: async (song, mint) => {
+        assertCurrent();
         if (!account) throw new Error('Connect your wallet');
         if (paymentNetwork !== mint.network) throw new Error('Select the song network in your wallet');
         const creator = isEvmNetwork(mint.network) ? account.address : svmAddress;
         if (!creator || !sameAddress(song.creator, creator)) throw new Error('Select the wallet that created this song');
-      },
-      send: async (song, mint) => {
-        if (!account) throw new Error('Connect your wallet');
-        if (paymentNetwork !== mint.network) throw new Error('Select the song network in your wallet');
-        const originalSongId = await parent(song, mint.network);
+        solana = !isEvmNetwork(mint.network) ? captureSolanaOperation() : null;
+        originalSongId = await parent(song, mint.network);
+        assertCurrent();
         if (isEvmNetwork(mint.network)) {
           const contract = factory(mint.network);
-          const transaction: PreparedTransaction<any> = originalSongId
+          await requireEvmDeployment(contract.chain, originalSongId ? ['Factory', 'Remix', 'Royalties'] : ['Factory']);
+          assertCurrent();
+          transaction = originalSongId
             ? prepareContractCall({ contract: getRemixContract(thirdwebClient, contract.chain), method: 'remixSong', params: [originalSongId, { licenseAmount: 0n, licensePrice: 0n, streamPrice: usdcToWei(song.stream_price) }, `ipfs://${mint.cid}`] })
             : prepareContractCall({ contract, method: 'mintSong', params: [BigInt(song.licenses), usdcToWei(song.license_price), usdcToWei(song.stream_price), true, `ipfs://${mint.cid}`] });
-          try { await simulateTransaction({ account, transaction }); }
-          catch (error) { write({ ...mint, submitted: false }); throw error; }
+          await simulateTransaction({ account, transaction });
+          assertCurrent();
+          return;
+        }
+        if (!solana) throw new Error('Solana account is not ready');
+        await requireSolanaDeployment({ network: mint.network as SolanaNetworkId, rpcUrl: solana.chain.rpcUrl }, originalSongId ? ['Factory', 'Remix', 'Royalties'] : ['Factory']);
+        solana.assertCurrent();
+        await solana.activate();
+      },
+      send: async (song, mint) => {
+        try { assertCurrent(); }
+        catch (error) { write({ ...mint, submitted: false }); throw error; }
+        if (!account) throw new Error('Connect your wallet');
+        if (isEvmNetwork(mint.network)) {
+          if (!transaction) throw new Error('Mint preflight is missing');
           try {
             const result = await sendTransaction({ account, transaction });
             return { ...mint, hash: result.transactionHash };
@@ -140,13 +159,15 @@ export function useMint() {
             throw error;
           }
         }
-        if (!svmAddress) throw new Error('Solana account is not ready');
-        const args = { network: mint.network as SolanaNetworkId, rpcUrl: getNetworkRpcUrl(mint.network), selectedSvmAddress: svmAddress, evmSignerAddress: account.address, signMessage: (message: Uint8Array) => account.signMessage({ message: { raw: message } }), licenseAmount: originalSongId ? 0n : BigInt(song.licenses), licensePrice: originalSongId ? 0n : usdcToWei(song.license_price), streamPrice: usdcToWei(song.stream_price), metadataUri: `ipfs://${mint.cid}` };
+        if (!solana) throw new Error('Solana account is not ready');
+        const args = { network: mint.network as SolanaNetworkId, rpcUrl: solana.chain.rpcUrl, selectedSvmAddress: solana.walletAddress, evmSignerAddress: solana.signerAddress, signMessage: solana.signMessage, assertCurrent: solana.assertCurrent, licenseAmount: originalSongId ? 0n : BigInt(song.licenses), licensePrice: originalSongId ? 0n : usdcToWei(song.license_price), streamPrice: usdcToWei(song.stream_price), metadataUri: `ipfs://${mint.cid}` };
         if (originalSongId) {
           const result = await relaySolanaRemixSong({ ...args, originalSongId });
+          solana.assertCurrent();
           return { ...mint, id: result.remixSongId.toString(), hash: result.signature };
         }
         const result = await relaySolanaMintSong({ ...args, remixable: true });
+        solana.assertCurrent();
         return { ...mint, id: result.songId.toString(), hash: result.signature };
       },
       confirm: async (song, mint) => {

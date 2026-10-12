@@ -6,8 +6,8 @@ import { toast } from 'sonner';
 import type { SolanaNetworkId } from '@compose-market/sdk/chains';
 import { useSelectedUserAddress } from './use-address';
 import { thirdwebClient, isEvmNetwork, getEvmChainObject, getNetworkRpcUrl } from '../lib/chains';
-import { getFactoryContract, getRemixContract, getRoyaltiesContract } from '../lib/contracts';
-import { fetchSolanaHasLicense, fetchSolanaSong, relaySolanaBuyLicense } from '../lib/programs';
+import { getFactoryContract, getRemixContract, getRoyaltiesContract, requireEvmDeployment } from '../lib/contracts';
+import { fetchSolanaHasLicense, fetchSolanaSong, relaySolanaBuyLicense, requireSolanaDeployment } from '../lib/programs';
 import { sdk } from '../lib/sdk';
 import { store } from '../lib/store';
 import { fetchFromIpfs } from '../lib/pinata';
@@ -57,7 +57,7 @@ export function useLicensedSongs(songs: Song[]) {
 
 export function useLicense(song: Song, onEditSong?: (song: Song) => void, includeSales = true) {
   const account = useActiveAccount();
-  const { userAddress, evmAddress, svmAddress, paymentNetwork } = useSelectedUserAddress();
+  const { userAddress, evmAddress, svmAddress, paymentNetwork, captureSolanaOperation, assertCurrent } = useSelectedUserAddress();
   const [pending, setPending] = useState(false);
   const queryClient = useQueryClient();
   const query = useQuery({
@@ -92,36 +92,52 @@ export function useLicense(song: Song, onEditSong?: (song: Song) => void, includ
     if (paymentNetwork !== song.network) { toast.error('Select the song network in your wallet'); return; }
     setPending(true);
     try {
+      const solana = !isEvmNetwork(paymentNetwork) ? captureSolanaOperation() : null;
       const state = await query.refetch({ throwOnError: true });
+      assertCurrent();
       if (!state.data || !song.chain_song_id || !song.network) throw new Error('The license is unavailable');
       if (!state.data.owned) {
         if (!state.data.available || state.data.remaining === 0n) throw new Error('No licenses are available');
         if (isEvmNetwork(song.network)) {
           const chain = getEvmChainObject(song.network);
           if (!chain) throw new Error('The song network is unavailable');
+          await requireEvmDeployment(chain, ['Factory', 'Remix', 'Royalties']);
+          assertCurrent();
           const remix = getRemixContract(thirdwebClient, chain);
           const royalties = getRoyaltiesContract(thirdwebClient, chain);
           const tokenAddress = await readContract({ contract: royalties, method: 'usdc' });
+          assertCurrent();
           const token = getContract({ client: thirdwebClient, chain, address: tokenAddress });
           const allowance = await readContract({ contract: token, method: 'function allowance(address owner, address spender) view returns (uint256)', params: [account.address, remix.address] });
+          assertCurrent();
           if (allowance < state.data.price) {
             const approval = prepareContractCall({ contract: token, method: 'function approve(address spender, uint256 amount) returns (bool)', params: [remix.address, state.data.price] });
             await simulateTransaction({ account, transaction: approval });
+            assertCurrent();
             const receipt = await sendAndConfirmTransaction({ account, transaction: approval });
+            assertCurrent();
             if (receipt.status !== 'success') throw new Error('Token approval failed');
           }
           const purchase = prepareContractCall({ contract: remix, method: 'buyLicense', params: [BigInt(song.chain_song_id)] });
           await simulateTransaction({ account, transaction: purchase });
+          assertCurrent();
           const receipt = await sendAndConfirmTransaction({ account, transaction: purchase });
+          assertCurrent();
           if (receipt.status !== 'success') throw new Error('License purchase failed');
         } else {
-          if (!svmAddress) throw new Error('Solana account is not ready');
-          await relaySolanaBuyLicense({ network: song.network as SolanaNetworkId, rpcUrl: getNetworkRpcUrl(song.network), selectedSvmAddress: svmAddress, evmSignerAddress: account.address, songId: BigInt(song.chain_song_id), signMessage: message => account.signMessage({ message: { raw: message } }) });
+          if (!solana) throw new Error('Solana account is not ready');
+          await requireSolanaDeployment({ network: song.network as SolanaNetworkId, rpcUrl: solana.chain.rpcUrl }, ['Factory', 'Remix', 'Royalties']);
+          solana.assertCurrent();
+          await solana.activate();
+          await relaySolanaBuyLicense({ network: song.network as SolanaNetworkId, rpcUrl: solana.chain.rpcUrl, selectedSvmAddress: solana.walletAddress, evmSignerAddress: solana.signerAddress, songId: BigInt(song.chain_song_id), signMessage: solana.signMessage, assertCurrent: solana.assertCurrent });
+          solana.assertCurrent();
         }
         const licensed = await query.refetch({ throwOnError: true });
+        assertCurrent();
         if (!licensed.data?.owned) throw new Error('The purchase has not been confirmed');
       }
       await queryClient.invalidateQueries({ queryKey: ['license', song.id] });
+      assertCurrent();
       toast.success('License purchased. You can remix this song from My-Page.');
     } catch (error) { toast.error(error instanceof Error ? error.message : 'Could not buy the license'); }
     finally { setPending(false); }
