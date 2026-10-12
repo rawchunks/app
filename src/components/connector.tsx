@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { ConnectButton, useActiveAccount, useActiveWallet, useActiveWalletConnectionStatus, useAutoConnect } from "thirdweb/react";
 import { createWallet, inAppWallet } from "thirdweb/wallets";
-import type { SmartWalletOptions } from "thirdweb/wallets";
+import type { SmartWalletOptions, Account, Wallet as ThirdwebWallet } from "thirdweb/wallets";
+import { getContract, readContract, prepareContractCall, encode, sendAndConfirmTransaction, type Chain, type PreparedTransaction } from "thirdweb";
+import { allowance, approve } from "thirdweb/extensions/erc20";
+import { createPublicClient, http } from "viem";
 import { ChevronDown, LogOut, Copy, Check, ExternalLink, Wallet, ShieldCheck, User } from "lucide-react";
 import {
   DropdownMenu,
@@ -18,10 +21,77 @@ import { ProfileModal } from "@/components/profile-modal";
 import { cn } from "@/lib/utils";
 import { NetworkGlyph } from "@/contexts/Network";
 import { clearCachedAccount, readCachedAccount, writeCachedAccount } from "@/lib/cache";
-import type { EvmNetworkId } from "@compose-market/sdk/chains";
 import { DisclaimerModal } from "@/components/disclaimer";
 import { useDisclaimerConsent } from "@/hooks/use-disclaimer";
 import { thirdwebCustomTheme } from "@/lib/connector";
+
+const TEMPO_ACCOUNT_FACTORY = "0x85e23b94e7F5E9cC1fF78BCe78cfb15B81f0DF00";
+
+export async function approveTempoSession(input: {
+  chain: Chain; admin: Account; adminWallet: ThirdwebWallet; accountAddress: string;
+  asset: string; spender: string; amount: bigint; assertCurrent: () => void;
+}): Promise<void> {
+  const { chain, admin, assertCurrent } = input;
+  if (chain.id !== 42431 || !chain.rpc) throw new Error("Tempo Moderato configuration is unavailable");
+  const rpc = createPublicClient({ transport: http(chain.rpc) });
+  const check = () => {
+    assertCurrent();
+    if (input.adminWallet.getAccount()?.address.toLowerCase() !== admin.address.toLowerCase()) {
+      throw new Error("The admin signer changed; retry session creation");
+    }
+  };
+  const factory = getContract({ client: thirdwebClient, chain, address: TEMPO_ACCOUNT_FACTORY });
+  const smart = getContract({ client: thirdwebClient, chain, address: input.accountAddress });
+  const token = getContract({ client: thirdwebClient, chain, address: input.asset });
+  check();
+  if (await rpc.getChainId() !== chain.id) throw new Error("The Tempo RPC returned another network");
+  const factoryCode = await rpc.getCode({ address: TEMPO_ACCOUNT_FACTORY });
+  check();
+  if (!factoryCode || factoryCode === "0x") throw new Error("The canonical Thirdweb account factory is not deployed on Tempo Moderato. It must be deployed before this universal account can be initialized.");
+  const predicted = await readContract({ contract: factory, method: "function getAddress(address, bytes) view returns (address)", params: [admin.address, "0x"] });
+  check();
+  if (predicted.toLowerCase() !== input.accountAddress.toLowerCase()) throw new Error("The derived Tempo smart account differs from the universal EVM address");
+  const send = async (transaction: PreparedTransaction) => {
+    check();
+    if (!admin.signTransaction) {
+      await input.adminWallet.switchChain(chain);
+      check();
+      if (input.adminWallet.getChain()?.id !== chain.id) throw new Error("Select Tempo Moderato in your wallet");
+    }
+    const sender: Account = {
+      ...admin,
+      sendTransaction: async tx => {
+        check();
+        if (tx.chainId !== chain.id) throw new Error("The approval transaction uses another network");
+        if (!admin.signTransaction) {
+          if (input.adminWallet.getChain()?.id !== chain.id) throw new Error("Select Tempo Moderato in your wallet");
+          return admin.sendTransaction(tx);
+        }
+        const signed = await admin.signTransaction(tx);
+        check();
+        return { transactionHash: await rpc.sendRawTransaction({ serializedTransaction: signed }) };
+      },
+    };
+    const receipt = await sendAndConfirmTransaction({ account: sender, transaction });
+    check();
+    if (receipt.status !== "success") throw new Error("Tempo account or approval transaction reverted");
+  };
+  const code = await rpc.getCode({ address: input.accountAddress as `0x${string}` });
+  check();
+  if (!code || code === "0x") await send(prepareContractCall({ contract: factory, method: "function createAccount(address, bytes) returns (address)", params: [admin.address, "0x"] }));
+  const isAdmin = await readContract({ contract: smart, method: "function isAdmin(address) view returns (bool)", params: [admin.address] });
+  check();
+  if (!isAdmin) throw new Error("The signer is not an admin of the Tempo smart account");
+  const approved = await allowance({ contract: token, owner: input.accountAddress, spender: input.spender });
+  check();
+  if (approved < input.amount) {
+    const data = await encode(approve({ contract: token, spender: input.spender, amountWei: input.amount }));
+    check();
+    await send(prepareContractCall({ contract: smart, method: "function execute(address, uint256, bytes)", params: [input.asset, 0n, data] }));
+    if (await allowance({ contract: token, owner: input.accountAddress, spender: input.spender }) < input.amount) throw new Error("Tempo session spending approval was not applied onchain");
+  }
+  check();
+}
 
 const wallets = [
   inAppWallet({
@@ -54,7 +124,7 @@ export function WalletConnector({ className, compact = true }: WalletConnectorPr
   const account = useActiveAccount();
   const wallet = useActiveWallet();
   const connectionStatus = useActiveWalletConnectionStatus();
-  const { paymentNetwork, getChainByNetworkId, evmChains, defaultNetwork } = useChain();
+  const { paymentNetwork, getChainByNetworkId, chains, defaultNetwork } = useChain();
   const {
     userAddress,
     readAddress,
@@ -100,13 +170,11 @@ export function WalletConnector({ className, compact = true }: WalletConnectorPr
     }
   }, [connectionStatus]);
 
-  const fallbackEvmNetwork = useMemo((): EvmNetworkId | undefined => {
-    if (isEvmNetwork(defaultNetwork)) return defaultNetwork;
-    const first = evmChains.find((chain) => isEvmNetwork(chain.network));
-    return first?.network as EvmNetworkId | undefined;
-  }, [defaultNetwork, evmChains]);
-
-  const thirdwebNetwork = isEvm ? paymentNetwork : fallbackEvmNetwork;
+  // Payment selection cannot change the chain used to restore the login identity.
+  const [thirdwebNetwork] = useState(() => {
+    const evmChains = chains.filter(chain => isEvmNetwork(chain.network));
+    return evmChains.find(chain => chain.network === defaultNetwork)?.network ?? evmChains[0]?.network;
+  });
   const thirdwebChainIdValue = thirdwebNetwork && isEvmNetwork(thirdwebNetwork)
     ? evmChainId(thirdwebNetwork)
     : undefined;
@@ -114,7 +182,7 @@ export function WalletConnector({ className, compact = true }: WalletConnectorPr
   const connectChain = useMemo(() => {
     if (thirdwebChainIdValue == null) return undefined;
     return getChainObject(thirdwebChainIdValue);
-  }, [thirdwebChainIdValue]);
+  }, [thirdwebChainIdValue, chains]);
   const accountAbstraction = useMemo<SmartWalletOptions | undefined>(() => connectChain
     ? { chain: connectChain, sponsorGas: true } : undefined, [connectChain]);
   useAutoConnect({ client: thirdwebClient, wallets, chain: connectChain, accountAbstraction });
@@ -128,10 +196,10 @@ export function WalletConnector({ className, compact = true }: WalletConnectorPr
     const asset = getChainConfig(thirdwebChainIdValue)?.asset ?? "USDC";
     return {
       address: usdcAddress,
-      name: asset === "USDT" ? "USDT" : "USD Coin",
+      name: asset,
       symbol: asset,
     };
-  }, [thirdwebChainIdValue]);
+  }, [thirdwebChainIdValue, chains]);
 
   const displayEvmAddress = evmAddress ?? (isReconnecting ? cachedAccount?.address ?? null : null);
   const displaySvmAddress = svmAddress ?? (isReconnecting ? cachedAccount?.svmAddress ?? null : null);
@@ -259,7 +327,7 @@ export function WalletConnector({ className, compact = true }: WalletConnectorPr
               <b>{chainInfo?.name || "Unknown network"}</b>
             </span>
             <span className="menu-total">
-              {balanceLoading ? "..." : `$${totalBalance} USDC`}
+              {balanceLoading ? "..." : `$${totalBalance}`}
             </span>
           </div>
 
@@ -294,7 +362,9 @@ export function WalletConnector({ className, compact = true }: WalletConnectorPr
               <p className="menu-note">
                 {isActivationFunded
                   ? "Ready to activate when you start a session."
-                  : `Fund this address with ${requiredActivationSol} SOL or 5 USDC to activate it.`}
+                  : paymentNetwork === "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"
+                    ? `Fund this address with ${requiredActivationSol} SOL or USDC to activate it.`
+                    : `Fund this address with ${requiredActivationSol} SOL to activate it.`}
               </p>
             ) : null}
             {!isEvm && !solanaActivated && requiredActivationSol && currentActivationSol ? (
