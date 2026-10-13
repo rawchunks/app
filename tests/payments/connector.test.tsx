@@ -21,7 +21,7 @@ vi.mock("@/components/disclaimer", () => ({ DisclaimerModal: () => null }));
 vi.mock("@/components/profile-modal", () => ({ ProfileModal: () => null }));
 vi.mock("@/lib/connector", () => ({ thirdwebCustomTheme: {} }));
 
-import { WalletConnector, approveTempoSession } from "@/components/connector";
+import { WalletConnector, approveTempoSession, prepareTempoTransaction } from "@/components/connector";
 import { getChainObject, setChainRegistry } from "@/lib/chains";
 
 const adminAddress = "0x1111111111111111111111111111111111111111";
@@ -179,4 +179,45 @@ test("Tempo switches an external wallet and checks its chain again before sendin
   await expect(approveTempoSession(input)).rejects.toThrow("Select Tempo Moderato");
   expect(input.adminWallet.switchChain).toHaveBeenCalledWith(input.chain);
   expect(input.admin.sendTransaction).not.toHaveBeenCalled();
+});
+
+test.each([
+  ["mintSong", "function mintSong(uint256,uint256,uint256,bool,string) returns (uint256)", [10n, 1_000_000n, 100_000n, true, "ipfs://song"]],
+  ["remixSong", "function remixSong(uint256,(uint256 licenseAmount,uint256 licensePrice,uint256 streamPrice),string) returns (uint256)", [7n, { licenseAmount: 0n, licensePrice: 0n, streamPrice: 100_000n }, "ipfs://remix"]],
+  ["buyLicense", "function buyLicense(uint256)", [7n]],
+  ["approve", "function approve(address,uint256) returns (bool)", [spender, 1_000_000n]],
+])("Tempo %s preserves contract calldata and executes from the universal account with an admin-signed RPC transaction", async (_name, method, params) => {
+  const { getContract, prepareContractCall, encode } = await import("thirdweb");
+  const signer = privateKeyToAccount(`0x${"11".repeat(32)}`);
+  const input = approvalInput();
+  input.admin.address = signer.address;
+  input.admin.signTransaction = vi.fn(tx => signer.signTransaction(tx));
+  const original = prepareContractCall({ contract: getContract({ client: (await import("@/lib/chains")).thirdwebClient,
+    chain: input.chain, address: spender }), method, params } as any);
+  const prepared = await prepareTempoTransaction(input, original);
+  expect(prepared.account.address).toBe(signer.address);
+  expect(prepared.transaction.to).toBe(smartAddress);
+  const expected = encodeFunctionData({ abi: parseAbi(["function execute(address,uint256,bytes)"]), functionName: "execute",
+    args: [spender, 0n, await encode(original)] });
+  expect(await encode(prepared.transaction)).toBe(expected);
+  await prepared.account.sendTransaction({ chainId: 42431, to: smartAddress, data: expected, nonce: 0,
+    gas: 500_000n, maxFeePerGas: 1_200_000_001n, maxPriorityFeePerGas: 1n });
+  const signed = parseTransaction(mock.rpc.sendRawTransaction.mock.calls[0][0].serializedTransaction);
+  expect(signed.chainId).toBe(42431);
+  expect(signed.to?.toLowerCase()).toBe(smartAddress);
+  expect(signed.data).toBe(expected);
+  expect(input.admin.signTransaction).toHaveBeenCalledOnce();
+});
+
+test("Tempo contract execution stops after a selection change during signing", async () => {
+  const { getContract, prepareContractCall } = await import("thirdweb");
+  const input = approvalInput();
+  const original = prepareContractCall({ contract: getContract({ client: (await import("@/lib/chains")).thirdwebClient,
+    chain: input.chain, address: spender }), method: "function buyLicense(uint256)", params: [7n] });
+  const prepared = await prepareTempoTransaction(input, original);
+  let current = true;
+  input.assertCurrent.mockImplementation(() => { if (!current) throw new Error("selection changed"); });
+  input.admin.signTransaction.mockImplementationOnce(async () => { current = false; return "0x02ab"; });
+  await expect(prepared.account.sendTransaction({ chainId: 42431, to: smartAddress, data: "0x" })).rejects.toThrow("selection changed");
+  expect(mock.rpc.sendRawTransaction).not.toHaveBeenCalled();
 });

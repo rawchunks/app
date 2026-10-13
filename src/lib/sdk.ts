@@ -36,7 +36,11 @@ sdk.fetch = async function patchedFetch(
       target = `${COMPOSE_API_URL}${normalized}`;
     }
   }
-  return originalFetch(target, init);
+  const headers = new Headers(init?.headers);
+  if (init?.userAddress && !headers.has("x-session-user-address")) {
+    headers.set("x-session-user-address", init.userAddress);
+  }
+  return originalFetch(target, { ...init, headers });
 };
 
 export function attachWallet(address: string | null, network: NetworkId | null): void {

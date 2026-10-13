@@ -90,11 +90,11 @@ function voiceOwner(address: string): string {
     return /^0x[0-9a-f]{40}$/i.test(address) ? address.toLowerCase() : address;
 }
 
-export function isVoice(value: unknown, address: string): value is Voice {
+export function isVoice(value: unknown, _address?: string): value is Voice {
     if (!value || typeof value !== 'object') return false;
     const voice = value as Record<string, unknown>;
     if (typeof voice.id !== 'string' || !voice.id || typeof voice.name !== 'string' ||
-        typeof voice.creator !== 'string' || voiceOwner(voice.creator) !== voiceOwner(address) ||
+        typeof voice.creator !== 'string' || !voice.creator ||
         typeof voice.created_at !== 'string' ||
         !['saved', 'extracting', 'queued', 'training', 'ready', 'error'].includes(String(voice.status)) ||
         (voice.sample_url != null && typeof voice.sample_url !== 'string') ||

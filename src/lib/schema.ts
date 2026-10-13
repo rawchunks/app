@@ -59,6 +59,7 @@ export interface Song {
   public: boolean;       // isPublic
   image?: string;        // optional URL
   album_id?: string | null; // associated album ID
+  album_title?: string | null;
   licenses: number;      // amount of licenses
   stream_price: number;  // $ per minute
   license_price: number; // $ per license
@@ -68,6 +69,7 @@ export interface Song {
   network?: string;
   tx_hash?: string;
   tx_url?: string;
+  created_at?: string;
 }
 
 export interface Album {

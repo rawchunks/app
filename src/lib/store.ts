@@ -16,6 +16,8 @@ export interface State {
   selection: { start: number; end: number } | null;
   isGenerating: boolean;
   userAddress: string;
+  evmAddress?: string | null;
+  svmAddress?: string | null;
 }
 
 type Listener = (state: State) => void;
@@ -43,6 +45,8 @@ class Store {
       selection: null,
       isGenerating: false,
       userAddress: '',
+      evmAddress: null,
+      svmAddress: null,
     };
 
     bus.registerPlayer(() => {
@@ -237,6 +241,40 @@ class Store {
     this.notify();
   }
 
+  public isCreatorOfSong(song: Song | null | undefined, additionalAddresses?: (string | null | undefined)[]): boolean {
+    if (!song || !song.creator) return false;
+    const songCreator = song.creator.trim();
+    const songCreatorLower = songCreator.toLowerCase();
+
+    const candidates = new Set<string>();
+
+    if (this.state.userAddress) candidates.add(this.state.userAddress.trim());
+    if (this.state.evmAddress) candidates.add(this.state.evmAddress.trim());
+    if (this.state.svmAddress) candidates.add(this.state.svmAddress.trim());
+
+    const sdkWallet = sdk.wallets.current()?.address;
+    if (sdkWallet) candidates.add(sdkWallet.trim());
+
+    if (additionalAddresses) {
+      for (const addr of additionalAddresses) {
+        if (addr && typeof addr === 'string') {
+          candidates.add(addr.trim());
+        }
+      }
+    }
+
+    if (candidates.size === 0) return false;
+
+    for (const cand of candidates) {
+      if (!cand) continue;
+      if (cand.toLowerCase() === songCreatorLower || cand === songCreator) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   public async setPlaying(isPlaying: boolean): Promise<boolean> {
     if (!isPlaying) {
       bus.release('player');
@@ -253,12 +291,7 @@ class Store {
       return false;
     }
 
-    const userAddr = this.state.userAddress || sdk.wallets.current()?.address || '';
-    const isCreator = Boolean(
-      userAddr && song.creator && (
-        userAddr.toLowerCase() === song.creator.toLowerCase()
-      )
-    );
+    const isCreator = this.isCreatorOfSong(song);
 
     if (this.authorizedSongId === song.id && audio.hasSource()) {
       bus.request('player');
@@ -281,9 +314,15 @@ class Store {
     if (this.isAuthorizing) return false;
     this.isAuthorizing = true;
 
+    const effectiveUserAddress = this.state.userAddress || this.state.evmAddress || this.state.svmAddress || sdk.wallets.current()?.address || '';
+
     try {
       const response = await sdk.fetch(`/api/songs/${song.id}/stream`, {
-        headers: { 'Accept': 'application/json' },
+        userAddress: effectiveUserAddress || undefined,
+        headers: {
+          'Accept': 'application/json',
+          ...(effectiveUserAddress ? { 'x-session-user-address': effectiveUserAddress } : {}),
+        },
       });
 
       if (response.status === 402) {
@@ -366,8 +405,13 @@ class Store {
     this.notify();
   }
 
-  public setUserAddress(userAddress: string) {
-    this.state = { ...this.state, userAddress };
+  public setUserAddress(userAddress: string, evmAddress?: string | null, svmAddress?: string | null) {
+    this.state = {
+      ...this.state,
+      userAddress: userAddress || '',
+      evmAddress: evmAddress ?? null,
+      svmAddress: svmAddress ?? null,
+    };
     this.notify();
   }
 }
