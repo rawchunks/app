@@ -405,23 +405,25 @@ export function buildSolanaBuyLicenseInstruction(input: {
   const data = new Uint8Array(9);
   data[0] = 4;
   data.set(encodeU64(input.songId), 1);
-  return { programAddress: address(input.programId ?? getRawchunksSolanaDeployment().remixProgramId), data, accounts: [
-    { address: address(input.buyer), role: AccountRole.WRITABLE_SIGNER },
-    { address: address(input.authority), role: AccountRole.WRITABLE },
-    { address: address(input.config), role: AccountRole.READONLY },
-    { address: address(input.factoryProgram), role: AccountRole.READONLY },
-    { address: address(input.royaltiesProgram), role: AccountRole.READONLY },
-    { address: address(input.factoryConfig), role: AccountRole.READONLY },
-    { address: address(input.song), role: AccountRole.WRITABLE },
-    { address: address(input.license), role: AccountRole.WRITABLE },
-    { address: address(input.consumer), role: AccountRole.READONLY },
-    { address: address(input.payerToken), role: AccountRole.WRITABLE },
-    { address: address(input.creatorToken), role: AccountRole.WRITABLE },
-    { address: address(input.treasuryToken), role: AccountRole.WRITABLE },
-    { address: address(input.royaltiesConfig), role: AccountRole.READONLY },
-    { address: address(SPL_TOKEN_PROGRAM), role: AccountRole.READONLY },
-    { address: address(SYSTEM_PROGRAM), role: AccountRole.READONLY },
-  ] };
+  return {
+    programAddress: address(input.programId ?? getRawchunksSolanaDeployment().remixProgramId), data, accounts: [
+      { address: address(input.buyer), role: AccountRole.WRITABLE_SIGNER },
+      { address: address(input.authority), role: AccountRole.WRITABLE },
+      { address: address(input.config), role: AccountRole.READONLY },
+      { address: address(input.factoryProgram), role: AccountRole.READONLY },
+      { address: address(input.royaltiesProgram), role: AccountRole.READONLY },
+      { address: address(input.factoryConfig), role: AccountRole.READONLY },
+      { address: address(input.song), role: AccountRole.WRITABLE },
+      { address: address(input.license), role: AccountRole.WRITABLE },
+      { address: address(input.consumer), role: AccountRole.READONLY },
+      { address: address(input.payerToken), role: AccountRole.WRITABLE },
+      { address: address(input.creatorToken), role: AccountRole.WRITABLE },
+      { address: address(input.treasuryToken), role: AccountRole.WRITABLE },
+      { address: address(input.royaltiesConfig), role: AccountRole.READONLY },
+      { address: address(SPL_TOKEN_PROGRAM), role: AccountRole.READONLY },
+      { address: address(SYSTEM_PROGRAM), role: AccountRole.READONLY },
+    ]
+  };
 }
 
 export async function relaySolanaBuyLicense(input: {
@@ -435,11 +437,13 @@ export async function relaySolanaBuyLicense(input: {
   const authority = await rawchunksPdas.remixAuthority(deployment.remixProgramId);
   const owners = [input.selectedSvmAddress, song.creator, royalties.treasury];
   const tokens = await Promise.all(owners.map(owner => findAssociatedTokenAddress({ owner, mint: royalties.usdcMint })));
-  const accounts = { buyer: input.selectedSvmAddress, authority, config: await rawchunksPdas.remixConfig(),
+  const accounts = {
+    buyer: input.selectedSvmAddress, authority, config: await rawchunksPdas.remixConfig(),
     factoryProgram: deployment.factoryProgramId, royaltiesProgram: deployment.royaltiesProgramId,
     factoryConfig: await rawchunksPdas.factoryConfig(), song: await rawchunksPdas.song(input.songId),
     license: await rawchunksPdas.license(input.songId, input.selectedSvmAddress), consumer: await rawchunksPdas.authorizedConsumer(authority),
-    payerToken: tokens[0], creatorToken: tokens[1], treasuryToken: tokens[2], royaltiesConfig: await rawchunksPdas.royaltiesConfig(), songId: input.songId };
+    payerToken: tokens[0], creatorToken: tokens[1], treasuryToken: tokens[2], royaltiesConfig: await rawchunksPdas.royaltiesConfig(), songId: input.songId
+  };
   const instructions: Instruction[] = owners.map((owner, index) => ({
     programAddress: address(ASSOCIATED_TOKEN_PROGRAM), data: new Uint8Array([1]), accounts: [
       { address: address(input.selectedSvmAddress), role: AccountRole.WRITABLE_SIGNER },
@@ -501,11 +505,11 @@ export async function fetchSolanaOriginalParentSongId(input: {
 }
 
 export function getTreasuryFeeBps(): bigint {
-  return 500n;
+  return 2000n;
 }
 
 export function getCreatorShareBps(): bigint {
-  return 9500n;
+  return 8000n;
 }
 
 // Instruction Builders
