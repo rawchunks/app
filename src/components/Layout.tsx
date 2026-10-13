@@ -18,18 +18,18 @@ export interface Props {
 }
 
 export const Layout: React.FC<Props> = ({ current, onNavigate, children }) => {
-  const { userAddress } = useSelectedUserAddress();
+  const { userAddress, evmAddress, svmAddress } = useSelectedUserAddress();
   const { selectedNetwork } = useChain();
 
   useEffect(() => {
-    if (userAddress) {
-      store.setUserAddress(userAddress);
-      attachWallet(userAddress, selectedNetwork);
+    const activeAddress = userAddress || evmAddress || svmAddress || '';
+    store.setUserAddress(activeAddress, evmAddress, svmAddress);
+    if (activeAddress && selectedNetwork) {
+      attachWallet(activeAddress, selectedNetwork);
     } else {
-      store.setUserAddress('');
       attachWallet(null, null);
     }
-  }, [userAddress, selectedNetwork]);
+  }, [userAddress, evmAddress, svmAddress, selectedNetwork]);
 
   const navItems: { id: Route; label: string; Icon: React.ComponentType<{ className?: string }> }[] = [
     { id: 'studio', label: '/STUDIO', Icon: AudioWaveform },
