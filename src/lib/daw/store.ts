@@ -3,7 +3,7 @@ import { promptSessionModal } from '../../hooks/use-session';
 import { toast } from 'sonner';
 import { create } from 'zustand';
 import { dawEngine } from './engine';
-import { isBase, preview, interval, source, clips, sourceInterval, retained, masterArrangement } from './takes';
+import { isBase, preview, interval, source, clips, sourceInterval, retained, masterArrangement, pending, isLayerTake, layerTrackName, isFullSongRestyleTake } from './takes';
 import type { Project } from '../cache';
 import { DRUM_STEPS } from './notes';
 
@@ -98,6 +98,8 @@ export interface DAWTrack {
   id: string;
   stemId?: string;
   name: string;
+  layerName?: string;
+  stemType?: string;
   type: TrackType;
   color: string;
   volume: number;       // 0.0 to 1.2
@@ -111,6 +113,32 @@ export interface DAWTrack {
   pianoRollNotes?: PianoRollNote[];
   strudelCode?: string;
   activeTakeId?: string;
+  hasOriginalStem?: boolean;
+  originalUrl?: string;
+  activeVersionTakeId?: string | null;
+}
+
+export interface AlignedWord {
+  text: string;
+  start: number;
+  end: number;
+  loss?: number;
+}
+
+export interface AlignedLine {
+  index: number;
+  text: string;
+  isTag?: boolean;
+  start: number | null;
+  end: number | null;
+  words: AlignedWord[];
+}
+
+export interface LyricsAlignment {
+  source: 'scribe_v2' | 'forced_alignment';
+  updatedAt: string;
+  lines: AlignedLine[];
+  words: AlignedWord[];
 }
 
 export interface Take {
@@ -127,7 +155,7 @@ export interface Take {
   url: string;
   is_active: boolean;
   created_at: string;
-  provenance?: { taskId?: string; target?: string; region?: { start: number; end: number } | null; regions?: {start:number; end:number}[]; audioOffset?: number; outputDuration?: number | null; sourceTakeId?: string | null; targetStemId?: string | null; mergedInto?: string; parameters?: Record<string, any> };
+  provenance?: { taskId?: string; target?: string; layerName?: string; region?: { start: number; end: number } | null; regions?: {start:number; end:number}[]; audioOffset?: number; outputDuration?: number | null; sourceTakeId?: string | null; targetStemId?: string | null; mergedInto?: string; parameters?: Record<string, any> };
 }
 
 export interface Commit {
@@ -200,6 +228,9 @@ export interface DAWState {
   // Track actions
   setTracks: (tracks: DAWTrack[]) => void;
   syncStems: (stems: any[]) => void;
+  syncLayerTracks: (preferredTakeId?: string) => void;
+  selectLaneVersion: (trackId: string, versionId: string | null) => Promise<void>;
+  selectMasterVersion: (versionId: string | null) => Promise<void>;
   addTrack: (type: TrackType, name?: string) => DAWTrack;
   removeTrack: (trackId: string) => void;
   updateTrackMixer: (trackId: string, partial: Partial<Pick<DAWTrack, 'volume' | 'pan' | 'muted' | 'solo'>> | { volume?: number; pan?: number; muted?: boolean; solo?: boolean }) => void;
@@ -242,6 +273,38 @@ export interface DAWState {
   deleteTake: (takeId: string) => Promise<void>;
   setCommits: (commits: Commit[]) => void;
   restoreSession: (commits: Commit[]) => void;
+}
+
+const STEM_COLORS: Record<string, string> = {
+  vocals: '#00ffff',
+  vocal: '#00ffff',
+  backing_vocals: '#38bdf8',
+  'backing vocals': '#38bdf8',
+  drums: '#ff0055',
+  drum: '#ff0055',
+  percussion: '#fb7185',
+  bass: '#ffaa00',
+  instrumental: '#00ff66',
+  synth: '#9933ff',
+  lead: '#ec4899',
+  guitar: '#f59e0b',
+  keyboard: '#a855f7',
+  strings: '#10b981',
+  brass: '#eab308',
+  woodwinds: '#14b8a6',
+  fx: '#ec4899',
+  other: '#38bdf8',
+};
+
+function getStemTrackColor(name: string): string {
+  const lower = (name || 'stem').toLowerCase().trim();
+  return STEM_COLORS[lower] || STEM_COLORS[lower.replace(/\s+/g, '_')] || '#00ffff';
+}
+
+function formatLayerDisplayName(layerName: string): string {
+  return layerName
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 const DEFAULT_FX: DSPFxConfig = {
@@ -314,6 +377,9 @@ export const useDawStore = create<DAWState>((set, get) => ({
       solo: false,
       mixer: { volume: 1.0, pan: 0, muted: false, solo: false },
       fx: { ...DEFAULT_FX },
+      hasOriginalStem: true,
+      originalUrl: masterUrl || undefined,
+      activeVersionTakeId: null,
       clips: masterUrl
         ? [
             {
@@ -336,7 +402,7 @@ export const useDawStore = create<DAWState>((set, get) => ({
       selectedTrackId: 'master',
       loopEnd: Math.min(30, dur),
       selection: { start: 0, end: Math.min(15, dur) },
-      sectionGain: 1.0,
+      sectionGain: 0,
       originalMasterUrl: masterUrl || null,
       legoContextTrackIds: ['master'],
       takes: project?.takes ?? [],
@@ -352,8 +418,20 @@ export const useDawStore = create<DAWState>((set, get) => ({
     if (project?.session) {
       const saved = retained(project.session.tracks, project.takes);
       set({ ...project.session, tracks: saved, operations: project.session.operations.filter(operation => operation.status !== 'submitting') });
-      for (const track of saved) for (const clip of track.clips) if (clip.url) void dawEngine.loadClip(track.id, clip.id, clip.url, clip.startTime, clip.offset, clip.duration);
+      for (const track of saved) {
+        const shouldLoadEagerly =
+          track.id === 'master' ||
+          Boolean(track.activeTakeId) ||
+          track.type === 'sample' ||
+          Boolean(track.activeVersionTakeId && track.activeVersionTakeId !== 'ORG') ||
+          Boolean(track.mixer?.solo ?? track.solo);
+        if (!shouldLoadEagerly) continue;
+        for (const clip of track.clips) {
+          if (clip.url) void dawEngine.loadClip(track.id, clip.id, clip.url, clip.startTime, clip.offset, clip.duration);
+        }
+      }
     }
+    get().syncLayerTracks();
   },
 
   setPlaying: (isPlaying) => set({ isPlaying }),
@@ -388,7 +466,13 @@ export const useDawStore = create<DAWState>((set, get) => ({
     try {
       const response = await sdk.fetch('/api/editing/extract', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ songId, stemId: trackId === 'master' ? undefined : trackId, ...(candidate ? sourceInterval(candidate,tracks,selection) : selection) }),
+        body: JSON.stringify({
+          songId,
+          stemId: trackId === 'master' ? undefined : trackId,
+          sourceTakeId: candidate?.id,
+          srcAudioUrl: candidate?.url,
+          ...(candidate ? sourceInterval(candidate,tracks,selection) : selection),
+        }),
       });
       if (response.status === 402) {
         set(state => ({ operations: state.operations.filter(item => item.id !== operation) }));
@@ -432,8 +516,15 @@ export const useDawStore = create<DAWState>((set, get) => ({
     const masterStem = stems.find(
       (s) => s.name?.toLowerCase() === 'master' || s.id.startsWith('stem-master') || s.id.startsWith('stm-master')
     );
-    if (masterStem && masterTrack) masterTrack = { ...masterTrack, stemId: masterStem.id };
-    if (masterStem && masterTrack && masterStem.url && masterTrack.clips[0]?.url !== masterStem.url) {
+    if (masterStem && masterTrack) {
+      masterTrack = {
+        ...masterTrack,
+        stemId: masterStem.id,
+        hasOriginalStem: true,
+        originalUrl: masterStem.url || masterTrack.originalUrl,
+      };
+    }
+    if (masterStem && masterTrack && masterStem.url && (!masterTrack.activeVersionTakeId || masterTrack.activeVersionTakeId === 'MST') && masterTrack.clips[0]?.url !== masterStem.url) {
       masterTrack = { ...masterTrack, clips: [
         {
           id: 'clip-master',
@@ -452,32 +543,50 @@ export const useDawStore = create<DAWState>((set, get) => ({
       (s) => s.name?.toLowerCase() !== 'master' && !s.id.startsWith('stem-master') && !s.id.startsWith('stm-master')
     );
 
-    const stemColors: Record<string, string> = {
-      vocals: '#00ffff',
-      vocal: '#00ffff',
-      drums: '#ff0055',
-      drum: '#ff0055',
-      bass: '#ffaa00',
-      instrumental: '#00ff66',
-      synth: '#9933ff',
-      lead: '#ec4899',
-      guitar: '#f59e0b',
-      other: '#38bdf8',
-    };
+    const realStemLayerNames = new Set(
+      nonMasterStems.map((s) => String(s.name || 'stem').toLowerCase().trim().replace(/\s+/g, '_'))
+    );
 
     const newStemTracks: DAWTrack[] = nonMasterStems.map((stem) => {
-      const existing = currentTracks.find((t) => t.id === stem.id);
-      if (existing) {
-        if (existing.clips[0]?.url === stem.url) return existing;
-        const clips = existing.clips.map(clip => ({ ...clip, url: stem.url, peaks: undefined }));
-        for (const clip of clips) void dawEngine.loadClip(stem.id, clip.id, clip.url, clip.startTime, clip.offset, clip.duration);
-        return { ...existing, clips };
+      const normName = String(stem.name || 'stem').toLowerCase().trim().replace(/\s+/g, '_');
+      const existing = currentTracks.find((t) => t.id === stem.id || t.id === `layer-${normName}`);
+      if (existing && existing.id === stem.id) {
+        const updatedBase: DAWTrack = {
+          ...existing,
+          layerName: normName,
+          stemType: normName,
+          hasOriginalStem: true,
+          originalUrl: stem.url,
+        };
+        if (existing.activeVersionTakeId && existing.activeVersionTakeId !== 'ORG') {
+          return updatedBase;
+        }
+        if (existing.clips[0]?.url === stem.url) return updatedBase;
+        const nextClips = [
+          {
+            id: `clip-${stem.id}`,
+            name: formatLayerDisplayName(normName),
+            url: stem.url,
+            startTime: 0,
+            duration: dur,
+            offset: 0,
+          },
+        ];
+        if (Boolean(existing.mixer?.solo ?? existing.solo)) {
+          for (const clip of nextClips) void dawEngine.loadClip(stem.id, clip.id, clip.url, clip.startTime, clip.offset, clip.duration);
+        }
+        return { ...updatedBase, clips: nextClips };
       }
-      const lowerName = (stem.name || 'stem').toLowerCase();
-      const color = stemColors[lowerName] || '#00ffff';
+      if (existing && existing.id === `layer-${normName}`) {
+        dawEngine.disposeTrack(existing.id);
+      }
+      const color = getStemTrackColor(normName);
+      const displayName = formatLayerDisplayName(normName);
       const stemTrack: DAWTrack = {
         id: stem.id,
-        name: stem.name.charAt(0).toUpperCase() + stem.name.slice(1),
+        name: displayName,
+        layerName: normName,
+        stemType: normName,
         type: 'stem',
         color,
         volume: typeof stem.volume === 'number' ? stem.volume : 1.0,
@@ -491,10 +600,13 @@ export const useDawStore = create<DAWState>((set, get) => ({
           solo: Boolean(stem.is_solo),
         },
         fx: JSON.parse(JSON.stringify(DEFAULT_FX)),
+        hasOriginalStem: true,
+        originalUrl: stem.url,
+        activeVersionTakeId: null,
         clips: [
           {
             id: `clip-${stem.id}`,
-            name: stem.name,
+            name: displayName,
             url: stem.url,
             startTime: 0,
             duration: dur,
@@ -503,7 +615,7 @@ export const useDawStore = create<DAWState>((set, get) => ({
         ],
       };
 
-      if (stem.url) {
+      if (stem.url && Boolean(stem.is_solo)) {
         dawEngine.loadClip(stem.id, `clip-${stem.id}`, stem.url, 0, 0, dur);
       }
 
@@ -511,11 +623,330 @@ export const useDawStore = create<DAWState>((set, get) => ({
     });
 
     const nonStemCustomTracks = currentTracks.filter(
-      (t) => t.id !== 'master' && !stems.some((s) => s.id === t.id)
+      (t) =>
+        t.id !== 'master' &&
+        !stems.some((s) => s.id === t.id) &&
+        !(t.id.startsWith('layer-') && realStemLayerNames.has(t.id.slice('layer-'.length)))
     );
 
     const mergedTracks = masterTrack ? [masterTrack, ...newStemTracks, ...nonStemCustomTracks] : [...newStemTracks, ...nonStemCustomTracks];
-    set({ tracks: mergedTracks });
+    set({
+      tracks: mergedTracks,
+      ...(masterStem?.url ? { originalMasterUrl: masterStem.url } : {}),
+    });
+    get().syncLayerTracks();
+  },
+
+  syncLayerTracks: (preferredTakeId) => {
+    const state = get();
+    const dur = state.duration > 0 ? state.duration : 60;
+    const pendingLayerTakes = state.takes
+      .filter((t) => pending(t) && isLayerTake(t))
+      .sort((a, b) => a.take_number - b.take_number);
+
+    const layerGroups = new Map<string, Take[]>();
+    for (const tk of pendingLayerTakes) {
+      const lName = layerTrackName(tk);
+      const list = layerGroups.get(lName) || [];
+      list.push(tk);
+      layerGroups.set(lName, list);
+    }
+
+    let nextTracks = [...state.tracks];
+    const clipsToLoad: { trackId: string; clips: DAWClip[]; disposeFirst?: boolean; mixer?: DAWTrack['mixer'] }[] = [];
+
+    // 1. Clean up virtual layer tracks (`layer-*` with `hasOriginalStem === false`) that no longer have pending takes
+    nextTracks = nextTracks.filter((t) => {
+      if (t.id.startsWith('layer-') && t.hasOriginalStem === false) {
+        const lName = t.layerName || t.id.slice('layer-'.length);
+        if (!layerGroups.has(lName)) {
+          dawEngine.disposeTrack(t.id);
+          return false;
+        }
+      }
+      return true;
+    });
+
+    // 2. Reconcile existing stem lanes whose pending layer takes were all merged or deleted
+    nextTracks = nextTracks.map((t) => {
+      if (t.id === 'master' || t.id === t.activeTakeId || t.type !== 'stem') return t;
+      const lName = t.layerName || t.name.toLowerCase().trim().replace(/\s+/g, '_');
+      if (!layerGroups.has(lName) && t.activeVersionTakeId) {
+        const baseUrl = t.originalUrl || t.clips[0]?.url;
+        const baseClip: DAWClip = {
+          id: `clip-${t.id}`,
+          name: t.name,
+          url: baseUrl || '',
+          startTime: 0,
+          duration: dur,
+          offset: 0,
+        };
+        if (baseUrl && t.clips[0]?.url !== baseUrl) {
+          clipsToLoad.push({ trackId: t.id, clips: [baseClip], disposeFirst: true, mixer: t.mixer });
+        }
+        return {
+          ...t,
+          activeVersionTakeId: null,
+          clips: baseUrl ? [baseClip] : t.clips,
+        };
+      }
+      return t;
+    });
+
+    // 3. Reconcile or create lane tracks for each active layer group
+    for (const [lName, groupTakes] of layerGroups.entries()) {
+      const matchIdx = nextTracks.findIndex(
+        (t) =>
+          t.id !== 'master' &&
+          t.id !== t.activeTakeId &&
+          t.type === 'stem' &&
+          ((t.layerName || t.name.toLowerCase().trim().replace(/\s+/g, '_')) === lName || t.id === `layer-${lName}`)
+      );
+
+      const preferred = preferredTakeId ? groupTakes.find((tk) => tk.id === preferredTakeId) : undefined;
+
+      if (matchIdx >= 0) {
+        const existing = nextTracks[matchIdx];
+        const hasOrg = existing.hasOriginalStem !== false && !existing.id.startsWith('layer-');
+        const originalUrl = existing.originalUrl || (hasOrg ? existing.clips[0]?.url : undefined);
+        let nextVersionId = existing.activeVersionTakeId;
+        if (preferred) {
+          nextVersionId = preferred.id;
+        } else if (nextVersionId === 'ORG' && hasOrg) {
+          nextVersionId = 'ORG';
+        } else if (!nextVersionId || !groupTakes.some((tk) => tk.id === nextVersionId)) {
+          nextVersionId = groupTakes[groupTakes.length - 1].id;
+        }
+
+        if (nextVersionId === 'ORG' && originalUrl) {
+          const orgClip: DAWClip = {
+            id: `clip-${existing.id}`,
+            name: existing.name,
+            url: originalUrl,
+            startTime: 0,
+            duration: dur,
+            offset: 0,
+          };
+          const urlChanged = existing.clips.length !== 1 || existing.clips[0]?.url !== originalUrl;
+          nextTracks[matchIdx] = {
+            ...existing,
+            layerName: lName,
+            stemType: lName,
+            hasOriginalStem: hasOrg,
+            originalUrl,
+            activeVersionTakeId: 'ORG',
+            clips: urlChanged ? [orgClip] : existing.clips,
+          };
+          if (urlChanged) {
+            clipsToLoad.push({ trackId: existing.id, clips: [orgClip], disposeFirst: true, mixer: existing.mixer });
+          }
+        } else {
+          const activeTake = groupTakes.find((tk) => tk.id === nextVersionId) || groupTakes[groupTakes.length - 1];
+          const targetClips = clips(activeTake, dur);
+          const urlChanged = existing.clips[0]?.url !== activeTake.url || existing.clips.length !== targetClips.length;
+          const nextMuted = preferred ? false : existing.muted;
+          const nextMixer = existing.mixer ? { ...existing.mixer, muted: nextMuted } : { volume: existing.volume, pan: existing.pan, muted: nextMuted, solo: existing.solo };
+          nextTracks[matchIdx] = {
+            ...existing,
+            layerName: lName,
+            stemType: lName,
+            hasOriginalStem: hasOrg,
+            originalUrl,
+            activeVersionTakeId: activeTake.id,
+            muted: nextMuted,
+            mixer: nextMixer,
+            clips: urlChanged ? targetClips : existing.clips,
+          };
+          if (urlChanged) {
+            clipsToLoad.push({ trackId: existing.id, clips: targetClips, disposeFirst: true, mixer: nextMixer });
+          }
+        }
+      } else {
+        const activeTake = preferred || groupTakes[groupTakes.length - 1];
+        const trackId = `layer-${lName}`;
+        const displayName = formatLayerDisplayName(lName);
+        const targetClips = clips(activeTake, dur);
+        const newLane: DAWTrack = {
+          id: trackId,
+          name: displayName,
+          layerName: lName,
+          stemType: lName,
+          type: 'stem',
+          color: getStemTrackColor(lName),
+          volume: 1.0,
+          pan: 0,
+          muted: false,
+          solo: false,
+          mixer: { volume: 1.0, pan: 0, muted: false, solo: false },
+          fx: JSON.parse(JSON.stringify(DEFAULT_FX)),
+          clips: targetClips,
+          hasOriginalStem: false,
+          activeVersionTakeId: activeTake.id,
+        };
+        nextTracks.push(newLane);
+        clipsToLoad.push({ trackId, clips: targetClips, disposeFirst: false, mixer: newLane.mixer });
+      }
+    }
+
+    // 4. Reconcile Full-Song Restyle (`cover`) takes on Master
+    const masterRestyleTakes = state.takes
+      .filter((t) => pending(t) && isFullSongRestyleTake(t))
+      .sort((a, b) => a.take_number - b.take_number);
+    const masterIdx = nextTracks.findIndex((t) => t.id === 'master');
+    if (masterIdx >= 0) {
+      const mTrack = nextTracks[masterIdx];
+      const baseMasterUrl = mTrack.originalUrl || state.originalMasterUrl || mTrack.clips[0]?.url;
+      if (masterRestyleTakes.length > 0) {
+        const preferredRestyle = preferredTakeId ? masterRestyleTakes.find((tk) => tk.id === preferredTakeId) : undefined;
+        let nextMasterVer = mTrack.activeVersionTakeId;
+        if (preferredRestyle) {
+          nextMasterVer = preferredRestyle.id;
+        } else if (nextMasterVer !== 'MST' && (!nextMasterVer || !masterRestyleTakes.some((tk) => tk.id === nextMasterVer))) {
+          nextMasterVer = 'MST';
+        }
+        const selectedRestyle = nextMasterVer && nextMasterVer !== 'MST'
+          ? masterRestyleTakes.find((tk) => tk.id === nextMasterVer)
+          : undefined;
+        const targetUrl = selectedRestyle ? selectedRestyle.url : baseMasterUrl;
+        const urlChanged = Boolean(targetUrl && mTrack.clips[0]?.url !== targetUrl);
+        const masterClip: DAWClip = {
+          id: 'clip-master',
+          name: selectedRestyle ? `${mTrack.name} (#TK${selectedRestyle.take_number})` : (state.songTitle || 'Master Output'),
+          url: targetUrl || '',
+          startTime: 0,
+          duration: dur,
+          offset: 0,
+        };
+        nextTracks[masterIdx] = {
+          ...mTrack,
+          hasOriginalStem: true,
+          originalUrl: baseMasterUrl,
+          activeVersionTakeId: selectedRestyle ? selectedRestyle.id : 'MST',
+          clips: urlChanged && targetUrl ? [masterClip] : mTrack.clips,
+        };
+        if (urlChanged && targetUrl) {
+          clipsToLoad.push({ trackId: 'master', clips: [masterClip], disposeFirst: false, mixer: mTrack.mixer });
+        }
+      } else if (mTrack.activeVersionTakeId) {
+        const urlChanged = Boolean(baseMasterUrl && mTrack.clips[0]?.url !== baseMasterUrl);
+        const masterClip: DAWClip = {
+          id: 'clip-master',
+          name: state.songTitle || 'Master Output',
+          url: baseMasterUrl || '',
+          startTime: 0,
+          duration: dur,
+          offset: 0,
+        };
+        nextTracks[masterIdx] = {
+          ...mTrack,
+          originalUrl: baseMasterUrl,
+          activeVersionTakeId: null,
+          clips: urlChanged && baseMasterUrl ? [masterClip] : mTrack.clips,
+        };
+        if (urlChanged && baseMasterUrl) {
+          clipsToLoad.push({ trackId: 'master', clips: [masterClip], disposeFirst: false, mixer: mTrack.mixer });
+        }
+      }
+    }
+
+    set({ tracks: nextTracks });
+    for (const item of clipsToLoad) {
+      if (item.disposeFirst && item.trackId !== 'master') {
+        dawEngine.disposeTrack(item.trackId);
+      }
+      for (const clip of item.clips) {
+        if (clip.url) {
+          void dawEngine.loadClip(item.trackId, clip.id, clip.url, clip.startTime, clip.offset, clip.duration);
+        }
+      }
+      if (item.mixer) {
+        dawEngine.updateTrackMixer(item.trackId, item.mixer as any);
+      }
+    }
+  },
+
+  selectLaneVersion: async (trackId, versionId) => {
+    const state = get();
+    const track = state.tracks.find((t) => t.id === trackId);
+    if (!track) return;
+    const dur = state.duration > 0 ? state.duration : 60;
+    if (versionId === 'ORG' || versionId === null) {
+      const baseUrl = track.originalUrl;
+      if (!baseUrl) return;
+      const orgClip: DAWClip = {
+        id: `clip-${track.id}`,
+        name: track.name,
+        url: baseUrl,
+        startTime: 0,
+        duration: dur,
+        offset: 0,
+      };
+      dawEngine.disposeTrack(track.id);
+      set((s) => ({
+        selectedTrackId: track.id,
+        tracks: s.tracks.map((t) => (t.id === track.id ? { ...t, activeVersionTakeId: 'ORG', clips: [orgClip] } : t)),
+      }));
+      await dawEngine.loadClip(track.id, orgClip.id, orgClip.url, orgClip.startTime, orgClip.offset, orgClip.duration);
+      if (track.mixer) dawEngine.updateTrackMixer(track.id, track.mixer as any);
+      return;
+    }
+    const take = state.takes.find((tk) => tk.id === versionId);
+    if (!take) return;
+    const targetClips = clips(take, dur);
+    dawEngine.disposeTrack(track.id);
+    const nextMixer = track.mixer ? { ...track.mixer, muted: false } : { volume: track.volume, pan: track.pan, muted: false, solo: track.solo };
+    set((s) => ({
+      selectedTrackId: track.id,
+      tracks: s.tracks.map((t) =>
+        t.id === track.id
+          ? { ...t, activeVersionTakeId: take.id, muted: false, mixer: nextMixer, clips: targetClips }
+          : t
+      ),
+    }));
+    for (const part of targetClips) {
+      await dawEngine.loadClip(track.id, part.id, part.url, part.startTime, part.offset, part.duration);
+    }
+    dawEngine.updateTrackMixer(track.id, nextMixer as any);
+  },
+
+  selectMasterVersion: async (versionId) => {
+    const state = get();
+    const masterTrack = state.tracks.find((t) => t.id === 'master');
+    if (!masterTrack) return;
+    const dur = state.duration > 0 ? state.duration : 60;
+    if (versionId === 'MST' || versionId === null) {
+      const baseUrl = masterTrack.originalUrl || state.originalMasterUrl;
+      if (!baseUrl) return;
+      const masterClip: DAWClip = {
+        id: 'clip-master',
+        name: state.songTitle || 'Master Output',
+        url: baseUrl,
+        startTime: 0,
+        duration: dur,
+        offset: 0,
+      };
+      set((s) => ({
+        selectedTrackId: 'master',
+        tracks: s.tracks.map((t) => (t.id === 'master' ? { ...t, activeVersionTakeId: 'MST', clips: [masterClip] } : t)),
+      }));
+      await dawEngine.loadClip('master', 'clip-master', baseUrl, 0, 0, dur);
+      return;
+    }
+    const take = state.takes.find((tk) => tk.id === versionId);
+    if (!take) return;
+    const masterClip: DAWClip = {
+      id: 'clip-master',
+      name: `${state.songTitle || 'Master'} (#TK${take.take_number})`,
+      url: take.url,
+      startTime: 0,
+      duration: dur,
+      offset: 0,
+    };
+    set((s) => ({
+      selectedTrackId: 'master',
+      tracks: s.tracks.map((t) => (t.id === 'master' ? { ...t, activeVersionTakeId: take.id, clips: [masterClip] } : t)),
+    }));
+    await dawEngine.loadClip('master', 'clip-master', take.url, 0, 0, dur);
   },
 
   addTrack: (type, name) => {
@@ -551,12 +982,34 @@ export const useDawStore = create<DAWState>((set, get) => ({
 
   removeTrack: (trackId) => {
     if (trackId === 'master') return; // Cannot delete master
+    const removed = get().tracks.find((t) => t.id === trackId);
+    const take = get().takes.find((tk) => tk.id === trackId);
+    const isReplacement = Boolean(take && !take.stem_id && ['repaint', 'complete', 'cover'].includes(take.task));
     dawEngine.disposeTrack(trackId);
-    set((state) => ({
-      tracks: state.tracks.filter((t) => t.id !== trackId),
-      selectedTrackId: state.selectedTrackId === trackId ? 'master' : state.selectedTrackId,
-      legoContextTrackIds: state.legoContextTrackIds.filter((id) => id !== trackId),
-    }));
+    set((state) => {
+      let nextOriginals = state.originals;
+      if (isReplacement && removed?.clips.length) {
+        for (const clip of removed.clips) {
+          const rStart = clip.startTime;
+          const rEnd = clip.startTime + clip.duration;
+          nextOriginals = nextOriginals.flatMap(item =>
+            item.end <= rStart || item.start >= rEnd
+              ? [item]
+              : [
+                  ...(item.start < rStart ? [{ start: item.start, end: rStart }] : []),
+                  ...(item.end > rEnd ? [{ start: rEnd, end: item.end }] : []),
+                ],
+          );
+        }
+      }
+      return {
+        tracks: state.tracks.filter((t) => t.id !== trackId),
+        selectedTrackId: state.selectedTrackId === trackId ? 'master' : state.selectedTrackId,
+        legoContextTrackIds: state.legoContextTrackIds.filter((id) => id !== trackId),
+        originals: nextOriginals,
+      };
+    });
+    if (isReplacement) dawEngine.syncOriginals();
   },
 
   updateTrackMixer: (trackId, partial) => {
@@ -780,21 +1233,51 @@ export const useDawStore = create<DAWState>((set, get) => ({
     const tracks = retained(state.tracks, takes);
     for (const track of state.tracks) if (!tracks.includes(track)) dawEngine.disposeTrack(track.id);
     set({ takes, tracks, ...(!state.takes.some(take => take.task === 'text2music') ? { bpm: takes.find(take => take.task === 'text2music')?.provenance?.parameters?.submitted?.bpm ?? takes.find(take => take.task === 'text2music')?.provenance?.parameters?.resolved?.bpm ?? state.bpm } : {}) });
+    get().syncLayerTracks();
   },
-  upsertTake: (take) => set(state => ({ takes: [...state.takes.filter(item => item.id !== take.id), take] })),
+  upsertTake: (take) => {
+    set(state => ({ takes: [...state.takes.filter(item => item.id !== take.id), take] }));
+    get().syncLayerTracks(take.id);
+  },
   moveTake: async (takeId, shift) => {
     if (!Number.isFinite(shift) || get().pendingTake) return;
     const track = get().tracks.find(track => track.id === takeId && track.activeTakeId === takeId);
     const take = get().takes.find(take => take.id === takeId);
     if (!track || !take || !track.clips.length) return;
+    const isReplacement = !take.stem_id && ['repaint', 'complete', 'cover'].includes(take.task);
     const original = clips(take, get().duration);
     const starts = track.clips.map((clip, index) => clip.origin ?? original[index]?.startTime ?? clip.startTime);
     const moved = Math.max(shift, -Math.min(...starts));
     const next = track.clips.map((clip, index) => ({ ...clip, origin: starts[index], startTime: starts[index] + moved }));
     dawEngine.pauseTransport();
     dawEngine.disposeTrack(takeId);
-    set(state => ({ tracks: state.tracks.map(item => item.id === takeId ? { ...item, clips: next } : item),
-      selection: {start:Math.min(...next.map(clip => clip.startTime)),end:Math.max(...next.map(clip => clip.startTime + clip.duration))} }));
+    set(state => {
+      let nextOriginals = state.originals;
+      if (isReplacement) {
+        for (const clip of track.clips) {
+          const rStart = clip.startTime;
+          const rEnd = clip.startTime + clip.duration;
+          nextOriginals = nextOriginals.flatMap(item =>
+            item.end <= rStart || item.start >= rEnd
+              ? [item]
+              : [
+                  ...(item.start < rStart ? [{ start: item.start, end: rStart }] : []),
+                  ...(item.end > rEnd ? [{ start: rEnd, end: item.end }] : []),
+                ],
+          );
+        }
+        nextOriginals = [
+          ...nextOriginals,
+          ...next.map(clip => ({ start: clip.startTime, end: clip.startTime + clip.duration })),
+        ];
+      }
+      return {
+        tracks: state.tracks.map(item => item.id === takeId ? { ...item, clips: next } : item),
+        originals: nextOriginals,
+        selection: {start:Math.min(...next.map(clip => clip.startTime)),end:Math.max(...next.map(clip => clip.startTime + clip.duration))},
+      };
+    });
+    if (isReplacement) dawEngine.syncOriginals();
     try {
       for (const clip of next) await dawEngine.loadClip(takeId, clip.id, clip.url, clip.startTime, clip.offset, clip.duration);
     } catch (error) { toast.error(error instanceof Error ? error.message : 'Could not move the section'); }
@@ -858,25 +1341,45 @@ export const useDawStore = create<DAWState>((set, get) => ({
   },
 
   toggleTake: async (takeId) => {
-    const { takes, tracks, duration, selectedTrackId } = get();
-    const take = takes.find(take => take.id === takeId);
+    const initial = get();
+    const take = initial.takes.find(item => item.id === takeId);
     if (!take) return;
-    const mounted = tracks.find(track => track.id === takeId && track.activeTakeId === takeId);
-    if (selectedTrackId === takeId) dawEngine.stopAuditionTake();
+    if (isLayerTake(take)) {
+      const tName = layerTrackName(take) ?? 'other';
+      const lane = initial.tracks.find(
+        track => track.id !== 'master' && (track.layerName === tName || track.name.toLowerCase().replace(/\s+/g, '_') === tName)
+      );
+      if (lane) await get().selectLaneVersion(lane.id, take.id);
+      return;
+    }
+    if (isFullSongRestyleTake(take)) {
+      await get().selectMasterVersion(take.id);
+      return;
+    }
+    const mounted = initial.tracks.find(track => track.id === takeId && track.activeTakeId === takeId);
+    if (initial.selectedTrackId === takeId) dawEngine.stopAuditionTake();
     if (mounted) {
       get().removeTrack(mounted.id);
-      if (selectedTrackId === takeId) {
+      if (initial.selectedTrackId === takeId) {
         set({ selectedTrackId: 'master' });
       }
       return;
     }
     const lane = take.stem_id
-      ? tracks.find(track => track.id === take.stem_id || track.stemId === take.stem_id)
-      : tracks.find(track => track.id === 'master');
-    if (lane && isBase(take, tracks, takes)) {
+      ? initial.tracks.find(track => track.id === take.stem_id || track.stemId === take.stem_id)
+      : initial.tracks.find(track => track.id === 'master');
+    if (lane && isBase(take, initial.tracks, initial.takes)) {
       get().updateTrackMixer(lane.id, { muted: !lane.muted, solo: false });
       return;
     }
+    for (const existingTrack of initial.tracks) {
+      if (!existingTrack.activeTakeId || existingTrack.id === 'master' || existingTrack.stemId) continue;
+      const otherTake = initial.takes.find(item => item.id === existingTrack.activeTakeId);
+      if (otherTake && otherTake.id !== take.id && otherTake.task === take.task && (otherTake.stem_id ?? null) === (take.stem_id ?? null)) {
+        get().removeTrack(existingTrack.id);
+      }
+    }
+    const { tracks, duration, originals } = get();
     const range = preview(take);
     const clip: DAWClip = {
       id: `clip-${take.id}`, name: `Take #${take.take_number}`, url: take.url,
@@ -890,11 +1393,20 @@ export const useDawStore = create<DAWState>((set, get) => ({
       fx: JSON.parse(JSON.stringify(DEFAULT_FX)), clips: clips(take, duration),
     };
     const firstClip = track.clips[0];
+    const isReplacement = !take.stem_id && ['repaint', 'complete', 'cover'].includes(take.task);
+    const nextOriginals = isReplacement
+      ? [
+          ...originals,
+          ...track.clips.map(part => ({ start: part.startTime, end: part.startTime + part.duration })),
+        ]
+      : originals;
     set({
       tracks: [...tracks, track],
+      originals: nextOriginals,
       selectedTrackId: take.id,
       selection: firstClip ? { start: firstClip.startTime, end: firstClip.startTime + firstClip.duration } : interval(take, duration),
     });
+    if (isReplacement) dawEngine.syncOriginals();
     try {
       for (const part of track.clips) await dawEngine.loadClip(track.id, part.id, part.url, part.startTime, part.offset, part.duration);
     } catch (error) {
@@ -904,9 +1416,12 @@ export const useDawStore = create<DAWState>((set, get) => ({
   },
 
   activateTake: async (takeId, action = 'base') => {
-    if (action === 'merge') return get().mergeTakes([takeId]);
     const target = get().takes.find(take => take.id === takeId);
-    if (!target || (action === 'base' && isBase(target, get().tracks, get().takes)) || get().pendingTake) return;
+    if (!target) return;
+    if (action === 'merge' && !isLayerTake(target) && !isFullSongRestyleTake(target) && !target.stem_id) {
+      return get().mergeTakes([takeId]);
+    }
+    if ((action === 'base' && isBase(target, get().tracks, get().takes)) || get().pendingTake) return;
     const songId = get().songId;
     set({ pendingTake: takeId });
     try {
@@ -920,12 +1435,35 @@ export const useDawStore = create<DAWState>((set, get) => ({
       if (!history.ok) throw new Error('Version saved, but the arrangement could not be refreshed');
       const project = await history.json();
       if (get().songId !== songId) return;
-      if (result.take?.provenance?.outputDuration && result.take.provenance.target === 'master') set({ duration: result.take.provenance.outputDuration });
+      const nextMasterBase = project.takes.find((t: Take) => !t.stem_id && t.is_active);
+      if (result.take?.provenance?.target === 'master' && nextMasterBase) {
+        const masterDuration = result.take?.provenance?.outputDuration ?? get().duration;
+        set(current => ({
+          duration: masterDuration,
+          tracks: current.tracks.map(track =>
+            track.id === 'master'
+              ? {
+                  ...track,
+                  activeTakeId: nextMasterBase.id,
+                  activeVersionTakeId: null,
+                  originalUrl: nextMasterBase.url,
+                  clips: track.clips.map((clip, idx) =>
+                    idx === 0 ? { ...clip, url: nextMasterBase.url, offset: 0, duration: masterDuration } : clip
+                  ),
+                }
+              : track
+          ),
+        }));
+        const masterClip = get().tracks.find(track => track.id === 'master')?.clips[0];
+        if (masterClip) {
+          void dawEngine.loadClip('master', masterClip.id, nextMasterBase.url, masterClip.startTime, 0, masterDuration);
+        }
+      }
       set({ takes: project.takes, commits: project.commits, selectedTrackId: 'master', isPlaying: false });
       dawEngine.stopAuditionTake();
       if (get().tracks.some(track => track.id === target.id && track.activeTakeId === target.id)) get().removeTrack(target.id);
       get().syncStems(project.stems);
-      toast.success('Base selected');
+      toast.success(action === 'merge' ? 'Merged into track' : 'Base selected');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to select version');
     } finally { if (get().songId === songId) set({ pendingTake: null }); }
@@ -945,6 +1483,7 @@ export const useDawStore = create<DAWState>((set, get) => ({
       if (get().selectedTrackId === takeId) dawEngine.stopAuditionTake();
       if (get().tracks.some(track => track.id === takeId && track.activeTakeId === takeId)) get().removeTrack(takeId);
       set(state => ({ takes: state.takes.filter(take => take.id !== takeId), selectedTrackId: state.selectedTrackId === takeId ? 'master' : state.selectedTrackId }));
+      get().syncLayerTracks();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to discard segment');
     } finally { if (get().songId === songId) set({ pendingTake: null }); }
@@ -964,6 +1503,12 @@ export const useDawStore = create<DAWState>((set, get) => ({
     set({ tracks, originals: Array.isArray(snapshot.originals) ? snapshot.originals as { start:number; end:number }[] : [], ...(typeof snapshot.bpm === 'number' && snapshot.bpm > 0 ? { bpm: snapshot.bpm } : {}) });
     for (const track of tracks) {
       if (track.id === 'master') continue;
+      const shouldLoadEagerly =
+        Boolean(track.activeTakeId) ||
+        track.type === 'sample' ||
+        Boolean(track.activeVersionTakeId && track.activeVersionTakeId !== 'ORG') ||
+        Boolean(track.mixer?.solo ?? track.solo);
+      if (!shouldLoadEagerly) continue;
       for (const clip of track.clips) if (clip.url) void dawEngine.loadClip(track.id, clip.id, clip.url, clip.startTime, clip.offset, clip.duration);
     }
   },

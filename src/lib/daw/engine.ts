@@ -4,6 +4,7 @@ import { masterArrangement } from './takes';
 import { parseStrudelPattern } from './strudelEvaluator';
 import { bus } from '../bus';
 import { BEAT_STEPS, DRUM_STEPS } from './notes';
+import { abortBackgroundAudioFetches, fetchAudioArrayBuffer, getDecodedAudioBuffer } from './peaks';
 
 export interface TrackAudioNodes {
   input: Tone.Gain;
@@ -56,7 +57,7 @@ class DAWEngine {
   private originalScheduleIds: number[] = [];
   private lastMasterSegmentsKey = '';
   private loading = new Map<string, Promise<void>>();
-  private clipLoads = new Map<string, { signature: string; promise: Promise<void> }>();
+  private clipLoads = new Map<string, { trackId: string; url: string; signature: string; promise: Promise<void> }>();
   private project = 0;
 
   constructor(private offline = false) {
@@ -110,6 +111,81 @@ class DAWEngine {
     this.onTimeCallback = cb;
   }
 
+  private getAudibleLoadingPromises(): Promise<void>[] {
+    const state = useDawStore.getState();
+    const tracks = state.tracks;
+    if (tracks.length === 0) {
+      return [...this.loading.values()];
+    }
+
+    const audibleTrackIds = new Set<string>();
+    if (this.auditionLayerIds && this.auditionLayerIds.length > 0) {
+      for (const id of this.auditionLayerIds) audibleTrackIds.add(id);
+      if (tracks.some((t) => t.id === t.activeTakeId && this.auditionLayerIds!.includes(t.id))) {
+        audibleTrackIds.add('master');
+      }
+    } else if (this.auditionTrackId) {
+      audibleTrackIds.add(this.auditionTrackId);
+      if (tracks.some((t) => t.id === this.auditionTrackId && t.id === t.activeTakeId)) {
+        audibleTrackIds.add('master');
+      }
+    } else {
+      const hasSolo = tracks.some((t) => Boolean(t.mixer?.solo ?? t.solo));
+      if (hasSolo) {
+        for (const t of tracks) {
+          if (Boolean(t.mixer?.solo ?? t.solo)) {
+            audibleTrackIds.add(t.id);
+            if (t.id === t.activeTakeId) audibleTrackIds.add('master');
+          }
+        }
+      } else {
+        const masterTrack = tracks.find((t) => t.id === 'master');
+        const masterMuted = Boolean(masterTrack?.mixer?.muted ?? masterTrack?.muted);
+        if (!masterMuted) {
+          audibleTrackIds.add('master');
+        }
+        for (const t of tracks) {
+          const isMuted = Boolean(t.mixer?.muted ?? t.muted);
+          const hasActiveOverlay = Boolean(
+            t.activeTakeId ||
+            t.type === 'sample' ||
+            (t.activeVersionTakeId && t.activeVersionTakeId !== 'ORG')
+          );
+          if (!isMuted && (hasActiveOverlay || (masterMuted && t.id !== 'master'))) {
+            audibleTrackIds.add(t.id);
+          }
+        }
+      }
+    }
+
+    for (const t of tracks) {
+      if (!audibleTrackIds.has(t.id) || !Array.isArray(t.clips)) continue;
+      for (const clip of t.clips) {
+        if (!clip.url) continue;
+        const key = `${t.id}:${clip.id}`;
+        const loaded = this.trackNodes.get(t.id)?.players.get(clip.id)?.loaded;
+        if (!loaded && !this.loading.has(key)) {
+          void this.loadClip(t.id, clip.id, clip.url, clip.startTime, clip.offset, clip.duration);
+        }
+      }
+    }
+
+    if (this.loading.size === 0) return [];
+
+    const result: Promise<void>[] = [];
+    for (const [key, loadPromise] of this.loading.entries()) {
+      const meta = this.clipLoads.get(key);
+      const trackId = meta?.trackId ?? key.split(':')[0];
+      if (audibleTrackIds.has(trackId)) {
+        if (meta?.url) {
+          void fetchAudioArrayBuffer(meta.url, 'high').catch(() => {});
+        }
+        result.push(loadPromise);
+      }
+    }
+    return result;
+  }
+
   public async startTransport(preserveAudition = false) {
     const project = this.project;
     this.stopAuditionTake(!preserveAudition);
@@ -123,12 +199,12 @@ class DAWEngine {
     if (project !== this.project || this.targetTransportState !== 'started') return;
 
     const waited = new Set<Promise<void>>();
-    let pending = [...this.loading.values()];
+    let pending = this.getAudibleLoadingPromises();
     while (pending.length) {
       pending.forEach(load => waited.add(load));
       await Promise.all(pending);
       if (project !== this.project || this.targetTransportState !== 'started') return;
-      pending = [...this.loading.values()].filter(load => !waited.has(load));
+      pending = this.getAudibleLoadingPromises().filter(load => !waited.has(load));
     }
     bus.request('daw');
     useDawStore.getState().setPlaying(true);
@@ -140,6 +216,8 @@ class DAWEngine {
 
     if (Tone.getTransport().state !== 'started') {
       Tone.getTransport().start();
+    } else if (waited.size > 0) {
+      Tone.getTransport().seconds = Tone.getTransport().seconds;
     }
 
     this.startTimeTracker();
@@ -679,10 +757,7 @@ class DAWEngine {
     startTime: number,
     endTime: number
   ): Promise<{ blobUrl: string; duration: number }> {
-    const res = await fetch(audioUrl);
-    const arrayBuffer = await res.arrayBuffer();
-    const rawCtx = (Tone.getContext().rawContext as AudioContext) || new (window.AudioContext || (window as any).webkitAudioContext)();
-    const audioBuffer = await rawCtx.decodeAudioData(arrayBuffer);
+    const audioBuffer = await getDecodedAudioBuffer(audioUrl, 'high');
 
     const safeStart = Math.max(0, Math.min(startTime, audioBuffer.duration));
     const safeEnd = Math.max(safeStart + 0.05, Math.min(endTime, audioBuffer.duration));
@@ -756,18 +831,29 @@ class DAWEngine {
     const previous = this.clipLoads.get(key);
     if (previous?.signature === signature) return previous.promise;
     const project = this.project;
-    const entry = { signature, promise: Promise.resolve() };
+    const entry = { trackId, url, signature, promise: Promise.resolve() };
     entry.promise = Promise.resolve().then(async () => {
-      if (!this.offline) await this.init();
       if (project !== this.project || this.clipLoads.get(key) !== entry) return;
       const nodes = this.getOrCreateTrackNodes(trackId);
       nodes.players.get(clipId)?.dispose();
       const player = new Tone.Player({ autostart: false });
       player.connect(nodes.source ?? nodes.input);
       nodes.players.set(clipId, player);
+      const priority =
+        trackId === 'master' ||
+        this.auditionTrackId === trackId ||
+        Boolean(this.auditionLayerIds?.includes(trackId))
+          ? 'high'
+          : 'normal';
       try {
-        await player.load(url);
-        if (project !== this.project || this.clipLoads.get(key) !== entry || nodes.players.get(clipId) !== player) return;
+        if (player.buffer && typeof player.buffer.set === 'function') {
+          const audioBuffer = await getDecodedAudioBuffer(url, priority);
+          if (project !== this.project || this.clipLoads.get(key) !== entry || nodes.players.get(clipId) !== player) return;
+          player.buffer.set(audioBuffer);
+        } else {
+          await player.load(url);
+          if (project !== this.project || this.clipLoads.get(key) !== entry || nodes.players.get(clipId) !== player) return;
+        }
         player.sync().start(startTime, offset, duration);
       } catch (error) {
         if (project !== this.project || this.clipLoads.get(key) !== entry) return;
@@ -1025,7 +1111,8 @@ class DAWEngine {
           nodes.input.toDestination();
         }
         if (!commit && track.id === 'master' && state.selection) {
-          nodes.sectionGain?.gain.setValueAtTime(state.sectionGain, state.selection.start);
+          const sectionGainLinear = state.sectionGain <= -24 ? 0 : Math.max(0, Math.min(2.0, Tone.dbToGain(state.sectionGain)));
+          nodes.sectionGain?.gain.setValueAtTime(sectionGainLinear, state.selection.start);
           nodes.sectionGain?.gain.setValueAtTime(1, state.selection.end);
         }
         if (track.id === 'master') {
@@ -1127,26 +1214,32 @@ class DAWEngine {
     ]);
 
     for (const id of allTrackIds) {
-      const nodes = this.trackNodes.get(id);
-      if (!nodes) continue;
+      const trackObj = tracksToEval.find((t: any) => t.id === id) as any;
+      const isMuted = id === trackId && mutedVal !== undefined
+        ? mutedVal
+        : Boolean(trackObj?.mixer?.muted ?? trackObj?.muted ?? false);
+      const isSoloed = id === trackId && soloVal !== undefined
+        ? soloVal
+        : Boolean(trackObj?.mixer?.solo ?? trackObj?.solo ?? false);
 
-      const trackObj = tracksToEval.find((t: any) => t.id === id);
+      let nodes = this.trackNodes.get(id);
+      if (!nodes && isSoloed && Array.isArray(trackObj?.clips)) {
+        for (const clip of trackObj.clips) {
+          if (clip.url) {
+            void this.loadClip(id, clip.id, clip.url, clip.startTime, clip.offset, clip.duration);
+          }
+        }
+        nodes = this.trackNodes.get(id);
+      }
+      if (!nodes) continue;
 
       const vol = id === trackId && volumeVal !== undefined
         ? volumeVal
-        : (trackObj as any)?.mixer?.volume ?? trackObj?.volume ?? 0.9;
+        : trackObj?.mixer?.volume ?? trackObj?.volume ?? 0.9;
 
       const pan = id === trackId && panVal !== undefined
         ? panVal
-        : (trackObj as any)?.mixer?.pan ?? trackObj?.pan ?? 0;
-
-      const isMuted = id === trackId && mutedVal !== undefined
-        ? mutedVal
-        : Boolean((trackObj as any)?.mixer?.muted ?? trackObj?.muted ?? false);
-
-      const isSoloed = id === trackId && soloVal !== undefined
-        ? soloVal
-        : Boolean((trackObj as any)?.mixer?.solo ?? trackObj?.solo ?? false);
+        : trackObj?.mixer?.pan ?? trackObj?.pan ?? 0;
 
       const targetDb = Tone.gainToDb(Math.max(0.0001, vol));
       nodes.volume.volume.rampTo(targetDb, 0.05);
@@ -1175,6 +1268,7 @@ class DAWEngine {
     this.lastMasterSegmentsKey = '';
     this.loading.clear();
     this.clipLoads.clear();
+    if (!this.offline) abortBackgroundAudioFetches();
     this.disposeTrack('master');
 
     for (const id of [...this.trackNodes.keys()]) {
