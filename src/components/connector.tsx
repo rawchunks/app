@@ -27,10 +27,12 @@ import { thirdwebCustomTheme } from "@/lib/connector";
 
 const TEMPO_ACCOUNT_FACTORY = "0x85e23b94e7F5E9cC1fF78BCe78cfb15B81f0DF00";
 
-export async function approveTempoSession(input: {
+type TempoAccountInput = {
   chain: Chain; admin: Account; adminWallet: ThirdwebWallet; accountAddress: string;
-  asset: string; spender: string; amount: bigint; assertCurrent: () => void;
-}): Promise<void> {
+  assertCurrent: () => void;
+};
+
+async function prepareTempoAccount(input: TempoAccountInput) {
   const { chain, admin, assertCurrent } = input;
   if (chain.id !== 42431 || !chain.rpc) throw new Error("Tempo Moderato configuration is unavailable");
   const rpc = createPublicClient({ transport: http(chain.rpc) });
@@ -42,7 +44,6 @@ export async function approveTempoSession(input: {
   };
   const factory = getContract({ client: thirdwebClient, chain, address: TEMPO_ACCOUNT_FACTORY });
   const smart = getContract({ client: thirdwebClient, chain, address: input.accountAddress });
-  const token = getContract({ client: thirdwebClient, chain, address: input.asset });
   check();
   if (await rpc.getChainId() !== chain.id) throw new Error("The Tempo RPC returned another network");
   const factoryCode = await rpc.getCode({ address: TEMPO_ACCOUNT_FACTORY });
@@ -51,27 +52,27 @@ export async function approveTempoSession(input: {
   const predicted = await readContract({ contract: factory, method: "function getAddress(address, bytes) view returns (address)", params: [admin.address, "0x"] });
   check();
   if (predicted.toLowerCase() !== input.accountAddress.toLowerCase()) throw new Error("The derived Tempo smart account differs from the universal EVM address");
+  if (!admin.signTransaction) {
+    await input.adminWallet.switchChain(chain);
+    check();
+    if (input.adminWallet.getChain()?.id !== chain.id) throw new Error("Select Tempo Moderato in your wallet");
+  }
+  const sender: Account = {
+    ...admin,
+    sendTransaction: async tx => {
+      check();
+      if (tx.chainId !== chain.id) throw new Error("The Tempo transaction uses another network");
+      if (!admin.signTransaction) {
+        if (input.adminWallet.getChain()?.id !== chain.id) throw new Error("Select Tempo Moderato in your wallet");
+        return admin.sendTransaction(tx);
+      }
+      const signed = await admin.signTransaction(tx);
+      check();
+      return { transactionHash: await rpc.sendRawTransaction({ serializedTransaction: signed }) };
+    },
+  };
   const send = async (transaction: PreparedTransaction) => {
     check();
-    if (!admin.signTransaction) {
-      await input.adminWallet.switchChain(chain);
-      check();
-      if (input.adminWallet.getChain()?.id !== chain.id) throw new Error("Select Tempo Moderato in your wallet");
-    }
-    const sender: Account = {
-      ...admin,
-      sendTransaction: async tx => {
-        check();
-        if (tx.chainId !== chain.id) throw new Error("The approval transaction uses another network");
-        if (!admin.signTransaction) {
-          if (input.adminWallet.getChain()?.id !== chain.id) throw new Error("Select Tempo Moderato in your wallet");
-          return admin.sendTransaction(tx);
-        }
-        const signed = await admin.signTransaction(tx);
-        check();
-        return { transactionHash: await rpc.sendRawTransaction({ serializedTransaction: signed }) };
-      },
-    };
     const receipt = await sendAndConfirmTransaction({ account: sender, transaction });
     check();
     if (receipt.status !== "success") throw new Error("Tempo account or approval transaction reverted");
@@ -82,6 +83,27 @@ export async function approveTempoSession(input: {
   const isAdmin = await readContract({ contract: smart, method: "function isAdmin(address) view returns (bool)", params: [admin.address] });
   check();
   if (!isAdmin) throw new Error("The signer is not an admin of the Tempo smart account");
+  return { sender, smart, check, send };
+}
+
+export async function prepareTempoTransaction(input: TempoAccountInput, transaction: PreparedTransaction<any>): Promise<{ account: Account; transaction: PreparedTransaction<any> }> {
+  input.assertCurrent();
+  if (transaction.chain.id !== input.chain.id || transaction.chain.rpc !== input.chain.rpc) throw new Error("The contract transaction uses another network configuration");
+  const { sender, smart, check } = await prepareTempoAccount(input);
+  const [data, to, value] = await Promise.all([
+    encode(transaction),
+    typeof transaction.to === "function" ? transaction.to() : transaction.to,
+    typeof transaction.value === "function" ? transaction.value() : transaction.value,
+  ]);
+  check();
+  if (!to) throw new Error("The contract transaction target is missing");
+  return { account: sender, transaction: prepareContractCall({ contract: smart,
+    method: "function execute(address, uint256, bytes)", params: [to, value ?? 0n, data] }) };
+}
+
+export async function approveTempoSession(input: TempoAccountInput & { asset: string; spender: string; amount: bigint }): Promise<void> {
+  const { smart, check, send } = await prepareTempoAccount(input);
+  const token = getContract({ client: thirdwebClient, chain: input.chain, address: input.asset });
   const approved = await allowance({ contract: token, owner: input.accountAddress, spender: input.spender });
   check();
   if (approved < input.amount) {
