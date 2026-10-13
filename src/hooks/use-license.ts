@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useQuery, useQueries, useQueryClient } from '@tanstack/react-query';
-import { useActiveAccount } from 'thirdweb/react';
-import { getContract, readContract, prepareContractCall, simulateTransaction, sendAndConfirmTransaction } from 'thirdweb';
+import { useActiveAccount, useAdminWallet } from 'thirdweb/react';
+import { getContract, readContract, prepareContractCall, simulateTransaction, sendAndConfirmTransaction, type PreparedTransaction } from 'thirdweb';
+import { prepareTempoTransaction } from '../components/connector';
 import { toast } from 'sonner';
 import type { SolanaNetworkId } from '@compose-market/sdk/chains';
 import { useSelectedUserAddress } from './use-address';
@@ -57,6 +58,7 @@ export function useLicensedSongs(songs: Song[]) {
 
 export function useLicense(song: Song, onEditSong?: (song: Song) => void, includeSales = true) {
   const account = useActiveAccount();
+  const adminWallet = useAdminWallet();
   const { userAddress, evmAddress, svmAddress, paymentNetwork, captureSolanaOperation, assertCurrent } = useSelectedUserAddress();
   const [pending, setPending] = useState(false);
   const queryClient = useQueryClient();
@@ -108,21 +110,30 @@ export function useLicense(song: Song, onEditSong?: (song: Song) => void, includ
           const tokenAddress = await readContract({ contract: royalties, method: 'usdc' });
           assertCurrent();
           const token = getContract({ client: thirdwebClient, chain, address: tokenAddress });
+          const execute = async (transaction: PreparedTransaction<any>) => {
+            assertCurrent();
+            let prepared = { account, transaction };
+            if (chain.id === 42431) {
+              const admin = adminWallet?.getAccount();
+              if (!adminWallet || !admin) throw new Error('The admin signer is not ready');
+              prepared = await prepareTempoTransaction({ chain, admin, adminWallet,
+                accountAddress: account.address, assertCurrent }, transaction);
+            }
+            await simulateTransaction(prepared);
+            assertCurrent();
+            const receipt = await sendAndConfirmTransaction(prepared);
+            assertCurrent();
+            return receipt;
+          };
           const allowance = await readContract({ contract: token, method: 'function allowance(address owner, address spender) view returns (uint256)', params: [account.address, remix.address] });
           assertCurrent();
           if (allowance < state.data.price) {
             const approval = prepareContractCall({ contract: token, method: 'function approve(address spender, uint256 amount) returns (bool)', params: [remix.address, state.data.price] });
-            await simulateTransaction({ account, transaction: approval });
-            assertCurrent();
-            const receipt = await sendAndConfirmTransaction({ account, transaction: approval });
-            assertCurrent();
+            const receipt = await execute(approval);
             if (receipt.status !== 'success') throw new Error('Token approval failed');
           }
           const purchase = prepareContractCall({ contract: remix, method: 'buyLicense', params: [BigInt(song.chain_song_id)] });
-          await simulateTransaction({ account, transaction: purchase });
-          assertCurrent();
-          const receipt = await sendAndConfirmTransaction({ account, transaction: purchase });
-          assertCurrent();
+          const receipt = await execute(purchase);
           if (receipt.status !== 'success') throw new Error('License purchase failed');
         } else {
           if (!solana) throw new Error('Solana account is not ready');

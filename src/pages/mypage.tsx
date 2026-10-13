@@ -1,7 +1,23 @@
 import { sdk } from '@/lib/sdk';
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { toast } from 'sonner';
-import { Pencil, ChevronDown, Copy, Check, Disc3, Mic2, Music, Volume2, User } from 'lucide-react';
+import {
+  Pencil,
+  ChevronDown,
+  Copy,
+  Check,
+  Disc3,
+  Mic2,
+  Music,
+  Volume2,
+  User,
+  Download,
+  Trash2,
+  Upload,
+  Sliders,
+  Tag,
+} from 'lucide-react';
+import { Tooltip } from '../components/daw/Tooltip';
 import { Glitch } from '../components/glitch';
 import { Button } from '../components/button';
 import { Badge } from '../components/badge';
@@ -12,19 +28,312 @@ import { usePublic } from '../hooks/use-public';
 import { useMint } from '../hooks/use-mint';
 import { useProfile } from '../hooks/use-profile';
 import { useSongs } from '../hooks/use-songs';
-import { useLicensedSongs } from '../hooks/use-license';
+import { useLicensedSongs, useLicense } from '../hooks/use-license';
 import { useVoices, voiceAvailability, voiceStatus } from '../hooks/use-voices';
 import { ProfileModal } from '../components/profile-modal';
+import { EditSongModal } from '../components/edit-song';
+import { PublishModal } from '../components/publish';
 import { readSongs, writeSongs } from '../lib/cache';
 import { groupSongs } from '../lib/versions';
 import { Licenses } from '../components/licenses';
 import { Versions } from '../components/versions';
+import { CoverArt } from './market';
 
 export interface Props {
   onEditSong: (song: Song) => void;
   className?: string;
   style?: React.CSSProperties;
 }
+
+/**
+ * On-chain live pricing and remaining/sold license statistics for published songs.
+ */
+const PublicSongPricingBox: React.FC<{ song: Song }> = ({ song }) => {
+  const { data, sold } = useLicense(song);
+  const remaining = data?.remaining !== undefined ? Number(data.remaining) : song.licenses;
+  const soldCount = sold !== undefined ? sold : 0;
+
+  return (
+    <div className="market-pricing-box">
+      <div className="market-price-item">
+        <span className="market-price-label">STREAM</span>
+        <span className="market-price-val market-price-val-stream">
+          ${song.stream_price.toFixed(2)}
+          <span className="market-price-unit">/m</span>
+        </span>
+      </div>
+      <div className="market-price-item">
+        <span className="market-price-label">LICENSES</span>
+        <div className="mypage-license-stats-row">
+          <Tooltip title="Licenses Sold" description={`${soldCount} licenses sold`}>
+            <span className="mypage-stat-badge sold">
+              <Tag size={10} /> {soldCount}
+            </span>
+          </Tooltip>
+          <Tooltip title="Licenses Remaining" description={`${remaining} licenses remaining`}>
+            <span className="mypage-stat-badge left">
+              <Tag size={10} /> {remaining}
+            </span>
+          </Tooltip>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/**
+ * Uniform pricing box for user songs: shows stream + license price for private songs,
+ * and stream + live sold/left statistics for published songs.
+ */
+const MySongPricingBox: React.FC<{ song: Song }> = ({ song }) => {
+  if (!song.public) {
+    return (
+      <div className="market-pricing-box">
+        <div className="market-price-item">
+          <span className="market-price-label">STREAM</span>
+          <span className="market-price-val market-price-val-stream">
+            ${song.stream_price.toFixed(2)}
+            <span className="market-price-unit">/m</span>
+          </span>
+        </div>
+        <div className="market-price-item">
+          <span className="market-price-label">LICENSE</span>
+          <span className="market-price-val market-price-val-license">
+            {song.source ? (
+              <span className="market-price-remix">REMIX</span>
+            ) : (
+              `$${song.license_price.toFixed(2)}`
+            )}
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  return <PublicSongPricingBox song={song} />;
+};
+
+/**
+ * Compact, uniform 7-row Song Card for My-Page.
+ * Matches market.tsx dimensions and visual hierarchy strictly.
+ */
+const MySongCard: React.FC<{
+  song: Song;
+  versions: Song[];
+  albumTitle: string | null;
+  albumCover: string | null;
+  isPlayingThis: boolean;
+  onPlayToggle: () => void;
+  onSelectVersion: (version: Song) => void;
+  isMenuOpen: boolean;
+  onToggleMenu: () => void;
+  onEditDetails: (song: Song) => void;
+  onEditInStudio: (song: Song) => void;
+  onDownload: (song: Song) => void;
+  onDelete: (id: string) => void;
+  onPublishClick: (song: Song) => void;
+  publicPending: boolean;
+  isRemixLicensed?: boolean;
+}> = ({
+  song,
+  versions,
+  albumTitle,
+  albumCover,
+  isPlayingThis,
+  onPlayToggle,
+  onSelectVersion,
+  isMenuOpen,
+  onToggleMenu,
+  onEditDetails,
+  onEditInStudio,
+  onDownload,
+  onDelete,
+  onPublishClick,
+  publicPending,
+  isRemixLicensed = false,
+}) => {
+    return (
+      <div className={`market-card ${isPlayingThis ? 'playing' : ''}`}>
+        {/* 1. Square Artwork Media Container */}
+        <CoverArt
+          image={song.image}
+          albumCover={albumCover}
+          title={song.title}
+          isPlayingThis={isPlayingThis}
+          onPlayToggle={onPlayToggle}
+          network={song.network}
+          txHash={song.tx_hash}
+          txUrl={song.tx_url}
+          duration={song.duration}
+          topRightActions={
+            !isRemixLicensed ? (
+              <div className="mypage-menu-wrap">
+                <button
+                  type="button"
+                  className="mypage-card-more-btn"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onToggleMenu();
+                  }}
+                  aria-label="Track options"
+                  title="Track Options"
+                >
+                  •••
+                </button>
+                {isMenuOpen && (
+                  <div className="mypage-menu-dropdown">
+                    {!song.public && !song.tx_hash && !song.metadata_cid && (
+                      <button
+                        type="button"
+                        className="mypage-menu-item mypage-item-details"
+                        onClick={() => onEditDetails(song)}
+                      >
+                        <Sliders size={12} style={{ marginRight: 6 }} /> EDIT DETAILS
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="mypage-menu-item mypage-item-edit"
+                      onClick={() => onEditInStudio(song)}
+                    >
+                      <Pencil size={12} style={{ marginRight: 6 }} /> MUSIC EDITOR
+                    </button>
+                    <button
+                      type="button"
+                      className="mypage-menu-item mypage-item-download"
+                      onClick={() => onDownload(song)}
+                    >
+                      <Download size={12} style={{ marginRight: 6 }} /> DOWNLOAD
+                    </button>
+                    <button
+                      type="button"
+                      className="mypage-menu-item mypage-item-delete"
+                      onClick={() => onDelete(song.id)}
+                    >
+                      <Trash2 size={12} style={{ marginRight: 6 }} /> DELETE
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : null
+          }
+        />
+
+        {/* 2. Structured Metadata Body */}
+        <div className="market-card-body mypage-card-body">
+          {/* Top: Info (Title+Versions, Album, Tags) */}
+          <div className="mypage-card-info">
+            {/* Row 1: Title + Versions (horizontal, title occupies up to two thirds) */}
+            <div className="mypage-card-row-title-wrap">
+              <div className="mypage-card-title-col">
+                <Tooltip title={song.title} description="Song title" className="mypage-card-title-tooltip">
+                  <span className="mypage-card-title-text">{song.title}</span>
+                </Tooltip>
+              </div>
+              {versions && versions.length > 1 && onSelectVersion && (
+                <div className="mypage-card-versions-col">
+                  <Versions
+                    songs={versions}
+                    selected={song.id}
+                    onSelect={onSelectVersion}
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Album (if present) */}
+            {albumTitle && (
+              <div className="market-card-row-album" title={`Album: ${albumTitle}`}>
+                <Disc3 size={11} className="market-album-icon" />
+                <span className="market-album-text">{albumTitle}</span>
+              </div>
+            )}
+
+            {/* Tags & Remix Badge (if present) */}
+            {((song.tags && song.tags.length > 0) || isRemixLicensed) && (
+              <div className="market-card-row-tags">
+                {isRemixLicensed && (
+                  <Badge variant="warning" className="mypage-remix-badge">
+                    REMIX
+                  </Badge>
+                )}
+                {song.tags?.map((t) => (
+                  <Badge key={t} variant="secondary">
+                    {t}
+                  </Badge>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Bottom: Pricing & Actions */}
+          <div className="mypage-card-footer-box">
+            {isRemixLicensed ? (
+              <div className="market-pricing-box">
+                <div className="market-price-item">
+                  <span className="market-price-label">STREAM</span>
+                  <span className="market-price-val market-price-val-stream">
+                    ${song.stream_price.toFixed(2)}
+                    <span className="market-price-unit">/m</span>
+                  </span>
+                </div>
+                <div className="market-price-item">
+                  <span className="market-price-label">STATUS</span>
+                  <span className="market-price-val market-price-val-license">
+                    LICENSED
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <MySongPricingBox song={song} />
+            )}
+
+            {/* Actions Toolbar */}
+            <div className="market-card-actions">
+              {isRemixLicensed ? (
+                <Licenses
+                  song={song}
+                  placement="mypage"
+                  onEditSong={onEditInStudio}
+                  compact
+                />
+              ) : song.public ? (
+                <div className="mypage-public-action-wrap">
+                  <Badge variant="secondary" className="mypage-status-badge">
+                    PUBLIC
+                  </Badge>
+                  <Licenses
+                    song={song}
+                    placement="mypage"
+                    onEditSong={onEditInStudio}
+                    compact
+                  />
+                </div>
+              ) : (
+                <div className="mypage-private-action-wrap">
+                  <Badge variant="muted" className="mypage-status-badge">
+                    PRIVATE
+                  </Badge>
+                  <Tooltip title="Publish" description="Mint on-chain and publish to Market">
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      className="mypage-publish-icon-btn"
+                      onClick={() => onPublishClick(song)}
+                      disabled={Boolean(publicPending)}
+                      aria-label="Publish track"
+                    >
+                      <Upload size={12} />
+                    </Button>
+                  </Tooltip>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
 export const Mypage: React.FC<Props> = ({ onEditSong, className = '', style = {} }) => {
   const { readAddress, isReconnecting } = useSelectedUserAddress();
@@ -41,13 +350,22 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '', style = {}
   const [selected, setSelected] = useState<Record<string, string>>({});
 
   // 4 Sections Collapsible States
-  const [songsOpen, setSongsOpen] = useState(true);
-  const [licensesOpen, setLicensesOpen] = useState(true);
-  const [albumsOpen, setAlbumsOpen] = useState(true);
-  const [voicesOpen, setVoicesOpen] = useState(true);
+  // Empty dividers start closed by default; if songs exist in cache/store, start open
+  const [songsOpen, setSongsOpen] = useState(() => (readAddress ? (readSongs(readAddress)?.length ?? 0) > 0 : true));
+  const [licensesOpen, setLicensesOpen] = useState(false);
+  const [albumsOpen, setAlbumsOpen] = useState(false);
+  const [voicesOpen, setVoicesOpen] = useState(false);
 
-  // Profile Modal State
+  // Track manual user toggle overrides so clicks remain responsive
+  const userToggledSongs = useRef(false);
+  const userToggledLicenses = useRef(false);
+  const userToggledAlbums = useRef(false);
+  const userToggledVoices = useRef(false);
+
+  // Modals State
   const [profileModalOpen, setProfileModalOpen] = useState(false);
+  const [editingDetailsSong, setEditingDetailsSong] = useState<Song | null>(null);
+  const [publishConfirmSong, setPublishConfirmSong] = useState<Song | null>(null);
   const [copied, setCopied] = useState(false);
 
   // Albums & Voices Data
@@ -62,7 +380,25 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '', style = {}
   const formattedAddress = activeAddress ? `${activeAddress.slice(0, 6)}...${activeAddress.slice(-4)}` : '';
   const displayName = nickname || formattedAddress || '0x...';
   const { toggle: togglePublic, pending: publicPending } = usePublic();
-  const { ensure: ensureMint, pending: mintPending } = useMint();
+  const { ensure: ensureMint } = useMint();
+
+  // Fast album lookup map
+  const albumsMap = useMemo(() => {
+    const map = new Map<string, Album>();
+    albums.forEach((a) => map.set(a.id, a));
+    return map;
+  }, [albums]);
+
+  // Close 3-dot dropdown when clicking outside
+  useEffect(() => {
+    if (!menuOpenId) return;
+    const closeMenu = (e: MouseEvent) => {
+      if ((e.target as HTMLElement).closest('.mypage-menu-wrap')) return;
+      setMenuOpenId(null);
+    };
+    window.addEventListener('click', closeMenu);
+    return () => window.removeEventListener('click', closeMenu);
+  }, [menuOpenId]);
 
   useEffect(() => () => {
     if (download.current) {
@@ -75,7 +411,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '', style = {}
     const cached = activeAddress ? readSongs(activeAddress) : null;
     if (cached) store.setSongs(cached);
     let songs = store.getState().songs;
-    return store.subscribe(next => {
+    return store.subscribe((next) => {
       setState(next);
       if (next.songs !== songs) {
         songs = next.songs;
@@ -86,7 +422,10 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '', style = {}
 
   // Fetch Songs
   useEffect(() => {
-    if (!activeAddress) { setLoading(false); return; }
+    if (!activeAddress) {
+      setLoading(false);
+      return;
+    }
     let current = true;
     setLoading(true);
     setError(null);
@@ -108,6 +447,9 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '', style = {}
           url: s.url ?? '',
         }));
         store.setSongs(mapped);
+        if (!userToggledSongs.current) {
+          setSongsOpen(mapped.length > 0);
+        }
       } catch (err) {
         if (current) setError(err instanceof Error ? err.message : 'Could not load your songs');
       } finally {
@@ -144,6 +486,44 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '', style = {}
     return () => { current = false; };
   }, [activeAddress]);
 
+  useEffect(() => {
+    if (!licensed.loading && !userToggledLicenses.current) {
+      setLicensesOpen(licensed.songs.length > 0);
+    }
+  }, [licensed.loading, licensed.songs.length]);
+
+  useEffect(() => {
+    if (!loadingAlbums && !userToggledAlbums.current) {
+      setAlbumsOpen(albums.length > 0);
+    }
+  }, [loadingAlbums, albums.length]);
+
+  useEffect(() => {
+    if (!loadingVoices && !userToggledVoices.current) {
+      setVoicesOpen(voices.length > 0);
+    }
+  }, [loadingVoices, voices.length]);
+
+  const toggleSongs = () => {
+    userToggledSongs.current = true;
+    setSongsOpen((prev) => !prev);
+  };
+
+  const toggleLicenses = () => {
+    userToggledLicenses.current = true;
+    setLicensesOpen((prev) => !prev);
+  };
+
+  const toggleAlbums = () => {
+    userToggledAlbums.current = true;
+    setAlbumsOpen((prev) => !prev);
+  };
+
+  const toggleVoices = () => {
+    userToggledVoices.current = true;
+    setVoicesOpen((prev) => !prev);
+  };
+
   const copyAddress = () => {
     if (!activeAddress) return;
     navigator.clipboard.writeText(activeAddress);
@@ -179,7 +559,9 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '', style = {}
     } catch (err) {
       console.error('Audio download failed', err);
       toast.error(err instanceof Error ? err.message : 'Could not download the audio');
-    } finally { setDownloading(null); }
+    } finally {
+      setDownloading(null);
+    }
   };
 
   const handleDelete = async (id: string) => {
@@ -188,9 +570,10 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '', style = {}
       const response = await sdk.fetch(`/api/songs/${encodeURIComponent(id)}`, { method: 'DELETE' });
       if (!response.ok) throw new Error('Could not delete the song');
       store.deleteSong(id);
+      toast.success('Song deleted successfully');
     } catch (err) {
-      console.error('Failed to delete song on backend', err);
-      toast.error('Could not delete the song');
+      console.error('Song deletion failed', err);
+      toast.error(err instanceof Error ? err.message : 'Could not delete the song');
     }
   };
 
@@ -267,7 +650,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '', style = {}
       <div className="mypage-section">
         <div
           className={`board-section-separator ${!songsOpen ? 'collapsed' : ''}`}
-          onClick={() => setSongsOpen(!songsOpen)}
+          onClick={toggleSongs}
           role="button"
           tabIndex={0}
         >
@@ -292,135 +675,69 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '', style = {}
                 </span>
               </div>
             ) : (
-              groupSongs(state.songs).map((versions) => {
-                const family = versions[0].family ?? versions[0].id;
-                const song = versions.find(s => s.id === selected[family]) ?? versions[0];
-                const isPlayingThis = state.isPlaying && state.activeSong?.id === song.id;
-                const isMenuOpen = menuOpenId === song.id;
+              <div className="market-grid">
+                {groupSongs(state.songs).map((versions) => {
+                  const family = versions[0].family ?? versions[0].id;
+                  const song = versions.find((s) => s.id === selected[family]) ?? versions[0];
+                  const isPlayingThis = state.isPlaying && state.activeSong?.id === song.id;
+                  const album = song.album_id ? albumsMap.get(song.album_id) : null;
+                  const albumTitle = album?.title || song.album_title || null;
+                  const albumCover = album?.cover || null;
 
-                return (
-                  <div
-                    key={family}
-                    className={`mypage-song-card ${state.activeSong?.id === song.id ? 'active' : ''}`}
-                  >
-                    {/* Top Row: Playback & Track Info & 3-Dot Menu */}
-                    <div className="mypage-card-top">
-                      <div className="mypage-card-info">
-                        <Button
-                          variant={isPlayingThis ? 'primary' : 'ghost'}
-                          size="sm"
-                          onClick={() => {
-                            if (isPlayingThis) {
-                              store.setPlaying(false);
-                            } else {
-                              store.setActiveSong(song);
-                              store.setPlaying(true);
-                            }
-                          }}
-                        >
-                          {isPlayingThis ? 'PAUSE' : 'PLAY'}
-                        </Button>
-
-                        <div className="mypage-card-text">
-                          <div className="mypage-card-title">
-                            {song.title}
-                          </div>
-                          <Versions
-                            songs={versions}
-                            selected={song.id}
-                            onSelect={version => {
-                              setSelected(current => ({ ...current, [family]: version.id }));
-                              setMenuOpenId(null);
-                              if (versions.some(item => item.id === state.activeSong?.id)) store.setActiveSong(version);
-                            }}
-                          />
-                          <div className="mypage-card-meta">
-                            {song.tags.join(' // ')} • {song.duration}s
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* 3-Dot Action Menu */}
-                      <div className="mypage-menu-wrap">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setMenuOpenId(isMenuOpen ? null : song.id)}
-                          className="mypage-menu-btn"
-                        >
-                          •••
-                        </Button>
-
-                        {isMenuOpen && (
-                          <div className="mypage-menu-dropdown">
-                            <button
-                              type="button"
-                              className="mypage-menu-item mypage-item-edit"
-                              onClick={() => {
-                                setMenuOpenId(null);
-                                onEditSong(song);
-                              }}
-                            >
-                              EDIT
-                            </button>
-                            <button
-                              type="button"
-                              className="mypage-menu-item mypage-item-download"
-                              disabled={Boolean(mintPending || downloading)}
-                              onClick={() => handleDownload(song)}
-                            >
-                              DOWNLOAD
-                            </button>
-                            <button
-                              type="button"
-                              className="mypage-menu-item mypage-item-delete"
-                              onClick={() => handleDelete(song.id)}
-                            >
-                              DELETE
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Bottom Row: Prices, Stats & Public Switch */}
-                    <div className="mypage-card-bottom">
-                      <div className="mypage-card-pricing">
-                        <div>STREAM: <span className="mypage-price-stream">${song.stream_price.toFixed(2)}/min</span></div>
-                        {!song.source && <div>LICENSE: <span className="mypage-price-license">${song.license_price.toFixed(2)}</span></div>}
-                      </div>
-
-                      <div className="mypage-card-right-tools">
-                        <Licenses key={song.id} song={song} onEditSong={onEditSong} placement="mypage" />
-
-                        {/* Public <> Private Toggle */}
-                        <div className="mypage-toggle-wrap">
-                          <span className="mypage-toggle-label">
-                            {song.public ? 'PUBLIC' : 'PRIVATE'}
-                          </span>
-                          <label className="mypage-toggle-input-wrap">
-                            <input
-                              type="checkbox"
-                              checked={song.public}
-                              disabled={Boolean(publicPending)}
-                              aria-label="Public song"
-                              onChange={() => togglePublic(song)}
-                              className="mypage-toggle-checkbox"
-                            />
-                          </label>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })
+                  return (
+                    <MySongCard
+                      key={family}
+                      song={song}
+                      versions={versions}
+                      albumTitle={albumTitle}
+                      albumCover={albumCover}
+                      isPlayingThis={isPlayingThis}
+                      onPlayToggle={() => {
+                        if (isPlayingThis) {
+                          store.setPlaying(false);
+                        } else {
+                          store.setActiveSong(song);
+                          store.setPlaying(true);
+                        }
+                      }}
+                      onSelectVersion={(v) => {
+                        setSelected((current) => ({ ...current, [family]: v.id }));
+                        setMenuOpenId(null);
+                        if (versions.some((item) => item.id === state.activeSong?.id)) {
+                          store.setActiveSong(v);
+                        }
+                      }}
+                      isMenuOpen={menuOpenId === song.id}
+                      onToggleMenu={() => setMenuOpenId(menuOpenId === song.id ? null : song.id)}
+                      onEditDetails={(s) => {
+                        setMenuOpenId(null);
+                        setEditingDetailsSong(s);
+                      }}
+                      onEditInStudio={(s) => {
+                        setMenuOpenId(null);
+                        onEditSong(s);
+                      }}
+                      onDownload={handleDownload}
+                      onDelete={handleDelete}
+                      onPublishClick={(s) => setPublishConfirmSong(s)}
+                      publicPending={Boolean(publicPending)}
+                    />
+                  );
+                })}
+              </div>
             )}
           </div>
         )}
       </div>
 
+      {/* SECTION (iii): My Licenses */}
       <div className="mypage-section">
-        <div className={`board-section-separator ${!licensesOpen ? 'collapsed' : ''}`} onClick={() => setLicensesOpen(!licensesOpen)} role="button" tabIndex={0}>
+        <div
+          className={`board-section-separator ${!licensesOpen ? 'collapsed' : ''}`}
+          onClick={toggleLicenses}
+          role="button"
+          tabIndex={0}
+        >
           <div className="board-section-left">
             <ChevronDown className="board-section-chevron" size={14} />
             <Music size={13} />
@@ -428,29 +745,75 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '', style = {}
             <span className="board-section-badge">{licensed.songs.length}</span>
           </div>
         </div>
-        {licensesOpen && <div className="mypage-section-body">
-          {(publicSongsError || licensed.error) && <div role="alert">{(publicSongsError || licensed.error)?.message}</div>}
-          {licensed.songs.length === 0 ? <div className="mypage-empty"><span className="mypage-empty-title">{licensed.loading ? 'LOADING LICENSES' : 'NO LICENSES PURCHASED'}</span></div> : licensed.songs.map(song => {
-            const playing = state.isPlaying && state.activeSong?.id === song.id;
-            return <div key={song.id} className="mypage-song-card">
-              <div className="mypage-card-top"><div className="mypage-card-info">
-                <Button variant={playing ? 'primary' : 'ghost'} size="sm" onClick={() => {
-                  if (playing) store.setPlaying(false);
-                  else { store.setActiveSong(song); store.setPlaying(true); }
-                }}>{playing ? 'PAUSE' : 'PLAY'}</Button>
-                <div className="mypage-card-text"><div className="mypage-card-title">{song.title}</div><div className="mypage-card-meta">{song.duration}s</div></div>
-              </div></div>
-              <div className="mypage-card-bottom"><div className="mypage-card-right-tools"><Licenses song={song} placement="mypage" onEditSong={onEditSong} /></div></div>
-            </div>;
-          })}
-        </div>}
+        {licensesOpen && (
+          <div className="mypage-section-body">
+            {(publicSongsError || licensed.error) && (
+              <div role="alert">{(publicSongsError || licensed.error)?.message}</div>
+            )}
+            {licensed.songs.length === 0 ? (
+              <div className="mypage-empty">
+                <span className="mypage-empty-title">
+                  {licensed.loading ? 'LOADING LICENSES…' : 'NO LICENSES PURCHASED'}
+                </span>
+                <span className="mypage-empty-desc">
+                  {licensed.loading ? 'Retrieving your on-chain licenses…' : 'Licenses you purchase in the Market will appear here for remixing.'}
+                </span>
+              </div>
+            ) : (
+              <div className="market-grid">
+                {groupSongs(licensed.songs).map((versions) => {
+                  const family = versions[0].family ?? versions[0].id;
+                  const song = versions.find((s) => s.id === selected[family]) ?? versions[0];
+                  const isPlayingThis = state.isPlaying && state.activeSong?.id === song.id;
+                  const album = song.album_id ? albumsMap.get(song.album_id) : null;
+                  const albumTitle = album?.title || song.album_title || null;
+                  const albumCover = album?.cover || null;
+
+                  return (
+                    <MySongCard
+                      key={family}
+                      song={song}
+                      versions={versions}
+                      albumTitle={albumTitle}
+                      albumCover={albumCover}
+                      isPlayingThis={isPlayingThis}
+                      onPlayToggle={() => {
+                        if (isPlayingThis) {
+                          store.setPlaying(false);
+                        } else {
+                          store.setActiveSong(song);
+                          store.setPlaying(true);
+                        }
+                      }}
+                      onSelectVersion={(v) => {
+                        setSelected((cur) => ({ ...cur, [family]: v.id }));
+                        if (versions.some((item) => item.id === state.activeSong?.id)) {
+                          store.setActiveSong(v);
+                        }
+                      }}
+                      isMenuOpen={false}
+                      onToggleMenu={() => { }}
+                      onEditDetails={() => { }}
+                      onEditInStudio={onEditSong}
+                      onDownload={handleDownload}
+                      onDelete={handleDelete}
+                      onPublishClick={() => { }}
+                      publicPending={false}
+                      isRemixLicensed={true}
+                    />
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* SECTION (iii): My Albums */}
+      {/* SECTION (iv): My Albums */}
       <div className="mypage-section">
         <div
           className={`board-section-separator ${!albumsOpen ? 'collapsed' : ''}`}
-          onClick={() => setAlbumsOpen(!albumsOpen)}
+          onClick={toggleAlbums}
           role="button"
           tabIndex={0}
         >
@@ -505,11 +868,11 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '', style = {}
         )}
       </div>
 
-      {/* SECTION (iv): My Voices */}
+      {/* SECTION (v): My Voices */}
       <div className="mypage-section">
         <div
           className={`board-section-separator ${!voicesOpen ? 'collapsed' : ''}`}
-          onClick={() => setVoicesOpen(!voicesOpen)}
+          onClick={toggleVoices}
           role="button"
           tabIndex={0}
         >
@@ -523,10 +886,14 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '', style = {}
 
         {voicesOpen && (
           <div className="mypage-section-body">
-            {voicesError && <div className="mypage-empty" role="alert">
-              <span className="mypage-empty-desc">{voicesError}</span>
-              <Button variant="ghost" size="sm" onClick={() => { void refreshVoices(); }}>RETRY</Button>
-            </div>}
+            {voicesError && (
+              <div className="mypage-empty" role="alert">
+                <span className="mypage-empty-desc">{voicesError}</span>
+                <Button variant="ghost" size="sm" onClick={() => { void refreshVoices(); }}>
+                  RETRY
+                </Button>
+              </div>
+            )}
             {loadingVoices ? (
               <div className="mypage-empty">
                 <span className="mypage-empty-title">LOADING VOICES...</span>
@@ -546,14 +913,24 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '', style = {}
                         {voiceStatus(voice).toUpperCase()}
                       </Badge>
                     </div>
-                    <div className="studio-voice-availability" role="status"><span>Fast: {voiceAvailability(voice, 'turbo')}</span><span>Master: {voiceAvailability(voice, 'sft')}</span></div>
-                    {(['turbo', 'sft'] as const).map(mode => {
+                    <div className="studio-voice-availability" role="status">
+                      <span>Fast: {voiceAvailability(voice, 'turbo')}</span>
+                      <span>Master: {voiceAvailability(voice, 'sft')}</span>
+                    </div>
+                    {(['turbo', 'sft'] as const).map((mode) => {
                       const availability = voice.availability[mode];
-                      return availability.step != null && ['queued', 'training'].includes(availability.status)
-                        ? <div key={mode} className="studio-voice-detail">{mode === 'turbo' ? 'Fast' : 'Master'}: Preparing · {availability.step}{availability.total_steps != null ? ` / ${availability.total_steps}` : ''}</div>
-                        : null;
+                      return availability.step != null && ['queued', 'training'].includes(availability.status) ? (
+                        <div key={mode} className="studio-voice-detail">
+                          {mode === 'turbo' ? 'Fast' : 'Master'}: Preparing · {availability.step}
+                          {availability.total_steps != null ? ` / ${availability.total_steps}` : ''}
+                        </div>
+                      ) : null;
                     })}
-                    {(voice.error || voice.availability.turbo.error || voice.availability.sft.error) && <div className="studio-voice-detail" role="alert">{voice.error || voice.availability.turbo.error || voice.availability.sft.error}</div>}
+                    {(voice.error || voice.availability.turbo.error || voice.availability.sft.error) && (
+                      <div className="studio-voice-detail" role="alert">
+                        {voice.error || voice.availability.turbo.error || voice.availability.sft.error}
+                      </div>
+                    )}
                     {voice.sample_url && (
                       <Button
                         variant="ghost"
@@ -583,6 +960,28 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '', style = {}
         isOpen={profileModalOpen}
         onClose={() => setProfileModalOpen(false)}
         address={activeAddress}
+      />
+
+      {/* Edit Song Details Modal */}
+      <EditSongModal
+        isOpen={Boolean(editingDetailsSong)}
+        onClose={() => setEditingDetailsSong(null)}
+        song={editingDetailsSong}
+        activeAddress={activeAddress}
+      />
+
+      {/* Publish Confirmation Modal */}
+      <PublishModal
+        isOpen={Boolean(publishConfirmSong)}
+        onClose={() => setPublishConfirmSong(null)}
+        song={publishConfirmSong}
+        activeAddress={activeAddress}
+        formattedAddress={formattedAddress}
+        albums={albums}
+        onConfirm={async (song: Song) => {
+          await togglePublic(song);
+        }}
+        pending={Boolean(publicPending)}
       />
     </div>
   );

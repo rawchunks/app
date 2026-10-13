@@ -8,6 +8,27 @@ export interface UserProfile {
   avatar: string | null;
 }
 
+const inFlightUsers = new Map<string, Promise<{ nickname?: string | null; avatar?: string | null } | null>>();
+
+function fetchUserProfile(address: string): Promise<{ nickname?: string | null; avatar?: string | null } | null> {
+  const normalized = address.toLowerCase();
+  const existing = inFlightUsers.get(normalized);
+  if (existing) return existing;
+
+  const promise = sdk.fetch(`/api/user/${encodeURIComponent(address)}`)
+    .then(async (res) => {
+      if (!res.ok) return null;
+      return res.json();
+    })
+    .catch(() => null)
+    .finally(() => {
+      inFlightUsers.delete(normalized);
+    });
+
+  inFlightUsers.set(normalized, promise);
+  return promise;
+}
+
 export function useProfile(address?: string | null) {
   const [profile, setProfile] = useState<UserProfile>(() => {
     if (!address) {
@@ -62,11 +83,7 @@ export function useProfile(address?: string | null) {
     let active = true;
     setLoading(true);
 
-    sdk.fetch(`/api/user/${encodeURIComponent(address)}`)
-      .then(async (res) => {
-        if (!res.ok) return null;
-        return res.json();
-      })
+    fetchUserProfile(address)
       .then((data) => {
         if (!active || !data) return;
         const newNick = data.nickname ?? null;
@@ -77,9 +94,6 @@ export function useProfile(address?: string | null) {
         if (cachedAcc && cachedAcc.address.toLowerCase() === address.toLowerCase()) {
           writeCachedAccount(cachedAcc.address, cachedAcc.network, cachedAcc.svmAddress, newNick, newAv);
         }
-      })
-      .catch(() => {
-        // Soft fail on network/offline — cached data is preserved
       })
       .finally(() => {
         if (active) setLoading(false);

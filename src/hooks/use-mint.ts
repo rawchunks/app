@@ -1,5 +1,7 @@
 import { useSyncExternalStore } from 'react';
-import { useActiveAccount } from 'thirdweb/react';
+import { useActiveAccount, useAdminWallet } from 'thirdweb/react';
+import type { Account } from 'thirdweb/wallets';
+import { prepareTempoTransaction } from '../components/connector';
 import { prepareContractCall, readContract, sendTransaction, simulateTransaction, waitForReceipt, type PreparedTransaction } from 'thirdweb';
 import { parseEventLogs } from 'viem';
 import { useSelectedUserAddress } from './use-address';
@@ -39,6 +41,7 @@ async function loadSong(id: string, userAddress: string): Promise<Song> {
 
 export function useMint() {
   const account = useActiveAccount();
+  const adminWallet = useAdminWallet();
   const { userAddress, svmAddress, paymentNetwork, captureSolanaOperation, assertCurrent } = useSelectedUserAddress();
   const pending = useSyncExternalStore(listener => { listeners.add(listener); return () => { listeners.delete(listener); }; }, () => [...jobs.keys()].join(','));
 
@@ -54,6 +57,7 @@ export function useMint() {
     let solana: ReturnType<typeof captureSolanaOperation> | null = null;
     let originalSongId = 0n;
     let transaction: PreparedTransaction<any> | null = null;
+    let sender: Account | null = account ?? null;
     const factory = (network: string) => {
       if (!isEvmNetwork(network)) throw new Error('The song network is unavailable');
       const chain = getEvmChainObject(network);
@@ -136,7 +140,15 @@ export function useMint() {
           transaction = originalSongId
             ? prepareContractCall({ contract: getRemixContract(thirdwebClient, contract.chain), method: 'remixSong', params: [originalSongId, { licenseAmount: 0n, licensePrice: 0n, streamPrice: usdcToWei(song.stream_price) }, `ipfs://${mint.cid}`] })
             : prepareContractCall({ contract, method: 'mintSong', params: [BigInt(song.licenses), usdcToWei(song.license_price), usdcToWei(song.stream_price), true, `ipfs://${mint.cid}`] });
-          await simulateTransaction({ account, transaction });
+          if (contract.chain.id === 42431) {
+            const admin = adminWallet?.getAccount();
+            if (!adminWallet || !admin) throw new Error('The admin signer is not ready');
+            const prepared = await prepareTempoTransaction({ chain: contract.chain, admin, adminWallet,
+              accountAddress: account.address, assertCurrent }, transaction);
+            transaction = prepared.transaction;
+            sender = prepared.account;
+          }
+          await simulateTransaction({ account: sender!, transaction });
           assertCurrent();
           return;
         }
@@ -150,9 +162,9 @@ export function useMint() {
         catch (error) { write({ ...mint, submitted: false }); throw error; }
         if (!account) throw new Error('Connect your wallet');
         if (isEvmNetwork(mint.network)) {
-          if (!transaction) throw new Error('Mint preflight is missing');
+          if (!transaction || !sender) throw new Error('Mint preflight is missing');
           try {
-            const result = await sendTransaction({ account, transaction });
+            const result = await sendTransaction({ account: sender, transaction });
             return { ...mint, hash: result.transactionHash };
           } catch (error) {
             if ((error as { code?: number }).code === 4001) write({ ...mint, submitted: false });
