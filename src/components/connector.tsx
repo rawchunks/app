@@ -2,9 +2,13 @@ import { useEffect, useMemo, useState } from "react";
 import { ConnectButton, useActiveAccount, useActiveWallet, useActiveWalletConnectionStatus, useAutoConnect } from "thirdweb/react";
 import { createWallet, inAppWallet } from "thirdweb/wallets";
 import type { SmartWalletOptions, Account, Wallet as ThirdwebWallet } from "thirdweb/wallets";
-import { getContract, readContract, prepareContractCall, encode, sendAndConfirmTransaction, type Chain, type PreparedTransaction } from "thirdweb";
+import { getContract, readContract, prepareContractCall, prepareTransaction, encode, sendAndConfirmTransaction, type Chain, type PreparedTransaction } from "thirdweb";
 import { allowance, approve } from "thirdweb/extensions/erc20";
-import { createPublicClient, http } from "viem";
+import { createPublicClient, createWalletClient, encodeFunctionData, hexToBytes, http, parseEventLogs, type Transport } from "viem";
+import { entryPoint06Abi, getUserOperationHash } from "viem/account-abstraction";
+import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
+import { tempoModerato } from "viem/chains";
+import { withRelay } from "viem/tempo";
 import { ChevronDown, LogOut, Copy, Check, ExternalLink, Wallet, ShieldCheck, User } from "lucide-react";
 import {
   DropdownMenu,
@@ -26,6 +30,7 @@ import { useDisclaimerConsent } from "@/hooks/use-disclaimer";
 import { thirdwebCustomTheme } from "@/lib/connector";
 
 const TEMPO_ACCOUNT_FACTORY = "0x85e23b94e7F5E9cC1fF78BCe78cfb15B81f0DF00";
+const TEMPO_ENTRY_POINT = "0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789";
 
 type TempoAccountInput = {
   chain: Chain; admin: Account; adminWallet: ThirdwebWallet; accountAddress: string;
@@ -52,44 +57,91 @@ async function prepareTempoAccount(input: TempoAccountInput) {
   const predicted = await readContract({ contract: factory, method: "function getAddress(address, bytes) view returns (address)", params: [admin.address, "0x"] });
   check();
   if (predicted.toLowerCase() !== input.accountAddress.toLowerCase()) throw new Error("The derived Tempo smart account differs from the universal EVM address");
-  if (!admin.signTransaction) {
-    await input.adminWallet.switchChain(chain);
+  const entryCode = await rpc.getCode({ address: TEMPO_ENTRY_POINT });
+  check();
+  if (!entryCode || entryCode === "0x") throw new Error("The canonical EntryPoint is not deployed on Tempo Moderato");
+  const code = await rpc.getCode({ address: input.accountAddress as `0x${string}` });
+  check();
+  const deployed = Boolean(code && code !== "0x");
+  if (deployed) {
+    const isAdmin = await readContract({ contract: smart, method: "function isAdmin(address) view returns (bool)", params: [admin.address] });
     check();
-    if (input.adminWallet.getChain()?.id !== chain.id) throw new Error("Select Tempo Moderato in your wallet");
+    if (!isAdmin) throw new Error("The signer is not an admin of the Tempo smart account");
   }
+  // The admin signs the ERC-4337 operation. An ephemeral broadcaster signs only
+  // its Tempo envelope; Tempo's public testnet sponsor pays that envelope's fee.
+  const broadcaster = privateKeyToAccount(generatePrivateKey());
+  const guarded = (url: string): Transport => options => {
+    const transport = http(url, { retryCount: 0 })(options);
+    const request: typeof transport.request = async (request, requestOptions) => {
+      check();
+      const result = await transport.request(request, requestOptions);
+      check();
+      if (request.method === "eth_fillTransaction") {
+        const filled = result as { tx?: { chainId?: string } };
+        if (!filled.tx?.chainId || Number(BigInt(filled.tx.chainId)) !== chain.id) {
+          throw new Error("The Tempo sponsor returned another network");
+        }
+      }
+      return result as never;
+    };
+    return { ...transport, request };
+  };
+  const relay = createWalletClient({ account: broadcaster, chain: tempoModerato,
+    transport: withRelay(guarded(chain.rpc), guarded("https://sponsor.moderato.tempo.xyz")) });
+  let operationHash: `0x${string}` | undefined;
   const sender: Account = {
     ...admin,
+    address: broadcaster.address,
     sendTransaction: async tx => {
       check();
       if (tx.chainId !== chain.id) throw new Error("The Tempo transaction uses another network");
-      if (!admin.signTransaction) {
-        if (input.adminWallet.getChain()?.id !== chain.id) throw new Error("Select Tempo Moderato in your wallet");
-        return admin.sendTransaction(tx);
-      }
-      const signed = await admin.signTransaction(tx);
+      if (!operationHash || tx.to?.toLowerCase() !== TEMPO_ENTRY_POINT.toLowerCase()) throw new Error("The Tempo smart-account operation is missing");
+      const transactionHash = await relay.sendTransaction({ to: TEMPO_ENTRY_POINT, data: tx.data,
+        gas: tx.gas, feePayer: true });
       check();
-      return { transactionHash: await rpc.sendRawTransaction({ serializedTransaction: signed }) };
+      const receipt = await rpc.waitForTransactionReceipt({ hash: transactionHash, timeout: 120_000 });
+      check();
+      if (receipt.status !== "success") throw new Error("Tempo smart-account transaction reverted");
+      const event = parseEventLogs({ abi: entryPoint06Abi, logs: receipt.logs, eventName: "UserOperationEvent" })
+        .find(log => log.address.toLowerCase() === TEMPO_ENTRY_POINT.toLowerCase()
+          && log.args.userOpHash === operationHash && log.args.sender.toLowerCase() === input.accountAddress.toLowerCase());
+      if (!event?.args.success) throw new Error("Tempo smart-account operation failed");
+      return { transactionHash };
     },
+  };
+  const prepare = async (callData: `0x${string}`) => {
+    check();
+    const nonce = await rpc.readContract({ address: TEMPO_ENTRY_POINT, abi: entryPoint06Abi,
+      functionName: "getNonce", args: [input.accountAddress as `0x${string}`, 0n] });
+    const initCode = deployed ? "0x" as const : TEMPO_ACCOUNT_FACTORY + (await encode(prepareContractCall({
+      contract: factory, method: "function createAccount(address, bytes) returns (address)", params: [admin.address, "0x"] }))).slice(2);
+    check();
+    // Native ETH prefunding is unavailable on Tempo. Only the outer Tempo
+    // envelope has fees; the EntryPoint operation has zero native gas price.
+    const operation = { sender: input.accountAddress as `0x${string}`, nonce, initCode: initCode as `0x${string}`, callData,
+      callGasLimit: 3_000_000n, verificationGasLimit: 6_000_000n, preVerificationGas: 100_000n,
+      maxFeePerGas: 0n, maxPriorityFeePerGas: 0n, paymasterAndData: "0x" as const, signature: "0x" as `0x${string}` };
+    operationHash = getUserOperationHash({ chainId: chain.id, entryPointAddress: TEMPO_ENTRY_POINT,
+      entryPointVersion: "0.6", userOperation: operation });
+    operation.signature = await admin.signMessage({ message: { raw: hexToBytes(operationHash) }, chainId: chain.id });
+    check();
+    return prepareTransaction({ client: thirdwebClient, chain, to: TEMPO_ENTRY_POINT,
+      data: encodeFunctionData({ abi: entryPoint06Abi, functionName: "handleOps", args: [[operation], broadcaster.address] }) });
   };
   const send = async (transaction: PreparedTransaction) => {
     check();
-    const receipt = await sendAndConfirmTransaction({ account: sender, transaction });
+    const receipt = await sendAndConfirmTransaction({ account: sender, transaction: await prepare(await encode(transaction)) });
     check();
     if (receipt.status !== "success") throw new Error("Tempo account or approval transaction reverted");
   };
-  const code = await rpc.getCode({ address: input.accountAddress as `0x${string}` });
-  check();
-  if (!code || code === "0x") await send(prepareContractCall({ contract: factory, method: "function createAccount(address, bytes) returns (address)", params: [admin.address, "0x"] }));
-  const isAdmin = await readContract({ contract: smart, method: "function isAdmin(address) view returns (bool)", params: [admin.address] });
-  check();
-  if (!isAdmin) throw new Error("The signer is not an admin of the Tempo smart account");
-  return { sender, smart, check, send };
+  return { sender, smart, check, send, prepare, deployed };
 }
 
 export async function prepareTempoTransaction(input: TempoAccountInput, transaction: PreparedTransaction<any>): Promise<{ account: Account; transaction: PreparedTransaction<any> }> {
   input.assertCurrent();
   if (transaction.chain.id !== input.chain.id || transaction.chain.rpc !== input.chain.rpc) throw new Error("The contract transaction uses another network configuration");
-  const { sender, smart, check } = await prepareTempoAccount(input);
+  const { sender, smart, check, prepare } = await prepareTempoAccount(input);
   const [data, to, value] = await Promise.all([
     encode(transaction),
     typeof transaction.to === "function" ? transaction.to() : transaction.to,
@@ -97,14 +149,14 @@ export async function prepareTempoTransaction(input: TempoAccountInput, transact
   ]);
   check();
   if (!to) throw new Error("The contract transaction target is missing");
-  return { account: sender, transaction: prepareContractCall({ contract: smart,
-    method: "function execute(address, uint256, bytes)", params: [to, value ?? 0n, data] }) };
+  return { account: sender, transaction: await prepare(await encode(prepareContractCall({ contract: smart,
+    method: "function execute(address, uint256, bytes)", params: [to, value ?? 0n, data] }))) };
 }
 
 export async function approveTempoSession(input: TempoAccountInput & { asset: string; spender: string; amount: bigint }): Promise<void> {
-  const { smart, check, send } = await prepareTempoAccount(input);
+  const { smart, check, send, deployed } = await prepareTempoAccount(input);
   const token = getContract({ client: thirdwebClient, chain: input.chain, address: input.asset });
-  const approved = await allowance({ contract: token, owner: input.accountAddress, spender: input.spender });
+  const approved = deployed ? await allowance({ contract: token, owner: input.accountAddress, spender: input.spender }) : 0n;
   check();
   if (approved < input.amount) {
     const data = await encode(approve({ contract: token, spender: input.spender, amountWei: input.amount }));

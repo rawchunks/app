@@ -644,15 +644,8 @@ export const Market: React.FC<Props> = ({ className = '', style = {} }) => {
                   {/* Row 3: Creator (avatar, nickname, external-link) */}
                   <CreatorSlot address={song.creator} network={song.network} />
 
-                  {/* Row 4: Mint Network & Transaction link */}
-                  <NetworkTxSlot
-                    network={song.network}
-                    txHash={song.tx_hash}
-                    txUrl={song.tx_url}
-                  />
-
-                  {/* Row 5: Tags / Genre (clickable to filter) */}
-                  <div className="market-card-row-tags">
+                  {/* Row 4: Tags / Genre (clickable to filter) */}
+                  <div className={`market-card-row-tags ${!song.tags || song.tags.length === 0 ? 'empty' : ''}`}>
                     {song.tags && song.tags.length > 0 ? (
                       song.tags.map((t) => (
                         <Badge
@@ -665,11 +658,11 @@ export const Market: React.FC<Props> = ({ className = '', style = {} }) => {
                         </Badge>
                       ))
                     ) : (
-                      <Badge variant="muted">RAWCHUNKS</Badge>
+                      <span aria-hidden="true">&nbsp;</span>
                     )}
                   </div>
 
-                  {/* Row 6: Pricing Box (Stream rate & License price) */}
+                  {/* Row 5: Pricing Box (Stream rate & License price) */}
                   <div className="market-pricing-box">
                     <div className="market-price-item">
                       <span className="market-price-label">STREAM</span>
@@ -690,27 +683,16 @@ export const Market: React.FC<Props> = ({ className = '', style = {} }) => {
                     </div>
                   </div>
 
-                  {/* Row 7: Actions Toolbar (Icons + Tooltips) */}
+                  {/* Row 6: Actions Toolbar */}
                   <div className="market-card-actions">
-                    <Tooltip
-                      title={isPlayingThis ? 'Pause' : 'Stream'}
-                      description={
-                        isPlayingThis
-                          ? 'Pause streaming audio'
-                          : `Stream track at $${song.stream_price.toFixed(2)} / min`
-                      }
+                    <Button
+                      variant={isPlayingThis ? 'primary' : 'ghost'}
+                      size="sm"
+                      onClick={() => handlePlaySong(song)}
                     >
-                      <Button
-                        variant={isPlayingThis ? 'primary' : 'ghost'}
-                        size="sm"
-                        onClick={() => handlePlaySong(song)}
-                        aria-label={isPlayingThis ? 'Pause' : 'Stream'}
-                        className="market-action-btn"
-                      >
-                        {isPlayingThis ? <Pause size={13} /> : <Play size={13} />}
-                      </Button>
-                    </Tooltip>
-                    <Licenses key={song.id} song={song} placement="market" compact />
+                      {isPlayingThis ? 'PAUSE' : 'STREAM'}
+                    </Button>
+                    <Licenses key={song.id} song={song} placement="market" />
                   </div>
                 </div>
               </div>

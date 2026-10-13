@@ -1,11 +1,18 @@
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { encodeFunctionData, parseAbi, parseTransaction, keccak256 } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
+import { custom, decodeFunctionData, encodeAbiParameters, encodeEventTopics, encodeFunctionData, parseAbi, keccak256, recoverMessageAddress } from "viem";
+import { entryPoint06Abi, getUserOperationHash } from "viem/account-abstraction";
+import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
+import { Transaction } from "viem/tempo";
 
 const mock = vi.hoisted(() => ({ selected: "eip155:8453", button: vi.fn(), autoConnect: vi.fn(), chains: [] as any[],
-  rpc: { getChainId: vi.fn(), getCode: vi.fn(), sendRawTransaction: vi.fn() }, read: vi.fn(), allowance: vi.fn(), send: vi.fn() }));
-vi.mock("viem", async original => ({ ...await original<typeof import("viem")>(), createPublicClient: () => mock.rpc }));
+  rpc: { getChainId: vi.fn(), getCode: vi.fn(), readContract: vi.fn(), waitForTransactionReceipt: vi.fn(), sendRawTransaction: vi.fn() },
+  transport: vi.fn(), read: vi.fn(), allowance: vi.fn(), send: vi.fn() }));
+vi.mock("viem", async original => {
+  const actual = await original<typeof import("viem")>();
+  return { ...actual, createPublicClient: () => mock.rpc,
+    http: (url: string) => custom({ request: request => mock.transport({ ...request, url }) }, { retryCount: 0 }) };
+});
 vi.mock("thirdweb", async original => ({ ...await original<typeof import("thirdweb")>(), readContract: mock.read, sendAndConfirmTransaction: mock.send }));
 vi.mock("thirdweb/extensions/erc20", async original => ({ ...await original<typeof import("thirdweb/extensions/erc20")>(), allowance: mock.allowance }));
 vi.mock("thirdweb/react", () => ({ ConnectButton: (props: any) => { mock.button(props); return null; }, useActiveAccount: () => null,
@@ -29,14 +36,16 @@ const smartAddress = "0x2222222222222222222222222222222222222222";
 const ousd = "0x20c0000000000000000000006a37DA5C996874BE";
 const spender = "0x3333333333333333333333333333333333333333";
 function approvalInput() {
-  const admin = { address: adminAddress, signTransaction: vi.fn() };
+  const admin = { address: adminAddress, signTransaction: vi.fn(), signMessage: vi.fn().mockResolvedValue(`0x${"11".repeat(64)}1b`) };
   return { chain: { id: 42431, rpc: "https://rpc.test" }, admin: admin as any,
     adminWallet: { getAccount: () => admin } as any, accountAddress: smartAddress, asset: ousd, spender,
     amount: 1_000_000n, assertCurrent: vi.fn() };
 }
 beforeEach(() => {
   vi.clearAllMocks();
-  mock.rpc.getChainId.mockResolvedValue(42431); mock.rpc.getCode.mockResolvedValue("0x01");
+  mock.rpc.getChainId.mockResolvedValue(42431); mock.rpc.getCode.mockReset().mockResolvedValue("0x01");
+  mock.rpc.readContract.mockReset().mockResolvedValue(0n);
+  mock.transport.mockReset();
   mock.read.mockImplementation(async input => input.method.includes("getAddress") ? smartAddress : true);
   mock.allowance.mockReset().mockResolvedValueOnce(0n).mockResolvedValue(1_000_000n);
   mock.send.mockResolvedValue({ status: "success" });
@@ -64,30 +73,36 @@ test("payment selection including Tempo does not change the connector login chai
   expect(mock.button.mock.calls.at(-1)![0].chain).toMatchObject({ id: 8453, rpc: "https://new.rpc" });
 });
 
-test("Tempo approval encodes approve inside execute and sends with the admin while allowance belongs to the smart account", async () => {
+test("Tempo approval keeps the smart account as token owner and signs an EntryPoint operation", async () => {
   const input = approvalInput();
   await approveTempoSession(input);
-  expect(mock.send).toHaveBeenCalledOnce();
-  expect(mock.send.mock.calls[0][0].account.address).toBe(adminAddress);
-  const transaction = mock.send.mock.calls[0][0].transaction;
   const { encode } = await import("thirdweb");
+  const transaction = mock.send.mock.calls[0][0].transaction;
+  const decoded = decodeFunctionData({ abi: entryPoint06Abi, data: await encode(transaction) });
+  expect(decoded.functionName).toBe("handleOps");
+  const op = (decoded.args as any)[0][0];
+  expect(op.sender.toLowerCase()).toBe(smartAddress);
+  expect(op.initCode).toBe("0x");
+  expect(op.maxFeePerGas).toBe(0n);
   const inner = encodeFunctionData({ abi: parseAbi(["function approve(address,uint256) returns(bool)"]), functionName: "approve", args: [spender, 1_000_000n] });
-  expect(await encode(transaction)).toBe(encodeFunctionData({ abi: parseAbi(["function execute(address,uint256,bytes)"]), functionName: "execute", args: [ousd, 0n, inner] }));
-  expect(transaction.to).toBe(smartAddress);
+  expect(op.callData).toBe(encodeFunctionData({ abi: parseAbi(["function execute(address,uint256,bytes)"]), functionName: "execute", args: [ousd, 0n, inner] }));
   expect(mock.allowance).toHaveBeenCalledWith(expect.objectContaining({ owner: smartAddress, spender }));
+  expect(input.admin.signTransaction).not.toHaveBeenCalled();
 });
 
-test("Tempo creates the matching account once and reuses an existing approval", async () => {
-  mock.rpc.getCode.mockResolvedValueOnce("0x01").mockResolvedValueOnce("0x");
+test("an existing Tempo account with sufficient allowance needs no operation", async () => {
   mock.allowance.mockReset().mockResolvedValue(1_000_000n);
-  await approveTempoSession(approvalInput());
-  expect(mock.send).toHaveBeenCalledOnce();
-  expect(mock.send.mock.calls[0][0].transaction.to).toBe("0x85e23b94e7F5E9cC1fF78BCe78cfb15B81f0DF00");
+  const input = approvalInput();
+  await approveTempoSession(input);
+  expect(input.admin.signMessage).not.toHaveBeenCalled();
+  expect(mock.send).not.toHaveBeenCalled();
 });
 
-test("Tempo rejects missing factory, a different derived address, and a non-admin before signing", async () => {
+test("Tempo rejects missing infrastructure, a different derived address, and a non-admin before signing", async () => {
   mock.rpc.getCode.mockResolvedValueOnce("0x");
   await expect(approveTempoSession(approvalInput())).rejects.toThrow("not deployed");
+  mock.rpc.getCode.mockResolvedValueOnce("0x01").mockResolvedValueOnce("0x");
+  await expect(approveTempoSession(approvalInput())).rejects.toThrow("EntryPoint");
   mock.read.mockResolvedValueOnce(spender);
   await expect(approveTempoSession(approvalInput())).rejects.toThrow("universal EVM address");
   mock.read.mockResolvedValueOnce(smartAddress).mockResolvedValueOnce(false);
@@ -106,79 +121,18 @@ test("Tempo stops on scope changes, reverts, and an allowance that was not appli
   await expect(approveTempoSession(approvalInput())).rejects.toThrow("not applied");
 });
 
-test("Tempo checks selection after transaction preparation before calling the wallet", async () => {
+test("Tempo stops if selection or admin changes while the operation is signed", async () => {
   const input = approvalInput();
-  input.admin.sendTransaction = vi.fn().mockResolvedValue({ transactionHash: `0x${"ab".repeat(32)}` });
   let current = true;
   input.assertCurrent.mockImplementation(() => { if (!current) throw new Error("selection changed"); });
-  mock.send.mockImplementationOnce(async ({ account }) => {
-    current = false;
-    await account.sendTransaction({ chainId: 42431, to: smartAddress, data: "0x" });
-    return { status: "success" };
-  });
+  input.admin.signMessage.mockImplementationOnce(async () => { current = false; return "0x"; });
   await expect(approveTempoSession(input)).rejects.toThrow("selection changed");
-  expect(input.admin.sendTransaction).not.toHaveBeenCalled();
-  expect(input.admin.signTransaction).not.toHaveBeenCalled();
-});
-
-test("Tempo checks selection after embedded signing before broadcasting to the API RPC", async () => {
-  const input = approvalInput();
-  input.admin.sendTransaction = vi.fn().mockResolvedValue({ transactionHash: `0x${"ab".repeat(32)}` });
-  let current = true;
-  input.assertCurrent.mockImplementation(() => { if (!current) throw new Error("selection changed"); });
-  input.admin.signTransaction.mockImplementationOnce(async () => { current = false; return "0x02ab"; });
-  mock.send.mockImplementationOnce(async ({ account }) => {
-    await account.sendTransaction({ chainId: 42431, to: smartAddress, data: "0x" });
-    return { status: "success" };
-  });
-  await expect(approveTempoSession(input)).rejects.toThrow("selection changed");
-  expect(mock.rpc.sendRawTransaction).not.toHaveBeenCalled();
-  expect(input.admin.sendTransaction).not.toHaveBeenCalled();
-});
-
-test("Tempo signs the real approval with the admin and submits the signed bytes to the configured RPC", async () => {
-  const signer = privateKeyToAccount(`0x${"11".repeat(32)}`);
-  const input = approvalInput();
-  input.admin.address = signer.address;
-  input.admin.signTransaction = vi.fn(tx => signer.signTransaction(tx));
-  input.admin.sendTransaction = vi.fn();
-  mock.send.mockImplementationOnce(async ({ account, transaction }) => {
-    const { encode } = await import("thirdweb");
-    await account.sendTransaction({ chainId: transaction.chain.id, to: transaction.to, data: await encode(transaction),
-      nonce: 0, gas: 500_000n, maxFeePerGas: 1_200_000_001n, maxPriorityFeePerGas: 1n });
-    return { status: "success" };
-  });
-  mock.rpc.sendRawTransaction.mockImplementationOnce(async ({ serializedTransaction }) => {
-    const signed = parseTransaction(serializedTransaction);
-    expect(signed.chainId).toBe(42431);
-    expect(signed.to?.toLowerCase()).toBe(smartAddress);
-    const inner = encodeFunctionData({ abi: parseAbi(["function approve(address,uint256) returns(bool)"]),
-      functionName: "approve", args: [spender, 1_000_000n] });
-    expect(signed.data).toBe(encodeFunctionData({ abi: parseAbi(["function execute(address,uint256,bytes)"]),
-      functionName: "execute", args: [ousd, 0n, inner] }));
-    return keccak256(serializedTransaction);
-  });
-  await approveTempoSession(input);
-  expect(input.admin.signTransaction).toHaveBeenCalledOnce();
-  expect(mock.rpc.sendRawTransaction).toHaveBeenCalledOnce();
-  expect(input.admin.sendTransaction).not.toHaveBeenCalled();
-});
-
-test("Tempo switches an external wallet and checks its chain again before sending", async () => {
-  const input = approvalInput();
-  input.admin.signTransaction = undefined;
-  input.admin.sendTransaction = vi.fn().mockResolvedValue({ transactionHash: `0x${"ab".repeat(32)}` });
-  let chainId = 8453;
-  input.adminWallet.switchChain = vi.fn(async chain => { chainId = chain.id; });
-  input.adminWallet.getChain = () => ({ id: chainId });
-  mock.send.mockImplementationOnce(async ({ account }) => {
-    chainId = 8453;
-    await account.sendTransaction({ chainId: 42431, to: smartAddress, data: "0x" });
-    return { status: "success" };
-  });
-  await expect(approveTempoSession(input)).rejects.toThrow("Select Tempo Moderato");
-  expect(input.adminWallet.switchChain).toHaveBeenCalledWith(input.chain);
-  expect(input.admin.sendTransaction).not.toHaveBeenCalled();
+  expect(mock.send).not.toHaveBeenCalled();
+  mock.allowance.mockReset().mockResolvedValue(0n);
+  const changed = approvalInput();
+  changed.admin.signMessage.mockImplementationOnce(async () => { changed.adminWallet.getAccount = () => ({ address: spender }); return "0x"; });
+  await expect(approveTempoSession(changed)).rejects.toThrow("admin signer changed");
+  expect(mock.send).not.toHaveBeenCalled();
 });
 
 test.each([
@@ -186,38 +140,102 @@ test.each([
   ["remixSong", "function remixSong(uint256,(uint256 licenseAmount,uint256 licensePrice,uint256 streamPrice),string) returns (uint256)", [7n, { licenseAmount: 0n, licensePrice: 0n, streamPrice: 100_000n }, "ipfs://remix"]],
   ["buyLicense", "function buyLicense(uint256)", [7n]],
   ["approve", "function approve(address,uint256) returns (bool)", [spender, 1_000_000n]],
-])("Tempo %s preserves contract calldata and executes from the universal account with an admin-signed RPC transaction", async (_name, method, params) => {
+])("Tempo %s preserves contract calldata in an admin-signed smart-account operation", async (_name, method, params) => {
   const { getContract, prepareContractCall, encode } = await import("thirdweb");
-  const signer = privateKeyToAccount(`0x${"11".repeat(32)}`);
+  const signer = privateKeyToAccount(generatePrivateKey());
   const input = approvalInput();
   input.admin.address = signer.address;
-  input.admin.signTransaction = vi.fn(tx => signer.signTransaction(tx));
+  input.admin.signMessage = vi.fn(options => {
+    expect(options.message.raw).toBeInstanceOf(Uint8Array);
+    return signer.signMessage(options);
+  });
   const original = prepareContractCall({ contract: getContract({ client: (await import("@/lib/chains")).thirdwebClient,
     chain: input.chain, address: spender }), method, params } as any);
   const prepared = await prepareTempoTransaction(input, original);
-  expect(prepared.account.address).toBe(signer.address);
-  expect(prepared.transaction.to).toBe(smartAddress);
+  const decoded = decodeFunctionData({ abi: entryPoint06Abi, data: await encode(prepared.transaction) });
+  const op = (decoded.args as any)[0][0];
   const expected = encodeFunctionData({ abi: parseAbi(["function execute(address,uint256,bytes)"]), functionName: "execute",
     args: [spender, 0n, await encode(original)] });
-  expect(await encode(prepared.transaction)).toBe(expected);
-  await prepared.account.sendTransaction({ chainId: 42431, to: smartAddress, data: expected, nonce: 0,
-    gas: 500_000n, maxFeePerGas: 1_200_000_001n, maxPriorityFeePerGas: 1n });
-  const signed = parseTransaction(mock.rpc.sendRawTransaction.mock.calls[0][0].serializedTransaction);
-  expect(signed.chainId).toBe(42431);
-  expect(signed.to?.toLowerCase()).toBe(smartAddress);
-  expect(signed.data).toBe(expected);
-  expect(input.admin.signTransaction).toHaveBeenCalledOnce();
+  expect(op.callData).toBe(expected);
+  expect(op.initCode).toBe("0x");
+  const hash = getUserOperationHash({ chainId: 42431, entryPointAddress: "0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789",
+    entryPointVersion: "0.6", userOperation: op });
+  expect(await recoverMessageAddress({ message: { raw: hash }, signature: op.signature })).toBe(signer.address);
+  expect(input.admin.signTransaction).not.toHaveBeenCalled();
 });
 
-test("Tempo contract execution stops after a selection change during signing", async () => {
-  const { getContract, prepareContractCall } = await import("thirdweb");
+test.each(["new", "existing", "operation failure", "missing event", "wrong event address", "sponsor failure", "selection during sponsor", "another RPC chain"])(
+  "an unfunded login uses a sponsored smart-account operation: %s", async scenario => {
+  const signer = privateKeyToAccount(generatePrivateKey());
+  const sponsor = privateKeyToAccount(generatePrivateKey());
   const input = approvalInput();
-  const original = prepareContractCall({ contract: getContract({ client: (await import("@/lib/chains")).thirdwebClient,
-    chain: input.chain, address: spender }), method: "function buyLicense(uint256)", params: [7n] });
-  const prepared = await prepareTempoTransaction(input, original);
+  input.admin.address = signer.address;
+  input.admin.signMessage = vi.fn(options => signer.signMessage(options));
+  input.admin.signTransaction = vi.fn(() => { throw new Error("login wallet has no gas funds"); });
+  mock.rpc.getCode.mockImplementation(async ({ address }) => scenario !== "existing" && address.toLowerCase() === smartAddress ? "0x" : "0x01");
+  mock.allowance.mockReset().mockResolvedValueOnce(scenario === "existing" ? 0n : 1_000_000n).mockResolvedValue(1_000_000n);
+  mock.rpc.readContract.mockResolvedValue(0n);
+  mock.send.mockImplementation(async ({ account, transaction }) => {
+    const { encode } = await import("thirdweb");
+    await account.sendTransaction({ chainId: 42431, to: transaction.to, data: await encode(transaction) });
+    return { status: "success" };
+  });
+  let broadcast: any;
   let current = true;
   input.assertCurrent.mockImplementation(() => { if (!current) throw new Error("selection changed"); });
-  input.admin.signTransaction.mockImplementationOnce(async () => { current = false; return "0x02ab"; });
-  await expect(prepared.account.sendTransaction({ chainId: 42431, to: smartAddress, data: "0x" })).rejects.toThrow("selection changed");
-  expect(mock.rpc.sendRawTransaction).not.toHaveBeenCalled();
+  mock.transport.mockImplementation(async ({ method, params, url }) => {
+    if (method === "eth_fillTransaction") {
+      expect(url).toBe("https://sponsor.moderato.tempo.xyz");
+      if (scenario === "sponsor failure") throw new Error("sponsorship unavailable");
+      if (scenario === "selection during sponsor") current = false;
+      return { tx: { ...params[0], type: "0x76", chainId: scenario === "another RPC chain" ? "0x1" : "0xa5bf", nonce: "0x0",
+      gas: "0xb71b00", maxFeePerGas: "0x47868c01", maxPriorityFeePerGas: "0x1", feePayerSignature: null,
+      calls: [{ to: params[0].to, data: params[0].data, value: "0x0" }] } };
+    }
+    if (method === "eth_signRawTransaction") {
+      expect(url).toBe("https://sponsor.moderato.tempo.xyz");
+      const tx = Transaction.deserialize(params[0]);
+      return signer.signTransaction({ ...tx, feePayer: sponsor } as any, { serializer: Transaction.serialize });
+    }
+    if (method === "eth_sendRawTransaction") {
+      expect(url).toBe(input.chain.rpc);
+      broadcast = Transaction.deserialize(params[0]);
+      if (!broadcast.feePayerSignature) throw new Error("unsponsored transaction");
+      return keccak256(params[0]);
+    }
+    throw new Error(`Unexpected RPC method: ${method}`);
+  });
+  mock.rpc.waitForTransactionReceipt.mockImplementation(async ({ hash }) => {
+    const decoded = decodeFunctionData({ abi: entryPoint06Abi, data: broadcast.calls[0].data });
+    expect(decoded.functionName).toBe("handleOps");
+    const op = (decoded.args as any)[0][0];
+    const userOpHash = getUserOperationHash({ chainId: 42431, entryPointAddress: "0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789",
+      entryPointVersion: "0.6", userOperation: op });
+    expect(await recoverMessageAddress({ message: { raw: userOpHash }, signature: op.signature })).toBe(signer.address);
+    expect(op.sender.toLowerCase()).toBe(smartAddress);
+    expect(op.maxFeePerGas).toBe(0n);
+    expect(op.initCode.toLowerCase()).toBe(scenario === "existing" ? "0x" : "0x85e23b94e7f5e9cc1ff78bce78cfb15b81f0df00" + encodeFunctionData({
+      abi: parseAbi(["function createAccount(address,bytes) returns(address)"]), functionName: "createAccount", args: [signer.address, "0x"] }).slice(2).toLowerCase());
+    const executed = decodeFunctionData({ abi: parseAbi(["function execute(address,uint256,bytes)"]), data: op.callData });
+    expect(executed.args?.[0].toLowerCase()).toBe(ousd.toLowerCase());
+    expect(executed.args?.[2]).toBe(encodeFunctionData({ abi: parseAbi(["function approve(address,uint256) returns(bool)"]),
+      functionName: "approve", args: [spender, 1_000_000n] }));
+    return { transactionHash: hash, status: "success", logs: scenario === "missing event" ? [] : [{ address: scenario === "wrong event address" ? spender : "0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789",
+      topics: encodeEventTopics({ abi: entryPoint06Abi, eventName: "UserOperationEvent", args: { userOpHash, sender: op.sender, paymaster: "0x0000000000000000000000000000000000000000" } }),
+      data: encodeAbiParameters(parseAbi(["function result(uint256 nonce,bool success,uint256 cost,uint256 gas)"])[0].inputs,
+        [op.nonce, scenario !== "operation failure", 0n, 500_000n]) }] };
+  });
+  if (["operation failure", "missing event", "wrong event address"].includes(scenario)) {
+    await expect(approveTempoSession(input)).rejects.toThrow("smart-account operation failed");
+    return;
+  }
+  if (["sponsor failure", "selection during sponsor", "another RPC chain"].includes(scenario)) {
+    await expect(approveTempoSession(input)).rejects.toThrow();
+    expect(broadcast).toBeUndefined();
+    return;
+  }
+  await approveTempoSession(input);
+  expect(broadcast.calls[0].to.toLowerCase()).toBe("0x5ff137d4b0fdcd49dca30c7cf57e578a026d2789");
+  expect(input.admin.signTransaction).not.toHaveBeenCalled();
+  expect(input.admin.signMessage).toHaveBeenCalledOnce();
 });

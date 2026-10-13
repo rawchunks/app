@@ -574,72 +574,6 @@
   font-size: var(--font-xs);
 }
 
-/* Row 4: Mint Network & Tx */
-.market-card-row-provenance {
-  height: clamp(16px, 1.2vw + 0.4vh, 20px);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-  font-size: var(--font-xs);
-  color: var(--text-secondary);
-  min-width: 0;
-}
-
-.market-provenance-net {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-  overflow: hidden;
-}
-
-.market-network-logo {
-  width: 12px;
-  height: 12px;
-  object-fit: contain;
-  flex-shrink: 0;
-}
-
-.market-network-icon-fallback {
-  color: var(--text-dim);
-  flex-shrink: 0;
-}
-
-.market-network-name {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: var(--text-dim);
-  font-size: 10px;
-  text-transform: uppercase;
-}
-
-.market-tx-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  font-size: 10px;
-  font-family: var(--font-family);
-  color: var(--accent);
-  text-decoration: none;
-  padding: 1px 4px;
-  background: rgba(0, 204, 255, 0.08);
-  border: 1px solid rgba(0, 204, 255, 0.25);
-  border-radius: 2px;
-  transition: all 0.15s ease;
-  flex-shrink: 0;
-}
-
-.market-tx-link:hover {
-  background: rgba(0, 204, 255, 0.18);
-  border-color: var(--accent);
-}
-
-.market-tx-placeholder {
-  visibility: hidden;
-  width: 1px;
-}
 
 /* Row 4: Tags */
 .market-card-row-tags {
@@ -711,20 +645,31 @@
   font-weight: 900;
 }
 
-/* Row 6: Actions Toolbar */
+/* Actions Toolbar */
 .market-card-actions {
-  height: clamp(28px, 2vh + 0.8vw, 34px);
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
+  height: clamp(30px, 2.2vh + 1vw, 36px);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 6px;
   margin-top: auto;
   box-sizing: border-box;
   width: 100%;
 }
 
-.market-action-btn,
-.market-btn-icon {
+.market-card-actions > * {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+}
+
+.market-card-actions .daw-tooltip-wrapper {
+  width: 100%;
+  height: 100%;
+  display: flex;
+}
+
+.market-card-actions button,
+.market-card-actions .btn-base {
   width: 100% !important;
   height: 100% !important;
   min-height: 0 !important;
@@ -732,8 +677,12 @@
   align-items: center !important;
   justify-content: center !important;
   gap: 6px !important;
+  padding: 0 clamp(6px, 0.8vw, 10px) !important;
+  font-size: var(--font-xs) !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.5px !important;
+  text-transform: uppercase !important;
   border-radius: 2px !important;
-  font-family: var(--font-family) !important;
   cursor: pointer !important;
-  padding: 0 !important;
+  box-sizing: border-box !important;
 }
