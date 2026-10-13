@@ -7,7 +7,7 @@ interface Version {
   task?: string;
   repainting_start?: number | null;
   repainting_end?: number | null;
-  provenance?: { target?: string; audioOffset?: number; region?: { start: number; end: number } | null; regions?: { start: number; end: number }[]; outputDuration?: number | null; mergedInto?: string; parameters?: Record<string, any> } | null;
+  provenance?: { target?: string; layerName?: string; audioOffset?: number; region?: { start: number; end: number } | null; regions?: { start: number; end: number }[]; outputDuration?: number | null; mergedInto?: string; parameters?: Record<string, any> } | null;
 }
 
 export interface MasterSegment {
@@ -16,8 +16,77 @@ export interface MasterSegment {
   duration: number;
 }
 
+const TASK_LABELS: Record<string, string> = {
+  repaint: 'REWORK',
+  inpaint: 'REWORK',
+  lego: 'LAYER',
+  extend: 'EXTEND',
+  complete: 'ACCOMPANY',
+  cover: 'RESTYLE',
+  extract: 'EXTRACT',
+  merge: 'MERGED',
+  text2music: 'MASTER',
+};
+
+const TASK_BADGE_LABELS: Record<string, string> = {
+  repaint: 'RWK',
+  inpaint: 'RWK',
+  lego: 'LYR',
+  extend: 'EXT',
+  complete: 'ACC',
+  cover: 'RST',
+  extract: 'EXR',
+};
+
+export function taskLabel(task?: string | null): string {
+  if (!task) return 'EDIT';
+  return TASK_LABELS[task.toLowerCase()] ?? task.toUpperCase();
+}
+
+export function taskBadgeLabel(task?: string | null): string {
+  if (!task) return 'EDT';
+  return TASK_BADGE_LABELS[task.toLowerCase()] ?? task.slice(0, 3).toUpperCase();
+}
+
+export function isLayerTake(take?: Version | null): boolean {
+  return Boolean(take && (take.task === 'lego' || take.provenance?.target === 'layer'));
+}
+
+export function isMasterTargetTake(take?: Version | null): boolean {
+  if (!take || isLayerTake(take)) return false;
+  if (take.provenance?.target === 'stem') return false;
+  if (take.provenance?.target === 'master' || take.task === 'text2music' || take.task === 'merge') return true;
+  if (!take.stem_id) return true;
+  return take.stem_id.startsWith('stem-master') || take.stem_id.startsWith('stm-master');
+}
+
+export function layerTrackName(take?: Version | null): string {
+  const raw = take?.provenance?.layerName
+    || take?.provenance?.parameters?.trackName
+    || take?.provenance?.parameters?.submitted?.trackName
+    || take?.provenance?.parameters?.resolved?.track_name
+    || 'layer';
+  return String(raw).trim().toLowerCase().replace(/\s+/g, '_');
+}
+
+export function isFullSongRestyleTake(take?: Version | null): boolean {
+  return Boolean(
+    take &&
+    take.task === 'cover' &&
+    (take.provenance?.target === 'master' || (take.stem_id && (take.stem_id.startsWith('stem-master') || take.stem_id.startsWith('stm-master')))) &&
+    !take.provenance?.region &&
+    take.repainting_start == null
+  );
+}
+
 export function pending(take: Version): boolean {
-  return !take.provenance?.mergedInto && take.task !== 'merge' && take.model !== 'demucs-htdemucs' && !(take.task === 'text2music' && !take.is_active) && !(take.is_active && (take.provenance?.region || take.repainting_start != null));
+  return (
+    !take.provenance?.mergedInto &&
+    take.task !== 'merge' &&
+    take.task !== 'text2music' &&
+    take.model !== 'demucs-htdemucs' &&
+    !(take.is_active && (take.provenance?.region || take.repainting_start != null || isLayerTake(take) || isFullSongRestyleTake(take)))
+  );
 }
 
 export function masterArrangement(
@@ -98,28 +167,32 @@ interface Lane {
   id: string;
   stemId?: string;
   activeTakeId?: string;
+  activeVersionTakeId?: string | null;
   muted?: boolean;
-  clips: { url:string;startTime?:number;duration?:number;origin?:number }[];
+  clips: { url: string; startTime?: number; duration?: number; origin?: number }[];
 }
 
 export function retained<T extends Lane>(tracks: T[], takes: Version[]): T[] {
-  const ids = new Set(takes.filter(pending).map(take => take.id));
+  const ids = new Set(takes.filter(t => pending(t) && !isLayerTake(t) && !isFullSongRestyleTake(t)).map(take => take.id));
   return tracks.filter(track => track.id !== track.activeTakeId || ids.has(track.id));
 }
 
 export function isBase(take: Version, tracks: Lane[], takes: Version[]): boolean {
-  const lane = take.stem_id
+  const isMaster = isMasterTargetTake(take);
+  const lane = !isMaster && take.stem_id
     ? tracks.find(track => track.id === take.stem_id || (track as Lane & { stemId?: string }).stemId === take.stem_id)
     : tracks.find(track => track.id === 'master');
   if (!take.is_active || !lane) return false;
-  const active = takes.filter(version => version.is_active && (version.stem_id ?? null) === (take.stem_id ?? null));
+  const active = takes.filter(version => version.is_active && (isMaster ? isMasterTargetTake(version) : (version.stem_id ?? null) === (take.stem_id ?? null)));
   return active.length === 1 || lane.clips[0]?.url === take.url;
 }
 
 export function mounted(take: Version, tracks: Lane[], takes: Version[]): boolean {
+  if (tracks.some(track => track.activeVersionTakeId === take.id)) return true;
   const track = tracks.find(track => track.id === take.id && track.activeTakeId === take.id);
   if (track) return true;
-  const lane = take.stem_id
+  const isMaster = isMasterTargetTake(take);
+  const lane = !isMaster && take.stem_id
     ? tracks.find(track => track.id === take.stem_id || track.stemId === take.stem_id)
     : tracks.find(track => track.id === 'master');
   return Boolean(lane && !lane.muted && isBase(take, tracks, takes));
@@ -138,7 +211,7 @@ export function interval(take: Version, duration: number) {
 }
 
 export function source(take: Version, tracks: Array<Lane & { stemId?: string }>) {
-  const id = take.provenance?.target === 'master' || (take.provenance?.target === 'layer' && !take.stem_id) ? 'master' : take.stem_id;
+  const id = isMasterTargetTake(take) || (take.provenance?.target === 'layer' && !take.stem_id) ? 'master' : take.stem_id;
   return tracks.find(track => track.id === id || track.stemId === id)?.id ?? null;
 }
 
@@ -151,9 +224,9 @@ export function clips(take: Version, duration: number) {
   }));
 }
 
-export function sourceInterval(take: Version, tracks: Lane[], region:{start:number;end:number}) {
+export function sourceInterval(take: Version, tracks: Lane[], region: { start: number; end: number }) {
   const track = tracks.find(track => track.id === take.id && track.activeTakeId === take.id);
   const part = track?.clips.find(clip => clip.startTime !== undefined && clip.duration !== undefined && region.start >= clip.startTime && region.end <= clip.startTime + clip.duration) ?? track?.clips[0];
   const shift = part ? part.startTime! - (part.origin ?? part.startTime!) : 0;
-  return {start:region.start-shift,end:region.end-shift};
+  return { start: region.start - shift, end: region.end - shift };
 }
