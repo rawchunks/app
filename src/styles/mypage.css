@@ -424,11 +424,74 @@
 /* ==========================================================================
    MYPAGE SECTIONS & GRIDS (ii, iii, iv)
    ========================================================================== */
+.mypage-section {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  flex-shrink: 0;
+}
+
+.mypage-section .board-section-separator {
+  height: 36px;
+  min-height: 36px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  box-sizing: border-box;
+}
+
+.mypage-section .board-section-separator:hover {
+  background: var(--surface-elevated);
+  border-color: var(--border-bright);
+}
+
+.mypage-section .board-section-separator.collapsed {
+  border-color: var(--border);
+}
+
 .mypage-section-body {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 6px 0 16px 0;
+  gap: 12px;
+  padding: 8px 0 20px 0;
+  width: 100%;
+  flex-shrink: 0;
+}
+
+.mypage-section-body .market-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr));
+  gap: clamp(10px, 1.4vw, 16px);
+  padding: 4px 0 12px 0;
+  align-content: start;
+  flex: none;
+  min-height: auto;
+  height: auto;
+  width: 100%;
+  box-sizing: border-box;
+  overflow: visible;
+}
+
+.mypage-section-body .market-card {
+  overflow: visible;
+}
+
+.mypage-section-body .market-card-media {
+  overflow: visible;
+}
+
+.mypage-section-body .market-card-cover-img,
+.mypage-section-body .market-card-fallback-art {
+  border-top-left-radius: 3px;
+  border-top-right-radius: 3px;
+  overflow: hidden;
 }
 
 .mypage-grid {
@@ -516,3 +579,313 @@
   color: var(--text-dim);
 }
 
+/* ==========================================================================
+   MYPAGE SONG CARD ACTIONS & STATS
+   ========================================================================== */
+.mypage-card-more-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 0 3px;
+  line-height: 1;
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s ease;
+}
+
+.mypage-card-more-btn:hover {
+  color: var(--primary);
+}
+
+.mypage-menu-item.mypage-item-details {
+  color: #ffaa00;
+  background-color: rgba(255, 170, 0, 0.08);
+  border-color: rgba(255, 170, 0, 0.3);
+}
+
+.mypage-menu-item.mypage-item-details:hover {
+  color: #000000;
+  background-color: #ffaa00;
+  border-color: #ffaa00;
+  box-shadow: 0 0 10px rgba(255, 170, 0, 0.6);
+}
+
+.mypage-license-stats-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.mypage-stat-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 2px;
+  cursor: default;
+}
+
+.mypage-stat-badge.sold {
+  color: var(--primary);
+  background: rgba(0, 255, 65, 0.08);
+  border: 1px solid rgba(0, 255, 65, 0.25);
+}
+
+.mypage-stat-badge.left {
+  color: var(--accent);
+  background: rgba(0, 204, 255, 0.08);
+  border: 1px solid rgba(0, 204, 255, 0.25);
+}
+
+.mypage-private-action-wrap,
+.mypage-public-action-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  width: 100%;
+  height: 100%;
+}
+
+.mypage-status-badge {
+  flex-shrink: 0;
+  font-size: 9px !important;
+  padding: 2px 5px !important;
+  letter-spacing: 0.5px !important;
+}
+
+.mypage-publish-icon-btn {
+  height: 100% !important;
+  min-height: 0 !important;
+  padding: 0 8px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: 2px !important;
+}
+
+.mypage-remix-badge {
+  font-size: 9px !important;
+  font-weight: 900 !important;
+  letter-spacing: 0.5px !important;
+}
+
+.mypage-no-tags {
+  font-size: var(--font-xs);
+  color: var(--text-dim);
+}
+
+/* Publish Confirmation Modal */
+.publish-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 4px 0;
+}
+
+.publish-desc {
+  font-size: var(--font-xs);
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+
+.publish-specs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid var(--border-dim);
+  border-radius: 2px;
+  padding: 12px;
+}
+
+.publish-spec-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: var(--font-xs);
+}
+
+.publish-label {
+  color: var(--text-dim);
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.publish-val {
+  color: var(--text);
+  font-weight: 600;
+  font-family: var(--font-family);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 60%;
+}
+
+.publish-val.highlight-green {
+  color: var(--primary);
+  font-weight: 700;
+}
+
+.publish-val.highlight-cyan {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.publish-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+/* Edit Song Details Modal */
+.edit-song-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 4px 0;
+}
+
+.edit-song-cover-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.edit-song-cover-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+}
+
+.edit-song-cover-hint {
+  font-size: var(--font-xs);
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+
+.edit-song-2col-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.edit-song-field-hint {
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+
+/* ==========================================================================
+   MYPAGE SONG CARD BODY & TITLE ROW
+   ========================================================================== */
+.mypage-card-body {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: clamp(8px, 1.1vw, 12px);
+  gap: clamp(6px, 0.8vh, 10px);
+  box-sizing: border-box;
+  flex: 1 1 auto;
+}
+
+.mypage-card-info {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(4px, 0.5vh, 6px);
+  width: 100%;
+  min-width: 0;
+}
+
+.mypage-card-row-title-wrap {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  height: clamp(22px, 1.6vw + 0.5vh, 26px);
+  box-sizing: border-box;
+}
+
+.mypage-card-title-col {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 66.66%;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+}
+
+.mypage-card-row-title-wrap:not(:has(.mypage-card-versions-col)) .mypage-card-title-col {
+  max-width: 100%;
+}
+
+.daw-tooltip-wrapper.mypage-card-title-tooltip {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  display: inline-flex;
+}
+
+.mypage-card-title-text {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--font-sm);
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.2;
+}
+
+.mypage-card-versions-col {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+}
+
+.mypage-card-versions-col .board-category-badges-list {
+  display: inline-flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  gap: 3px !important;
+  max-width: none !important;
+  overflow: visible !important;
+}
+
+.mypage-card-versions-col .board-take-badge-pill {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 1px 5px !important;
+  font-size: 9px !important;
+  height: 18px !important;
+  line-height: 1 !important;
+  border-radius: 2px !important;
+  white-space: nowrap !important;
+}
+
+.mypage-card-footer-box {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(4px, 0.6vh, 6px);
+  width: 100%;
+  margin-top: auto;
+}

@@ -147,7 +147,6 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '', style = {}
   const [streamPrice, setStreamPrice] = useState(0.01);
   const [licensePrice, setLicensePrice] = useState(5.0);
   const [licenses, setLicenses] = useState(20);
-  const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [mobilePocket, setMobilePocket] = useState<'create' | 'feed'>('create');
 
   // Cover generation & Album association
@@ -436,13 +435,12 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '', style = {}
       return;
     }
 
-    setShowConfirmModal(true);
+    void executeGenerate();
   };
 
   const executeGenerate = async () => {
     if (!userAddr) { toast.error('Connect your wallet'); return; }
     const scope = scopeRef.current;
-    setShowConfirmModal(false);
     store.setGenerating(true);
 
     try {
@@ -1196,79 +1194,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '', style = {}
         )}
       </div>
 
-      {/* Confirmation Modal */}
-      <Modal
-        isOpen={showConfirmModal}
-        onClose={() => setShowConfirmModal(false)}
-        title="CONFIRM GENERATION"
-      >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '8px 0' }}>
-          <div
-            style={{
-              background: 'rgba(0, 0, 0, 0.4)',
-              border: '1px solid rgba(0, 255, 65, 0.25)',
-              padding: '12px',
-              borderRadius: '4px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '8px',
-              fontSize: '12px',
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ color: '#888899' }}>ACCOUNT:</span>
-              <span style={{ color: '#00ff41', fontFamily: 'monospace' }}>
-                {userAddr
-                  ? `${userAddr.slice(0, 6)}...${userAddr.slice(-4)}`
-                  : 'CONNECTED'}
-              </span>
-            </div>
-            {title.trim() && (
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: '#888899' }}>TITLE:</span>
-                <span style={{ color: '#ffffff', fontWeight: 700 }}>{title.trim()}</span>
-              </div>
-            )}
-            {selectedAlbumId && (
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: '#888899' }}>ALBUM:</span>
-                <span style={{ color: '#00ccff' }}>
-                  {albums.find((a) => a.id === selectedAlbumId)?.title || selectedAlbumId}
-                </span>
-              </div>
-            )}
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ color: '#888899' }}>LICENSE PRICE:</span>
-              <span style={{ color: '#00ff41', fontWeight: 700 }}>${licensePrice.toFixed(2)} USDC</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ color: '#888899' }}>STREAM RATE:</span>
-              <span style={{ color: '#ffffff' }}>${streamPrice.toFixed(2)} / MIN</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ color: '#888899' }}>LICENSES AMOUNT:</span>
-              <span style={{ color: '#00ff41', fontWeight: 700 }}>{licenses}</span>
-            </div>
-          </div>
 
-          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '8px' }}>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setShowConfirmModal(false)}
-            >
-              CANCEL
-            </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={executeGenerate}
-            >
-              CONFIRM & GENERATE
-            </Button>
-          </div>
-        </div>
-      </Modal>
 
       {/* New Album Modal */}
       <Modal
