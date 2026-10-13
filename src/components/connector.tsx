@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ConnectButton, useActiveAccount, useActiveWallet, useActiveWalletConnectionStatus, useAutoConnect } from "thirdweb/react";
+import { ConnectButton, useActiveAccount, useActiveWallet, useAutoConnect } from "thirdweb/react";
 import { createWallet, inAppWallet } from "thirdweb/wallets";
 import type { SmartWalletOptions, Account, Wallet as ThirdwebWallet } from "thirdweb/wallets";
 import { getContract, readContract, prepareContractCall, prepareTransaction, encode, sendAndConfirmTransaction, type Chain, type PreparedTransaction } from "thirdweb";
@@ -197,7 +197,6 @@ interface WalletConnectorProps {
 export function WalletConnector({ className, compact = true }: WalletConnectorProps) {
   const account = useActiveAccount();
   const wallet = useActiveWallet();
-  const connectionStatus = useActiveWalletConnectionStatus();
   const { paymentNetwork, getChainByNetworkId, chains, defaultNetwork } = useChain();
   const {
     userAddress,
@@ -219,14 +218,13 @@ export function WalletConnector({ className, compact = true }: WalletConnectorPr
   const [menuOpen, setMenuOpen] = useState(false);
   const [showDisclaimer, setShowDisclaimer] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
-  const [cachedAccount] = useState(() => readCachedAccount());
+  const [cachedAccount, setCachedAccount] = useState(() => readCachedAccount());
   const { hasConsented, isLoading: isConsentLoading } = useDisclaimerConsent();
-
-  const isReconnecting = reconnecting && cachedAccount != null;
 
   useEffect(() => {
     if (account?.address) {
       writeCachedAccount(account.address, paymentNetwork, svmAddress, nickname, avatar);
+      setCachedAccount(readCachedAccount());
     }
   }, [account?.address, paymentNetwork, svmAddress, nickname, avatar]);
 
@@ -237,12 +235,6 @@ export function WalletConnector({ className, compact = true }: WalletConnectorPr
       setShowDisclaimer(false);
     }
   }, [account?.address, isConsentLoading, hasConsented]);
-
-  useEffect(() => {
-    if (connectionStatus === "disconnected") {
-      clearCachedAccount();
-    }
-  }, [connectionStatus]);
 
   // Payment selection cannot change the chain used to restore the login identity.
   const [thirdwebNetwork] = useState(() => {
@@ -259,7 +251,8 @@ export function WalletConnector({ className, compact = true }: WalletConnectorPr
   }, [thirdwebChainIdValue, chains]);
   const accountAbstraction = useMemo<SmartWalletOptions | undefined>(() => connectChain
     ? { chain: connectChain, sponsorGas: true } : undefined, [connectChain]);
-  useAutoConnect({ client: thirdwebClient, wallets, chain: connectChain, accountAbstraction });
+  const autoConnect = useAutoConnect({ client: thirdwebClient, wallets, chain: connectChain, accountAbstraction, timeout: 30000 });
+  const isReconnecting = (reconnecting || Boolean(autoConnect?.isLoading)) && cachedAccount != null;
 
   const chainInfo = getChainByNetworkId(paymentNetwork);
 
@@ -360,6 +353,7 @@ export function WalletConnector({ className, compact = true }: WalletConnectorPr
 
   const handleDisconnect = () => {
     clearCachedAccount();
+    setCachedAccount(null);
     wallet?.disconnect();
   };
 

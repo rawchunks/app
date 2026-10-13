@@ -9,7 +9,7 @@ export function useSelectedUserAddress() {
     const account = useActiveAccount();
     const adminWallet = useAdminWallet();
     const connectionStatus = useActiveWalletConnectionStatus();
-    const [cached] = useState(readCachedAccount);
+    const [cached, setCached] = useState(readCachedAccount);
     const { paymentNetwork, getChainByNetworkId } = useChain();
     const {
         swigAddress,
@@ -21,6 +21,9 @@ export function useSelectedUserAddress() {
         error,
         create,
     } = useSolanaSmartAccount();
+    useEffect(() => {
+        setCached(readCachedAccount());
+    }, [account?.address, swigAddress, connectionStatus]);
     const isEvm = isEvmNetwork(paymentNetwork);
     const evmAddress = account?.address ?? null;
     const svmAddress = swigAddress ?? null;
