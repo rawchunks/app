@@ -97,7 +97,12 @@ export const ClipWaveform: React.FC<ClipWaveformProps> = ({ clip, color, classNa
 
       const { mins, maxs, bins } = bipolarPeaks;
       const barWidth = w / bins;
-      const ampHeight = midY * 0.92;
+      let maxPeak = 0;
+      for (let i = 0; i < bins; i++) {
+        maxPeak = Math.max(maxPeak, Math.abs(maxs[i]), Math.abs(mins[i]));
+      }
+      const normScale = maxPeak > 0 && maxPeak < 0.25 ? Math.min(4, 0.35 / maxPeak) : 1;
+      const ampHeight = midY * 0.92 * normScale;
 
       // Filled continuous bipolar PCM silhouette
       ctx.beginPath();

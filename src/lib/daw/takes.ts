@@ -3,14 +3,63 @@ interface Version {
   stem_id?: string | null;
   url: string;
   is_active: boolean;
+  model?: string;
   task?: string;
   repainting_start?: number | null;
   repainting_end?: number | null;
   provenance?: { target?: string; audioOffset?: number; region?: { start: number; end: number } | null; regions?: { start: number; end: number }[]; outputDuration?: number | null; mergedInto?: string; parameters?: Record<string, any> } | null;
 }
 
+export interface MasterSegment {
+  startTime: number;
+  offset: number;
+  duration: number;
+}
+
 export function pending(take: Version): boolean {
-  return !take.provenance?.mergedInto && take.task !== 'merge' && !(take.is_active && (take.provenance?.region || take.repainting_start != null));
+  return !take.provenance?.mergedInto && take.task !== 'merge' && take.model !== 'demucs-htdemucs' && !(take.task === 'text2music' && !take.is_active) && !(take.is_active && (take.provenance?.region || take.repainting_start != null));
+}
+
+export function masterArrangement(
+  duration: number,
+  extendClips: { startTime: number; duration: number }[]
+): { segments: MasterSegment[]; duration: number } {
+  if (!(duration > 0)) return { segments: [], duration: 0 };
+  const sorted = [...extendClips]
+    .filter(clip => Number.isFinite(clip.startTime) && Number.isFinite(clip.duration) && clip.duration > 0)
+    .sort((a, b) => a.startTime - b.startTime);
+  let segments: MasterSegment[] = [{ startTime: 0, offset: 0, duration }];
+  let total = duration;
+  for (const ext of sorted) {
+    const gapStart = Math.max(0, ext.startTime);
+    const gapDur = ext.duration;
+    const next: MasterSegment[] = [];
+    let split = false;
+    for (const seg of segments) {
+      const segEnd = seg.startTime + seg.duration;
+      if (segEnd <= gapStart) {
+        next.push(seg);
+      } else if (seg.startTime >= gapStart) {
+        split = true;
+        next.push({ ...seg, startTime: seg.startTime + gapDur });
+      } else {
+        split = true;
+        const beforeDur = gapStart - seg.startTime;
+        const afterDur = seg.duration - beforeDur;
+        if (beforeDur > 1e-4) {
+          next.push({ startTime: seg.startTime, offset: seg.offset, duration: beforeDur });
+        }
+        if (afterDur > 1e-4) {
+          next.push({ startTime: gapStart + gapDur, offset: seg.offset + beforeDur, duration: afterDur });
+        }
+      }
+    }
+    segments = next;
+    total = split
+      ? Math.max(total + gapDur, gapStart + gapDur, ...segments.map(s => s.startTime + s.duration))
+      : Math.max(total, gapStart + gapDur);
+  }
+  return { segments, duration: total };
 }
 
 interface Snapshot {
@@ -89,7 +138,7 @@ export function interval(take: Version, duration: number) {
 }
 
 export function source(take: Version, tracks: Array<Lane & { stemId?: string }>) {
-  const id = take.provenance?.target === 'master' ? 'master' : take.stem_id;
+  const id = take.provenance?.target === 'master' || (take.provenance?.target === 'layer' && !take.stem_id) ? 'master' : take.stem_id;
   return tracks.find(track => track.id === id || track.stemId === id)?.id ?? null;
 }
 

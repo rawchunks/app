@@ -1,5 +1,6 @@
 import * as Tone from 'tone';
 import { DAWTrack, DSPFxConfig, useDawStore } from './store';
+import { masterArrangement } from './takes';
 import { parseStrudelPattern } from './strudelEvaluator';
 import { bus } from '../bus';
 import { BEAT_STEPS, DRUM_STEPS } from './notes';
@@ -53,6 +54,7 @@ class DAWEngine {
   private auditionEnd: number | null = null;
   private currentSectionGainLinear = 1.0;
   private originalScheduleIds: number[] = [];
+  private lastMasterSegmentsKey = '';
   private loading = new Map<string, Promise<void>>();
   private clipLoads = new Map<string, { signature: string; promise: Promise<void> }>();
   private project = 0;
@@ -149,6 +151,33 @@ class DAWEngine {
     this.originalScheduleIds = [];
     if (!nodes) return;
     const state = useDawStore.getState();
+    const extendClips = state.tracks
+      .filter(track => track.activeTakeId && !track.muted && (state.takes ?? []).some(t => t.id === track.activeTakeId && t.task === 'extend'))
+      .flatMap(track => track.clips.map(clip => ({ startTime: clip.startTime, duration: clip.duration })));
+    const layout = masterArrangement(state.duration, extendClips);
+    const segKey = JSON.stringify(layout.segments);
+    const mainPlayer = nodes.players?.get('clip-master');
+    if (mainPlayer?.loaded && segKey !== this.lastMasterSegmentsKey && (layout.segments.length > 1 || this.lastMasterSegmentsKey !== '')) {
+      this.lastMasterSegmentsKey = segKey;
+      for (const [id, p] of [...nodes.players.entries()]) {
+        if (id.startsWith('clip-master-seg-')) {
+          p.dispose();
+          nodes.players.delete(id);
+        }
+      }
+      const firstSeg = layout.segments[0];
+      mainPlayer.unsync();
+      if (firstSeg) {
+        mainPlayer.sync().start(firstSeg.startTime, firstSeg.offset, firstSeg.duration);
+      }
+      for (let i = 1; i < layout.segments.length; i++) {
+        const seg = layout.segments[i];
+        const segPlayer = new Tone.Player(mainPlayer.buffer);
+        segPlayer.connect(nodes.source ?? nodes.input);
+        segPlayer.sync().start(seg.startTime, seg.offset, seg.duration);
+        nodes.players.set(`clip-master-seg-${i}`, segPlayer);
+      }
+    }
     const master = state.tracks.find(track => track.id === 'master');
     const muted = this.auditionLayerIds ? Boolean(master?.mixer?.muted ?? master?.muted) || !this.auditionLayerIds.includes('master') : this.auditionTrackId ? this.auditionTrackId !== 'master' :
       Boolean(master?.mixer?.muted ?? master?.muted) ||
@@ -214,6 +243,11 @@ class DAWEngine {
 
   public auditionTake(url: string, startSec = 0, endSec?: number, timelineStart = startSec) {
     if (typeof window === 'undefined' || !url) return;
+    if (this.auditionTrackId || this.auditionLayerIds) {
+      this.auditionTrackId = null;
+      this.auditionLayerIds = null;
+      this.updateTrackMixer('master');
+    }
     this.pauseTransport();
     if (!this.auditionTakeAudio) {
       this.auditionTakeAudio = new Audio();
@@ -347,7 +381,11 @@ class DAWEngine {
           this.onTimeCallback(sec);
         }
         const state = useDawStore.getState();
-        const end = Math.max(state.duration, ...state.tracks.filter(track => track.activeTakeId && !track.muted).flatMap(track => track.clips.map(clip => clip.startTime + clip.duration)));
+        const extendClips = state.tracks
+          .filter(track => track.activeTakeId && !track.muted && (state.takes ?? []).some(t => t.id === track.activeTakeId && t.task === 'extend'))
+          .flatMap(track => track.clips.map(clip => ({ startTime: clip.startTime, duration: clip.duration })));
+        const masterEnd = masterArrangement(state.duration, extendClips).duration;
+        const end = Math.max(masterEnd, ...state.tracks.filter(track => track.activeTakeId && !track.muted).flatMap(track => track.clips.map(clip => clip.startTime + clip.duration)));
         if (!isTakeRunning && !Tone.getTransport().loop && sec >= end) { this.stopTransport(); return; }
 
         // Real-time Section Gain Automation across selection bounds
@@ -996,11 +1034,29 @@ class DAWEngine {
           const boundaries = [...new Set(state.originals.flatMap(region => [region.start, region.end]))].sort((a,b) => a-b);
           for (const time of boundaries) (nodes.source ?? nodes.input).gain.setValueAtTime(muted || state.originals.some(region => time >= region.start && time < region.end) ? 0 : 1, time);
         }
-        for (const clip of track.clips) {
-          const player = new Tone.Player(buffers.get(clip.url)!);
-          player.connect(nodes.source ?? nodes.input);
-          nodes.players.set(clip.id, player);
-          player.sync().start(clip.startTime, clip.offset, clip.duration);
+        const extendClips = track.id === 'master'
+          ? state.tracks
+              .filter(t => t.activeTakeId && !t.muted && trackIds.includes(t.id) && (state.takes ?? []).some(take => take.id === t.activeTakeId && take.task === 'extend'))
+              .flatMap(t => t.clips.map(c => ({ startTime: c.startTime, duration: c.duration })))
+          : [];
+        const masterSegs = track.id === 'master' && extendClips.length > 0
+          ? masterArrangement(state.duration, extendClips).segments
+          : null;
+        if (masterSegs && masterSegs.length > 1 && track.clips[0]) {
+          const clip = track.clips[0];
+          masterSegs.forEach((seg, idx) => {
+            const player = new Tone.Player(buffers.get(clip.url)!);
+            player.connect(nodes.source ?? nodes.input);
+            nodes.players.set(`${clip.id}-${idx}`, player);
+            player.sync().start(seg.startTime, seg.offset, seg.duration);
+          });
+        } else {
+          for (const clip of track.clips) {
+            const player = new Tone.Player(buffers.get(clip.url)!);
+            player.connect(nodes.source ?? nodes.input);
+            nodes.players.set(clip.id, player);
+            player.sync().start(clip.startTime, clip.offset, clip.duration);
+          }
         }
         engine.scheduleTrack(track);
       }
@@ -1116,6 +1172,7 @@ class DAWEngine {
     this.stopAuditionTake();
     for (const id of this.originalScheduleIds) Tone.getTransport().clear(id);
     this.originalScheduleIds = [];
+    this.lastMasterSegmentsKey = '';
     this.loading.clear();
     this.clipLoads.clear();
     this.disposeTrack('master');
@@ -1156,6 +1213,7 @@ class DAWEngine {
     const store = useDawStore.getState();
     const tracks = store.tracks;
     if (!tracks.some(track => track.id === trackId)) return;
+    this.auditionLayerIds = null;
     this.auditionTrackId = trackId;
     this.updateTrackMixer(trackId);
 

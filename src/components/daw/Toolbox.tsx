@@ -73,7 +73,7 @@ export interface ToolboxProps {
   onOpenCommitModal: () => void;
 }
 
-const ACTION_ICONS = { repaint: Sparkles, lego: Layers, extend: ArrowRightCircle, cover: Shuffle, extract: Split };
+const ACTION_ICONS = { repaint: Sparkles, lego: Layers, complete: Wand2, extend: ArrowRightCircle, cover: Shuffle, extract: Split };
 
 export const Toolbox: React.FC<ToolboxProps> = ({
   options,
@@ -142,6 +142,13 @@ export const Toolbox: React.FC<ToolboxProps> = ({
   }, [isMinimized]);
 
   const dragOffsetRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const pointerDownRef = useRef<{ active: boolean; startX: number; startY: number; pointerId: number }>({
+    active: false,
+    startX: 0,
+    startY: 0,
+    pointerId: -1,
+  });
+  const didDragRef = useRef(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   // Resolve Context Chip Label
@@ -165,8 +172,9 @@ export const Toolbox: React.FC<ToolboxProps> = ({
     contextChipText = `${trackName}: ${formatTime(selection.start)}–${formatTime(selection.end)}`;
   }
 
-  // Pointer Drag Handlers (Boundary-clamped)
+  // Pointer Drag Handlers (Boundary-clamped with drag threshold)
   const handlePointerDown = (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
     const targetEl = e.target as HTMLElement;
     if (
       targetEl.tagName === 'INPUT' ||
@@ -176,22 +184,42 @@ export const Toolbox: React.FC<ToolboxProps> = ({
       targetEl.closest('button') ||
       targetEl.closest('input') ||
       targetEl.closest('select') ||
-      targetEl.closest('.toolbox-context-clear')
+      targetEl.closest('textarea') ||
+      targetEl.closest('a') ||
+      targetEl.closest('label') ||
+      targetEl.closest('[role="button"]') ||
+      targetEl.closest('.toolbox-context-clear') ||
+      targetEl.closest('.toolbox-expanded-body')
     ) {
       return;
     }
-    setIsDragging(true);
+    didDragRef.current = false;
+    pointerDownRef.current = {
+      active: true,
+      startX: e.clientX,
+      startY: e.clientY,
+      pointerId: e.pointerId,
+    };
     dragOffsetRef.current = {
       x: e.clientX - position.x,
       y: e.clientY - position.y,
     };
-    try {
-      (containerRef.current || targetEl).setPointerCapture(e.pointerId);
-    } catch (_) {}
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
-    if (!isDragging) return;
+    if (!pointerDownRef.current.active) return;
+
+    if (!didDragRef.current) {
+      const dx = e.clientX - pointerDownRef.current.startX;
+      const dy = e.clientY - pointerDownRef.current.startY;
+      if (Math.hypot(dx, dy) <= 4) return;
+      didDragRef.current = true;
+      setIsDragging(true);
+      try {
+        (containerRef.current || (e.target as HTMLElement)).setPointerCapture(e.pointerId);
+      } catch (_) {}
+    }
+
     const nextX = e.clientX - dragOffsetRef.current.x;
     const nextY = e.clientY - dragOffsetRef.current.y;
 
@@ -205,6 +233,8 @@ export const Toolbox: React.FC<ToolboxProps> = ({
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
+    if (!pointerDownRef.current.active) return;
+    pointerDownRef.current.active = false;
     setIsDragging(false);
     try {
       (containerRef.current || (e.target as HTMLElement)).releasePointerCapture(e.pointerId);
@@ -259,12 +289,20 @@ export const Toolbox: React.FC<ToolboxProps> = ({
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
+      onClickCapture={(e) => {
+        if (didDragRef.current) {
+          e.stopPropagation();
+          e.preventDefault();
+          didDragRef.current = false;
+        }
+      }}
     >
       {isMinimized ? (
         <div
           className="toolbox-folded-pill"
           onClick={() => {
-            if (!isDragging) setIsMinimized(false);
+            if (!didDragRef.current) setIsMinimized(false);
           }}
           title="Click or drag toolbox dock"
         >
@@ -485,9 +523,9 @@ export const Toolbox: React.FC<ToolboxProps> = ({
                       <label>TARGET DURATION:</label>
                       <input
                         type="range"
-                        min={Math.max(options?.duration.min ?? duration, duration)}
+                        min={Math.min(options?.duration.max ?? 300, Math.max(options?.duration.min ?? 5, Math.ceil(duration) + 1))}
                         max={options?.duration.max}
-                        step="any"
+                        step={1}
                         value={targetDuration}
                         onChange={(e) => onTargetDurationChange(parseFloat(e.target.value))}
                       />

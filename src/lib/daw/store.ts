@@ -1,8 +1,9 @@
-import { sdk } from '@/lib/sdk';
+import { sdk } from '../sdk';
+import { promptSessionModal } from '../../hooks/use-session';
 import { toast } from 'sonner';
 import { create } from 'zustand';
 import { dawEngine } from './engine';
-import { isBase, preview, interval, source, clips, sourceInterval, retained } from './takes';
+import { isBase, preview, interval, source, clips, sourceInterval, retained, masterArrangement } from './takes';
 import type { Project } from '../cache';
 import { DRUM_STEPS } from './notes';
 
@@ -376,6 +377,12 @@ export const useDawStore = create<DAWState>((set, get) => ({
     const candidate = takes.find(take => take.id === selectedTrackId);
     const trackId = candidate ? source(candidate, tracks) : selectedTrackId;
     if (!tracks.some(track => track.id === trackId)) { toast.error('Select a track before extracting'); return null; }
+    const token = sdk.keys.currentToken();
+    if (!token) {
+      toast.error('Active session required to extract section. Please create a session.');
+      promptSessionModal();
+      return null;
+    }
     const operation = crypto.randomUUID();
     set(state => ({ operations: [...state.operations, { id: operation, task: 'extract', status: 'submitting' }] }));
     try {
@@ -383,11 +390,22 @@ export const useDawStore = create<DAWState>((set, get) => ({
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ songId, stemId: trackId === 'master' ? undefined : trackId, ...(candidate ? sourceInterval(candidate,tracks,selection) : selection) }),
       });
+      if (response.status === 402) {
+        set(state => ({ operations: state.operations.filter(item => item.id !== operation) }));
+        toast.error('Active session required or session budget exhausted. Please top up your session.');
+        promptSessionModal();
+        return null;
+      }
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Failed to extract section');
       if (get().songId !== songId) return null;
       get().upsertTake(result.take);
-      set(state => ({ operations: state.operations.filter(item => item.id !== operation), selectedTrackId: result.take.id }));
+      await get().toggleTake(result.take.id);
+      set(state => ({
+        operations: state.operations.filter(item => item.id !== operation),
+        selectedTrackId: result.take.id,
+        selection: interval(result.take, state.duration),
+      }));
       return result.take;
     } catch (error) {
       set(state => ({ operations: state.operations.map(item => item.id === operation ? { ...item, status: 'error', error: error instanceof Error ? error.message : 'Extraction failed' } : item) }));
@@ -803,7 +821,11 @@ export const useDawStore = create<DAWState>((set, get) => ({
     set({ pendingTake: takeIds[0] });
     try {
       const ids = ['master', ...takeIds];
-      const rendered = await dawEngine.render(ids, Math.max(state.duration, region.end), true);
+      const extendClips = candidates
+        .filter(take => take.task === 'extend')
+        .flatMap(take => state.tracks.find(track => track.id === take.id)?.clips.map(clip => ({ startTime: clip.startTime, duration: clip.duration })) ?? []);
+      const renderDuration = Math.max(masterArrangement(state.duration, extendClips).duration, region.end);
+      const rendered = await dawEngine.render(ids, renderDuration, true);
       const form = new FormData(); form.append('file', rendered, 'master.wav');
       const upload = await sdk.fetch(`/api/editing/source?songId=${encodeURIComponent(songId)}`, { method: 'POST', body: form });
       const data = await upload.json();
@@ -843,6 +865,9 @@ export const useDawStore = create<DAWState>((set, get) => ({
     if (selectedTrackId === takeId) dawEngine.stopAuditionTake();
     if (mounted) {
       get().removeTrack(mounted.id);
+      if (selectedTrackId === takeId) {
+        set({ selectedTrackId: 'master' });
+      }
       return;
     }
     const lane = take.stem_id
@@ -864,7 +889,12 @@ export const useDawStore = create<DAWState>((set, get) => ({
       mixer: { volume: 1, pan: 0, muted: false, solo: false },
       fx: JSON.parse(JSON.stringify(DEFAULT_FX)), clips: clips(take, duration),
     };
-    set({ tracks: [...tracks, track] });
+    const firstClip = track.clips[0];
+    set({
+      tracks: [...tracks, track],
+      selectedTrackId: take.id,
+      selection: firstClip ? { start: firstClip.startTime, end: firstClip.startTime + firstClip.duration } : interval(take, duration),
+    });
     try {
       for (const part of track.clips) await dawEngine.loadClip(track.id, part.id, part.url, part.startTime, part.offset, part.duration);
     } catch (error) {

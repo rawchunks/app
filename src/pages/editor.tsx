@@ -9,11 +9,12 @@ import { useDawStore, TrackType, type Take } from '../lib/daw/store';
 import { dawEngine } from '../lib/daw/engine';
 import { useOptions } from '../hooks/use-options';
 import { useSelectedUserAddress } from '../hooks/use-address';
+import { useSession, promptSessionModal } from '../components/session';
 import { Board } from '../components/daw/Board';
 import { Toolbox, ActiveTool } from '../components/daw/Toolbox';
 import { Tooltip } from '../components/daw/Tooltip';
 import { GitCommit } from 'lucide-react';
-import { source, sourceInterval } from '../lib/daw/takes';
+import { source, sourceInterval, interval } from '../lib/daw/takes';
 import { readProject, writeProject } from '../lib/cache';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -51,6 +52,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '', style = 
 
   // Connected wallet address
   const { userAddress, readAddress } = useSelectedUserAddress();
+  const { session } = useSession();
   const effectiveAddress = userAddress;
   const queryClient = useQueryClient();
 
@@ -75,7 +77,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '', style = 
   const [repaintMode, setRepaintMode] = useState<'conservative' | 'balanced' | 'aggressive'>('balanced');
   const [repaintStrength, setRepaintStrength] = useState<number>(0.75);
   const [instrument, setInstrument] = useState('');
-  const [targetDuration, setTargetDuration] = useState<number>(duration > 0 ? duration + 30 : 60);
+  const [targetDuration, setTargetDuration] = useState<number>(duration > 0 ? Math.ceil(duration) + 30 : 60);
 
   const options = useOptions();
   const editing = options.data?.editing;
@@ -84,6 +86,12 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '', style = 
     const action = editing?.tasks.find(action => action.id === task);
     if (action?.modes.length && !action.modes.includes(selectedQuality)) setSelectedQuality(action.modes[0]);
   }, [editing, task, selectedQuality]);
+  useEffect(() => {
+    if (duration > 0) {
+      const maxDur = editing?.duration.max ?? 300;
+      setTargetDuration(prev => (prev <= duration ? Math.min(maxDur, Math.ceil(duration) + 30) : Math.min(maxDur, Math.round(prev))));
+    }
+  }, [duration, editing?.duration.max]);
 
   // Commit Modal
   const [isCommitModalOpen, setIsCommitModalOpen] = useState<boolean>(false);
@@ -93,13 +101,17 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '', style = 
   const [processing, setProcessing] = useState<boolean>(false);
   const [progress, setProgress] = useState<number | undefined>(undefined);
   const [toolboxRevision, setToolboxRevision] = useState(0);
-  const pollTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const pollTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const scopeRef = useRef(0);
   const sessionRef = useRef(false);
   useEffect(() => {
     scopeRef.current++;
     setProcessing(false);
-    const leave = () => { scopeRef.current++; if (pollTimerRef.current) clearTimeout(pollTimerRef.current); };
+    const leave = () => {
+      scopeRef.current++;
+      for (const timer of pollTimersRef.current.values()) clearTimeout(timer);
+      pollTimersRef.current.clear();
+    };
     window.addEventListener('pagehide', leave);
     return () => { window.removeEventListener('pagehide', leave); leave(); };
   }, [song.id, readAddress]);
@@ -154,7 +166,8 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '', style = 
     return () => {
       active = false;
       dawEngine.resetProject();
-      if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+      for (const timer of pollTimersRef.current.values()) clearTimeout(timer);
+      pollTimersRef.current.clear();
     };
   }, [song.id, song.url, readAddress, initProject, setPlayhead]);
 
@@ -279,15 +292,23 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '', style = 
     if (data.take) useDawStore.getState().upsertTake(data.take);
     await loadSongData();
     if (data.take) {
+      const currentState = useDawStore.getState();
+      const isAlreadyMounted = currentState.tracks.some(
+        t => t.id === data.take!.id && t.activeTakeId === data.take!.id,
+      );
+      if (!isAlreadyMounted) {
+        await currentState.toggleTake(data.take.id);
+      }
       setSelectedTrackId(data.take.id);
-      if (data.take.provenance?.region) setSelection(data.take.provenance.region);
+      setSelection(interval(data.take, useDawStore.getState().duration));
       toast.success('Section ready');
     } else toast.success('Tracks ready');
   };
 
   const pollTask = (job: { taskId: string; task: Task; stemId?: string }, address: string) => {
     const scope = scopeRef.current;
-    if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+    const prevTimer = pollTimersRef.current.get(job.taskId);
+    if (prevTimer) clearTimeout(prevTimer);
     const query = new URLSearchParams({ songId: song.id, task: job.task, userAddress: address });
     if (job.stemId) query.set('stemId', job.stemId);
     const poll = async () => {
@@ -298,11 +319,27 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '', style = 
         if (!response.ok || data.status === 'error') throw new Error(data.error || 'Audio processing failed');
         setProgress(data.progress);
         useDawStore.setState(state => ({ operations: state.operations.map(item => item.id === job.taskId ? { ...item, status: data.status, progress: data.progress } : item) }));
-        if (data.status === 'ready') { setProcessing(false); setProgress(100); await showResult(data); useDawStore.setState(state => ({ operations: state.operations.filter(item => item.id !== job.taskId) })); }
-        else pollTimerRef.current = setTimeout(poll, 2000);
-      } catch (error) { if (scope !== scopeRef.current) return; setProcessing(false); const message = error instanceof Error ? error.message : 'Failed to check audio status'; useDawStore.setState(state => ({ operations: state.operations.map(item => item.id === job.taskId ? { ...item, status: 'error', error: message } : item) })); toast.error(message); }
+        if (data.status === 'ready') {
+          pollTimersRef.current.delete(job.taskId);
+          const remaining = useDawStore.getState().operations.filter(item => item.id !== job.taskId && (item.status === 'pending' || item.status === 'processing' || item.status === 'submitting')).length;
+          if (remaining === 0) setProcessing(false);
+          setProgress(100);
+          await showResult(data);
+          useDawStore.setState(state => ({ operations: state.operations.filter(item => item.id !== job.taskId) }));
+        } else {
+          pollTimersRef.current.set(job.taskId, setTimeout(poll, 2000));
+        }
+      } catch (error) {
+        if (scope !== scopeRef.current) return;
+        pollTimersRef.current.delete(job.taskId);
+        const remaining = useDawStore.getState().operations.filter(item => item.id !== job.taskId && (item.status === 'pending' || item.status === 'processing' || item.status === 'submitting')).length;
+        if (remaining === 0) setProcessing(false);
+        const message = error instanceof Error ? error.message : 'Failed to check audio status';
+        useDawStore.setState(state => ({ operations: state.operations.map(item => item.id === job.taskId ? { ...item, status: 'error', error: message } : item) }));
+        toast.error(message);
+      }
     };
-    pollTimerRef.current = setTimeout(poll, 2000);
+    pollTimersRef.current.set(job.taskId, setTimeout(poll, 2000));
   };
 
   useEffect(() => {
@@ -328,6 +365,11 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '', style = 
   const handleSeparateStems = async () => {
     if (processing) return;
     if (!effectiveAddress) { toast.error('Connect your account to separate tracks'); return; }
+    if (!session.active) {
+      toast.error('Active session required to separate tracks. Please create a session.');
+      promptSessionModal();
+      return;
+    }
     setProcessing(true);
     setProgress(undefined);
     const operation = crypto.randomUUID();
@@ -345,6 +387,13 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '', style = 
       });
 
       if (!res.ok) {
+        if (res.status === 402) {
+          setProcessing(false);
+          useDawStore.setState(state => ({ operations: state.operations.filter(item => item.id !== operation) }));
+          toast.error('Active session required or session budget exhausted. Please top up your session.');
+          promptSessionModal();
+          return;
+        }
         const err = await res.json();
         throw new Error(err.error || 'Failed to separate stems');
       }
@@ -378,6 +427,12 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '', style = 
 
     if (!effectiveAddress) {
       toast.error('Wallet connection required to process audio');
+      return;
+    }
+
+    if (!session.active) {
+      toast.error('Active session required to process audio. Please create a session.');
+      promptSessionModal();
       return;
     }
 
@@ -435,6 +490,15 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '', style = 
           audioDuration: duration,
           legoContextTrackIds,
         };
+      } else if (task === 'complete') {
+        if (!prompt.trim()) throw new Error('Describe the accompaniment');
+        endpoint = '/api/editing/apply';
+        payload = {
+          ...payload,
+          task: 'complete',
+          prompt: prompt.trim(),
+          audioDuration: duration,
+        };
       } else if (task === 'extend') {
         endpoint = '/api/editing/extend';
         payload = {
@@ -443,6 +507,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '', style = 
           audioDuration: targetDuration,
         };
       } else if (task === 'cover') {
+        if (!prompt.trim()) throw new Error('Describe the style transformation');
         endpoint = '/api/editing/remix';
         payload = {
           ...payload,
@@ -465,6 +530,13 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '', style = 
       });
 
       if (!res.ok) {
+        if (res.status === 402) {
+          setProcessing(false);
+          useDawStore.setState(state => ({ operations: state.operations.filter(item => item.id !== operation) }));
+          toast.error('Active session required or session budget exhausted. Please top up your session.');
+          promptSessionModal();
+          return;
+        }
         const err = await res.json();
         throw new Error(err.error || `Failed to dispatch ${task}`);
       }
@@ -500,7 +572,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '', style = 
     const selectedTake = currentTakes.find((t) => t.id === trackId);
     if (selectedTake && selectedTake.url) {
       const mounted = useDawStore.getState().tracks.find(track => track.id === trackId && track.id === track.activeTakeId);
-      const region = mounted?.clips.length ? {start:Math.min(...mounted.clips.map(clip => clip.startTime)),end:Math.max(...mounted.clips.map(clip => clip.startTime + clip.duration))} : selectedTake.provenance?.region;
+      const region = mounted?.clips.length ? {start:Math.min(...mounted.clips.map(clip => clip.startTime)),end:Math.max(...mounted.clips.map(clip => clip.startTime + clip.duration))} : interval(selectedTake, useDawStore.getState().duration);
       if (region && (!useDawStore.getState().selection || useDawStore.getState().selection!.start < region.start || useDawStore.getState().selection!.end > region.end)) setSelection(region);
       return;
     }

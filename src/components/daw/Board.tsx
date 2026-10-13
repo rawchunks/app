@@ -28,7 +28,7 @@ import { Song } from '../../lib/schema';
 import { toast } from 'sonner';
 import { TrackType } from '../../lib/daw/store';
 import { getStemColor } from '../../lib/daw/palette';
-import { isBase, mounted, preview, interval, pending } from '../../lib/daw/takes';
+import { isBase, mounted, preview, interval, pending, masterArrangement } from '../../lib/daw/takes';
 import { Key } from './Key';
 
 export interface BoardProps {
@@ -108,7 +108,26 @@ export const Board: React.FC<BoardProps> = ({
   }, [takes]);
   const pendingCount = Object.values(takesByCategory).reduce((count, group) => count + group.length, 0);
 
-  const totalDuration = Math.max(duration > 0 ? duration : 60, ...overlays.flatMap(track => track.clips.map(clip => clip.startTime + clip.duration)));
+  const extendClips = React.useMemo(
+    () =>
+      overlays
+        .filter(track => !track.muted && takes.some(t => t.id === track.activeTakeId && t.task === 'extend'))
+        .flatMap(track =>
+          track.clips.map(clip => {
+            const shift = drag?.id === track.id ? drag.shift - (clip.startTime - (clip.origin ?? clip.startTime)) : 0;
+            return { startTime: clip.startTime + shift, duration: clip.duration };
+          }),
+        ),
+    [overlays, takes, drag],
+  );
+  const masterLayout = React.useMemo(
+    () => masterArrangement(duration > 0 ? duration : 60, extendClips),
+    [duration, extendClips],
+  );
+  const totalDuration = Math.max(
+    masterLayout.duration,
+    ...overlays.flatMap(track => track.clips.map(clip => clip.startTime + clip.duration)),
+  );
   const viewportRef = useRef<HTMLDivElement | null>(null);
 
   // Group tracks into: Master, Lanes (stems + custom tracks), and Extracted (Takes / isolates)
@@ -193,6 +212,29 @@ export const Board: React.FC<BoardProps> = ({
     const targetTime = ratio * totalDuration;
     dawEngine.seek(targetTime);
     setPlayhead(targetTime);
+  };
+
+  const playExtractedTakeAtClick = (take: typeof takes[number], e?: React.MouseEvent<HTMLElement>) => {
+    onSelectTrack(take.id);
+    if (!take.url) return;
+    const takeRange = interval(take, duration);
+    const rowDuration = Math.max(totalDuration, takeRange.end);
+    const range = preview(take);
+    let offsetInSeg = 0;
+    if (e) {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const ratio = rect.width > 0 ? Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)) : 0;
+      const clickedSec = ratio * rowDuration;
+      const segDur = Math.max(0, takeRange.end - takeRange.start);
+      if (segDur > 0) {
+        offsetInSeg = Math.max(0, Math.min(Math.max(0, segDur - 0.05), clickedSec - takeRange.start));
+      }
+    }
+    const audioStart = range.start + offsetInSeg;
+    const timelineStart = takeRange.start + offsetInSeg;
+    setPlayhead(timelineStart);
+    dawEngine.auditionTake(take.url, audioStart, range.end, timelineStart);
+    useDawStore.setState({ auditionId: take.id });
   };
 
   // Generate ticks for time ruler (every 15s or 30s)
@@ -494,7 +536,7 @@ export const Board: React.FC<BoardProps> = ({
 
             {separated.length > 0 && <div className="board-master-badges" aria-label="Instrument controls">
               {separated.map(track => <Tooltip key={track.id} title={track.name} description={`Select and listen to ${track.name.toLowerCase()} in the master.`}>
-                <button type="button" className={`board-track-badge ${selectedTrackId === track.id ? 'selected' : ''}`} style={{ background: getStemColor(track.name), color: '#000' }} aria-label={`Select ${track.name} in master`} aria-pressed={selectedTrackId === track.id} onClick={event => { event.stopPropagation(); setMasterExpanded(true); onSelectTrack(track.id); }}>
+                <button type="button" className={`board-track-badge ${selectedTrackId === track.id ? 'selected' : ''}`} style={{ background: getStemColor(track.name), color: '#000' }} aria-label={`Select ${track.name} in master`} aria-pressed={selectedTrackId === track.id} onClick={event => { event.stopPropagation(); setMasterExpanded(true); onSelectTrack(track.id); dawEngine.auditionTrack(track.id); }}>
                   {track.name.slice(0, 3).toUpperCase()}
                 </button>
               </Tooltip>)}
@@ -539,6 +581,7 @@ export const Board: React.FC<BoardProps> = ({
             <Waveform
               audioUrl={masterTrack?.clips[0]?.url}
               timelineDuration={totalDuration}
+              segments={masterLayout.segments}
               interactive={true}
               showSelection={true}
               onReworkSection={onReworkSection}
@@ -578,7 +621,22 @@ export const Board: React.FC<BoardProps> = ({
                       if (didDrag.current && state) { event.stopPropagation(); void moveTake(track.id,state.current); onSelectTrack(track.id); }
                     }}
                     onPointerCancel={() => {dragging.current = null;setDrag(null);}}
-                    onClick={event => { event.stopPropagation(); if (didDrag.current) {didDrag.current = false;return;} setSelection({ start, end }); onSelectTrack(take.id); }}
+                    onClick={event => {
+                      event.stopPropagation();
+                      if (didDrag.current) { didDrag.current = false; return; }
+                      setSelection({ start, end });
+                      onSelectTrack(take.id);
+                      const laneRect = event.currentTarget.closest('.board-track-lane')?.getBoundingClientRect();
+                      const ratio = laneRect && laneRect.width > 0 ? Math.max(0, Math.min(1, (event.clientX - laneRect.left) / laneRect.width)) : start / totalDuration;
+                      const clickTime = Math.max(start, Math.min(Math.max(start, end - 0.05), ratio * totalDuration));
+                      setPlayhead(clickTime);
+                      if (!track.muted) {
+                        void dawEngine.auditionLayer(['master', track.id], clickTime, end);
+                      } else {
+                        dawEngine.auditionTake(clip.url, (clip.offset ?? 0) + (clickTime - start), (clip.offset ?? 0) + clip.duration, clickTime);
+                        useDawStore.setState({ auditionId: take.id });
+                      }
+                    }}
                   ><ClipWaveform clip={clip} color={track.color} /></button>
                 </div>;
               }))}
@@ -647,7 +705,10 @@ export const Board: React.FC<BoardProps> = ({
                 key={trackItem.id}
                 data-track-id={trackItem.id}
                 className={`board-row ${isSelected ? 'selected' : ''} ${isDimmed ? 'dimmed' : ''}`}
-                onClick={() => onSelectTrack(isSelected ? 'master' : trackItem.id)}
+                onClick={() => {
+                  onSelectTrack(trackItem.id);
+                  dawEngine.auditionTrack(trackItem.id);
+                }}
               >
                 {/* Left Track Header */}
                 <div className="board-track-header">
@@ -753,8 +814,12 @@ export const Board: React.FC<BoardProps> = ({
                   className="board-track-lane"
                   onClick={(e) => {
                     e.stopPropagation();
-                    onSelectTrack(isSelected ? 'master' : trackItem.id);
-                    handleTimelineClick(e);
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const ratio = rect.width > 0 ? Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)) : 0;
+                    const targetTime = ratio * totalDuration;
+                    onSelectTrack(trackItem.id);
+                    setPlayhead(targetTime);
+                    dawEngine.auditionTrack(trackItem.id, targetTime);
                   }}
                 >
                   <div className="board-lane-grid" />
@@ -835,7 +900,7 @@ export const Board: React.FC<BoardProps> = ({
                 <div
                   className={`board-row ${isSelected ? 'selected' : ''} ${isCurrentActive ? 'active-take' : ''} ${isDimmed ? 'dimmed' : ''}`}
                   onClick={() => {
-                    onSelectTrack(isSelected ? 'master' : currentTake.id);
+                    playExtractedTakeAtClick(currentTake);
                   }}
                 >
                   {/* Left Track Header */}
@@ -940,7 +1005,7 @@ export const Board: React.FC<BoardProps> = ({
                               onClick={(e) => {
                                 e.stopPropagation();
                                 setActiveCategoryTakeId((prev) => ({ ...prev, [category]: take.id }));
-                                onSelectTrack(take.id);
+                                playExtractedTakeAtClick(take);
                               }}
                               title={`Take #${take.take_number}${isTakeMixActive ? ' · Base' : ''}`}
                             >
@@ -973,37 +1038,45 @@ export const Board: React.FC<BoardProps> = ({
                     className="board-track-lane"
                     onClick={(e) => {
                       e.stopPropagation();
-                      onSelectTrack(isSelected ? 'master' : currentTake.id);
-                      handleTimelineClick(e);
+                      playExtractedTakeAtClick(currentTake, e);
                     }}
                   >
                     <div className="board-lane-grid" />
 
-                    {currentTake.url ? (
-                      <div
-                        style={{
-                          position: 'absolute',
-                          left: `${(interval(currentTake, duration).start / totalDuration) * 100}%`,
-                          width: `${((interval(currentTake, duration).end - interval(currentTake, duration).start) / totalDuration) * 100}%`,
-                          height: '100%',
-                        }}
-                      >
-                        <ClipWaveform
-                          clip={{
-                            id: currentTake.id,
-                            name: `Take #${currentTake.take_number}`,
-                            url: currentTake.url,
-                            startTime: interval(currentTake, duration).start,
-                            duration: interval(currentTake, duration).end - interval(currentTake, duration).start,
-                            offset: preview(currentTake).start,
+                    {currentTake.url ? (() => {
+                      const takeRange = interval(currentTake, duration);
+                      const rowDuration = Math.max(totalDuration, takeRange.end);
+                      return (
+                        <div
+                          style={{
+                            position: 'absolute',
+                            left: `${(takeRange.start / rowDuration) * 100}%`,
+                            width: `${((takeRange.end - takeRange.start) / rowDuration) * 100}%`,
+                            height: '100%',
                           }}
-                          color={isCurrentActive ? '#00ff41' : '#00ccff'}
-                        />
-                      </div>
-                    ) : null}
+                        >
+                          <ClipWaveform
+                            clip={{
+                              id: currentTake.id,
+                              name: `Take #${currentTake.take_number}`,
+                              url: currentTake.url,
+                              startTime: takeRange.start,
+                              duration: takeRange.end - takeRange.start,
+                              offset: preview(currentTake).start,
+                            }}
+                            color={isCurrentActive ? '#00ff41' : '#00ccff'}
+                          />
+                        </div>
+                      );
+                    })() : null}
 
                     {/* Playhead needle */}
-                    <div className="board-playhead-line" style={{ left: `${playheadPercent}%` }} />
+                    <div
+                      className="board-playhead-line"
+                      style={{
+                        left: `${Math.max(0, Math.min(100, (playhead / Math.max(totalDuration, interval(currentTake, duration).end)) * 100))}%`,
+                      }}
+                    />
                   </div>
                 </div>
 
@@ -1020,7 +1093,7 @@ export const Board: React.FC<BoardProps> = ({
                         key={take.id}
                         className={`board-row board-take-indented-row ${isRowSelected ? 'selected' : ''} ${isTakeCurrentActive ? 'active-take' : ''} ${isRowDimmed ? 'dimmed' : ''}`}
                         onClick={() => {
-                          onSelectTrack(isRowSelected ? 'master' : take.id);
+                          playExtractedTakeAtClick(take);
                         }}
                       >
                         {/* Indented Left Header */}
@@ -1098,34 +1171,42 @@ export const Board: React.FC<BoardProps> = ({
                           className="board-track-lane"
                           onClick={(e) => {
                             e.stopPropagation();
-                            onSelectTrack(isRowSelected ? 'master' : take.id);
-                            handleTimelineClick(e);
+                            playExtractedTakeAtClick(take, e);
                           }}
                         >
                           <div className="board-lane-grid" />
-                          {take.url ? (
-                            <div
-                              style={{
-                                position: 'absolute',
-                                left: `${(interval(take, duration).start / totalDuration) * 100}%`,
-                                width: `${((interval(take, duration).end - interval(take, duration).start) / totalDuration) * 100}%`,
-                                height: '100%',
-                              }}
-                            >
-                              <ClipWaveform
-                                clip={{
-                                  id: take.id,
-                                  name: `Take #${take.take_number}`,
-                                  url: take.url,
-                                  startTime: interval(take, duration).start,
-                                  duration: interval(take, duration).end - interval(take, duration).start,
-                                  offset: preview(take).start,
+                          {take.url ? (() => {
+                            const takeRange = interval(take, duration);
+                            const rowDuration = Math.max(totalDuration, takeRange.end);
+                            return (
+                              <div
+                                style={{
+                                  position: 'absolute',
+                                  left: `${(takeRange.start / rowDuration) * 100}%`,
+                                  width: `${((takeRange.end - takeRange.start) / rowDuration) * 100}%`,
+                                  height: '100%',
                                 }}
-                                color={isTakeCurrentActive ? '#00ff41' : '#00ccff'}
-                              />
-                            </div>
-                          ) : null}
-                          <div className="board-playhead-line" style={{ left: `${playheadPercent}%` }} />
+                              >
+                                <ClipWaveform
+                                  clip={{
+                                    id: take.id,
+                                    name: `Take #${take.take_number}`,
+                                    url: take.url,
+                                    startTime: takeRange.start,
+                                    duration: takeRange.end - takeRange.start,
+                                    offset: preview(take).start,
+                                  }}
+                                  color={isTakeCurrentActive ? '#00ff41' : '#00ccff'}
+                                />
+                              </div>
+                            );
+                          })() : null}
+                          <div
+                            className="board-playhead-line"
+                            style={{
+                              left: `${Math.max(0, Math.min(100, (playhead / Math.max(totalDuration, interval(take, duration).end)) * 100))}%`,
+                            }}
+                          />
                         </div>
                       </div>
                     );
