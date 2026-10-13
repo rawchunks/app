@@ -10,6 +10,7 @@ export interface Props {
   showSelection?: boolean;
   audioUrl?: string;
   timelineDuration?: number;
+  segments?: { startTime: number; offset: number; duration: number }[];
   lanes?: DAWTrack[];
   selectedTrackId?: string;
   highlighted?: string[];
@@ -51,6 +52,7 @@ export const Waveform: React.FC<Props> = ({
   showSelection = true,
   audioUrl,
   timelineDuration,
+  segments,
   lanes = [],
   selectedTrackId,
   highlighted,
@@ -136,12 +138,32 @@ export const Waveform: React.FC<Props> = ({
 
   const sourcePeaks = customPeaks && customPeaks.length > 0 ? customPeaks : loadedPeaks;
   const activePeaks = useMemo(() => {
+    if (segments && segments.length > 0 && savedDuration > 0 && duration > 0) {
+      if (
+        segments.length === 1 &&
+        segments[0].startTime === 0 &&
+        segments[0].offset === 0 &&
+        segments[0].duration === savedDuration &&
+        (timelineDuration === undefined || duration <= savedDuration)
+      ) {
+        return sourcePeaks;
+      }
+      return sourcePeaks.map((_, index) => {
+        const time = (index / sourcePeaks.length) * duration;
+        const seg = segments.find(s => time >= s.startTime && time < s.startTime + s.duration);
+        if (!seg) return 0;
+        const sourceTime = seg.offset + (time - seg.startTime);
+        return sourceTime < savedDuration
+          ? sourcePeaks[Math.min(sourcePeaks.length - 1, Math.floor((sourceTime / savedDuration) * sourcePeaks.length))]
+          : 0;
+      });
+    }
     if (timelineDuration === undefined || duration <= savedDuration) return sourcePeaks;
     return sourcePeaks.map((_, index) => {
       const time = index / sourcePeaks.length * duration;
       return time < savedDuration ? sourcePeaks[Math.min(sourcePeaks.length - 1, Math.floor(time / savedDuration * sourcePeaks.length))] : 0;
     });
-  }, [sourcePeaks, timelineDuration, duration, savedDuration]);
+  }, [sourcePeaks, segments, timelineDuration, duration, savedDuration]);
   const boundaries = useMemo(() => contributions(activePeaks, layers.map(layer => layer.values)), [activePeaks, layers]);
 
   // Active time selection normalized to [0, 1]
@@ -630,20 +652,28 @@ export const Waveform: React.FC<Props> = ({
     const w = rect ? rect.width : 1;
     const ratio = Math.max(0, Math.min(1, x / w));
 
-    // If tap without significant drag in create mode -> seek playhead
-    if (dragRef.current.mode === 'create') {
+    // If tap without significant drag -> seek playhead and immediately play target stem or master
+    if (dragRef.current.mode === 'create' || dragRef.current.mode === 'pan') {
       const dist = Math.abs(x - dragRef.current.startX);
       if (dist < 5) {
         const bin = Math.min(activePeaks.length - 1, Math.floor(ratio * activePeaks.length));
         const magnitude = rect ? Math.abs(e.clientY - rect.top - rect.height / 2) / (rect.height / 2 * 0.88) : 0;
         const layer = layers.findIndex((_, index) => boundaries[index]?.[bin]?.start <= magnitude && boundaries[index][bin].end >= magnitude && boundaries[index][bin].end > boundaries[index][bin].start);
-        onSelectTrack?.(layer < 0 ? 'master' : layers[layer].id);
+        const targetTrackId = layer < 0 ? 'master' : layers[layer].id;
+        onSelectTrack?.(targetTrackId);
         if (onSeek) {
           onSeek(ratio);
         } else {
           const totalDur = duration > 0 ? duration : 60;
-          setPlayhead(ratio * totalDur);
-          dawEngine.seek(ratio * totalDur);
+          const targetTime = ratio * totalDur;
+          setPlayhead(targetTime);
+          if (targetTrackId !== 'master') {
+            dawEngine.auditionTrack(targetTrackId, targetTime);
+          } else {
+            dawEngine.stopAuditionTake();
+            dawEngine.seek(targetTime);
+            void dawEngine.startTransport();
+          }
         }
       }
     }

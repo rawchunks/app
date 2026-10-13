@@ -10,11 +10,11 @@
   },
   "dependencies": {
     "@compose-market/sdk": "^0.8.37",
-    "@solana/kit": "^8.4.0",
+    "@solana/kit": "^8.5.0",
     "@swig-wallet/kit": "^2.1.0",
     "@tanstack/react-query": "^5.104.2",
     "clsx": "^2.1.1",
-    "lucide-react": "^1.55.0",
+    "lucide-react": "^1.56.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "sonner": "^2.0.8",

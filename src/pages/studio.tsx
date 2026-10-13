@@ -9,6 +9,7 @@ import { readSongs, writeSongs } from '../lib/cache';
 import { useSelectedUserAddress } from '../hooks/use-address';
 import { useDisclaimerConsent } from '../hooks/use-disclaimer';
 import { usePublic } from '../hooks/use-public';
+import { useSession, promptSessionModal } from '../components/session';
 import { toast } from 'sonner';
 import { Modal } from '../components/modal';
 import { Mic2, UploadCloud, FileAudio } from 'lucide-react';
@@ -296,6 +297,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '', style = {}
   };
 
   const { userAddress: userAddr, readAddress } = useSelectedUserAddress();
+  const { session } = useSession();
   const { voices, loading: loadingVoices, error: voicesError, refresh: refreshVoices, remember: rememberVoice } = useVoices(readAddress);
   const voiceOutput = model === 'sft' ? 'sft' : 'turbo';
   const selectedVoice = voices.find(voice => voice.id === selectedVoiceId);
@@ -344,6 +346,11 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '', style = {}
       toast.error('Enter a prompt first to generate cover');
       return;
     }
+    if (!session.active) {
+      toast.error('Active session required to generate cover. Please create a session.');
+      promptSessionModal();
+      return;
+    }
     setIsGeneratingCover(true);
     try {
       const res = await sdk.fetch('/api/generation/cover', {
@@ -355,6 +362,11 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '', style = {}
           style: activeTags.length ? activeTags.join(', ') : undefined,
         }),
       });
+      if (res.status === 402) {
+        toast.error('Active session required or session budget exhausted. Please top up your session.');
+        promptSessionModal();
+        return;
+      }
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to generate cover');
       setCoverUrl(data.imageUrl);
@@ -430,6 +442,12 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '', style = {}
       return;
     }
 
+    if (!session.active) {
+      toast.error('Active session required to generate music. Please create a session.');
+      promptSessionModal();
+      return;
+    }
+
     if (useVoice && !canUseVoice) {
       toast.error(voiceMode === 'trained' ? `This voice is not ready for ${voiceOutput === 'turbo' ? 'Fast' : 'Master'}` : 'Choose a voice sample');
       return;
@@ -463,6 +481,12 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '', style = {}
             formData.append('name', voiceFile.name.replace(/\.[^/.]+$/, ''));
             formData.append('file', voiceFile);
             const response = await sdk.fetch('/api/voices/upload', { method: 'POST', body: formData, userAddress: userAddr });
+            if (response.status === 402) {
+              store.setGenerating(false);
+              toast.error('Active session required or session budget exhausted. Please top up your session.');
+              promptSessionModal();
+              return;
+            }
             const result = await response.json();
             if (!response.ok || !result.voice?.id) throw new Error(result.error || 'Could not upload voice sample');
             if (scope !== scopeRef.current) return;
@@ -504,6 +528,12 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '', style = {}
       });
 
       if (!res.ok) {
+        if (res.status === 402) {
+          store.setGenerating(false);
+          toast.error('Active session required or session budget exhausted. Please top up your session.');
+          promptSessionModal();
+          return;
+        }
         const err = await res.json().catch(() => ({ error: 'Failed to start generation' }));
         throw new Error(err.error || 'Failed to dispatch generation task');
       }
@@ -592,6 +622,11 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '', style = {}
       toast.error('Connect wallet required');
       return;
     }
+    if (!session.active) {
+      toast.error('Active session required to save voice. Please create a session.');
+      promptSessionModal();
+      return;
+    }
     const scope = scopeRef.current;
     try {
       toast.info('Saving voice...');
@@ -605,6 +640,11 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '', style = {}
           name: `${track.song.title.slice(0, 20)} Voice`,
         }),
       });
+      if (res.status === 402) {
+        toast.error('Active session required or session budget exhausted. Please top up your session.');
+        promptSessionModal();
+        return;
+      }
       const result = await res.json();
       if (!res.ok) throw new Error(result.error || 'Failed to save voice');
       if (scope !== scopeRef.current) return;

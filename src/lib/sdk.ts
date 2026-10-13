@@ -1,5 +1,6 @@
 import { ComposeSDK } from "@compose-market/sdk";
 import type { NetworkId } from "@compose-market/sdk/chains";
+import { promptSessionModal } from "../hooks/use-session";
 
 const env = (import.meta as any).env ?? {};
 
@@ -40,7 +41,11 @@ sdk.fetch = async function patchedFetch(
   if (init?.userAddress && !headers.has("x-session-user-address")) {
     headers.set("x-session-user-address", init.userAddress);
   }
-  return originalFetch(target, { ...init, headers });
+  const response = await originalFetch(target, { ...init, headers });
+  if (response.status === 402) {
+    promptSessionModal();
+  }
+  return response;
 };
 
 export function attachWallet(address: string | null, network: NetworkId | null): void {

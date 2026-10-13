@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Button } from './button';
 
 export interface Props {
@@ -30,7 +31,7 @@ export const Modal: React.FC<Props> = ({
 
   if (!isOpen) return null;
 
-  return (
+  return createPortal(
     <div
       className="modal-overlay"
       onClick={onClose}
@@ -54,6 +55,7 @@ export const Modal: React.FC<Props> = ({
           <div className="modal-body-wrap">{children}</div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

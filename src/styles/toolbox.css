@@ -2,7 +2,7 @@
 
 .floating-toolbox {
   position: fixed;
-  z-index: 900;
+  z-index: 40;
   display: flex;
   flex-direction: column;
   background: rgba(10, 10, 10, 0.95);
@@ -719,7 +719,7 @@
     max-width: calc(100vw - 16px);
     max-height: 70vh;
     touch-action: none;
-    z-index: 950;
+    z-index: 40;
     border-radius: 8px;
   }
 

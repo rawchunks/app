@@ -1,4 +1,5 @@
 import React, { createContext, useContext } from "react";
+import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
 
 interface DialogContextType {
@@ -35,7 +36,7 @@ export function DialogContent({ className, children }: DialogContentProps) {
 
   if (!ctx.open) return null;
 
-  return (
+  return createPortal(
     <div
       className="modal-overlay"
       onClick={() => {
@@ -50,7 +51,8 @@ export function DialogContent({ className, children }: DialogContentProps) {
       >
         {children}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 

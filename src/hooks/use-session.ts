@@ -40,8 +40,15 @@ export const emptySession: SessionState = {
   expiresAt: null,
 };
 
+export function promptSessionModal(): void {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("rawchunks:open-session"));
+  }
+}
+
 export function useSession(): SessionContextValue {
   const value = useContext(SessionContext);
   if (!value) throw new Error("useSession must be used within a SessionProvider");
   return value;
 }
+

@@ -4,6 +4,7 @@ import { Button } from './button';
 import { sdk } from '@/lib/sdk';
 import { store } from '@/lib/store';
 import { Song } from '@/lib/schema';
+import { useSession, promptSessionModal } from '@/hooks/use-session';
 import { toast } from 'sonner';
 import { Upload, Sparkles } from 'lucide-react';
 
@@ -49,6 +50,7 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
   const [uploading, setUploading] = useState(false);
   const [generatingCover, setGeneratingCover] = useState(false);
   const [saving, setSaving] = useState(false);
+  const { session } = useSession();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -88,6 +90,11 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
   };
 
   const handleGenerateCover = async () => {
+    if (!session.active) {
+      toast.error('Active session required to generate cover. Please create a session.');
+      promptSessionModal();
+      return;
+    }
     setGeneratingCover(true);
     try {
       const res = await sdk.fetch('/api/generation/cover', {
@@ -99,6 +106,11 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
           style: genre || undefined,
         }),
       });
+      if (res.status === 402) {
+        toast.error('Active session required or session budget exhausted. Please top up your session.');
+        promptSessionModal();
+        return;
+      }
       const result = await res.json();
       if (!res.ok || !result.imageUrl) {
         throw new Error(result.error || 'Failed to generate cover');

@@ -38,6 +38,7 @@ import { groupSongs } from '../lib/versions';
 import { Licenses } from '../components/licenses';
 import { Versions } from '../components/versions';
 import { CoverArt } from './market';
+import { useSession, promptSessionModal } from '../components/session';
 
 export interface Props {
   onEditSong: (song: Song) => void;
@@ -336,7 +337,8 @@ const MySongCard: React.FC<{
   };
 
 export const Mypage: React.FC<Props> = ({ onEditSong, className = '', style = {} }) => {
-  const { readAddress, isReconnecting } = useSelectedUserAddress();
+  const { readAddress, userAddress, evmAddress, svmAddress, isReconnecting } = useSelectedUserAddress();
+  const { session } = useSession();
 
   const [state, setState] = useState<State>(() => ({
     ...store.getState(),
@@ -696,6 +698,12 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '', style = {}
                         if (isPlayingThis) {
                           store.setPlaying(false);
                         } else {
+                          const isCreator = store.isCreatorOfSong(song, [userAddress, evmAddress, svmAddress, readAddress]);
+                          if (!isCreator && !session.active) {
+                            toast.error('Active session required to stream music. Please create a session.');
+                            promptSessionModal();
+                            return;
+                          }
                           store.setActiveSong(song);
                           store.setPlaying(true);
                         }
@@ -781,6 +789,12 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '', style = {}
                         if (isPlayingThis) {
                           store.setPlaying(false);
                         } else {
+                          const isCreator = store.isCreatorOfSong(song, [userAddress, evmAddress, svmAddress, readAddress]);
+                          if (!isCreator && !session.active) {
+                            toast.error('Active session required to stream music. Please create a session.');
+                            promptSessionModal();
+                            return;
+                          }
                           store.setActiveSong(song);
                           store.setPlaying(true);
                         }

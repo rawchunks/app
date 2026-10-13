@@ -415,11 +415,7 @@ const DURATION_PRESETS = [
   { label: "7 DAYS", hours: 168, desc: "Weekly pass" },
 ] as const;
 
-export function promptSessionModal(): void {
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new CustomEvent("rawchunks:open-session"));
-  }
-}
+export { promptSessionModal } from "../hooks/use-session";
 
 export function SessionControl() {
   const { session, isCreating, error, createSession, refreshSession, endSession } = useSession();
