@@ -639,6 +639,33 @@ export const Waveform: React.FC<Props> = ({
     }
   };
 
+  const triggerTapAtClientPos = (clientX: number, clientY: number) => {
+    const canvas = canvasRef.current;
+    const rect = canvas?.getBoundingClientRect();
+    const x = rect ? clientX - rect.left : 0;
+    const w = rect ? rect.width : 1;
+    const ratio = Math.max(0, Math.min(1, x / w));
+    const bin = Math.min(activePeaks.length - 1, Math.floor(ratio * activePeaks.length));
+    const magnitude = rect ? Math.abs(clientY - rect.top - rect.height / 2) / (rect.height / 2 * 0.88) : 0;
+    const layer = layers.findIndex((_, index) => boundaries[index]?.[bin]?.start <= magnitude && boundaries[index][bin].end >= magnitude && boundaries[index][bin].end > boundaries[index][bin].start);
+    const targetTrackId = layer < 0 ? 'master' : layers[layer].id;
+    onSelectTrack?.(targetTrackId);
+    if (onSeek) {
+      onSeek(ratio);
+    } else {
+      const totalDur = duration > 0 ? duration : 60;
+      const targetTime = ratio * totalDur;
+      setPlayhead(targetTime);
+      if (targetTrackId !== 'master') {
+        dawEngine.auditionTrack(targetTrackId, targetTime);
+      } else {
+        dawEngine.stopAuditionTake();
+        dawEngine.seek(targetTime);
+        void dawEngine.startTransport();
+      }
+    }
+  };
+
   const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
     if (canvas && canvas.hasPointerCapture(e.pointerId)) {
@@ -649,32 +676,12 @@ export const Waveform: React.FC<Props> = ({
 
     const rect = canvas?.getBoundingClientRect();
     const x = rect ? e.clientX - rect.left : 0;
-    const w = rect ? rect.width : 1;
-    const ratio = Math.max(0, Math.min(1, x / w));
 
     // If tap without significant drag -> seek playhead and immediately play target stem or master
     if (dragRef.current.mode === 'create' || dragRef.current.mode === 'pan') {
       const dist = Math.abs(x - dragRef.current.startX);
       if (dist < 5) {
-        const bin = Math.min(activePeaks.length - 1, Math.floor(ratio * activePeaks.length));
-        const magnitude = rect ? Math.abs(e.clientY - rect.top - rect.height / 2) / (rect.height / 2 * 0.88) : 0;
-        const layer = layers.findIndex((_, index) => boundaries[index]?.[bin]?.start <= magnitude && boundaries[index][bin].end >= magnitude && boundaries[index][bin].end > boundaries[index][bin].start);
-        const targetTrackId = layer < 0 ? 'master' : layers[layer].id;
-        onSelectTrack?.(targetTrackId);
-        if (onSeek) {
-          onSeek(ratio);
-        } else {
-          const totalDur = duration > 0 ? duration : 60;
-          const targetTime = ratio * totalDur;
-          setPlayhead(targetTime);
-          if (targetTrackId !== 'master') {
-            dawEngine.auditionTrack(targetTrackId, targetTime);
-          } else {
-            dawEngine.stopAuditionTake();
-            dawEngine.seek(targetTime);
-            void dawEngine.startTransport();
-          }
-        }
+        triggerTapAtClientPos(e.clientX, e.clientY);
       }
     }
 
@@ -704,8 +711,12 @@ export const Waveform: React.FC<Props> = ({
     }
   };
   const handleRangeUp = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const drag = rangeDrag.current;
     rangeDrag.current = null;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    if (drag && Math.abs(event.clientX - drag.x) < 5) {
+      triggerTapAtClientPos(event.clientX, event.clientY);
+    }
   };
 
   return (
