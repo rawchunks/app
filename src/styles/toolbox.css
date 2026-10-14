@@ -641,11 +641,22 @@
   border: 1px solid var(--border);
   border-radius: 3px;
   padding: 5px 8px;
+  cursor: pointer;
 }
 
 .toolbox-take-item.active {
   border-color: var(--primary);
   background: rgba(0, 255, 65, 0.08);
+}
+
+.toolbox-take-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.toolbox-take-delete-btn {
+  color: #ef4444;
+  padding: 0 5px;
 }
 
 .toolbox-take-meta {
@@ -1765,4 +1776,3 @@
 .strudel-log-line.err {
   color: #ef4444;
 }
-
