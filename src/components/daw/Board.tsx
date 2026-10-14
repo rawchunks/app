@@ -18,7 +18,7 @@ import {
   Split,
   Check,
   Sparkles,
-  Download,
+  Scissors,
   Trash2,
   Minimize2,
   Drum,
@@ -28,7 +28,7 @@ import { Song } from '../../lib/schema';
 import { toast } from 'sonner';
 import { TrackType } from '../../lib/daw/store';
 import { getStemColor } from '../../lib/daw/palette';
-import { isBase, mounted, preview, interval, pending, masterArrangement } from '../../lib/daw/takes';
+import { isBase, mounted, preview, interval, pending, masterArrangement, taskLabel, isLayerTake, layerTrackName, isFullSongRestyleTake } from '../../lib/daw/takes';
 import { Key } from './Key';
 
 export interface BoardProps {
@@ -72,6 +72,9 @@ export const Board: React.FC<BoardProps> = ({
     toggleLegoContext,
     updateTrackMixer,
     toggleTake,
+    activateTake,
+    selectLaneVersion,
+    selectMasterVersion,
     pendingTake,
     deleteTake,
     revertToOriginalMaster,
@@ -82,7 +85,18 @@ export const Board: React.FC<BoardProps> = ({
   const [lanesExpanded, setLanesExpanded] = useState<boolean>(true);
   const [extractedExpanded, setExtractedExpanded] = useState<boolean>(true);
   const playingTakeId = isPlaying ? auditionId : null;
-  const overlays = tracks.filter(track => track.id === track.activeTakeId && takes.some(take => take.id === track.id && !take.provenance?.mergedInto && !isBase(take, tracks, takes)));
+  const overlays = tracks.filter(
+    track =>
+      track.id === track.activeTakeId &&
+      takes.some(
+        take =>
+          take.id === track.id &&
+          !take.provenance?.mergedInto &&
+          !isBase(take, tracks, takes) &&
+          !isLayerTake(take) &&
+          !isFullSongRestyleTake(take)
+      )
+  );
   const [drag, setDrag] = useState<{id:string;shift:number} | null>(null);
   const dragging = useRef<{id:string;x:number;shift:number;width:number;minimum:number;maximum:number;current:number} | null>(null);
   const didDrag = useRef(false);
@@ -99,7 +113,7 @@ export const Board: React.FC<BoardProps> = ({
   const takesByCategory = React.useMemo(() => {
     const groups: Record<string, typeof takes> = {};
     takes.forEach((take) => {
-      if (!pending(take)) return;
+      if (!pending(take) || isLayerTake(take) || isFullSongRestyleTake(take)) return;
       const cat = (take.task || 'extract').toLowerCase();
       if (!groups[cat]) groups[cat] = [];
       groups[cat].push(take);
@@ -107,6 +121,13 @@ export const Board: React.FC<BoardProps> = ({
     return groups;
   }, [takes]);
   const pendingCount = Object.values(takesByCategory).reduce((count, group) => count + group.length, 0);
+  const masterRestyleTakes = React.useMemo(
+    () =>
+      takes
+        .filter(take => !take.provenance?.mergedInto && !take.is_active && isFullSongRestyleTake(take))
+        .sort((a, b) => a.take_number - b.take_number),
+    [takes]
+  );
 
   const extendClips = React.useMemo(
     () =>
@@ -212,6 +233,9 @@ export const Board: React.FC<BoardProps> = ({
     const targetTime = ratio * totalDuration;
     dawEngine.seek(targetTime);
     setPlayhead(targetTime);
+    if (!isPlaying) {
+      void dawEngine.startTransport();
+    }
   };
 
   const playExtractedTakeAtClick = (take: typeof takes[number], e?: React.MouseEvent<HTMLElement>) => {
@@ -324,23 +348,15 @@ export const Board: React.FC<BoardProps> = ({
                 </button>
               </Tooltip>
 
-              <Tooltip title="Extract Section" description="Export lossless 16-bit PCM WAV slice as a new take">
+              <Tooltip title="Extract Section" description="Extract selected section as a new take in Extracted">
                 <button
                   type="button"
                   className="board-transport-btn"
-                  onClick={async () => {
-                    const take = await extractCurrentSection();
-                    if (take && take.url) {
-                      const a = document.createElement('a');
-                      a.href = take.url;
-                      a.download = `slice_${selection.start.toFixed(1)}s_${selection.end.toFixed(1)}s.wav`;
-                      document.body.appendChild(a);
-                      a.click();
-                      document.body.removeChild(a);
-                    }
+                  onClick={() => {
+                    void extractCurrentSection();
                   }}
                 >
-                  <Download size={12} />
+                  <Scissors size={12} />
                   <span>EXTRACT</span>
                 </button>
               </Tooltip>
@@ -462,15 +478,57 @@ export const Board: React.FC<BoardProps> = ({
             ================================================================== */}
         <div
           className={`board-row master ${takes.some(take => take.provenance?.region) ? 'expanded' : ''}`}
-          onClick={() => onSelectTrack('master')}
+          onClick={() => {
+            onSelectTrack('master');
+            dawEngine.stopAuditionTake();
+            void dawEngine.startTransport();
+          }}
         >
           {/* Left Track Header */}
           <div className="board-track-header">
             <div className="board-track-header-top">
               <div className="board-track-meta">
                 <Tooltip title="Master" description={song.title}>
-                  <span className="board-track-badge">MST</span>
+                  <button
+                    type="button"
+                    className={`board-track-badge ${masterRestyleTakes.length > 0 && !masterTrack?.activeVersionTakeId ? 'selected' : ''}`}
+                    style={{ border: 'none', cursor: 'pointer' }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (masterRestyleTakes.length > 0) {
+                        void selectMasterVersion(null);
+                      } else {
+                        onSelectTrack('master');
+                      }
+                      dawEngine.stopAuditionTake();
+                      void dawEngine.startTransport();
+                    }}
+                  >
+                    MST
+                  </button>
                 </Tooltip>
+                {masterRestyleTakes.map((take, idx) => {
+                  const isVersionActive = masterTrack?.activeVersionTakeId === take.id;
+                  return (
+                    <Tooltip
+                      key={take.id}
+                      title={`Restyle #TK${idx + 1}`}
+                      description={take.prompt || `Full-song Restyle Take #${take.take_number}`}
+                    >
+                      <button
+                        type="button"
+                        aria-pressed={isVersionActive}
+                        className={`board-take-badge-pill ${isVersionActive ? 'selected mix-active' : ''}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void selectMasterVersion(take.id);
+                        }}
+                      >
+                        #TK{idx + 1}
+                      </button>
+                    </Tooltip>
+                  );
+                })}
               </div>
 
               <div className="board-track-controls">
@@ -518,6 +576,43 @@ export const Board: React.FC<BoardProps> = ({
                     S
                   </button>
                 </Tooltip>
+                {masterTrack?.activeVersionTakeId && (
+                  <>
+                    <Tooltip title="Merge Restyle" description="Commit this Restyle version as the new Master.">
+                      <button
+                        type="button"
+                        className="board-btn-mini active"
+                        aria-label="Merge Restyle version into Master"
+                        disabled={Boolean(pendingTake)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (masterTrack.activeVersionTakeId) {
+                            void activateTake(masterTrack.activeVersionTakeId, 'merge');
+                          }
+                        }}
+                      >
+                        <Check size={11} />
+                      </button>
+                    </Tooltip>
+                    <Tooltip title="Discard Restyle" description="Delete this Restyle version and restore Master.">
+                      <button
+                        type="button"
+                        className="board-btn-mini delete"
+                        aria-label="Discard Restyle version"
+                        style={{ color: '#ef4444' }}
+                        disabled={Boolean(pendingTake)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (masterTrack.activeVersionTakeId) {
+                            void deleteTake(masterTrack.activeVersionTakeId);
+                          }
+                        }}
+                      >
+                        <Trash2 size={10} />
+                      </button>
+                    </Tooltip>
+                  </>
+                )}
                 <Tooltip title={!separated.length ? 'Extract stems' : masterExpanded ? 'Compact waveform' : 'Expand stems'} description={!separated.length ? 'Separate the recording into instruments and vocals.' : masterExpanded ? 'Show the master as one waveform. Keep the extracted lanes.' : 'Show instrument and vocal colors in the master waveform.'}>
                   <button type="button" className="board-btn-mini" aria-label={!separated.length ? 'Extract stems' : masterExpanded ? 'Compact waveform' : 'Expand stems'} disabled={isSeparating} onClick={event => {
                     event.stopPropagation();
@@ -699,12 +794,18 @@ export const Board: React.FC<BoardProps> = ({
 
             // Centralized stem color token
             const brandColor = getStemColor(trackItem.name);
+            const normalizedLaneName = (trackItem.layerName || trackItem.name).toLowerCase().replace(/\s+/g, '_');
+            const laneLayerTakes = takes
+              .filter(t => isLayerTake(t) && !t.provenance?.mergedInto && !t.is_active && (layerTrackName(t) ?? 'other') === normalizedLaneName)
+              .sort((a, b) => a.take_number - b.take_number);
+            const activeLayerTakeId = trackItem.activeVersionTakeId ?? null;
+            const hasOriginal = trackItem.hasOriginalStem !== false;
 
             return (
               <div
                 key={trackItem.id}
                 data-track-id={trackItem.id}
-                className={`board-row ${isSelected ? 'selected' : ''} ${isDimmed ? 'dimmed' : ''}`}
+                className={`board-row ${laneLayerTakes.length > 0 ? 'has-versions' : ''} ${isSelected ? 'selected' : ''} ${isDimmed ? 'dimmed' : ''}`}
                 onClick={() => {
                   onSelectTrack(trackItem.id);
                   dawEngine.auditionTrack(trackItem.id);
@@ -786,6 +887,72 @@ export const Board: React.FC<BoardProps> = ({
                       </Tooltip>
                     </div>
                   </div>
+
+                  {laneLayerTakes.length > 0 && (
+                    <div className="board-category-badges-row" onClick={(e) => e.stopPropagation()}>
+                      <div className="board-category-badges-list">
+                        {hasOriginal && (
+                          <Tooltip title="Original Stem" description={`Original ${trackItem.name} stem`}>
+                            <button
+                              type="button"
+                              aria-pressed={!activeLayerTakeId}
+                              className={`board-take-badge-pill ${!activeLayerTakeId ? 'selected mix-active' : ''}`}
+                              onClick={() => void selectLaneVersion(trackItem.id, null)}
+                            >
+                              ORG
+                            </button>
+                          </Tooltip>
+                        )}
+                        {laneLayerTakes.map((take, idx) => {
+                          const isVersionActive = activeLayerTakeId === take.id;
+                          return (
+                            <Tooltip
+                              key={take.id}
+                              title={`${trackItem.name} Layer #${idx + 1}`}
+                              description={take.prompt || `Layer Take #${take.take_number}`}
+                            >
+                              <button
+                                type="button"
+                                aria-pressed={isVersionActive}
+                                className={`board-take-badge-pill ${isVersionActive ? 'selected mix-active' : ''}`}
+                                onClick={() => void selectLaneVersion(trackItem.id, take.id)}
+                              >
+                                #{idx + 1}
+                              </button>
+                            </Tooltip>
+                          );
+                        })}
+                      </div>
+
+                      {activeLayerTakeId && (
+                        <div className="board-track-controls">
+                          <Tooltip title="Merge Layer" description={`Commit this layer take into the ${trackItem.name} lane`}>
+                            <button
+                              type="button"
+                              className="board-btn-mini active"
+                              aria-label={`Merge Layer into ${trackItem.name}`}
+                              disabled={Boolean(pendingTake)}
+                              onClick={() => void activateTake(activeLayerTakeId, 'merge')}
+                            >
+                              <Check size={10} />
+                            </button>
+                          </Tooltip>
+                          <Tooltip title="Discard Layer" description="Remove this layer take">
+                            <button
+                              type="button"
+                              className="board-btn-mini delete"
+                              aria-label={`Discard Layer take`}
+                              style={{ color: '#ef4444' }}
+                              disabled={Boolean(pendingTake)}
+                              onClick={() => void deleteTake(activeLayerTakeId)}
+                            >
+                              <Trash2 size={9} />
+                            </button>
+                          </Tooltip>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   <div className="board-track-header-bottom">
                     <div className="board-fader-wrap">
@@ -875,7 +1042,7 @@ export const Board: React.FC<BoardProps> = ({
         )}
 
         {operations.map(operation => <div key={operation.id} className="board-operation" role={operation.status === 'error' ? 'alert' : 'status'} aria-live="polite">
-          <span>{operation.task === 'repaint' ? 'REWORK' : operation.task.toUpperCase()}</span>
+          <span>{taskLabel(operation.task)}</span>
           <span>{operation.status === 'submitting' ? 'SUBMITTING' : operation.status === 'pending' ? 'QUEUED' : operation.status.toUpperCase()}{operation.progress === undefined ? '' : ` ${operation.progress}%`}</span>
           {operation.error && <span>{operation.error}</span>}
         </div>)}
@@ -886,8 +1053,10 @@ export const Board: React.FC<BoardProps> = ({
               catTakes.find((t) => t.id === selectedTrackId) ||
               catTakes.find((t) => t.id === activeCategoryTakeId[category]) ||
               catTakes.find((t) => mounted(t, tracks, takes)) ||
+              catTakes[catTakes.length - 1] ||
               catTakes[0];
 
+            const categoryTitle = taskLabel(category);
             const isCatExpanded = Boolean(expandedCategoryAccordion[category]);
             const isCurrentActive = mounted(currentTake, tracks, takes);
             const isTakePlaying = playingTakeId === currentTake.id;
@@ -908,17 +1077,17 @@ export const Board: React.FC<BoardProps> = ({
                     <div className="board-track-header-top">
                       <div className="board-track-meta">
                         <Tooltip
-                          title={`Category: ${category.toUpperCase()}`}
+                          title={categoryTitle}
                           description={`Take #${currentTake.take_number} • ${currentTake.prompt || 'Session take'}`}
                         ><span
                           className="board-track-badge"
-                          aria-label={`Category: ${category.toUpperCase()}, Take #${currentTake.take_number}`}
+                          aria-label={`${categoryTitle}, Take #${currentTake.take_number}`}
                           style={{
                             background: isCurrentActive ? 'var(--primary)' : 'var(--accent)',
                             color: '#000',
                           }}
                         >
-                          TK#{currentTake.take_number}
+                          {categoryTitle}
                         </span></Tooltip>
                       </div>
 
@@ -1100,15 +1269,15 @@ export const Board: React.FC<BoardProps> = ({
                         <div className="board-track-header">
                           <div className="board-track-header-top">
                             <div className="board-track-meta">
-                              <Tooltip title={`Category: ${category.toUpperCase()}`} description={`Take #${take.take_number} • ${take.prompt || 'Session take'}`}><span
+                              <Tooltip title={`${categoryTitle} · Take #${take.take_number}`} description={take.prompt || 'Session take'}><span
                                 className="board-track-badge"
-                                aria-label={`Category: ${category.toUpperCase()}, Take #${take.take_number}`}
+                                aria-label={`${categoryTitle}, Take #${take.take_number}`}
                                 style={{
                                   background: isTakeCurrentActive ? 'var(--primary)' : 'rgba(255,255,255,0.15)',
                                   color: isTakeCurrentActive ? '#000' : '#fff',
                                 }}
                               >
-                                TK#{take.take_number}
+                                #{take.take_number}
                               </span></Tooltip>
                               <span className="board-track-name" style={{ fontSize: '10px' }}>
                                 {take.repainting_start != null && take.repainting_end != null

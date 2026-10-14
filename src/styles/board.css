@@ -200,6 +200,11 @@
   min-height: var(--board-master-row-h);
 }
 
+.board-row.has-versions {
+  height: clamp(82px, 10.5vh, 104px);
+  min-height: clamp(82px, 10.5vh, 104px);
+}
+
 .board-row:hover {
   background: rgba(255, 255, 255, 0.02);
 }
