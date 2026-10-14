@@ -5,7 +5,7 @@ import { Glitch } from '../components/glitch';
 import { Button } from '../components/button';
 import { Badge } from '../components/badge';
 import { Song, Task } from '../lib/schema';
-import { useDawStore, TrackType, type Take } from '../lib/daw/store';
+import { useDawStore, TrackType, type Take, type LyricsAlignment } from '../lib/daw/store';
 import { dawEngine } from '../lib/daw/engine';
 import { useOptions } from '../hooks/use-options';
 import { useSelectedUserAddress } from '../hooks/use-address';
@@ -14,7 +14,7 @@ import { Board } from '../components/daw/Board';
 import { Toolbox, ActiveTool } from '../components/daw/Toolbox';
 import { Tooltip } from '../components/daw/Tooltip';
 import { GitCommit } from 'lucide-react';
-import { source, sourceInterval, interval } from '../lib/daw/takes';
+import { source, sourceInterval, interval, isLayerTake, layerTrackName, isFullSongRestyleTake } from '../lib/daw/takes';
 import { readProject, writeProject } from '../lib/cache';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -72,11 +72,16 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '', style = 
   const [selectedQuality, setSelectedQuality] = useState<string>('');
   const [prompt, setPrompt] = useState<string>('');
   const [lyrics, setLyrics] = useState<string>('');
+  const [vocalLanguage, setVocalLanguage] = useState<string>('en');
+  const [hasExistingLyrics, setHasExistingLyrics] = useState<boolean>(false);
+  const [isTranscribingLyrics, setIsTranscribingLyrics] = useState<boolean>(false);
+  const [lyricsAlignment, setLyricsAlignment] = useState<LyricsAlignment | null>(null);
+  const [isAligningLyrics, setIsAligningLyrics] = useState<boolean>(false);
   const [stemType, setStemType] = useState<string>('all');
   const [coverStrength, setCoverStrength] = useState<number>(0.65);
   const [repaintMode, setRepaintMode] = useState<'conservative' | 'balanced' | 'aggressive'>('balanced');
-  const [repaintStrength, setRepaintStrength] = useState<number>(0.75);
-  const [instrument, setInstrument] = useState('');
+  const [repaintStrength, setRepaintStrength] = useState<number>(0.5);
+  const [instrument, setInstrument] = useState('guitar');
   const [targetDuration, setTargetDuration] = useState<number>(duration > 0 ? Math.ceil(duration) + 30 : 60);
 
   const options = useOptions();
@@ -102,19 +107,75 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '', style = 
   const [progress, setProgress] = useState<number | undefined>(undefined);
   const [toolboxRevision, setToolboxRevision] = useState(0);
   const pollTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const lyricsPollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scopeRef = useRef(0);
   const sessionRef = useRef(false);
   useEffect(() => {
     scopeRef.current++;
     setProcessing(false);
+    setVocalLanguage('en');
+    setHasExistingLyrics(false);
+    setIsTranscribingLyrics(false);
+    setLyricsAlignment(null);
+    setIsAligningLyrics(false);
     const leave = () => {
       scopeRef.current++;
       for (const timer of pollTimersRef.current.values()) clearTimeout(timer);
       pollTimersRef.current.clear();
+      if (lyricsPollTimerRef.current) {
+        clearTimeout(lyricsPollTimerRef.current);
+        lyricsPollTimerRef.current = null;
+      }
     };
     window.addEventListener('pagehide', leave);
     return () => { window.removeEventListener('pagehide', leave); leave(); };
   }, [song.id, readAddress]);
+
+  // Non-blocking background poller for ElevenLabs Scribe vocal stem transcription & forced alignment
+  const pollSongLyrics = useCallback((targetSongId: string, attempt = 0) => {
+    if (!readAddress) return;
+    if (lyricsPollTimerRef.current) {
+      clearTimeout(lyricsPollTimerRef.current);
+      lyricsPollTimerRef.current = null;
+    }
+    const scope = scopeRef.current;
+    void (async () => {
+      try {
+        const res = await sdk.fetch(
+          `/api/editing/lyrics/${encodeURIComponent(targetSongId)}?language=${encodeURIComponent(vocalLanguage || 'en')}`,
+          { userAddress: readAddress },
+        );
+        if (!res.ok || scope !== scopeRef.current || useDawStore.getState().songId !== targetSongId) return;
+        const data = await res.json();
+        if (data.alignment && Array.isArray(data.alignment.lines) && data.alignment.lines.length > 0) {
+          setLyricsAlignment(data.alignment);
+        }
+        if (typeof data.lyrics === 'string' && data.lyrics.trim() && data.lyrics.trim() !== '[Instrumental]') {
+          setLyrics(prev => {
+            if (!prev) return data.lyrics;
+            if (prev.replace(/\s+/g, ' ').trim() === data.lyrics.replace(/\s+/g, ' ').trim()) {
+              return data.lyrics;
+            }
+            return prev;
+          });
+          setHasExistingLyrics(true);
+        }
+        if ((data.status === 'transcribing' || data.status === 'aligning') && attempt < 20) {
+          setIsTranscribingLyrics(data.status === 'transcribing');
+          setIsAligningLyrics(data.status === 'aligning');
+          lyricsPollTimerRef.current = setTimeout(() => {
+            pollSongLyrics(targetSongId, attempt + 1);
+          }, 2500);
+        } else {
+          setIsTranscribingLyrics(false);
+          setIsAligningLyrics(false);
+        }
+      } catch {
+        setIsTranscribingLyrics(false);
+        setIsAligningLyrics(false);
+      }
+    })();
+  }, [readAddress, vocalLanguage]);
 
   // Fetch real takes, commits, and multitrack stems from API
   const loadSongData = useCallback(async () => {
@@ -133,6 +194,56 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '', style = 
       if (scope !== scopeRef.current || useDawStore.getState().songId !== song.id) return;
       setTakes(history.takes);
       setCommits(history.commits);
+      const baseTake =
+        history.takes.find((t: Take) => t.task === 'text2music') ??
+        history.takes.find((t: Take) => t.is_active);
+      const initialLyrics =
+        history.takes.find((t: Take) => t.is_active && t.lyrics && t.lyrics !== '[Instrumental]')?.lyrics ??
+        history.takes.find((t: Take) => t.task === 'text2music' && t.lyrics && t.lyrics !== '[Instrumental]')?.lyrics ??
+        history.takes.find((t: Take) => t.task === 'extract' && t.lyrics && t.lyrics !== '[Instrumental]')?.lyrics ??
+        history.takes.map((t: Take) => (t.provenance?.parameters as any)?.transcribedLyrics).find((l: any) => typeof l === 'string' && l.trim() && l.trim() !== '[Instrumental]');
+      const initialAlignment =
+        history.takes
+          .map((t: Take) => (t.provenance?.parameters as any)?.lyricsAlignment)
+          .find((a: any) => a && Array.isArray(a.lines) && a.lines.length > 0) ?? null;
+      if (initialAlignment) {
+        setLyricsAlignment(initialAlignment);
+      }
+      const hasVocalsStem =
+        Array.isArray(history.stems) &&
+        history.stems.some((s: any) => String(s.name || s.stem_type || '').toLowerCase() === 'vocals' && s.url);
+      if (initialLyrics) {
+        setLyrics(prev => prev || initialLyrics);
+        setHasExistingLyrics(true);
+        setIsTranscribingLyrics(false);
+        if (!initialAlignment && hasVocalsStem) {
+          pollSongLyrics(song.id);
+        }
+      } else if (hasVocalsStem) {
+        pollSongLyrics(song.id);
+      }
+      if (baseTake?.provenance?.parameters) {
+        const rawParams = baseTake.provenance.parameters as Record<string, any>;
+        const submitted = (rawParams.submitted ?? rawParams) as Record<string, any>;
+        const resolved = (rawParams.resolved ?? {}) as Record<string, any>;
+        const explicitSubmittedLang =
+          rawParams.submitted?.vocalLanguage ||
+          rawParams.submitted?.vocal_language ||
+          resolved.vocal_language;
+        if (typeof explicitSubmittedLang === 'string' && explicitSubmittedLang && explicitSubmittedLang !== 'unknown') {
+          setVocalLanguage(explicitSubmittedLang);
+        }
+        setParameters(prev => {
+          const next = { ...prev };
+          const baseBpm = submitted.bpm ?? resolved.bpm;
+          const baseKey = submitted.keyScale ?? submitted.keyscale ?? resolved.keyscale;
+          const baseTimeSig = submitted.timeSignature ?? submitted.time_signature ?? submitted.timesignature ?? resolved.timesignature;
+          if (baseBpm && !next.bpm) next.bpm = Number(baseBpm);
+          if (baseKey && !next.keyScale) next.keyScale = String(baseKey);
+          if (baseTimeSig && !next.timeSignature) next.timeSignature = String(baseTimeSig);
+          return next;
+        });
+      }
       const completed = new Set(history.takes.map((take: Take) => take.provenance?.taskId).filter(Boolean));
       useDawStore.setState(state => ({ operations: state.operations.filter(operation => !completed.has(operation.id)) }));
       if (!sessionRef.current) { restoreSession(history.commits); sessionRef.current = true; }
@@ -142,29 +253,26 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '', style = 
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Could not load song history');
     }
-  }, [song, readAddress, setTakes, setCommits, syncStems, restoreSession, queryClient]);
+  }, [song, readAddress, setTakes, setCommits, syncStems, restoreSession, queryClient, pollSongLyrics]);
 
   // Initialize DAW Engine and Project Store on Mount
   useEffect(() => {
-    let active = true;
     dawEngine.resetProject();
     const initialDur = typeof song.duration === 'number' && song.duration > 0 ? song.duration : 60;
     const cached = readAddress ? readProject(song.id, readAddress) : null;
     sessionRef.current = Boolean(cached?.session || cached?.commits.some(commit => Array.isArray(commit.timeline_snapshot?.tracks)));
     initProject(song.id, song.title, initialDur, song.url, cached ?? undefined);
 
-    dawEngine.init().then(() => {
-      if (!active || useDawStore.getState().songId !== song.id) return;
-      const master = useDawStore.getState().tracks.find(track => track.id === 'master')?.clips[0];
-      if (master) void dawEngine.loadClip('master', master.id, master.url, master.startTime, master.offset, master.duration);
-    });
+    const master = useDawStore.getState().tracks.find(track => track.id === 'master')?.clips[0];
+    if (master) {
+      void dawEngine.loadClip('master', master.id, master.url, master.startTime, master.offset, master.duration);
+    }
 
     dawEngine.setTimeCallback((seconds) => {
       setPlayhead(seconds);
     });
 
     return () => {
-      active = false;
       dawEngine.resetProject();
       for (const timer of pollTimersRef.current.values()) clearTimeout(timer);
       pollTimersRef.current.clear();
@@ -172,6 +280,18 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '', style = 
   }, [song.id, song.url, readAddress, initProject, setPlayhead]);
 
   useEffect(() => { void loadSongData(); }, [loadSongData]);
+
+  const autoPolledSongRef = useRef<string>('');
+  useEffect(() => {
+    if (!readAddress || lyricsAlignment || isTranscribingLyrics || isAligningLyrics) return;
+    const hasVocalsTrack = tracks.some(
+      t => String(t.stemType || t.name || '').toLowerCase() === 'vocals' && t.clips.length > 0,
+    );
+    if (hasVocalsTrack && autoPolledSongRef.current !== song.id) {
+      autoPolledSongRef.current = song.id;
+      pollSongLyrics(song.id);
+    }
+  }, [song.id, readAddress, tracks, lyricsAlignment, isTranscribingLyrics, isAligningLyrics, pollSongLyrics]);
 
   useEffect(() => {
     for (const track of tracks) dawEngine.scheduleTrack(track);
@@ -292,6 +412,19 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '', style = 
     if (data.take) useDawStore.getState().upsertTake(data.take);
     await loadSongData();
     if (data.take) {
+      if (isFullSongRestyleTake(data.take)) {
+        setSelectedTrackId('master');
+        toast.success('Master restyle take ready');
+        return;
+      }
+      if (isLayerTake(data.take)) {
+        const stemType = layerTrackName(data.take);
+        const laneTrack = useDawStore.getState().tracks.find(t => t.stemType === stemType);
+        setSelectedTrackId(laneTrack?.id ?? 'master');
+        setSelection(interval(data.take, useDawStore.getState().duration));
+        toast.success('Layer take ready in Lanes');
+        return;
+      }
       const currentState = useDawStore.getState();
       const isAlreadyMounted = currentState.tracks.some(
         t => t.id === data.take!.id && t.activeTakeId === data.take!.id,
@@ -302,7 +435,10 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '', style = 
       setSelectedTrackId(data.take.id);
       setSelection(interval(data.take, useDawStore.getState().duration));
       toast.success('Section ready');
-    } else toast.success('Tracks ready');
+    } else {
+      if (!lyrics.trim() || !lyricsAlignment) pollSongLyrics(song.id);
+      toast.success('Tracks ready');
+    }
   };
 
   const pollTask = (job: { taskId: string; task: Task; stemId?: string }, address: string) => {
@@ -405,6 +541,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '', style = 
         setProcessing(false);
         setProgress(100);
         await loadSongData();
+        if (!lyrics.trim() || !lyricsAlignment) pollSongLyrics(song.id);
         useDawStore.setState(state => ({ operations: state.operations.filter(item => item.id !== (data.taskId ?? operation)) }));
         toast.success('Tracks separated');
         return;
@@ -420,6 +557,105 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '', style = 
       toast.error(err.message || 'Stem isolation failed');
     }
   };
+
+  // Explicit on-demand Scribe lyrics extraction from the isolated vocal stem
+  const handleExtractLyrics = useCallback(async () => {
+    const addr = effectiveAddress || readAddress;
+    if (!addr) {
+      toast.error('Connect your account to extract lyrics');
+      return;
+    }
+    if (isTranscribingLyrics) return;
+    setIsTranscribingLyrics(true);
+    const scope = scopeRef.current;
+    try {
+      const res = await sdk.fetch(`/api/editing/lyrics/${encodeURIComponent(song.id)}`, {
+        method: 'POST',
+        userAddress: addr,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vocalLanguage: vocalLanguage || 'en', mode: 'extract' }),
+      });
+      const data = await res.json();
+      if (scope !== scopeRef.current || useDawStore.getState().songId !== song.id) return;
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to extract lyrics');
+      }
+      if (data.status === 'no_vocals_stem') {
+        setIsTranscribingLyrics(false);
+        toast.info('Separating stems first to isolate the vocal lane for lyrics extraction...');
+        await handleSeparateStems();
+        return;
+      }
+      if (data.alignment && Array.isArray(data.alignment.lines) && data.alignment.lines.length > 0) {
+        setLyricsAlignment(data.alignment);
+      }
+      if (typeof data.lyrics === 'string' && data.lyrics.trim()) {
+        setLyrics(data.lyrics);
+        setHasExistingLyrics(data.lyrics.trim() !== '[Instrumental]');
+        toast.success('Lyrics extracted & synced from vocal stem');
+      } else {
+        toast.info('No vocals detected in the isolated vocal stem');
+      }
+    } catch (err: any) {
+      toast.error(err?.message || 'Could not extract lyrics');
+    } finally {
+      if (scope === scopeRef.current) {
+        setIsTranscribingLyrics(false);
+      }
+    }
+  }, [effectiveAddress, readAddress, isTranscribingLyrics, song.id, vocalLanguage]);
+
+  // Explicit forced-alignment of existing/edited lyrics against the isolated vocal stem
+  const handleAlignLyrics = useCallback(async (customLyrics?: string) => {
+    const addr = effectiveAddress || readAddress;
+    if (!addr) {
+      toast.error('Connect your account to sync lyrics');
+      return;
+    }
+    const textToAlign = (customLyrics ?? lyrics).trim();
+    if (!textToAlign || textToAlign === '[Instrumental]') {
+      toast.info('Add or extract lyrics first before syncing to timeline');
+      return;
+    }
+    if (isAligningLyrics) return;
+    setIsAligningLyrics(true);
+    const scope = scopeRef.current;
+    try {
+      const res = await sdk.fetch(`/api/editing/lyrics/${encodeURIComponent(song.id)}`, {
+        method: 'POST',
+        userAddress: addr,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          vocalLanguage: vocalLanguage || 'en',
+          lyrics: textToAlign,
+          mode: 'align',
+        }),
+      });
+      const data = await res.json();
+      if (scope !== scopeRef.current || useDawStore.getState().songId !== song.id) return;
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to sync lyrics to timeline');
+      }
+      if (data.status === 'no_vocals_stem') {
+        setIsAligningLyrics(false);
+        toast.info('Separating stems first to isolate the vocal lane for timeline sync...');
+        await handleSeparateStems();
+        return;
+      }
+      if (data.alignment && Array.isArray(data.alignment.lines) && data.alignment.lines.length > 0) {
+        setLyricsAlignment(data.alignment);
+        toast.success('Lyrics synced with vocal timeline');
+      } else {
+        toast.info('Could not align lyrics to vocal audio');
+      }
+    } catch (err: any) {
+      toast.error(err?.message || 'Could not sync lyrics to timeline');
+    } finally {
+      if (scope === scopeRef.current) {
+        setIsAligningLyrics(false);
+      }
+    }
+  }, [effectiveAddress, readAddress, isAligningLyrics, lyrics, song.id, vocalLanguage]);
 
   // AI Task Execution Dispatcher
   const handleApplyEdit = async () => {
@@ -444,12 +680,23 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '', style = 
 
     try {
       if (!editing || (task !== 'extract' && !selectedQuality)) throw new Error('Music options are unavailable');
+      const baseTake = takes.find(t => t.task === 'text2music') ?? takes.find(t => t.is_active);
+      const globalCaption = [
+        ...(Array.isArray(song.tags) ? song.tags : []),
+        baseTake?.prompt || '',
+      ]
+        .map(s => s.trim())
+        .filter(Boolean)
+        .join(', ');
+
       let endpoint = '/api/editing/repaint';
       let payload: any = {
         songId: song.id,
         stemId: (() => { const candidate = takes.find(take => take.id === selectedTrackId); const id = candidate ? source(candidate, tracks) : selectedTrackId; if (!id) throw new Error('The source lane is unavailable'); return id !== 'master' ? id : undefined; })(),
         userAddress: effectiveAddress,
         modelQuality: task === 'extract' ? undefined : selectedQuality,
+        vocalLanguage: vocalLanguage || 'en',
+        globalCaption: globalCaption || undefined,
         ...Object.fromEntries(Object.entries(parameters).filter(([key]) => editing.parameters[key]?.tasks?.includes(task))),
       };
       if (typeof payload.trackClasses === 'string') payload.trackClasses = payload.trackClasses.split(',').map((value: string) => value.trim()).filter(Boolean);
@@ -459,6 +706,38 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '', style = 
       const sourceRegion = selection && selectedTake ? sourceInterval(selectedTake,tracks,selection) : selection;
       const start = sourceRegion?.start;
       const end = sourceRegion?.end;
+
+      const mountedOverlayIds = tracks
+        .filter(
+          t =>
+            t.id === t.activeTakeId &&
+            !t.muted &&
+            takes.some(
+              tk =>
+                tk.id === t.id &&
+                !tk.provenance?.mergedInto &&
+                (!tk.stem_id || tk.provenance?.target === 'master'),
+            ),
+        )
+        .map(t => t.id);
+
+      if (selectedTake && task !== 'lego') {
+        payload.sourceTakeId = selectedTake.id;
+        payload.srcAudioUrl = selectedTake.url;
+      } else if (!payload.stemId && task !== 'lego' && (mountedOverlayIds.length > 0 || useDawStore.getState().originals.length > 0)) {
+        try {
+          const compositeAudio = await dawEngine.render(['master', ...mountedOverlayIds], duration, true);
+          const form = new FormData();
+          form.append('file', compositeAudio, 'master-composite.wav');
+          const upload = await sdk.fetch(`/api/editing/source?songId=${encodeURIComponent(song.id)}`, { method: 'POST', body: form });
+          const uploaded = await upload.json();
+          if (upload.ok && uploaded.url) {
+            payload.srcAudioUrl = uploaded.url;
+          }
+        } catch (_) {
+          // Fallback to backend active master URL if offline audio rendering is unavailable
+        }
+      }
 
       if (task === 'repaint') {
         endpoint = '/api/editing/repaint';
@@ -474,12 +753,20 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '', style = 
       } else if (task === 'lego') {
         if (!instrument.trim()) throw new Error('Enter the instrument to add');
         if (!prompt.trim()) throw new Error('Describe the new part');
-        const audio = await dawEngine.render(legoContextTrackIds, duration);
+        const replacementOverlayIds = mountedOverlayIds.filter(id => {
+          const tk = takes.find(t => t.id === id);
+          return tk && tk.task !== 'lego';
+        });
+        const effectiveLegoIds = legoContextTrackIds.includes('master')
+          ? Array.from(new Set([...legoContextTrackIds, ...replacementOverlayIds]))
+          : legoContextTrackIds;
+        const audio = await dawEngine.render(effectiveLegoIds, duration, true);
         const source = new FormData();
         source.append('file', audio, 'reference.wav');
         const upload = await sdk.fetch(`/api/editing/source?songId=${encodeURIComponent(song.id)}`, { method: 'POST', body: source });
         const uploaded = await upload.json();
         if (!upload.ok || !uploaded.url) throw new Error(uploaded.error || 'Could not save reference audio');
+        const isVocalInstrument = instrument.trim() === 'vocals' || instrument.trim() === 'backing_vocals';
         endpoint = '/api/editing/layer';
         payload = {
           ...payload,
@@ -487,6 +774,11 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '', style = 
           srcAudioUrl: uploaded.url,
           trackName: instrument.trim(),
           prompt: prompt.trim(),
+          lyrics: isVocalInstrument ? (lyrics.trim() ? lyrics : undefined) : '[Instrumental]',
+          vocalLanguage: vocalLanguage || 'en',
+          globalCaption: globalCaption || undefined,
+          start,
+          end,
           audioDuration: duration,
           legoContextTrackIds,
         };
@@ -497,6 +789,9 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '', style = 
           ...payload,
           task: 'complete',
           prompt: prompt.trim(),
+          lyrics: lyrics.trim() ? lyrics : undefined,
+          start,
+          end,
           audioDuration: duration,
         };
       } else if (task === 'extend') {
@@ -504,6 +799,9 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '', style = 
         payload = {
           ...payload,
           prompt: prompt.trim() ? prompt.trim() : undefined,
+          lyrics: lyrics.trim() ? lyrics : undefined,
+          start,
+          end,
           audioDuration: targetDuration,
         };
       } else if (task === 'cover') {
@@ -512,6 +810,9 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '', style = 
         payload = {
           ...payload,
           prompt: prompt.trim(),
+          lyrics: lyrics.trim() ? lyrics : undefined,
+          start,
+          end,
           coverStrength,
           coverNoiseStrength: parameters.coverNoiseStrength,
         };
@@ -641,6 +942,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '', style = 
       <Toolbox
         options={editing}
         optionsError={options.error?.message}
+        languages={options.data?.generation?.languages}
         parameters={parameters}
         onParametersChange={setParameters}
         activeTool={activeTool}
@@ -651,6 +953,14 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '', style = 
         onPromptChange={setPrompt}
         lyrics={lyrics}
         onLyricsChange={setLyrics}
+        vocalLanguage={vocalLanguage}
+        onVocalLanguageChange={setVocalLanguage}
+        hasExistingLyrics={hasExistingLyrics}
+        isTranscribingLyrics={isTranscribingLyrics}
+        onExtractLyrics={handleExtractLyrics}
+        lyricsAlignment={lyricsAlignment}
+        isAligningLyrics={isAligningLyrics}
+        onAlignLyrics={handleAlignLyrics}
         selectedQuality={selectedQuality}
         onQualityChange={setSelectedQuality}
         repaintMode={repaintMode}
