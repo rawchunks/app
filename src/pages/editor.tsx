@@ -484,7 +484,23 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '', style = 
       if (state.songId !== song.id) return;
       const cached = readProject(song.id, readAddress);
       if (!cached) return;
-      writeProject({ ...cached, song: { ...cached.song, url: state.tracks.find(track => track.id === 'master')?.clips[0]?.url ?? cached.song.url, duration: state.duration }, takes: state.takes, commits: state.commits, session: { tracks: state.tracks, originals: state.originals, operations: state.operations, bpm: state.bpm } }, readAddress);
+      const masterUrl = state.tracks.find(track => track.id === 'master')?.clips[0]?.url ?? cached.song.url;
+      const updatedSong = { ...cached.song, url: masterUrl, duration: state.duration };
+      const updatedStems = cached.stems.map(stem =>
+        stem.name?.toLowerCase() === 'master' || stem.id.startsWith('stem-master') || stem.id.startsWith('stm-master')
+          ? { ...stem, url: masterUrl }
+          : stem
+      );
+      writeProject({ ...cached, song: updatedSong, stems: updatedStems, takes: state.takes, commits: state.commits, session: { tracks: state.tracks, originals: state.originals, operations: state.operations, bpm: state.bpm } }, readAddress);
+      try {
+        const raw = sessionStorage.getItem('rawchunks_editing_song');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed?.id === song.id) {
+            sessionStorage.setItem('rawchunks_editing_song', JSON.stringify({ ...parsed, url: masterUrl, duration: state.duration }));
+          }
+        }
+      } catch {}
     };
     return useDawStore.subscribe((state, previous) => {
       if (state.tracks !== previous.tracks || state.takes !== previous.takes || state.commits !== previous.commits || state.operations !== previous.operations || state.originals !== previous.originals || state.bpm !== previous.bpm) save(state);

@@ -833,6 +833,7 @@ class DAWEngine {
     const project = this.project;
     const entry = { trackId, url, signature, promise: Promise.resolve() };
     entry.promise = Promise.resolve().then(async () => {
+      await this.init();
       if (project !== this.project || this.clipLoads.get(key) !== entry) return;
       const nodes = this.getOrCreateTrackNodes(trackId);
       nodes.players.get(clipId)?.dispose();
@@ -1079,7 +1080,7 @@ class DAWEngine {
     if (track.type === 'strudel') this.scheduleStrudel(track.id, track.strudelCode ?? '');
   }
 
-  public async render(trackIds: string[], duration: number, commit = false): Promise<Blob> {
+  public async render(trackIds: string[], duration: number, commit = false, startTime = 0): Promise<Blob> {
     if (!trackIds.length || !Number.isFinite(duration) || duration <= 0) throw new Error('Select reference lanes with a valid duration');
     const state = useDawStore.getState();
     const tracks = trackIds.map(id => {
@@ -1151,9 +1152,14 @@ class DAWEngine {
       Tone.setContext(original);
       await Promise.all([...engine.trackNodes.values()].map(nodes => nodes.reverb.ready));
       const result = await context.render();
-      const channels = Array.from({ length: result.numberOfChannels }, (_, index) => result.getChannelData(index));
+      const startSample = startTime > 0 ? Math.max(0, Math.min(result.length, Math.round(startTime * result.sampleRate))) : 0;
+      const numSamples = result.length - startSample;
+      const channels = Array.from({ length: result.numberOfChannels }, (_, index) => {
+        const data = result.getChannelData(index);
+        return startSample > 0 ? data.subarray(startSample) : data;
+      });
       if (!channels.some(channel => channel.some(value => Math.abs(value) > 0))) throw new Error('Selected reference lanes contain no audible sound');
-      return this.encodeWavBlob(channels, result.sampleRate, result.length, commit);
+      return this.encodeWavBlob(channels, result.sampleRate, numSamples, commit);
     } finally {
       for (const track of tracks) engine.disposeTrack(track.id, context.transport);
       engine.masterCompressor?.dispose();

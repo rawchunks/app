@@ -3,7 +3,7 @@ import { promptSessionModal } from '../../hooks/use-session';
 import { toast } from 'sonner';
 import { create } from 'zustand';
 import { dawEngine } from './engine';
-import { isBase, preview, interval, source, clips, sourceInterval, retained, masterArrangement, pending, isLayerTake, layerTrackName, isFullSongRestyleTake } from './takes';
+import { isBase, preview, interval, source, clips, sourceInterval, retained, masterArrangement, pending, isLayerTake, layerTrackName, isFullSongRestyleTake, isMasterTargetTake } from './takes';
 import type { Project } from '../cache';
 import { DRUM_STEPS } from './notes';
 
@@ -984,7 +984,7 @@ export const useDawStore = create<DAWState>((set, get) => ({
     if (trackId === 'master') return; // Cannot delete master
     const removed = get().tracks.find((t) => t.id === trackId);
     const take = get().takes.find((tk) => tk.id === trackId);
-    const isReplacement = Boolean(take && !take.stem_id && ['repaint', 'complete', 'cover'].includes(take.task));
+    const isReplacement = Boolean(take && isMasterTargetTake(take) && ['repaint', 'complete', 'cover'].includes(take.task));
     dawEngine.disposeTrack(trackId);
     set((state) => {
       let nextOriginals = state.originals;
@@ -1244,7 +1244,7 @@ export const useDawStore = create<DAWState>((set, get) => ({
     const track = get().tracks.find(track => track.id === takeId && track.activeTakeId === takeId);
     const take = get().takes.find(take => take.id === takeId);
     if (!track || !take || !track.clips.length) return;
-    const isReplacement = !take.stem_id && ['repaint', 'complete', 'cover'].includes(take.task);
+    const isReplacement = isMasterTargetTake(take) && ['repaint', 'complete', 'cover'].includes(take.task);
     const original = clips(take, get().duration);
     const starts = track.clips.map((clip, index) => clip.origin ?? original[index]?.startTime ?? clip.startTime);
     const moved = Math.max(shift, -Math.min(...starts));
@@ -1307,8 +1307,10 @@ export const useDawStore = create<DAWState>((set, get) => ({
       const extendClips = candidates
         .filter(take => take.task === 'extend')
         .flatMap(take => state.tracks.find(track => track.id === take.id)?.clips.map(clip => ({ startTime: clip.startTime, duration: clip.duration })) ?? []);
-      const renderDuration = Math.max(masterArrangement(state.duration, extendClips).duration, region.end);
-      const rendered = await dawEngine.render(ids, renderDuration, true);
+      const renderDuration = extendClips.length > 0
+        ? Math.max(masterArrangement(state.duration, extendClips).duration, region.end)
+        : region.end;
+      const rendered = await dawEngine.render(ids, renderDuration, true, region.start);
       const form = new FormData(); form.append('file', rendered, 'master.wav');
       const upload = await sdk.fetch(`/api/editing/source?songId=${encodeURIComponent(songId)}`, { method: 'POST', body: form });
       const data = await upload.json();
@@ -1333,7 +1335,34 @@ export const useDawStore = create<DAWState>((set, get) => ({
           for (const clip of pending) await dawEngine.loadClip(id, clip.id, clip.url, clip.startTime, clip.offset, clip.duration);
         }
       }
-      set(current => ({ takes: project.takes, commits: project.commits, duration: result.take.provenance.outputDuration, originals: current.originals.flatMap(item => item.end <= region.start || item.start >= region.end ? [item] : [...(item.start < region.start ? [{start:item.start,end:region.start}] : []), ...(item.end > region.end ? [{start:region.end,end:item.end}] : [])]), selectedTrackId: 'master', isPlaying: false }));
+      const nextDuration = result.take.provenance.outputDuration;
+      const nextMasterUrl = result.take.url;
+      set(current => ({
+        takes: project.takes,
+        commits: project.commits,
+        duration: nextDuration,
+        originalMasterUrl: nextMasterUrl || current.originalMasterUrl,
+        tracks: current.tracks.map(track =>
+          track.id === 'master' && nextMasterUrl
+            ? {
+                ...track,
+                activeTakeId: result.take.id,
+                activeVersionTakeId: null,
+                originalUrl: nextMasterUrl,
+                clips: track.clips.length
+                  ? track.clips.map((clip, idx) => idx === 0 ? { ...clip, url: nextMasterUrl, offset: 0, duration: nextDuration } : clip)
+                  : [{ id: 'clip-master', name: 'Master Output', url: nextMasterUrl, startTime: 0, offset: 0, duration: nextDuration }],
+              }
+            : track
+        ),
+        originals: current.originals.flatMap(item => item.end <= region.start || item.start >= region.end ? [item] : [...(item.start < region.start ? [{start:item.start,end:region.start}] : []), ...(item.end > region.end ? [{start:region.end,end:item.end}] : [])]),
+        selectedTrackId: 'master',
+        isPlaying: false,
+      }));
+      if (nextMasterUrl) {
+        const masterClip = get().tracks.find(track => track.id === 'master')?.clips[0];
+        if (masterClip) void dawEngine.loadClip('master', masterClip.id, nextMasterUrl, masterClip.startTime, 0, nextDuration);
+      }
       get().syncStems(project.stems);
       toast.success('Section merged');
     } catch (error) { toast.error(error instanceof Error ? error.message : 'Could not merge the section'); }
@@ -1365,7 +1394,7 @@ export const useDawStore = create<DAWState>((set, get) => ({
       }
       return;
     }
-    const lane = take.stem_id
+    const lane = !isMasterTargetTake(take) && take.stem_id
       ? initial.tracks.find(track => track.id === take.stem_id || track.stemId === take.stem_id)
       : initial.tracks.find(track => track.id === 'master');
     if (lane && isBase(take, initial.tracks, initial.takes)) {
@@ -1375,7 +1404,7 @@ export const useDawStore = create<DAWState>((set, get) => ({
     for (const existingTrack of initial.tracks) {
       if (!existingTrack.activeTakeId || existingTrack.id === 'master' || existingTrack.stemId) continue;
       const otherTake = initial.takes.find(item => item.id === existingTrack.activeTakeId);
-      if (otherTake && otherTake.id !== take.id && otherTake.task === take.task && (otherTake.stem_id ?? null) === (take.stem_id ?? null)) {
+      if (otherTake && otherTake.id !== take.id && otherTake.task === take.task && (isMasterTargetTake(take) ? isMasterTargetTake(otherTake) : (otherTake.stem_id ?? null) === (take.stem_id ?? null))) {
         get().removeTrack(existingTrack.id);
       }
     }
@@ -1393,7 +1422,7 @@ export const useDawStore = create<DAWState>((set, get) => ({
       fx: JSON.parse(JSON.stringify(DEFAULT_FX)), clips: clips(take, duration),
     };
     const firstClip = track.clips[0];
-    const isReplacement = !take.stem_id && ['repaint', 'complete', 'cover'].includes(take.task);
+    const isReplacement = isMasterTargetTake(take) && ['repaint', 'complete', 'cover'].includes(take.task);
     const nextOriginals = isReplacement
       ? [
           ...originals,
@@ -1418,7 +1447,7 @@ export const useDawStore = create<DAWState>((set, get) => ({
   activateTake: async (takeId, action = 'base') => {
     const target = get().takes.find(take => take.id === takeId);
     if (!target) return;
-    if (action === 'merge' && !isLayerTake(target) && !isFullSongRestyleTake(target) && !target.stem_id) {
+    if (action === 'merge' && !isLayerTake(target) && !isFullSongRestyleTake(target) && isMasterTargetTake(target)) {
       return get().mergeTakes([takeId]);
     }
     if ((action === 'base' && isBase(target, get().tracks, get().takes)) || get().pendingTake) return;
@@ -1435,7 +1464,7 @@ export const useDawStore = create<DAWState>((set, get) => ({
       if (!history.ok) throw new Error('Version saved, but the arrangement could not be refreshed');
       const project = await history.json();
       if (get().songId !== songId) return;
-      const nextMasterBase = project.takes.find((t: Take) => !t.stem_id && t.is_active);
+      const nextMasterBase = project.takes.find((t: Take) => isMasterTargetTake(t) && t.is_active);
       if (result.take?.provenance?.target === 'master' && nextMasterBase) {
         const masterDuration = result.take?.provenance?.outputDuration ?? get().duration;
         set(current => ({
