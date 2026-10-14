@@ -89,36 +89,194 @@ function getSharedAudioContext(): AudioContext {
  */
 export async function decodeAudioBuffer(arrayBuffer: ArrayBuffer): Promise<AudioBuffer> {
   const audioCtx = getSharedAudioContext();
-  if (audioCtx.state === 'suspended') {
-    audioCtx.resume().catch(() => {});
-  }
-
-  const bufferCopy = arrayBuffer.slice(0);
   return new Promise<AudioBuffer>((resolve, reject) => {
     audioCtx.decodeAudioData(
-      bufferCopy,
+      arrayBuffer,
       (decoded) => resolve(decoded),
       (err) => reject(err)
     );
   });
 }
 
+export type AudioLoadPriority = 'high' | 'normal';
+
+const MAX_BACKGROUND_CONCURRENCY = 1;
+const MAX_DECODED_BUFFERS = 4;
+let activeBackgroundFetches = 0;
+
+interface QueuedFetch {
+  url: string;
+  start: (asHigh: boolean) => void;
+  abort: () => void;
+}
+
+interface InFlightFetch {
+  promise: Promise<ArrayBuffer>;
+  controller: AbortController;
+  isHigh: boolean;
+}
+
+const backgroundQueue: QueuedFetch[] = [];
+const inFlightFetches = new Map<string, InFlightFetch>();
+const decodedBufferCache = new Map<string, Promise<AudioBuffer>>();
+const cache = new Map<string, Promise<BipolarPeaks>>();
+
+function pumpBackgroundQueue() {
+  while (activeBackgroundFetches < MAX_BACKGROUND_CONCURRENCY && backgroundQueue.length > 0) {
+    const next = backgroundQueue.shift()!;
+    activeBackgroundFetches++;
+    next.start(false);
+  }
+}
+
+export function abortBackgroundAudioFetches() {
+  while (backgroundQueue.length > 0) {
+    const queued = backgroundQueue.shift()!;
+    queued.abort();
+  }
+  for (const [, entry] of inFlightFetches) {
+    entry.controller.abort();
+  }
+  inFlightFetches.clear();
+  activeBackgroundFetches = 0;
+  decodedBufferCache.clear();
+}
+
+export function fetchAudioArrayBuffer(url: string, priority: AudioLoadPriority = 'normal'): Promise<ArrayBuffer> {
+  if (!url) return Promise.reject(new Error('Audio source is required'));
+
+  if (priority === 'high') {
+    const queuedIdx = backgroundQueue.findIndex((item) => item.url === url);
+    if (queuedIdx !== -1) {
+      const [promoted] = backgroundQueue.splice(queuedIdx, 1);
+      promoted.start(true);
+    }
+    const existingInFlight = inFlightFetches.get(url);
+    if (existingInFlight && !existingInFlight.isHigh) {
+      existingInFlight.isHigh = true;
+      activeBackgroundFetches = Math.max(0, activeBackgroundFetches - 1);
+      pumpBackgroundQueue();
+    }
+  }
+
+  const existing = inFlightFetches.get(url);
+  if (existing) return existing.promise;
+
+  const controller = new AbortController();
+  const entryState: InFlightFetch = {
+    promise: Promise.resolve(new ArrayBuffer(0)),
+    controller,
+    isHigh: priority === 'high',
+  };
+
+  const doFetch = () =>
+    fetch(url, { signal: controller.signal }).then((response) => {
+      if (!response.ok) throw new Error(`Failed to load waveform (${response.status})`);
+      return response.arrayBuffer();
+    });
+
+  let raw: Promise<ArrayBuffer>;
+  if (priority === 'high' || activeBackgroundFetches < MAX_BACKGROUND_CONCURRENCY) {
+    if (!entryState.isHigh) {
+      activeBackgroundFetches++;
+    }
+    raw = doFetch().finally(() => {
+      inFlightFetches.delete(url);
+      if (!entryState.isHigh) {
+        activeBackgroundFetches = Math.max(0, activeBackgroundFetches - 1);
+        pumpBackgroundQueue();
+      }
+    });
+  } else {
+    raw = new Promise<ArrayBuffer>((resolve, reject) => {
+      const queuedEntry: QueuedFetch = {
+        url,
+        start: (asHigh: boolean) => {
+          if (asHigh) entryState.isHigh = true;
+          doFetch()
+            .then(resolve, reject)
+            .finally(() => {
+              inFlightFetches.delete(url);
+              if (!entryState.isHigh) {
+                activeBackgroundFetches = Math.max(0, activeBackgroundFetches - 1);
+                pumpBackgroundQueue();
+              }
+            });
+        },
+        abort: () => {
+          inFlightFetches.delete(url);
+          controller.abort();
+          reject(new DOMException('Aborted background audio fetch', 'AbortError'));
+        },
+      };
+      backgroundQueue.push(queuedEntry);
+      pumpBackgroundQueue();
+    });
+  }
+
+  entryState.promise = raw;
+  inFlightFetches.set(url, entryState);
+  return raw;
+}
+
+export function getDecodedAudioBuffer(url: string, priority: AudioLoadPriority = 'normal'): Promise<AudioBuffer> {
+  if (!url) return Promise.reject(new Error('Audio source is required'));
+  if (priority === 'high') {
+    void fetchAudioArrayBuffer(url, 'high').catch(() => {});
+  }
+  const existing = decodedBufferCache.get(url);
+  if (existing) {
+    decodedBufferCache.delete(url);
+    decodedBufferCache.set(url, existing);
+    return existing;
+  }
+
+  const pending = fetchAudioArrayBuffer(url, priority).then((raw) => decodeAudioBuffer(raw.slice(0)));
+  if (decodedBufferCache.size >= MAX_DECODED_BUFFERS) {
+    const oldestKey = decodedBufferCache.keys().next().value;
+    if (oldestKey !== undefined) decodedBufferCache.delete(oldestKey);
+  }
+  decodedBufferCache.set(url, pending);
+  pending.catch(() => decodedBufferCache.delete(url));
+  return pending;
+}
 
 /**
  * Fetches audio from URL, decodes real PCM samples, and returns high-resolution peaks.
  */
-export async function extractPeaksFromUrl(url: string, bins = 256): Promise<number[]> {
-  return magnitudes(await extractBipolarPeaksFromUrl(url, bins));
+export async function extractPeaksFromUrl(url: string, bins = 256, priority: AudioLoadPriority = 'normal'): Promise<number[]> {
+  return magnitudes(await extractBipolarPeaksFromUrl(url, bins, 0, undefined, priority));
 }
-
-const audioCache = new Map<string, Promise<ArrayBuffer>>();
-const cache = new Map<string, Promise<BipolarPeaks>>();
 
 function peakKey(url: string, bins: number, offset: number, duration?: number) {
   return `waveform:${JSON.stringify([url, bins, offset, duration])}`;
 }
 
-export function readPeaks(url: string, bins = 512, offset = 0, duration?: number): BipolarPeaks | null {
+function resampleBipolarPeaks(source: BipolarPeaks, targetBins: number): BipolarPeaks {
+  const count = Math.min(2048, Math.floor(targetBins));
+  if (source.bins === count) return source;
+  const mins = new Float32Array(count);
+  const maxs = new Float32Array(count);
+  const rms = new Float32Array(count);
+  for (let bin = 0; bin < count; bin++) {
+    const start = Math.floor((bin * source.bins) / count);
+    const end = Math.max(start + 1, Math.min(source.bins, Math.floor(((bin + 1) * source.bins) / count)));
+    let minVal = Infinity;
+    let maxVal = -Infinity;
+    let energy = 0;
+    for (let i = start; i < end; i++) {
+      if (source.mins[i] < minVal) minVal = source.mins[i];
+      if (source.maxs[i] > maxVal) maxVal = source.maxs[i];
+      energy += source.rms[i] * source.rms[i];
+    }
+    mins[bin] = Number.isFinite(minVal) ? minVal : 0;
+    maxs[bin] = Number.isFinite(maxVal) ? maxVal : 0;
+    rms[bin] = Math.sqrt(energy / (end - start));
+  }
+  return { mins, maxs, rms, bins: count, duration: source.duration };
+}
+
+function readExactPeaks(url: string, bins: number, offset: number, duration?: number): BipolarPeaks | null {
   try {
     const raw = localStorage.getItem(peakKey(url, bins, offset, duration));
     if (!raw) return null;
@@ -129,23 +287,45 @@ export function readPeaks(url: string, bins = 512, offset = 0, duration?: number
   } catch { return null; }
 }
 
-export async function extractBipolarPeaksFromUrl(url: string, bins = 512, offset = 0, duration?: number): Promise<BipolarPeaks> {
+export function readPeaks(url: string, bins = 512, offset = 0, duration?: number): BipolarPeaks | null {
+  const exact = readExactPeaks(url, bins, offset, duration);
+  if (exact) return exact;
+  if (offset === 0) {
+    const full512 = readExactPeaks(url, 512, 0, undefined);
+    if (full512 && (duration === undefined || Math.abs(duration - full512.duration) <= 1.5)) {
+      return resampleBipolarPeaks(full512, bins);
+    }
+  }
+  return null;
+}
+
+export async function extractBipolarPeaksFromUrl(
+  url: string,
+  bins = 512,
+  offset = 0,
+  duration?: number,
+  priority: AudioLoadPriority = 'normal'
+): Promise<BipolarPeaks> {
   if (!url) throw new Error('Audio source is required');
   const key = JSON.stringify([url, bins, offset, duration]);
   if (!cache.has(key)) {
     const pending = (async () => {
       const stored = readPeaks(url, bins, offset, duration);
       if (stored) return stored;
-      if (!audioCache.has(url)) {
-        const raw = fetch(url).then(response => {
-          if (!response.ok) throw new Error(`Failed to load waveform (${response.status})`);
-          return response.arrayBuffer();
-        });
-        audioCache.set(url, raw); raw.catch(() => audioCache.delete(url));
+      const raw = await fetchAudioArrayBuffer(url, priority);
+      if (offset === 0 && bins <= 512) {
+        const fullWav = extractBipolarPeaksFromWav(raw, 512, 0, undefined);
+        if (fullWav && (duration === undefined || Math.abs(duration - fullWav.duration) <= 1.5)) {
+          try {
+            localStorage.setItem(peakKey(url, 512, 0, undefined), JSON.stringify({
+              mins: [...fullWav.mins], maxs: [...fullWav.maxs], rms: [...fullWav.rms], duration: fullWav.duration,
+            }));
+          } catch { /* Storage may be unavailable or full. */ }
+          return resampleBipolarPeaks(fullWav, bins);
+        }
       }
-      const raw = await audioCache.get(url)!;
       const wav = extractBipolarPeaksFromWav(raw, bins, offset, duration);
-      const result = wav ?? extractBipolarPeaksFromBuffer(await decodeAudioBuffer(raw), bins, offset, duration);
+      const result = wav ?? extractBipolarPeaksFromBuffer(await decodeAudioBuffer(raw.slice(0)), bins, offset, duration);
       try {
         localStorage.setItem(peakKey(url, bins, offset, duration), JSON.stringify({
           mins: [...result.mins], maxs: [...result.maxs], rms: [...result.rms], duration: result.duration,
@@ -154,6 +334,8 @@ export async function extractBipolarPeaksFromUrl(url: string, bins = 512, offset
       return result;
     })();
     cache.set(key, pending); pending.catch(() => cache.delete(key));
+  } else if (priority === 'high') {
+    void fetchAudioArrayBuffer(url, 'high').catch(() => {});
   }
   return cache.get(key)!;
 }
