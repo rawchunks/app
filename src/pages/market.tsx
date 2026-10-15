@@ -4,13 +4,14 @@ import {
   Search,
   X,
   Music,
-  ArrowDownUp,
+  ArrowDownWideNarrow,
+  ArrowUpNarrowWide,
   RotateCcw,
 } from 'lucide-react';
 import { Glitch } from '../components/glitch';
 import { Button } from '../components/button';
 import { Tooltip } from '../components/daw/Tooltip';
-import { Card } from '../components/card';
+import { Card, normalizeTags } from '../components/card';
 import { store } from '../lib/store';
 import { useSongs } from '../hooks/use-songs';
 import { usePublicAlbums } from '../hooks/use-albums';
@@ -68,17 +69,18 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
     return Array.from(set);
   }, [publicSongs]);
 
-  // Extract unique genres / tags
+  // Extract unique normalized genres / tags
   const uniqueGenres = useMemo(() => {
-    const set = new Set<string>();
+    const map = new Map<string, string>();
     for (const song of publicSongs) {
-      if (song.tags) {
-        for (const tag of song.tags) {
-          if (tag) set.add(tag);
+      for (const tag of normalizeTags(song.tags)) {
+        const key = tag.toLowerCase();
+        if (!map.has(key)) {
+          map.set(key, tag);
         }
       }
     }
-    return Array.from(set).sort();
+    return Array.from(map.values()).sort((a, b) => a.localeCompare(b));
   }, [publicSongs]);
 
   // Apply filters and ordering
@@ -90,10 +92,11 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
       list = list.filter((s) => s.creator?.toLowerCase() === selectedCreator.toLowerCase());
     }
 
-    // Filter by Genre (= the tag)
+    // Filter by Genre (= normalized tag)
     if (selectedGenre) {
+      const target = selectedGenre.toLowerCase();
       list = list.filter((s) =>
-        s.tags?.some((t) => t.toLowerCase() === selectedGenre.toLowerCase())
+        normalizeTags(s.tags).some((t) => t.toLowerCase() === target)
       );
     }
 
@@ -103,7 +106,7 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
       list = list.filter(
         (s) =>
           s.title.toLowerCase().includes(q) ||
-          s.tags.some((t) => t.toLowerCase().includes(q)) ||
+          normalizeTags(s.tags).some((t) => t.toLowerCase().includes(q)) ||
           s.creator.toLowerCase().includes(q)
       );
     }
@@ -118,7 +121,9 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
     return list;
   }, [publicSongs, selectedCreator, selectedGenre, search, order]);
 
-  const hasActiveFilters = Boolean(selectedCreator || selectedGenre || search.trim() || order === 'oldest');
+  const hasActiveFilters = Boolean(
+    selectedCreator || selectedGenre || search.trim() || order === 'oldest'
+  );
 
   const clearAllFilters = () => {
     setSelectedCreator(null);
@@ -173,14 +178,16 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
             className="market-search-input"
           />
           {search && (
-            <button
-              type="button"
-              className="market-filter-clear-btn"
-              onClick={() => setSearch('')}
-              aria-label="Clear search"
-            >
-              <X size={12} />
-            </button>
+            <Tooltip title="Clear Search">
+              <button
+                type="button"
+                className="market-filter-clear-btn"
+                onClick={() => setSearch('')}
+                aria-label="Clear search"
+              >
+                <X size={12} />
+              </button>
+            </Tooltip>
           )}
         </div>
 
@@ -198,7 +205,9 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
               <option value="">CREATORS ({uniqueCreators.length})</option>
               {uniqueCreators.map((c) => (
                 <option key={c} value={c}>
-                  {c.startsWith('0x') ? `${c.slice(0, 6)}…${c.slice(-4)}` : `${c.slice(0, 4)}…${c.slice(-4)}`}
+                  {c.startsWith('0x')
+                    ? `${c.slice(0, 6)}…${c.slice(-4)}`
+                    : `${c.slice(0, 4)}…${c.slice(-4)}`}
                 </option>
               ))}
             </select>
@@ -222,16 +231,16 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
             </select>
           </div>
 
-          {/* Order Toggle (Latest | Oldest) */}
+          {/* Order Toggle (Latest | Oldest) - Icon + Tooltip */}
           <div className="market-order-toggle">
             <Tooltip title="Sort by Latest" description="Show newest tracks first">
               <button
                 type="button"
                 className={`market-order-btn ${order === 'latest' ? 'active' : ''}`}
                 onClick={() => setOrder('latest')}
+                aria-label="Sort by Latest"
               >
-                <ArrowDownUp size={11} />
-                <span>LATEST</span>
+                <ArrowDownWideNarrow size={13} />
               </button>
             </Tooltip>
             <Tooltip title="Sort by Oldest" description="Show oldest tracks first">
@@ -239,23 +248,25 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
                 type="button"
                 className={`market-order-btn ${order === 'oldest' ? 'active' : ''}`}
                 onClick={() => setOrder('oldest')}
+                aria-label="Sort by Oldest"
               >
-                <span>OLDEST</span>
+                <ArrowUpNarrowWide size={13} />
               </button>
             </Tooltip>
           </div>
 
-          {/* Clear Filters Reset Button */}
+          {/* Clear Filters Reset Button - Icon + Tooltip */}
           {hasActiveFilters && (
-            <button
-              type="button"
-              className="market-reset-filters-btn"
-              onClick={clearAllFilters}
-              title="Reset filters"
-            >
-              <RotateCcw size={11} />
-              <span>RESET</span>
-            </button>
+            <Tooltip title="Reset Filters" description="Clear active search and filter criteria">
+              <button
+                type="button"
+                className="market-reset-filters-btn"
+                onClick={clearAllFilters}
+                aria-label="Reset filters"
+              >
+                <RotateCcw size={12} />
+              </button>
+            </Tooltip>
           )}
         </div>
       </div>
