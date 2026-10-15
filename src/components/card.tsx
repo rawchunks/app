@@ -3,10 +3,14 @@ import {
   Play,
   Pause,
   ExternalLink,
+  Disc3,
   User,
 } from 'lucide-react';
+import { Button } from './button';
+import { Badge } from './badge';
 import { Tooltip } from './daw/Tooltip';
 import { Versions } from './versions';
+import { Licenses } from './licenses';
 import { store } from '../lib/store';
 import { useProfile } from '../hooks/use-profile';
 import { NETWORK_LOGOS, networkLogo } from '../contexts/Network';
@@ -280,3 +284,183 @@ export const CoverArt: React.FC<{
     );
   };
 
+export interface CardProps {
+  variant: 'market' | 'mypage';
+  song: Song;
+  versions: Song[];
+  albumTitle: string | null;
+  albumCover: string | null;
+  isPlayingThis: boolean;
+  onPlayToggle: () => void;
+  onSelectVersion: (version: Song) => void;
+  selectedGenre?: string | null;
+  onSelectGenre?: (genre: string) => void;
+  isMenuOpen?: boolean;
+  onToggleMenu?: () => void;
+  onEditDetails?: (song: Song) => void;
+  onEditInStudio?: (song: Song) => void;
+  onDownload?: (song: Song) => void;
+  onDelete?: (id: string) => void;
+  onPublishClick?: (song: Song) => void;
+  publicPending?: boolean;
+  isRemixLicensed?: boolean;
+}
+
+/**
+ * Unified, container-query responsive Song Card for /market and /my-page.
+ */
+export const Card: React.FC<CardProps> = ({
+  variant,
+  song,
+  versions,
+  albumTitle,
+  albumCover,
+  isPlayingThis,
+  onPlayToggle,
+  onSelectVersion,
+  selectedGenre,
+  onSelectGenre,
+  isRemixLicensed = false,
+}) => {
+  const tags = normalizeTags(song.tags);
+  const maxVisibleTags = isRemixLicensed ? 1 : 2;
+  const visibleTags = tags.slice(0, maxVisibleTags);
+  const overflowCount = Math.max(0, tags.length - maxVisibleTags);
+
+  return (
+    <div className={`market-card ${isPlayingThis ? 'playing' : ''}`}>
+      {/* 1. Artwork Media Container */}
+      <CoverArt
+        image={song.image}
+        albumCover={albumCover}
+        title={song.title}
+        isPlayingThis={isPlayingThis}
+        onPlayToggle={onPlayToggle}
+        versions={versions}
+        selectedId={song.id}
+        onSelectVersion={onSelectVersion}
+        network={song.network}
+        txHash={song.tx_hash}
+        txUrl={song.tx_url}
+        duration={song.duration}
+
+      />
+
+      {/* 2. Structured Information Body */}
+      <div className="market-card-body">
+        {/* Row 1: Title */}
+        <Tooltip title={song.title} description="Track title" className="mypage-card-title-tooltip">
+          <div className="market-card-row-title">{song.title}</div>
+        </Tooltip>
+
+        {/* Row 2: Album (uniform height reserved) */}
+        {albumTitle ? (
+          <div className="market-card-row-album" title={`Album: ${albumTitle}`}>
+            <Disc3 size={10} className="market-album-icon" />
+            <span className="market-album-text">{albumTitle}</span>
+          </div>
+        ) : (
+          <div className="market-card-row-album empty" aria-hidden="true">
+            <span>&nbsp;</span>
+          </div>
+        )}
+
+        {/* Row 3: Creator (shown on Market) */}
+        {variant === 'market' && <CreatorSlot address={song.creator} network={song.network} />}
+
+        {/* Row 4: Proportional Styles / Genres Tags */}
+        <div
+          className={`market-card-row-tags ${tags.length === 0 && !isRemixLicensed ? 'empty' : ''}`}
+        >
+          {isRemixLicensed && (
+            <Badge variant="warning" className="mypage-remix-badge">
+              REMIX
+            </Badge>
+          )}
+          {visibleTags.length > 0 ? (
+            <>
+              {visibleTags.map((t) => (
+                <Tooltip
+                  key={t}
+                  title={variant === 'market' ? 'Filter by Genre / Style' : 'Genre / Style'}
+                  description={t}
+                >
+                  <Badge
+                    variant={
+                      variant === 'market'
+                        ? selectedGenre?.toLowerCase() === t.toLowerCase()
+                          ? 'primary'
+                          : 'muted'
+                        : 'secondary'
+                    }
+                    onClick={
+                      variant === 'market' && onSelectGenre
+                        ? () => onSelectGenre(t)
+                        : undefined
+                    }
+                    clickable={variant === 'market' && Boolean(onSelectGenre)}
+                  >
+                    {t}
+                  </Badge>
+                </Tooltip>
+              ))}
+              {overflowCount > 0 && (
+                <Tooltip title="All Genres & Styles" description={tags.join(' • ')}>
+                  <Badge variant="muted" className="card-tag-overflow">
+                    +{overflowCount}
+                  </Badge>
+                </Tooltip>
+              )}
+            </>
+          ) : !isRemixLicensed ? (
+            <span aria-hidden="true">&nbsp;</span>
+          ) : null}
+        </div>
+
+        {/* Row 5: Pricing Box */}
+          <div className="market-pricing-box">
+            <div className="market-price-item">
+              <span className="market-price-label">STREAM</span>
+              <span className="market-price-val market-price-val-stream">
+                ${song.stream_price.toFixed(2)}
+                <span className="market-price-unit">/m</span>
+              </span>
+            </div>
+            <div className="market-price-item">
+              <span className="market-price-label">LICENSE</span>
+              <span className="market-price-val market-price-val-license">
+                {song.source ? (
+                  <span className="market-price-remix">REMIX</span>
+                ) : (
+                  `$${song.license_price.toFixed(2)}`
+                )}
+              </span>
+            </div>
+          </div>
+        {/* Row 6: Actions Toolbar (Icon + Tooltip) */}
+        <div className="market-card-actions">
+          <Tooltip
+            title={isPlayingThis ? 'Pause' : 'Stream'}
+            description={
+              isPlayingThis
+                ? 'Pause streaming playback'
+                : `Stream track ($${song.stream_price.toFixed(2)}/min)`
+            }
+          >
+            <Button
+              variant={isPlayingThis ? 'primary' : 'ghost'}
+              size="sm"
+              onClick={onPlayToggle}
+              aria-label={isPlayingThis ? 'Pause' : 'Stream'}
+              className="market-btn-icon"
+            >
+              {isPlayingThis ? <Pause size={13} /> : <Play size={13} />}
+            </Button>
+          </Tooltip>
+
+          <Licenses key={song.id} song={song} placement="market" compact />
+        </div>
+      </div>
+    </div>
+  );
+};

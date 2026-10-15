@@ -337,19 +337,6 @@
   pointer-events: none;
 }
 
-.market-card-media-badge-left {
-  position: absolute;
-  top: clamp(4px, 3cqi, 8px);
-  left: clamp(4px, 3cqi, 8px);
-  z-index: 2;
-  max-width: calc(100% - clamp(44px, 24cqi, 64px));
-}
-
-.market-card-media-badge-left .cyber-badge {
-  font-size: clamp(7px, 3.8cqi, 10px);
-  padding: clamp(1px, 0.8cqi, 2px) clamp(4px, 2.5cqi, 7px);
-}
-
 .market-card-versions-badge {
   position: absolute;
   bottom: clamp(3px, 2.5cqi, 7px);
@@ -607,12 +594,12 @@
 
 /* Row 3: Creator */
 .market-card-row-creator {
-  height: clamp(15px, 8cqi, 22px);
+  height: clamp(14px, 7.5cqi, 20px);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: clamp(4px, 2.5cqi, 8px);
-  font-size: clamp(8.5px, 4.2cqi, 11px);
+  gap: clamp(3px, 2cqi, 6px);
+  font-size: clamp(8px, 4cqi, 10.5px);
   color: var(--text-dim);
   min-width: 0;
   width: 100%;
@@ -625,14 +612,14 @@
 .market-creator-info {
   display: flex;
   align-items: center;
-  gap: clamp(4px, 2cqi, 6px);
+  gap: clamp(3px, 1.8cqi, 5px);
   min-width: 0;
   overflow: hidden;
 }
 
 .market-creator-avatar {
-  width: clamp(12px, 6.5cqi, 16px);
-  height: clamp(12px, 6.5cqi, 16px);
+  width: clamp(11px, 6cqi, 15px);
+  height: clamp(11px, 6cqi, 15px);
   border-radius: 2px;
   object-fit: cover;
   flex-shrink: 0;
@@ -640,8 +627,8 @@
 }
 
 .market-creator-avatar-placeholder {
-  width: clamp(12px, 6.5cqi, 16px);
-  height: clamp(12px, 6.5cqi, 16px);
+  width: clamp(11px, 6cqi, 15px);
+  height: clamp(11px, 6cqi, 15px);
   border-radius: 2px;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid var(--border);
@@ -658,7 +645,7 @@
   text-overflow: ellipsis;
   color: var(--text);
   font-weight: 600;
-  font-size: clamp(8.5px, 4.2cqi, 11px);
+  font-size: clamp(8px, 4cqi, 10.5px);
   min-width: 0;
 }
 
@@ -680,15 +667,15 @@
 
 .market-creator-none {
   color: var(--text-dim);
-  font-size: clamp(8.5px, 4.2cqi, 11px);
+  font-size: clamp(8px, 4cqi, 10.5px);
 }
 
-/* Row 4: Tags (Styles / Genres) */
+/* Row 4: Tags (Styles / Genres) - Proportionally Scaled & Strictly Bounded */
 .market-card-row-tags {
-  height: clamp(16px, 8.5cqi, 22px);
+  height: clamp(15px, 8cqi, 20px);
   display: flex;
   align-items: center;
-  gap: clamp(2px, 1.4cqi, 4px);
+  gap: clamp(2px, 1.2cqi, 4px);
   width: 100%;
   min-width: 0;
   max-width: 100%;
@@ -701,6 +688,18 @@
   visibility: hidden;
 }
 
+.market-card-row-tags > .daw-tooltip-wrapper {
+  display: inline-flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.market-card-row-tags > .daw-tooltip-wrapper:has(.card-tag-overflow) {
+  flex: 0 0 auto;
+}
+
 .market-card-row-tags .cyber-badge {
   display: inline-block;
   flex: 0 1 auto;
@@ -709,11 +708,16 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: clamp(6.5px, 3.5cqi, 9.5px);
-  padding: clamp(1px, 0.8cqi, 2px) clamp(3px, 2cqi, 6px);
-  letter-spacing: clamp(0px, 0.15cqi, 0.4px);
+  font-size: clamp(6px, 3.4cqi, 9px);
+  padding: clamp(1px, 0.7cqi, 2px) clamp(3px, 1.8cqi, 5px);
+  letter-spacing: clamp(0px, 0.1cqi, 0.3px);
   line-height: 1.2;
   box-sizing: border-box;
+}
+
+.market-card-row-tags .card-tag-overflow,
+.market-card-row-tags .mypage-remix-badge {
+  flex: 0 0 auto;
 }
 
 /* Row 5: Pricing Box */

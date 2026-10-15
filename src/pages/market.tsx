@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-  Disc3,
   User,
   Search,
   X,
@@ -10,12 +9,11 @@ import {
 } from 'lucide-react';
 import { Glitch } from '../components/glitch';
 import { Button } from '../components/button';
-import { Badge } from '../components/badge';
 import { Tooltip } from '../components/daw/Tooltip';
+import { Card } from '../components/card';
 import { store } from '../lib/store';
 import { useSongs } from '../hooks/use-songs';
 import { usePublicAlbums } from '../hooks/use-albums';
-import { Licenses } from '../components/licenses';
 import { groupSongs } from '../lib/versions';
 import { useSession, promptSessionModal } from '../components/session';
 import { useSelectedUserAddress } from '../hooks/use-address';
@@ -24,12 +22,9 @@ import type { Song, Album } from '../lib/schema';
 
 export interface Props {
   className?: string;
-  style?: React.CSSProperties;
 }
 
-import { CreatorSlot, CoverArt } from '../components/card';
-
-export const Market: React.FC<Props> = ({ className = '', style = {} }) => {
+export const Market: React.FC<Props> = ({ className = '' }) => {
   const [playing, setPlaying] = useState(() => ({
     id: store.getState().activeSong?.id,
     active: store.getState().isPlaying,
@@ -151,7 +146,7 @@ export const Market: React.FC<Props> = ({ className = '', style = {} }) => {
   };
 
   return (
-    <div className={`market-container ${className}`} style={style}>
+    <div className={`market-container ${className}`}>
       {/* Marketplace Header */}
       <div className="market-header">
         <div className="market-header-left">
@@ -159,9 +154,7 @@ export const Market: React.FC<Props> = ({ className = '', style = {} }) => {
           <div className="market-subtitle">
             STREAM TRACKS • {publicSongs.length} PUBLIC TRACKS
             {hasActiveFilters && (
-              <span className="market-subtitle-filter">
-                ({displayedSongs.length} SHOWN)
-              </span>
+              <span className="market-subtitle-filter">({displayedSongs.length} SHOWN)</span>
             )}
           </div>
         </div>
@@ -291,9 +284,16 @@ export const Market: React.FC<Props> = ({ className = '', style = {} }) => {
                     : 'Creators can make their generated tracks public from /my-page to list them here.')}
             </span>
             {hasActiveFilters && (
-              <Button variant="ghost" size="sm" onClick={clearAllFilters} className="market-clear-btn">
-                CLEAR FILTERS
-              </Button>
+              <Tooltip title="Reset Filters" description="Clear all active filters">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={clearAllFilters}
+                  className="market-clear-btn"
+                >
+                  <RotateCcw size={12} />
+                </Button>
+              </Tooltip>
             )}
           </div>
         ) : (
@@ -302,111 +302,33 @@ export const Market: React.FC<Props> = ({ className = '', style = {} }) => {
             const song = versions.find((item) => item.id === selected[family]) ?? versions[0];
             const isPlayingThis = playing.active && playing.id === song.id;
 
-            // Resolve album if available
             const album = song.album_id ? albumsMap.get(song.album_id) : null;
             const albumTitle = album?.title || song.album_title || null;
             const albumCover = album?.cover || null;
 
             return (
-              <div
+              <Card
                 key={family}
-                className={`market-card ${isPlayingThis ? 'playing' : ''}`}
-              >
-                {/* 1. Square Artwork Media Container */}
-                <CoverArt
-                  image={song.image}
-                  albumCover={albumCover}
-                  title={song.title}
-                  isPlayingThis={isPlayingThis}
-                  onPlayToggle={() => handlePlaySong(song)}
-                  versions={versions}
-                  selectedId={song.id}
-                  onSelectVersion={(version) => {
-                    setSelected((current) => ({ ...current, [family]: version.id }));
-                    if (versions.some((item) => item.id === playing.id)) {
-                      store.setActiveSong(version);
-                    }
-                  }}
-                  network={song.network}
-                  txHash={song.tx_hash}
-                  txUrl={song.tx_url}
-                  duration={song.duration}
-                />
-
-                {/* 2. Structured Information Body */}
-                <div className="market-card-body">
-                  {/* Row 1: Title */}
-                  <div className="market-card-row-title" title={song.title}>
-                    {song.title}
-                  </div>
-
-                  {/* Row 2: Album (uniform height reserved) */}
-                  {albumTitle ? (
-                    <div className="market-card-row-album" title={`Album: ${albumTitle}`}>
-                      <Disc3 size={11} className="market-album-icon" />
-                      <span className="market-album-text">{albumTitle}</span>
-                    </div>
-                  ) : (
-                    <div className="market-card-row-album empty" aria-hidden="true">
-                      <span>&nbsp;</span>
-                    </div>
-                  )}
-
-                  {/* Row 3: Creator (avatar, nickname, external-link) */}
-                  <CreatorSlot address={song.creator} network={song.network} />
-
-                  {/* Row 4: Tags / Genre (clickable to filter) */}
-                  <div className={`market-card-row-tags ${!song.tags || song.tags.length === 0 ? 'empty' : ''}`}>
-                    {song.tags && song.tags.length > 0 ? (
-                      song.tags.map((t) => (
-                        <Badge
-                          key={t}
-                          variant={selectedGenre === t ? 'primary' : 'muted'}
-                          onClick={() => setSelectedGenre(selectedGenre === t ? null : t)}
-                          clickable
-                        >
-                          {t}
-                        </Badge>
-                      ))
-                    ) : (
-                      <span aria-hidden="true">&nbsp;</span>
-                    )}
-                  </div>
-
-                  {/* Row 5: Pricing Box (Stream rate & License price) */}
-                  <div className="market-pricing-box">
-                    <div className="market-price-item">
-                      <span className="market-price-label">STREAM</span>
-                      <span className="market-price-val market-price-val-stream">
-                        ${song.stream_price.toFixed(2)}
-                        <span className="market-price-unit">/m</span>
-                      </span>
-                    </div>
-                    <div className="market-price-item">
-                      <span className="market-price-label">LICENSE</span>
-                      <span className="market-price-val market-price-val-license">
-                        {song.source ? (
-                          <span className="market-price-remix">REMIX</span>
-                        ) : (
-                          `$${song.license_price.toFixed(2)}`
-                        )}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Row 6: Actions Toolbar */}
-                  <div className="market-card-actions">
-                    <Button
-                      variant={isPlayingThis ? 'primary' : 'ghost'}
-                      size="sm"
-                      onClick={() => handlePlaySong(song)}
-                    >
-                      {isPlayingThis ? 'PAUSE' : 'STREAM'}
-                    </Button>
-                    <Licenses key={song.id} song={song} placement="market" />
-                  </div>
-                </div>
-              </div>
+                variant="market"
+                song={song}
+                versions={versions}
+                albumTitle={albumTitle}
+                albumCover={albumCover}
+                isPlayingThis={isPlayingThis}
+                onPlayToggle={() => handlePlaySong(song)}
+                onSelectVersion={(version) => {
+                  setSelected((current) => ({ ...current, [family]: version.id }));
+                  if (versions.some((item) => item.id === playing.id)) {
+                    store.setActiveSong(version);
+                  }
+                }}
+                selectedGenre={selectedGenre}
+                onSelectGenre={(genre) =>
+                  setSelectedGenre(
+                    selectedGenre?.toLowerCase() === genre.toLowerCase() ? null : genre
+                  )
+                }
+              />
             );
           })
         )}
