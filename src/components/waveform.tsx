@@ -164,13 +164,14 @@ export const Waveform: React.FC<Props> = ({
 
   const sourcePeaks = customPeaks && customPeaks.length > 0 ? customPeaks : loadedPeaks;
   const activePeaks = useMemo(() => {
-    if (segments && segments.length > 0 && savedDuration > 0 && duration > 0) {
+    const baseDuration = savedDuration > 0 ? savedDuration : (duration > 0 ? duration : 60);
+    if (segments && segments.length > 0 && baseDuration > 0 && duration > 0) {
       if (
         segments.length === 1 &&
         segments[0].startTime === 0 &&
         segments[0].offset === 0 &&
-        segments[0].duration === savedDuration &&
-        (timelineDuration === undefined || duration <= savedDuration)
+        segments[0].duration >= baseDuration &&
+        (timelineDuration === undefined || duration <= baseDuration)
       ) {
         return sourcePeaks;
       }
@@ -179,15 +180,15 @@ export const Waveform: React.FC<Props> = ({
         const seg = segments.find(s => time >= s.startTime && time < s.startTime + s.duration);
         if (!seg) return 0;
         const sourceTime = seg.offset + (time - seg.startTime);
-        return sourceTime < savedDuration
-          ? sourcePeaks[Math.min(sourcePeaks.length - 1, Math.floor((sourceTime / savedDuration) * sourcePeaks.length))]
+        return sourceTime < baseDuration
+          ? sourcePeaks[Math.min(sourcePeaks.length - 1, Math.floor((sourceTime / baseDuration) * sourcePeaks.length))]
           : 0;
       });
     }
-    if (timelineDuration === undefined || duration <= savedDuration) return sourcePeaks;
+    if (timelineDuration === undefined || duration <= baseDuration) return sourcePeaks;
     return sourcePeaks.map((_, index) => {
       const time = index / sourcePeaks.length * duration;
-      return time < savedDuration ? sourcePeaks[Math.min(sourcePeaks.length - 1, Math.floor(time / savedDuration * sourcePeaks.length))] : 0;
+      return time < baseDuration ? sourcePeaks[Math.min(sourcePeaks.length - 1, Math.floor(time / baseDuration * sourcePeaks.length))] : 0;
     });
   }, [sourcePeaks, segments, timelineDuration, duration, savedDuration]);
   const boundaries = useMemo(() => contributions(activePeaks, layers.map(layer => layer.values)), [activePeaks, layers]);
@@ -219,15 +220,15 @@ export const Waveform: React.FC<Props> = ({
     if (!ctx) return;
 
     const dpr = window.devicePixelRatio || 1;
-    const rect = canvas.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) return;
+    const canvasRect = canvas.getBoundingClientRect();
+    const parentRect = canvas.parentElement?.getBoundingClientRect();
+    const w = canvasRect.width > 0 ? canvasRect.width : (parentRect?.width ?? 0);
+    const h = canvasRect.height > 0 ? canvasRect.height : (parentRect?.height ?? 0);
+    if (w <= 0 || h <= 0) return;
 
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(h * dpr);
     ctx.scale(dpr, dpr);
-
-    const w = rect.width;
-    const h = rect.height;
 
     // Clear background
     ctx.fillStyle = '#08080a';
@@ -496,9 +497,12 @@ export const Waveform: React.FC<Props> = ({
     if (!canvas) return;
 
     const ro = new ResizeObserver(() => {
-      draw.current();
+      requestAnimationFrame(() => draw.current());
     });
     ro.observe(canvas);
+    if (canvas.parentElement) {
+      ro.observe(canvas.parentElement);
+    }
 
     return () => ro.disconnect();
   }, []);
