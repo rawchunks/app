@@ -825,11 +825,54 @@ export const Canvas: React.FC<CanvasProps> = ({
     );
   };
 
+  const dockRef = useRef<HTMLElement | null>(null);
+
+  const handleDockResizeDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const target = e.currentTarget;
+    try {
+      target.setPointerCapture(e.pointerId);
+    } catch {}
+    const startX = e.clientX;
+    const startW = dockRef.current?.offsetWidth || 190;
+
+    const onMove = (moveEv: PointerEvent) => {
+      if (!dockRef.current) return;
+      const deltaX = startX - moveEv.clientX;
+      const nextW = Math.max(148, Math.min(280, startW + deltaX));
+      dockRef.current.style.setProperty('--canvas-dock-w', `${nextW}px`);
+    };
+
+    const onUp = (upEv: PointerEvent) => {
+      try {
+        if (target.hasPointerCapture(upEv.pointerId)) {
+          target.releasePointerCapture(upEv.pointerId);
+        }
+      } catch {}
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+    };
+
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+  };
+
   return (
     <aside
+      ref={dockRef}
       className={`board-canvas-dock toolbox-lyrics-sidepanel ${mode === 'overlay' ? 'is-overlay-mode' : ''}`}
       aria-label="Lyrics Canvas"
     >
+      {mode === 'dock' && (
+        <div
+          className="canvas-dock-resizer"
+          onPointerDown={handleDockResizeDown}
+          title="Drag horizontally to resize Lyrics Canvas width"
+        />
+      )}
       <div className="toolbox-lyrics-sidepanel-header">
         <div className="toolbox-lyrics-sidepanel-title-wrap">
           <span className="toolbox-lyrics-sidepanel-title">

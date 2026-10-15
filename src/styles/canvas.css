@@ -161,6 +161,25 @@
   box-shadow: inset 0 0 18px rgba(0, 255, 65, 0.04);
 }
 
+.canvas-dock-resizer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 5px;
+  cursor: ew-resize;
+  z-index: 20;
+  background: transparent;
+  transition: background 0.15s ease;
+  touch-action: none;
+}
+
+.canvas-dock-resizer:hover,
+.canvas-dock-resizer:active {
+  background: var(--primary);
+  box-shadow: 0 0 8px var(--primary);
+}
+
 .toolbox-lyrics-sidepanel-header {
   display: flex;
   flex-wrap: nowrap;
@@ -554,11 +573,57 @@
   padding-top: 8px;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 768px) {
   .toolbox-studio-split {
     flex-direction: column;
   }
+
+  .toolbox-pocket-bar {
+    display: flex;
+  }
+
   .toolbox-lyrics-sidepanel {
     max-width: 100%;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .board-canvas-dock.toolbox-lyrics-sidepanel {
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+  }
+
+  .board-canvas-dock .canvas-dock-resizer {
+    display: none !important;
+  }
+
+  .toolbox-lyrics-sidepanel-header {
+    padding: 6px 10px;
+  }
+
+  .toolbox-lyrics-tags-bar {
+    padding: 6px 10px;
+    gap: 5px;
+  }
+
+  .toolbox-lyrics-tag-btn {
+    min-height: 24px;
+    padding: 2px 8px;
+    font-size: 11px;
+  }
+
+  .toolbox-lyrics-canvas {
+    font-size: clamp(12.5px, 3.5vw, 14px);
+    padding: 10px 12px;
+  }
+
+  .toolbox-studio-split[data-pocket="params"] .toolbox-lyrics-sidepanel {
+    display: none;
+  }
+
+  .toolbox-studio-split[data-palette="lyrics"] .toolbox-studio-main {
+    display: none;
   }
 }
+
