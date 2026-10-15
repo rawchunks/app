@@ -4,6 +4,7 @@ import type { NetworkId } from "@compose-market/sdk/chains";
 import { useMultiChainBalance } from "@/hooks/use-multichain";
 import { useSelectedUserAddress } from "@/hooks/use-address";
 import { NetworkGlyph } from "@/contexts/Network";
+import { Tooltip } from "@/components/daw/Tooltip";
 import {
   Select,
   SelectContent,
@@ -22,13 +23,28 @@ export function NetworkSelector({ className, bare = false }: NetworkSelectorProp
   const { data: balances } = useMultiChainBalance({ evmAddress, svmAddress });
 
   const current = getChainByNetworkId(selectedNetwork);
+  const currentBalance = balances?.find((b) => b.network === selectedNetwork);
+
+  const trigger = (
+    <SelectTrigger bare={bare} className={cn(!bare && "header-network-trigger", className)} aria-label="Network">
+      <NetworkGlyph network={selectedNetwork} name={current?.name} />
+      {!bare && current?.name ? <span className="network-trigger-name">{current.name}</span> : null}
+    </SelectTrigger>
+  );
 
   return (
     <Select value={selectedNetwork} onValueChange={(value) => setSelectedNetwork(value as NetworkId)}>
-      <SelectTrigger bare={bare} className={cn(!bare && "header-network-trigger", className)} aria-label="Network">
-        <NetworkGlyph network={selectedNetwork} name={current?.name} />
-        {!bare && current?.name ? <span className="network-trigger-name">{current.name}</span> : null}
-      </SelectTrigger>
+      {bare ? (
+        trigger
+      ) : (
+        <Tooltip
+          title={current?.name ? `NETWORK // ${current.name.toUpperCase()}` : "SELECT NETWORK"}
+          description={currentBalance ? `Balance: $${currentBalance.formatted}` : "Switch active payment chain"}
+          position="bottom"
+        >
+          {trigger}
+        </Tooltip>
+      )}
       <SelectContent className="header-network-content">
         {chains.map((network) => {
           const balance = balances?.find((b) => b.network === network.network);
@@ -44,3 +60,4 @@ export function NetworkSelector({ className, bare = false }: NetworkSelectorProp
     </Select>
   );
 }
+

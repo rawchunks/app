@@ -28,6 +28,7 @@ import { clearCachedAccount, readCachedAccount, writeCachedAccount } from "@/lib
 import { DisclaimerModal } from "@/components/disclaimer";
 import { useDisclaimerConsent } from "@/hooks/use-disclaimer";
 import { thirdwebCustomTheme } from "@/lib/connector";
+import { Tooltip } from "@/components/daw/Tooltip";
 
 const TEMPO_ACCOUNT_FACTORY = "0x85e23b94e7F5E9cC1fF78BCe78cfb15B81f0DF00";
 const TEMPO_ENTRY_POINT = "0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789";
@@ -377,22 +378,28 @@ export function WalletConnector({ className, compact = true }: WalletConnectorPr
       />
 
       <DropdownMenu onOpenChange={setMenuOpen}>
-        <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            aria-label={`Wallet ${displayName}`}
-            data-reconnecting={isReconnecting || undefined}
-            className={cn("btn btn-ghost connect", isReconnecting && "connect-dim", className)}
-          >
-            {avatar ? (
-              <img src={avatar} alt="" className="connect-avatar" />
-            ) : (
-              <Wallet className="icon" aria-hidden="true" />
-            )}
-            <span className="connect-address">{displayName}</span>
-            <ChevronDown className="icon icon-fold" aria-hidden="true" />
-          </button>
-        </DropdownMenuTrigger>
+        <Tooltip
+          title={displayName}
+          description={`${chainInfo?.name || "Unknown network"} • ${balanceLoading ? "..." : `$${totalBalance}`}`}
+          position="bottom"
+        >
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              aria-label={`Wallet ${displayName}`}
+              data-reconnecting={isReconnecting || undefined}
+              className={cn("btn btn-ghost connect", isReconnecting && "connect-dim", className)}
+            >
+              {avatar ? (
+                <img src={avatar} alt="" className="connect-avatar" />
+              ) : (
+                <Wallet className="icon" aria-hidden="true" />
+              )}
+              <span className="connect-address">{displayName}</span>
+              <ChevronDown className="icon icon-fold" aria-hidden="true" />
+            </button>
+          </DropdownMenuTrigger>
+        </Tooltip>
 
         <DropdownMenuContent align="end">
           <div className="menu-head">
@@ -410,25 +417,29 @@ export function WalletConnector({ className, compact = true }: WalletConnectorPr
             <div className="menu-row">
               <span className="menu-address">{shortAddress}</span>
               <div className="menu-actions">
-                <button
-                  type="button"
-                  onClick={handleCopy}
-                  disabled={!displayAddress}
-                  aria-label="Copy address"
-                  className="menu-icon-btn"
-                >
-                  {copied ? <Check className="icon" /> : <Copy className="icon" />}
-                </button>
-                {selectedExplorerUrl ? (
-                  <a
-                    href={selectedExplorerUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    aria-label="View on explorer"
+                <Tooltip title={copied ? "COPIED" : "COPY ADDRESS"} description="Copy wallet address to clipboard" position="top">
+                  <button
+                    type="button"
+                    onClick={handleCopy}
+                    disabled={!displayAddress}
+                    aria-label="Copy address"
                     className="menu-icon-btn"
                   >
-                    <ExternalLink className="icon" />
-                  </a>
+                    {copied ? <Check className="icon" /> : <Copy className="icon" />}
+                  </button>
+                </Tooltip>
+                {selectedExplorerUrl ? (
+                  <Tooltip title="VIEW ON EXPLORER" description="Open wallet address in block explorer" position="top">
+                    <a
+                      href={selectedExplorerUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label="View on explorer"
+                      className="menu-icon-btn"
+                    >
+                      <ExternalLink className="icon" />
+                    </a>
+                  </Tooltip>
                 ) : null}
               </div>
             </div>

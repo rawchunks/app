@@ -45,10 +45,12 @@ export const Layout: React.FC<Props> = ({ current, onNavigate, children }) => {
       {/* Top Header Navigation */}
       <header className="app-header">
         {/* Brand */}
-        <button type="button" className="header-brand" onClick={() => onNavigate('studio')} aria-label="Rawchunks — open Studio">
-          <img src="/branding/logo.svg" alt="Rawchunks" className="header-brand-logo" width={590} height={88} />
-          <span className="header-brand-tag">v1.5</span>
-        </button>
+        <Tooltip title="RAWCHUNKS" description="Open Studio" position="bottom">
+          <button type="button" className="header-brand" onClick={() => onNavigate('studio')} aria-label="Rawchunks — open Studio">
+            <img src="/branding/logo.svg" alt="Rawchunks" className="header-brand-logo" width={590} height={88} />
+            <span className="header-brand-tag">v1.5</span>
+          </button>
+        </Tooltip>
 
         {/* The 3 Core Visible Pages */}
         <nav className="service-switcher" aria-label="Services">

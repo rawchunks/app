@@ -22,21 +22,22 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 clamp(8px, 2vw, 24px);
+  padding: 0 clamp(6px, 1.8vw, 24px);
   padding-top: var(--sat);
   position: relative;
   z-index: 50;
   flex-shrink: 0;
   box-sizing: border-box;
-  gap: 8px;
+  gap: clamp(4px, 1vw, 10px);
 }
 
 .header-brand {
   display: flex;
   align-items: center;
-  gap: clamp(6px, 0.6vw, 12px);
+  gap: clamp(4px, 0.6vw, 12px);
   cursor: pointer;
-  flex-shrink: 0;
+  flex-shrink: 1;
+  min-width: 0;
   user-select: none;
   background: transparent;
   border: 0;
@@ -46,23 +47,17 @@
 
 .header-brand-logo {
   display: block;
-  height: clamp(18px, 1.9vw, 24px);
+  height: clamp(13px, 3.6vw, 24px);
   width: auto;
+  max-width: clamp(86px, 24vw, 160px);
   aspect-ratio: 590 / 88;
   object-fit: contain;
-  flex-shrink: 0;
+  flex-shrink: 1;
 }
 
 .header-brand:focus-visible {
   outline: 1px solid var(--primary);
   outline-offset: 4px;
-}
-
-@media (max-width: 768px) {
-  .header-brand-logo {
-    height: clamp(16px, 4.1vw, 20px);
-    width: auto;
-  }
 }
 
 .header-brand-tag {
@@ -85,10 +80,10 @@
 .service-switcher {
   display: flex;
   align-items: center;
-  gap: clamp(3px, 0.8vw, 8px);
+  gap: clamp(2px, 0.6vw, 8px);
   background-color: rgba(18, 18, 18, 0.7);
   border: 1px solid var(--border);
-  padding: 3px;
+  padding: clamp(2px, 0.3vw, 3px);
   border-radius: 4px;
   overflow-x: auto;
   scrollbar-width: none;
@@ -129,8 +124,8 @@
 }
 
 .service-nav-icon .nav-icon-svg {
-  width: 14px;
-  height: 14px;
+  width: clamp(13px, 1.4vw, 15px);
+  height: clamp(13px, 1.4vw, 15px);
   stroke-width: 2.2;
 }
 
@@ -153,7 +148,7 @@
 .header-actions {
   display: flex;
   align-items: center;
-  gap: clamp(4px, 0.8vw, 8px);
+  gap: clamp(3px, 0.7vw, 8px);
   flex-shrink: 0;
   min-width: 0;
 }
