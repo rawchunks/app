@@ -11,7 +11,9 @@ import {
   Music,
   Volume2,
   User,
+  RotateCcw,
 } from 'lucide-react';
+import { Tooltip } from '../components/daw/Tooltip';
 import { Glitch } from '../components/glitch';
 import { Button } from '../components/button';
 import { Badge } from '../components/badge';
@@ -24,7 +26,7 @@ import { useMint } from '../hooks/use-mint';
 import { useProfile } from '../hooks/use-profile';
 import { useSongs } from '../hooks/use-songs';
 import { useLicensedSongs } from '../hooks/use-license';
-import { useVoices, voiceAvailability, voiceStatus } from '../hooks/use-voices';
+import { useVoices, voiceStatus } from '../hooks/use-voices';
 import { ProfileModal } from '../components/profile-modal';
 import { EditSongModal } from '../components/edit-song';
 import { PublishModal } from '../components/publish';
@@ -54,8 +56,9 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
   const [selected, setSelected] = useState<Record<string, string>>({});
 
   // 4 Sections Collapsible States
-  // Empty dividers start closed by default; if songs exist in cache/store, start open
-  const [songsOpen, setSongsOpen] = useState(() => (readAddress ? (readSongs(readAddress)?.length ?? 0) > 0 : true));
+  const [songsOpen, setSongsOpen] = useState(() =>
+    readAddress ? (readSongs(readAddress)?.length ?? 0) > 0 : true
+  );
   const [licensesOpen, setLicensesOpen] = useState(false);
   const [albumsOpen, setAlbumsOpen] = useState(false);
   const [voicesOpen, setVoicesOpen] = useState(false);
@@ -79,9 +82,16 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
   const activeAddress = readAddress;
   const { data: publicSongs = [], error: publicSongsError } = useSongs();
   const licensed = useLicensedSongs(publicSongs);
-  const { voices, loading: loadingVoices, error: voicesError, refresh: refreshVoices } = useVoices(activeAddress);
+  const {
+    voices,
+    loading: loadingVoices,
+    error: voicesError,
+    refresh: refreshVoices,
+  } = useVoices(activeAddress);
   const { nickname, avatar } = useProfile(activeAddress);
-  const formattedAddress = activeAddress ? `${activeAddress.slice(0, 6)}...${activeAddress.slice(-4)}` : '';
+  const formattedAddress = activeAddress
+    ? `${activeAddress.slice(0, 6)}...${activeAddress.slice(-4)}`
+    : '';
   const displayName = nickname || formattedAddress || '0x...';
   const { toggle: togglePublic, pending: publicPending } = usePublic();
   const { ensure: ensureMint } = useMint();
@@ -104,12 +114,15 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
     return () => window.removeEventListener('click', closeMenu);
   }, [menuOpenId]);
 
-  useEffect(() => () => {
-    if (download.current) {
-      download.current.link.remove();
-      URL.revokeObjectURL(download.current.url);
-    }
-  }, []);
+  useEffect(
+    () => () => {
+      if (download.current) {
+        download.current.link.remove();
+        URL.revokeObjectURL(download.current.url);
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     const cached = activeAddress ? readSongs(activeAddress) : null;
@@ -135,7 +148,10 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
     setError(null);
     const load = async () => {
       try {
-        const res = await sdk.fetch(`/api/songs?creator=${encodeURIComponent(activeAddress)}`, { userAddress: activeAddress });
+        const res = await sdk.fetch(
+          `/api/songs?creator=${encodeURIComponent(activeAddress)}`,
+          { userAddress: activeAddress }
+        );
         const dbSongs = await res.json();
         if (!current) return;
         if (!res.ok) throw new Error(dbSongs?.error || 'Could not load your songs');
@@ -155,13 +171,16 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
           setSongsOpen(mapped.length > 0);
         }
       } catch (err) {
-        if (current) setError(err instanceof Error ? err.message : 'Could not load your songs');
+        if (current)
+          setError(err instanceof Error ? err.message : 'Could not load your songs');
       } finally {
         if (current) setLoading(false);
       }
     };
     void load();
-    return () => { current = false; };
+    return () => {
+      current = false;
+    };
   }, [activeAddress]);
 
   // Fetch Albums
@@ -175,7 +194,10 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
 
     void (async () => {
       try {
-        const res = await sdk.fetch(`/api/albums?creator=${encodeURIComponent(activeAddress)}`, { userAddress: activeAddress });
+        const res = await sdk.fetch(
+          `/api/albums?creator=${encodeURIComponent(activeAddress)}`,
+          { userAddress: activeAddress }
+        );
         const data = await res.json();
         if (current && Array.isArray(data)) {
           setAlbums(data);
@@ -187,7 +209,9 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
       }
     })();
 
-    return () => { current = false; };
+    return () => {
+      current = false;
+    };
   }, [activeAddress]);
 
   useEffect(() => {
@@ -271,7 +295,9 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
   const handleDelete = async (id: string) => {
     setMenuOpenId(null);
     try {
-      const response = await sdk.fetch(`/api/songs/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      const response = await sdk.fetch(`/api/songs/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+      });
       if (!response.ok) throw new Error('Could not delete the song');
       store.deleteSong(id);
       toast.success('Song deleted successfully');
@@ -305,30 +331,31 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
           )}
           <div className="mypage-profile-details">
             <div className="mypage-profile-nickname-row">
-              <span className="mypage-profile-nickname">
-                {displayName}
-              </span>
-              <button
-                type="button"
-                className="mypage-profile-edit-btn"
-                onClick={() => setProfileModalOpen(true)}
-                title="Edit Profile"
-                aria-label="Edit Profile"
-              >
-                <Pencil size={12} />
-              </button>
+              <span className="mypage-profile-nickname">{displayName}</span>
+              <Tooltip title="Edit Profile" description="Update creator nickname and avatar">
+                <button
+                  type="button"
+                  className="mypage-profile-edit-btn"
+                  onClick={() => setProfileModalOpen(true)}
+                  aria-label="Edit Profile"
+                >
+                  <Pencil size={12} />
+                </button>
+              </Tooltip>
             </div>
             {activeAddress && (
               <div className="mypage-profile-meta">
-                <button
-                  type="button"
-                  className="mypage-copy-btn"
-                  onClick={copyAddress}
-                  title="Copy Full Address"
-                >
-                  <span>{nickname ? formattedAddress : 'COPY ADDRESS'}</span>
-                  {copied ? <Check size={11} /> : <Copy size={11} />}
-                </button>
+                <Tooltip title="Copy Wallet Address" description={activeAddress}>
+                  <button
+                    type="button"
+                    className="mypage-copy-btn"
+                    onClick={copyAddress}
+                    aria-label="Copy wallet address"
+                  >
+                    <span>{formattedAddress}</span>
+                    {copied ? <Check size={11} /> : <Copy size={11} />}
+                  </button>
+                </Tooltip>
               </div>
             )}
           </div>
@@ -372,10 +399,21 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
             {state.songs.length === 0 ? (
               <div className="mypage-empty">
                 <span className="mypage-empty-title">
-                  {error ? 'COULD NOT LOAD SONGS' : loading || isReconnecting ? 'LOADING SONGS' : activeAddress ? 'NO SONGS GENERATED YET' : 'CONNECT YOUR WALLET'}
+                  {error
+                    ? 'COULD NOT LOAD SONGS'
+                    : loading || isReconnecting
+                      ? 'LOADING SONGS'
+                      : activeAddress
+                        ? 'NO SONGS GENERATED YET'
+                        : 'CONNECT YOUR WALLET'}
                 </span>
                 <span className="mypage-empty-desc">
-                  {error ?? (loading || isReconnecting ? 'Loading your songs…' : activeAddress ? 'Go to /studio to create your first track.' : 'Connect your wallet to see your songs.')}
+                  {error ??
+                    (loading || isReconnecting
+                      ? 'Loading your songs…'
+                      : activeAddress
+                        ? 'Go to /studio to create your first track.'
+                        : 'Connect your wallet to see your songs.')}
                 </span>
               </div>
             ) : (
@@ -401,9 +439,16 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
                         if (isPlayingThis) {
                           store.setPlaying(false);
                         } else {
-                          const isCreator = store.isCreatorOfSong(song, [userAddress, evmAddress, svmAddress, readAddress]);
+                          const isCreator = store.isCreatorOfSong(song, [
+                            userAddress,
+                            evmAddress,
+                            svmAddress,
+                            readAddress,
+                          ]);
                           if (!isCreator && !session.active) {
-                            toast.error('Active session required to stream music. Please create a session.');
+                            toast.error(
+                              'Active session required to stream music. Please create a session.'
+                            );
                             promptSessionModal();
                             return;
                           }
@@ -467,7 +512,9 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
                   {licensed.loading ? 'LOADING LICENSES…' : 'NO LICENSES PURCHASED'}
                 </span>
                 <span className="mypage-empty-desc">
-                  {licensed.loading ? 'Retrieving your on-chain licenses…' : 'Licenses you purchase in the Market will appear here for remixing.'}
+                  {licensed.loading
+                    ? 'Retrieving your on-chain licenses…'
+                    : 'Licenses you purchase in the Market will appear here for remixing.'}
                 </span>
               </div>
             ) : (
@@ -493,9 +540,16 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
                         if (isPlayingThis) {
                           store.setPlaying(false);
                         } else {
-                          const isCreator = store.isCreatorOfSong(song, [userAddress, evmAddress, svmAddress, readAddress]);
+                          const isCreator = store.isCreatorOfSong(song, [
+                            userAddress,
+                            evmAddress,
+                            svmAddress,
+                            readAddress,
+                          ]);
                           if (!isCreator && !session.active) {
-                            toast.error('Active session required to stream music. Please create a session.');
+                            toast.error(
+                              'Active session required to stream music. Please create a session.'
+                            );
                             promptSessionModal();
                             return;
                           }
@@ -547,7 +601,9 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
             ) : albums.length === 0 ? (
               <div className="mypage-empty">
                 <span className="mypage-empty-title">NO ALBUMS CREATED YET</span>
-                <span className="mypage-empty-desc">Compile songs into an album from the Studio or Editor to publish complete records.</span>
+                <span className="mypage-empty-desc">
+                  Compile songs into an album from the Studio or Editor to publish complete records.
+                </span>
               </div>
             ) : (
               <div className="mypage-grid">
@@ -557,8 +613,8 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
                       <img src={album.cover} alt={album.title} className="mypage-album-cover" />
                     ) : (
                       <div className="mypage-album-cover-placeholder">
-                        <Disc3 size={32} />
-                        <span>NO COVER ART</span>
+                        <Disc3 size={28} />
+                        <span>NO COVER</span>
                       </div>
                     )}
                     <div className="mypage-card-header">
@@ -602,9 +658,17 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
             {voicesError && (
               <div className="mypage-empty" role="alert">
                 <span className="mypage-empty-desc">{voicesError}</span>
-                <Button variant="ghost" size="sm" onClick={() => { void refreshVoices(); }}>
-                  RETRY
-                </Button>
+                <Tooltip title="Retry Loading Voices">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      void refreshVoices();
+                    }}
+                  >
+                    <RotateCcw size={12} />
+                  </Button>
+                </Tooltip>
               </div>
             )}
             {loadingVoices ? (
@@ -614,7 +678,9 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
             ) : !voicesError && voices.length === 0 ? (
               <div className="mypage-empty">
                 <span className="mypage-empty-title">NO CUSTOM VOICES</span>
-                <span className="mypage-empty-desc">Attach a vocal sample in the Studio or save a voice from one of your songs.</span>
+                <span className="mypage-empty-desc">
+                  Attach a vocal sample in the Studio or save a voice from one of your songs.
+                </span>
               </div>
             ) : (
               <div className="mypage-grid">
@@ -622,43 +688,53 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
                   <div key={voice.id} className="mypage-voice-card">
                     <div className="mypage-card-header">
                       <span className="mypage-item-title">{voice.name}</span>
-                      <Badge variant={voice.status === 'ready' ? 'secondary' : 'warning'}>
-                        {voiceStatus(voice).toUpperCase()}
-                      </Badge>
-                    </div>
-                    <div className="studio-voice-availability" role="status">
-                      <span>Fast: {voiceAvailability(voice, 'turbo')}</span>
-                      <span>Master: {voiceAvailability(voice, 'sft')}</span>
+                      {voice.status !== 'ready' && (
+                        <Badge variant={voice.status === 'error' ? 'warning' : 'default'}>
+                          {voiceStatus(voice).toUpperCase()}
+                        </Badge>
+                      )}
                     </div>
                     {(['turbo', 'sft'] as const).map((mode) => {
                       const availability = voice.availability[mode];
-                      return availability.step != null && ['queued', 'training'].includes(availability.status) ? (
+                      return availability.step != null &&
+                        ['queued', 'training'].includes(availability.status) ? (
                         <div key={mode} className="studio-voice-detail">
                           {mode === 'turbo' ? 'Fast' : 'Master'}: Preparing · {availability.step}
-                          {availability.total_steps != null ? ` / ${availability.total_steps}` : ''}
+                          {availability.total_steps != null
+                            ? ` / ${availability.total_steps}`
+                            : ''}
                         </div>
                       ) : null;
                     })}
-                    {(voice.error || voice.availability.turbo.error || voice.availability.sft.error) && (
+                    {(voice.error ||
+                      voice.availability.turbo.error ||
+                      voice.availability.sft.error) && (
                       <div className="studio-voice-detail" role="alert">
-                        {voice.error || voice.availability.turbo.error || voice.availability.sft.error}
+                        {voice.error ||
+                          voice.availability.turbo.error ||
+                          voice.availability.sft.error}
                       </div>
-                    )}
-                    {voice.sample_url && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          const audio = new Audio(voice.sample_url!);
-                          audio.play().catch(console.error);
-                        }}
-                      >
-                        <Volume2 size={12} />
-                        <span>PLAY SAMPLE</span>
-                      </Button>
                     )}
                     <div className="mypage-item-footer">
                       <span>{new Date(voice.created_at).toLocaleDateString()}</span>
+                      {voice.sample_url && (
+                        <Tooltip
+                          title="Play Voice Sample"
+                          description={`Preview vocal sample for ${voice.name}`}
+                        >
+                          <Button
+                            variant="ghost"
+                            size="xs"
+                            onClick={() => {
+                              const audio = new Audio(voice.sample_url!);
+                              audio.play().catch(console.error);
+                            }}
+                            aria-label="Play voice sample"
+                          >
+                            <Volume2 size={12} />
+                          </Button>
+                        </Tooltip>
+                      )}
                     </div>
                   </div>
                 ))}

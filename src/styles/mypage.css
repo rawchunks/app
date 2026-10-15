@@ -139,39 +139,42 @@
 
 .mypage-menu-dropdown {
   position: absolute;
-  right: 0;
-  top: calc(100% + 4px);
-  background-color: #09090e;
+  right: clamp(4px, 3cqi, 8px);
+  top: clamp(24px, 15cqi, 32px);
+  background-color: rgba(9, 9, 14, 0.96);
+  backdrop-filter: blur(8px);
   border: 1px solid var(--border-bright);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.9), 0 0 12px rgba(0, 255, 65, 0.15);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.9), 0 0 12px rgba(0, 255, 65, 0.15);
   border-radius: 4px;
-  padding: 6px;
-  z-index: 100;
-  min-width: 140px;
+  padding: clamp(3px, 1.8cqi, 5px);
+  z-index: 30;
+  min-width: clamp(92px, 56cqi, 132px);
+  max-width: calc(100% - clamp(8px, 6cqi, 16px));
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: clamp(2px, 1.2cqi, 4px);
+  box-sizing: border-box;
 }
 
 .mypage-menu-item {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: clamp(4px, 2cqi, 6px);
   width: 100%;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 2px;
   color: #ffffff;
-  padding: 8px 12px;
+  padding: clamp(3px, 1.8cqi, 6px) clamp(6px, 3cqi, 10px);
   text-align: left;
   cursor: pointer;
-  font-size: var(--font-xs);
+  font-size: clamp(7.5px, 3.8cqi, 10px);
   font-family: var(--font-family);
   font-weight: 700;
-  letter-spacing: 1px;
+  letter-spacing: 0.6px;
   text-transform: uppercase;
   transition: all 0.15s ease;
-  min-height: 34px;
+  min-height: clamp(22px, 11cqi, 28px);
   box-sizing: border-box;
 }
 
@@ -480,21 +483,6 @@
   box-sizing: border-box;
 }
 
-.mypage-section-body .market-card {
-  overflow: visible;
-}
-
-.mypage-section-body .market-card-media {
-  overflow: visible;
-}
-
-.mypage-section-body .market-card-cover-img,
-.mypage-section-body .market-card-fallback-art {
-  border-top-left-radius: 3px;
-  border-top-right-radius: 3px;
-  overflow: hidden;
-}
-
 .mypage-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--album-min-w)), 1fr));
@@ -556,18 +544,48 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 6px;
+  gap: clamp(4px, 2.5cqi, 6px);
   min-width: 0;
+  width: 100%;
+  overflow: hidden;
+}
+
+.mypage-card-header .cyber-badge {
+  flex: 0 0 auto;
+  max-width: 48%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: clamp(6.5px, 3.6cqi, 9px);
+  padding: clamp(1px, 0.7cqi, 2px) clamp(3px, 1.8cqi, 6px);
 }
 
 .mypage-item-title {
-  font-size: clamp(10px, 5.2cqi, 13px);
+  flex: 1 1 auto;
+  font-size: clamp(9.5px, 5.2cqi, 13px);
   font-weight: 700;
   color: var(--text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
+}
+
+.mypage-voice-card .studio-voice-availability {
+  display: flex;
+  flex-wrap: wrap;
+  gap: clamp(2px, 1.5cqi, 4px) clamp(6px, 3.5cqi, 10px);
+  font-size: clamp(8px, 4.2cqi, 10.5px);
+  line-height: 1.4;
+  min-width: 0;
+  width: 100%;
+}
+
+.mypage-voice-card .studio-voice-detail,
+.mypage-voice-card .studio-voice-message {
+  font-size: clamp(7.5px, 3.8cqi, 10px);
+  line-height: 1.4;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .mypage-item-desc {
@@ -803,74 +821,8 @@
 }
 
 /* ==========================================================================
-   MYPAGE SONG CARD BODY & TITLE ROW
+   MYPAGE SONG CARD VERSION PILLS
    ========================================================================== */
-.mypage-card-body {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  padding: clamp(6px, 4.2cqi, 12px);
-  gap: clamp(4px, 2.5cqi, 8px);
-  box-sizing: border-box;
-  flex: 1 1 auto;
-  min-width: 0;
-  width: 100%;
-  overflow: hidden;
-}
-
-.mypage-card-info {
-  display: flex;
-  flex-direction: column;
-  gap: clamp(3px, 2cqi, 6px);
-  width: 100%;
-  min-width: 0;
-}
-
-.mypage-card-row-title-wrap {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
-  gap: clamp(3px, 2cqi, 6px);
-  width: 100%;
-  min-width: 0;
-  height: clamp(16px, 9cqi, 24px);
-  box-sizing: border-box;
-}
-
-.mypage-card-title-col {
-  flex: 1 1 auto;
-  min-width: 0;
-  max-width: 66.66%;
-  display: flex;
-  align-items: center;
-  overflow: hidden;
-}
-
-.mypage-card-row-title-wrap:not(:has(.mypage-card-versions-col)) .mypage-card-title-col {
-  max-width: 100%;
-}
-
-.daw-tooltip-wrapper.mypage-card-title-tooltip {
-  width: 100%;
-  min-width: 0;
-  max-width: 100%;
-  display: inline-flex;
-}
-
-.mypage-card-title-text {
-  display: block;
-  width: 100%;
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-size: clamp(10px, 5.2cqi, 13px);
-  font-weight: 700;
-  color: var(--text);
-  line-height: 1.2;
-}
-
 .mypage-card-versions-col {
   flex: 0 0 auto;
   display: inline-flex;
@@ -897,13 +849,4 @@
   line-height: 1 !important;
   border-radius: 2px !important;
   white-space: nowrap !important;
-}
-
-.mypage-card-footer-box {
-  display: flex;
-  flex-direction: column;
-  gap: clamp(3px, 2cqi, 6px);
-  width: 100%;
-  min-width: 0;
-  margin-top: auto;
 }
