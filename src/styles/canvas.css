@@ -38,12 +38,13 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 4px 8px;
+  min-height: var(--daw-badge-h, clamp(23px, 2.9dvh, 27px));
+  padding: 0 clamp(6px, 0.9vw, 10px);
   border-radius: 3px;
   font-family: var(--font-family);
-  font-size: 9px;
+  font-size: var(--daw-badge-font, clamp(10.5px, 0.58rem + 0.25vw, 12px));
   font-weight: 800;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
   white-space: nowrap;
   cursor: pointer;
@@ -80,8 +81,8 @@
 }
 
 .toolbox-lyrics-toggle-btn.is-icon-only {
-  width: 22px;
-  height: 22px;
+  width: var(--daw-badge-h, clamp(23px, 2.9dvh, 27px));
+  height: var(--daw-badge-h, clamp(23px, 2.9dvh, 27px));
   padding: 0;
   flex-shrink: 0;
 }
@@ -103,8 +104,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: var(--daw-badge-h, clamp(23px, 2.9dvh, 27px));
+  height: var(--daw-badge-h, clamp(23px, 2.9dvh, 27px));
   padding: 0;
   border-radius: 3px;
   flex-shrink: 0;
@@ -145,9 +146,12 @@
 }
 
 .toolbox-lyrics-sidepanel {
-  flex: 1 1 280px;
-  min-width: 240px;
-  max-width: 420px;
+  position: relative;
+  container-type: inline-size;
+  flex: 0 0 var(--canvas-dock-w, clamp(190px, 18vw, 250px));
+  width: var(--canvas-dock-w, clamp(190px, 18vw, 250px));
+  min-width: 168px;
+  max-width: 320px;
   display: flex;
   flex-direction: column;
   background: rgba(8, 10, 14, 0.96);
@@ -162,10 +166,11 @@
   flex-wrap: nowrap;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: 6px 10px;
+  gap: 6px;
+  padding: clamp(5px, 0.8dvh, 8px) clamp(8px, 1.2vw, 12px);
   background: var(--surface-elevated);
   border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
 }
 
 .toolbox-lyrics-sidepanel-title-wrap {
@@ -178,9 +183,9 @@
 
 .toolbox-lyrics-sidepanel-title {
   font-family: var(--font-family);
-  font-size: 10px;
+  font-size: var(--daw-badge-font, clamp(10.5px, 0.58rem + 0.25vw, 12px));
   font-weight: 800;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   color: var(--primary);
   text-transform: uppercase;
   white-space: nowrap;
@@ -190,7 +195,7 @@
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   flex-shrink: 0;
 }
 
@@ -198,14 +203,14 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: var(--daw-badge-h, clamp(23px, 2.9dvh, 27px));
+  height: var(--daw-badge-h, clamp(23px, 2.9dvh, 27px));
   padding: 0;
   border-radius: 3px;
   border: 1px solid var(--border-bright);
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.06);
   color: var(--text-secondary);
-  font-size: 10px;
+  font-size: var(--daw-badge-font, clamp(10.5px, 0.58rem + 0.25vw, 12px));
   cursor: pointer;
   transition: all 0.15s ease;
 }
@@ -213,28 +218,38 @@
 .toolbox-lyrics-close-btn:hover {
   color: var(--text);
   border-color: var(--primary);
-  background: rgba(0, 255, 65, 0.1);
+  background: rgba(0, 255, 65, 0.12);
 }
 
 .toolbox-lyrics-tags-bar {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
   gap: 4px;
-  padding: 6px 8px;
+  padding: 5px 8px;
   background: rgba(255, 255, 255, 0.03);
   border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.toolbox-lyrics-tags-bar::-webkit-scrollbar {
+  display: none;
 }
 
 .toolbox-lyrics-tag-btn {
-  padding: 3px 7px;
+  min-height: clamp(21px, 2.6dvh, 24px);
+  padding: 2px 7px;
   font-family: var(--font-family);
-  font-size: 9px;
+  font-size: var(--daw-badge-font, clamp(10px, 0.56rem + 0.2vw, 11.5px));
   font-weight: 700;
   border-radius: 3px;
   border: 1px solid var(--border-bright);
   background: rgba(255, 255, 255, 0.06);
   color: var(--text);
   cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
   transition: all 0.12s ease;
 }
 
@@ -245,18 +260,18 @@
 }
 
 .toolbox-lyrics-canvas {
-  flex: 1 1 140px;
+  flex: 1 1 0;
   width: 100%;
-  min-height: 130px;
+  min-height: 0;
   background: rgba(0, 0, 0, 0.55);
   border: none;
   outline: none;
-  padding: 10px;
+  padding: clamp(8px, 1.2vw, 12px);
   color: var(--text);
   font-family: var(--font-family);
-  font-size: 11px;
+  font-size: clamp(11.5px, 0.68rem + 0.25vw, 13.5px);
   line-height: 1.55;
-  resize: vertical;
+  resize: none;
   box-sizing: border-box;
 }
 
@@ -268,22 +283,23 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 3px 7px;
+  min-height: var(--daw-badge-h, clamp(23px, 2.9dvh, 27px));
+  padding: 0 7px;
   border-radius: 3px;
   border: 1px solid var(--border-bright);
   background: rgba(255, 255, 255, 0.06);
   color: var(--text);
   font-family: var(--font-family);
-  font-size: 9px;
+  font-size: var(--daw-badge-font, clamp(10px, 0.56rem + 0.2vw, 11.5px));
   font-weight: 800;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
   cursor: pointer;
   transition: all 0.14s ease;
 }
 
 .toolbox-lyrics-mode-btn.is-icon-btn {
-  width: 22px;
-  height: 22px;
+  width: var(--daw-badge-h, clamp(23px, 2.9dvh, 27px));
+  height: var(--daw-badge-h, clamp(23px, 2.9dvh, 27px));
   padding: 0;
 }
 
@@ -303,9 +319,9 @@
 .toolbox-lyrics-canvas-wrapper {
   display: flex;
   flex-direction: column;
-  flex: 1 1 160px;
-  min-height: 140px;
-  max-height: 290px;
+  flex: 1 1 0;
+  min-height: 0;
+  max-height: none;
   overflow: hidden;
 }
 
@@ -321,7 +337,7 @@
 
 .toolbox-lyrics-selection-badge {
   font-family: var(--font-family);
-  font-size: 8px;
+  font-size: var(--daw-badge-font, clamp(10px, 0.56rem + 0.2vw, 11px));
   font-weight: 800;
   letter-spacing: 0.06em;
   color: var(--accent);
@@ -331,7 +347,7 @@
 
 .toolbox-lyrics-selection-count {
   font-family: var(--font-family);
-  font-size: 8px;
+  font-size: var(--daw-badge-font, clamp(10px, 0.56rem + 0.2vw, 11px));
   font-weight: 700;
   color: var(--text-secondary);
   white-space: nowrap;
@@ -397,7 +413,7 @@
 
 .toolbox-lyrics-sync-section-tag {
   font-family: var(--font-family);
-  font-size: 9px;
+  font-size: var(--daw-badge-font, clamp(10px, 0.58rem + 0.2vw, 11.5px));
   font-weight: 800;
   letter-spacing: 0.05em;
   color: var(--primary);
@@ -406,7 +422,7 @@
 
 .toolbox-lyrics-sync-timestamp {
   font-family: var(--font-family);
-  font-size: 8px;
+  font-size: var(--daw-badge-font, clamp(10px, 0.56rem + 0.2vw, 11px));
   font-weight: 700;
   color: var(--text-muted);
   cursor: pointer;
@@ -421,10 +437,10 @@
 .toolbox-lyrics-sync-sel-pill {
   margin-left: auto;
   font-family: var(--font-family);
-  font-size: 7px;
+  font-size: clamp(9.5px, 0.54rem + 0.18vw, 10.5px);
   font-weight: 800;
-  letter-spacing: 0.06em;
-  padding: 1px 4px;
+  letter-spacing: 0.05em;
+  padding: 1px 5px;
   border-radius: 2px;
   background: rgba(0, 204, 255, 0.22);
   border: 1px solid rgba(0, 204, 255, 0.5);
@@ -441,7 +457,7 @@
 
 .toolbox-lyrics-sync-word {
   font-family: var(--font-family);
-  font-size: 11px;
+  font-size: clamp(11.5px, 0.68rem + 0.2vw, 13px);
   color: var(--text-secondary);
   padding: 1px 3px;
   border-radius: 2px;
@@ -477,13 +493,13 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 4px 10px;
+  padding: 5px 10px;
   background: rgba(255, 255, 255, 0.02);
   border-top: 1px solid var(--border);
   font-family: var(--font-family);
-  font-size: 8px;
+  font-size: var(--daw-badge-font, clamp(10px, 0.56rem + 0.2vw, 11px));
   font-weight: 700;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.05em;
   color: var(--text-muted);
   text-transform: uppercase;
   white-space: nowrap;
@@ -492,7 +508,7 @@
 
 .toolbox-lyrics-footer-time {
   font-family: var(--font-family);
-  font-size: 8px;
+  font-size: var(--daw-badge-font, clamp(10px, 0.56rem + 0.2vw, 11px));
   font-weight: 800;
   letter-spacing: 0.05em;
   color: var(--text-secondary);
@@ -520,7 +536,7 @@
   width: 280px;
   padding: 10px;
   font-family: var(--font-family);
-  font-size: 11px;
+  font-size: clamp(11.5px, 0.68rem + 0.25vw, 13.5px);
   line-height: 1.55;
 }
 
