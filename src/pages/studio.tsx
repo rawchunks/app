@@ -12,6 +12,7 @@ import { usePublic } from '../hooks/use-public';
 import { useSession, promptSessionModal } from '../components/session';
 import { toast } from 'sonner';
 import { Modal } from '../components/modal';
+import { Languages } from '../components/languages';
 import { Mic2, UploadCloud, FileAudio } from 'lucide-react';
 import { useOptions } from '@/hooks/use-options';
 import { useVoices, voiceAvailability, voiceReady, voiceStatus } from '@/hooks/use-voices';
@@ -47,74 +48,6 @@ const TAGS = [
   'NEURAL GLITCH',
 ];
 
-const POPULAR_LANGUAGES = [
-  { id: 'en', label: 'English' },
-  { id: 'es', label: 'Spanish' },
-  { id: 'ja', label: 'Japanese' },
-  { id: 'fr', label: 'French' },
-  { id: 'de', label: 'German' },
-  { id: 'zh', label: 'Chinese' },
-  { id: 'ko', label: 'Korean' },
-  { id: 'it', label: 'Italian' },
-  { id: 'pt', label: 'Portuguese' },
-  { id: 'ru', label: 'Russian' },
-  { id: 'ar', label: 'Arabic' },
-  { id: 'hi', label: 'Hindi' },
-];
-
-const DEFAULT_LANGUAGES = [
-  { id: 'en', label: 'English' },
-  { id: 'es', label: 'Spanish' },
-  { id: 'ja', label: 'Japanese' },
-  { id: 'fr', label: 'French' },
-  { id: 'de', label: 'German' },
-  { id: 'zh', label: 'Chinese' },
-  { id: 'ko', label: 'Korean' },
-  { id: 'it', label: 'Italian' },
-  { id: 'pt', label: 'Portuguese' },
-  { id: 'ru', label: 'Russian' },
-  { id: 'ar', label: 'Arabic' },
-  { id: 'hi', label: 'Hindi' },
-  { id: 'nl', label: 'Dutch' },
-  { id: 'pl', label: 'Polish' },
-  { id: 'tr', label: 'Turkish' },
-  { id: 'sv', label: 'Swedish' },
-  { id: 'da', label: 'Danish' },
-  { id: 'fi', label: 'Finnish' },
-  { id: 'no', label: 'Norwegian' },
-  { id: 'id', label: 'Indonesian' },
-  { id: 'vi', label: 'Vietnamese' },
-  { id: 'th', label: 'Thai' },
-  { id: 'el', label: 'Greek' },
-  { id: 'cs', label: 'Czech' },
-  { id: 'ro', label: 'Romanian' },
-  { id: 'hu', label: 'Hungarian' },
-  { id: 'uk', label: 'Ukrainian' },
-  { id: 'he', label: 'Hebrew' },
-  { id: 'ca', label: 'Catalan' },
-  { id: 'hr', label: 'Croatian' },
-  { id: 'sk', label: 'Slovak' },
-  { id: 'bg', label: 'Bulgarian' },
-  { id: 'sr', label: 'Serbian' },
-  { id: 'lt', label: 'Lithuanian' },
-  { id: 'ms', label: 'Malay' },
-  { id: 'tl', label: 'Filipino' },
-  { id: 'fa', label: 'Persian' },
-  { id: 'ur', label: 'Urdu' },
-  { id: 'bn', label: 'Bangla' },
-  { id: 'ta', label: 'Tamil' },
-  { id: 'te', label: 'Telugu' },
-  { id: 'pa', label: 'Punjabi' },
-  { id: 'ne', label: 'Nepali' },
-  { id: 'sw', label: 'Swahili' },
-  { id: 'az', label: 'Azerbaijani' },
-  { id: 'is', label: 'Icelandic' },
-  { id: 'ht', label: 'Haitian Creole' },
-  { id: 'la', label: 'Latin' },
-  { id: 'sa', label: 'Sanskrit' },
-  { id: 'yue', label: 'Cantonese' },
-];
-
 export const Studio: React.FC<Props> = ({ onEditSong, className = '', style = {} }) => {
   const [state, setState] = useState<State>(store.getState());
   const [title, setTitle] = useState('');
@@ -122,17 +55,10 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '', style = {}
   const [lyrics, setLyrics] = useState('');
   const [instrumental, setInstrumental] = useState(false);
   const [selectedLanguage, setSelectedLanguage] = useState<string | null>(null);
-  const [languageSearch, setLanguageSearch] = useState('');
   const [activeTags, setActiveTags] = useState<string[]>([]);
   const [model, setModel] = useState('turbo');
   const options = useOptions();
   const generation = options.data?.generation;
-  const availableLanguages = generation?.languages && generation.languages.length > 0 ? generation.languages : DEFAULT_LANGUAGES;
-  const filteredLanguages = availableLanguages.filter(
-    (l) =>
-      l.id.toLowerCase().includes(languageSearch.toLowerCase()) ||
-      l.label.toLowerCase().includes(languageSearch.toLowerCase())
-  );
   useEffect(() => { if (generation && !generation.modes.some(mode => mode.id === model)) setModel(generation.modes[0].id); }, [generation, model]);
   const [useVoice, setUseVoice] = useState(false);
   const [voiceFile, setVoiceFile] = useState<File | null>(null);
@@ -1767,117 +1693,14 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '', style = {}
       </Modal>
 
       {/* 5. Vocal Language Modal */}
-      <Modal
+      <Languages
         isOpen={activeModal === 'language'}
         onClose={() => setActiveModal(null)}
-        title="SELECT VOCAL LANGUAGE"
-      >
-        <div className="studio-param-modal-content studio-param-modal-compact">
-          <div className="studio-lang-search-wrap">
-            <span className="studio-lang-search-icon">🔍</span>
-            <input
-              type="text"
-              placeholder="SEARCH 49 LANGUAGES (E.G. JAPANESE, ES, GERMAN)..."
-              value={languageSearch}
-              onChange={(e) => setLanguageSearch(e.target.value)}
-              className="cyber-input-field studio-lang-search-input"
-              autoFocus
-            />
-            {languageSearch && (
-              <button
-                type="button"
-                className="studio-lang-search-clear"
-                onClick={() => setLanguageSearch('')}
-              >
-                ✕
-              </button>
-            )}
-          </div>
-
-          <div className="studio-lang-scroll-body">
-            {!languageSearch && (
-              <>
-                <div className="studio-lang-section-title">POPULAR LANGUAGES</div>
-                <div className="studio-lang-chips-row">
-                  {POPULAR_LANGUAGES.map((lang) => {
-                    const isSelected = selectedLanguage === lang.id;
-                    return (
-                      <button
-                        key={lang.id}
-                        type="button"
-                        className={`studio-lang-chip ${isSelected ? 'active' : ''}`}
-                        onClick={() => setSelectedLanguage(lang.id)}
-                      >
-                        <span className="studio-lang-chip-code">{lang.id.toUpperCase()}</span>
-                        <span className="studio-lang-chip-label">{lang.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </>
-            )}
-
-            <div className="studio-lang-section-title">
-              {languageSearch
-                ? `MATCHING LANGUAGES (${filteredLanguages.length})`
-                : `ALL LANGUAGES (${availableLanguages.length})`}
-            </div>
-
-            <div className="studio-lang-grid">
-              {filteredLanguages.map((lang) => {
-                const isSelected = selectedLanguage === lang.id;
-                return (
-                  <button
-                    key={lang.id}
-                    type="button"
-                    className={`studio-lang-card ${isSelected ? 'active' : ''}`}
-                    onClick={() => setSelectedLanguage(lang.id)}
-                  >
-                    <span className="studio-lang-badge">{lang.id.toUpperCase()}</span>
-                    <span className="studio-lang-name">{lang.label}</span>
-                    {isSelected && <span className="studio-lang-check">✓</span>}
-                  </button>
-                );
-              })}
-            </div>
-
-            {filteredLanguages.length === 0 && (
-              <div className="studio-lang-empty">NO LANGUAGES FOUND MATCHING "{languageSearch.toUpperCase()}"</div>
-            )}
-          </div>
-
-          <div className="studio-lang-selected-strip">
-            <div className="studio-field-label studio-field-label-flush">
-              <span>TARGET VOCAL LANGUAGE</span>
-              <span className="studio-highlight">
-                {selectedLanguage
-                  ? `${selectedLanguage.toUpperCase()} — ${(availableLanguages.find((l) => l.id === selectedLanguage)?.label || selectedLanguage).toUpperCase()}`
-                  : 'AUTO (DETECT FROM LYRICS / PROMPT)'}
-              </span>
-            </div>
-          </div>
-
-          <div className="studio-param-actions-row studio-param-actions-compact">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                setSelectedLanguage(null);
-                setActiveModal(null);
-              }}
-            >
-              RESET TO AUTO
-            </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={() => setActiveModal(null)}
-            >
-              DONE
-            </Button>
-          </div>
-        </div>
-      </Modal>
+        value={selectedLanguage}
+        onChange={setSelectedLanguage}
+        languages={generation?.languages}
+        allowAuto={true}
+      />
 
       {/* 6. Structured Lyrics Canvas Modal */}
       <Modal
