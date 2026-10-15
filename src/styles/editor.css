@@ -53,13 +53,58 @@
   letter-spacing: -0.01em;
 }
 
-.editor-track-sub {
-  font-size: clamp(10px, 0.8vw, 11px);
-  color: var(--text-secondary);
-  margin-top: 2px;
+/* Prominent dual-row height LED Playback Counter positioned to the right towards the center */
+.editor-header-time {
+  align-self: stretch;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(4px, 0.55vw, 7px);
+  margin-left: auto;
+  margin-right: clamp(6px, 2.2vw, 22px);
+  min-height: clamp(32px, 4.4vh, 42px);
+  font-family: var(--font-mono);
+  font-size: clamp(12px, 1.45vw, 16px);
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  background: linear-gradient(180deg, rgba(0, 255, 65, 0.12) 0%, rgba(0, 255, 65, 0.05) 100%);
+  border: 1px solid rgba(0, 255, 65, 0.42);
+  border-radius: 4px;
+  padding: clamp(3px, 0.45vh, 5px) clamp(8px, 1.3vw, 14px);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  flex-shrink: 0;
+  letter-spacing: 0.03em;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 0 14px rgba(0, 255, 65, 0.14);
+}
+
+.editor-header-time.playing {
+  border-color: var(--primary);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 0 18px rgba(0, 255, 65, 0.32);
+}
+
+.editor-header-time-current {
+  color: var(--primary);
+  text-shadow: 0 0 8px rgba(0, 255, 65, 0.38);
+}
+
+.editor-header-time-sep {
+  color: var(--text-dim);
+  opacity: 0.78;
+}
+
+.editor-header-time-total {
+  color: var(--text);
+}
+
+.editor-track-sub {
+  display: flex;
+  align-items: center;
+  gap: clamp(4px, 0.65vw, 8px);
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: visible;
   font-family: var(--font-family);
 }
 

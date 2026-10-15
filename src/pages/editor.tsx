@@ -24,6 +24,28 @@ export interface Props {
   className?: string;
 }
 
+const fmtHeaderTime = (sec: number) => {
+  if (!Number.isFinite(sec) || sec < 0) return '0:00.0';
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  const ms = Math.floor((sec % 1) * 10);
+  return `${m}:${s < 10 ? '0' : ''}${s}.${ms}`;
+};
+
+const EditorTimeCounter: React.FC<{ fallbackDuration?: number }> = ({ fallbackDuration = 0 }) => {
+  const playhead = useDawStore((s) => s.playhead);
+  const duration = useDawStore((s) => s.duration);
+  const isPlaying = useDawStore((s) => s.isPlaying);
+  const total = duration > 0 ? duration : fallbackDuration;
+  return (
+    <div className={`editor-header-time ${isPlaying ? 'playing' : ''}`} aria-label="Playback time">
+      <span className="editor-header-time-current">{fmtHeaderTime(playhead)}</span>
+      <span className="editor-header-time-sep">-</span>
+      <span className="editor-header-time-total">{fmtHeaderTime(total)}</span>
+    </div>
+  );
+};
+
 export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
   const {
     tracks,
@@ -949,6 +971,8 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
             </div>
           </div>
         </div>
+
+        <EditorTimeCounter fallbackDuration={song.duration} />
 
         <div className="editor-header-actions">
           <Tooltip title="Commit Snapshot" description="Save project milestone snapshot to timeline history">
