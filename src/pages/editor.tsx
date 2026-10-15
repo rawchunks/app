@@ -1248,28 +1248,30 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
       />
 
       {/* Commit Snapshot Modal Dialog */}
-      {isCommitModalOpen && (
-        <div className="editor-modal-overlay">
-          <div className="editor-modal-card">
-            <h3 className="editor-modal-title">COMMIT SNAPSHOT</h3>
-            <textarea
-              value={commitMessage}
-              onChange={(e) => setCommitMessage(e.target.value)}
-              placeholder="Enter snapshot description (e.g., Added vocal harmony and bassline)..."
-              rows={3}
-              className="editor-modal-textarea"
-            />
-            <div className="editor-modal-actions">
-              <Button size="sm" variant="ghost" onClick={() => setIsCommitModalOpen(false)}>
-                CANCEL
-              </Button>
-              <Button size="sm" variant="primary" onClick={handleCreateCommit}>
-                SAVE SNAPSHOT
-              </Button>
-            </div>
+      <Modal
+        isOpen={isCommitModalOpen}
+        onClose={() => setIsCommitModalOpen(false)}
+        title="COMMIT"
+        size="sm"
+      >
+        <div className="editor-modal-body">
+          <textarea
+            value={commitMessage}
+            onChange={(e) => setCommitMessage(e.target.value)}
+            placeholder="Enter snapshot description (e.g., Added vocal harmony and bassline)..."
+            rows={3}
+            className="editor-modal-textarea"
+          />
+          <div className="editor-modal-actions">
+            <Button size="sm" variant="ghost" onClick={() => setIsCommitModalOpen(false)}>
+              CANCEL
+            </Button>
+            <Button size="sm" variant="primary" onClick={handleCreateCommit}>
+              SAVE
+            </Button>
           </div>
         </div>
-      )}
+      </Modal>
     </div>
   );
 };
