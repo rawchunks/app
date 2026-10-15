@@ -357,8 +357,12 @@ textarea.cyber-input-field {
    CHECKBOX
    ========================================================================== */
 .cyber-checkbox {
-  width: 18px;
-  height: 18px;
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  min-width: 14px;
+  min-height: 14px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -368,13 +372,25 @@ textarea.cyber-input-field {
   cursor: pointer;
   color: var(--primary);
   padding: 0;
+  margin: 0;
   flex-shrink: 0;
+  position: relative;
   transition: all 0.15s ease;
 }
 
-.cyber-checkbox[aria-checked="true"] {
+.cyber-checkbox[aria-checked="true"],
+.cyber-checkbox:checked {
   border-color: var(--primary);
   background-color: rgba(0, 255, 65, 0.2);
+  box-shadow: 0 0 6px rgba(0, 255, 65, 0.25);
+}
+
+.cyber-checkbox:checked::after {
+  content: '✓';
+  font-size: 10px;
+  font-weight: 900;
+  color: var(--primary);
+  line-height: 1;
 }
 
 .cyber-checkbox:disabled {

@@ -9,6 +9,14 @@ interface Props {
   optional?: boolean;
 }
 
+const SHORT_LABELS: Record<string, string> = {
+  repaintWavCrossfadeSec: 'X-Fade',
+  coverNoiseStrength: 'Detail',
+  globalCaption: 'Context',
+  trackClasses: 'Instruments',
+  voiceCoverStrength: 'Resemblance',
+};
+
 export function parameterValues(values: Record<string, string | number>) {
   return Object.fromEntries(Object.entries(values).filter(([, value]) => value !== ''));
 }
@@ -21,15 +29,17 @@ export function Parameters({ parameters, values, onChange, optional = false }: P
     onChange(next);
   };
   return <div className={optional ? 'studio-optional-fields' : 'studio-field-group'}>
-    {Object.entries(parameters).map(([key, parameter]) => <div key={key} className={optional ? 'studio-option-row' : 'studio-field-label'}>
+    {Object.entries(parameters).map(([key, parameter]) => {
+      const displayLabel = SHORT_LABELS[key] ?? parameter.label;
+      return <div key={key} className={optional ? 'studio-option-row' : 'studio-field-label'} title={parameter.label}>
       {optional ? <label className="studio-checkbox-label">
         <input type="checkbox" aria-label={parameter.label} className="cyber-checkbox" checked={key in values} onChange={event => {
           const next = { ...values };
           if (event.target.checked) { next[key] = ''; setOpen(key); } else { delete next[key]; setOpen(null); }
           onChange(next);
         }} />
-        {parameter.label}
-      </label> : parameter.label}
+        {displayLabel}
+      </label> : displayLabel}
       {optional && key in values ? <Selector label={`Select ${parameter.label.toLowerCase()}`} value={values[key] === '' ? 'Auto' : String(values[key])} open={open === key} onOpenChange={expanded => setOpen(expanded ? key : null)}>
         <button type="button" className={`studio-dropdown-item ${values[key] === '' ? 'active' : ''}`} onClick={() => { change(key, ''); setOpen(null); }}>Auto</button>
         {parameter.type === 'select'
@@ -43,6 +53,7 @@ export function Parameters({ parameters, values, onChange, optional = false }: P
           {parameter.options?.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}
         </select>
         : <input aria-label={parameter.label} className="cyber-input-field" type={parameter.type === 'number' ? 'number' : 'text'} min={parameter.min} max={parameter.max} step={parameter.step} value={values[key] ?? ''} placeholder="Optional" onChange={event => change(key, event.target.value === '' || parameter.type !== 'number' ? event.target.value : Number(event.target.value))} />)}
-    </div>)}
+    </div>;
+    })}
   </div>;
 }
