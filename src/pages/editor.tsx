@@ -1197,6 +1197,22 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
           onSeparateStems={handleSeparateStems}
           isSeparating={processing}
           onReworkSection={handleReworkSection}
+          lyrics={lyrics}
+          onLyricsChange={setLyrics}
+          vocalLanguage={vocalLanguage}
+          onVocalLanguageChange={setVocalLanguage}
+          languages={options.data?.generation?.languages}
+          hasExistingLyrics={hasExistingLyrics}
+          isTranscribingLyrics={isTranscribingLyrics}
+          onExtractLyrics={handleExtractLyrics}
+          lyricsAlignment={lyricsAlignment}
+          isAligningLyrics={isAligningLyrics}
+          onAlignLyrics={handleAlignLyrics}
+          task={task}
+          instrument={instrument}
+          processing={processing}
+          reveal={toolboxRevision}
+
         />
       </div>
 

@@ -189,6 +189,32 @@
   .mypage-profile-stats {
     gap: clamp(12px, 3vw, 20px);
   }
+
+  /* Icon-only action buttons on small screens (tooltips remain active) */
+  .board-btn-label,
+  .daw-btn-label {
+    display: none !important;
+  }
+
+  .variation-card-actions {
+    gap: 0.25rem;
+  }
+
+  /* Board Canvas toggle on mobile (matches .with-canvas in Board.tsx) */
+  .board-main-split.with-canvas .board-viewport,
+  .board-main-split.canvas-open .board-viewport {
+    display: none;
+  }
+
+  .board-main-split.with-canvas .board-canvas-dock.toolbox-lyrics-sidepanel,
+  .board-main-split.canvas-open .board-canvas-dock.toolbox-lyrics-sidepanel {
+    flex: 1 1 0 !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    height: 100% !important;
+    border-left: none !important;
+  }
 }
 
 /* ==========================================================================

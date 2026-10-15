@@ -1,10 +1,11 @@
 import React, { useState, useRef, useLayoutEffect } from 'react';
-import { useDawStore } from '../../lib/daw/store';
+import { useDawStore, type LyricsAlignment } from '../../lib/daw/store';
 import { dawEngine } from '../../lib/daw/engine';
 import { Waveform } from '../waveform';
 import { ClipWaveform } from './ClipWaveform';
 import { Notes } from './Notes';
 import { Tooltip } from './Tooltip';
+import { Canvas } from './Canvas';
 import {
   Play,
   Pause,
@@ -23,8 +24,9 @@ import {
   Minimize2,
   Drum,
   Layers,
+  FilePenLine,
 } from 'lucide-react';
-import { Song } from '../../lib/schema';
+import { Song, Task } from '../../lib/schema';
 import { toast } from 'sonner';
 import { TrackType } from '../../lib/daw/store';
 import { getStemColor } from '../../lib/daw/palette';
@@ -39,6 +41,22 @@ export interface BoardProps {
   onSeparateStems: () => void;
   isSeparating: boolean;
   onReworkSection?: () => void;
+  lyrics?: string;
+  onLyricsChange?: (lyrics: string) => void;
+  vocalLanguage?: string;
+  onVocalLanguageChange?: (language: string) => void;
+  languages?: Array<{ id: string; label: string }>;
+  hasExistingLyrics?: boolean;
+  isTranscribingLyrics?: boolean;
+  onExtractLyrics?: () => void;
+  lyricsAlignment?: LyricsAlignment | null;
+  isAligningLyrics?: boolean;
+  onAlignLyrics?: (customLyrics?: string) => void;
+  task?: Task;
+  instrument?: string;
+  processing?: boolean;
+  reveal?: number;
+
 }
 
 export const Board: React.FC<BoardProps> = ({
@@ -49,6 +67,22 @@ export const Board: React.FC<BoardProps> = ({
   onSeparateStems,
   isSeparating,
   onReworkSection,
+  lyrics = '',
+  onLyricsChange,
+  vocalLanguage = 'en',
+  onVocalLanguageChange,
+  languages,
+  hasExistingLyrics = false,
+  isTranscribingLyrics = false,
+  onExtractLyrics,
+  lyricsAlignment = null,
+  isAligningLyrics = false,
+  onAlignLyrics,
+  task,
+  instrument,
+  processing = false,
+  reveal: _reveal,
+
 }) => {
   const {
     tracks,
@@ -85,6 +119,26 @@ export const Board: React.FC<BoardProps> = ({
   const [masterExpanded, setMasterExpanded] = useState(true);
   const [lanesExpanded, setLanesExpanded] = useState<boolean>(true);
   const [extractedExpanded, setExtractedExpanded] = useState<boolean>(true);
+  const [isCanvasOpen, setIsCanvasOpen] = useState<boolean>(false);
+  const hasVocalStem = tracks.some(
+    (t) =>
+      ['vocals', 'backing_vocals'].includes((t.stemType || t.name || '').toLowerCase()) &&
+      t.clips.length > 0,
+  );
+  const isVocalMacro =
+    task === 'repaint' ||
+    task === 'cover' ||
+    task === 'complete' ||
+    task === 'extend' ||
+    (task === 'lego' && (instrument === 'vocals' || instrument === 'backing_vocals'));
+  const canShowCanvas = Boolean(
+    hasExistingLyrics ||
+      lyrics.trim().length > 0 ||
+      (lyricsAlignment?.lines && lyricsAlignment.lines.length > 0) ||
+      hasVocalStem ||
+      isVocalMacro,
+  );
+
   const playingTakeId = isPlaying ? auditionId : null;
   const overlays = tracks.filter(
     track =>
@@ -455,6 +509,22 @@ export const Board: React.FC<BoardProps> = ({
 
         {/* Time Elapsed & Region Readout */}
         <div className="board-transport-time">
+          {canShowCanvas && (
+            <Tooltip
+              title="Song Lyrics Document"
+              description="Open or hide the general song lyrics sheet"
+            >
+              <button
+                type="button"
+                className={`board-transport-btn board-canvas-toggle ${isCanvasOpen ? 'active' : ''}`}
+                aria-pressed={isCanvasOpen}
+                aria-label={isCanvasOpen ? 'Hide Song Lyrics Document' : 'Open Song Lyrics Document'}
+                onClick={() => setIsCanvasOpen((prev) => !prev)}
+              >
+                <FilePenLine size={13} />
+              </button>
+            </Tooltip>
+          )}
           <div className="board-time-display">
             <span className="board-time-label">TIME:</span>
             <span className="board-time-value">
@@ -497,6 +567,7 @@ export const Board: React.FC<BoardProps> = ({
       </div>
 
       {/* Unified DAW Board Viewport */}
+      <div className={`board-main-split ${canShowCanvas && isCanvasOpen ? 'with-canvas' : ''}`}>
       <div ref={viewportRef} className="board-viewport">
         {/* Sticky Time Ruler Header Row */}
         <div className="board-ruler-row">
@@ -1580,6 +1651,26 @@ export const Board: React.FC<BoardProps> = ({
             <Plus size={12} /> CODE
           </button>
         </div>
+      </div>
+        {canShowCanvas && isCanvasOpen && (
+          <Canvas
+            lyrics={lyrics}
+            onLyricsChange={onLyricsChange || (() => {})}
+            vocalLanguage={vocalLanguage}
+            onVocalLanguageChange={onVocalLanguageChange || (() => {})}
+            languages={languages}
+            hasExistingLyrics={hasExistingLyrics}
+            isTranscribingLyrics={isTranscribingLyrics}
+            onExtractLyrics={onExtractLyrics}
+            lyricsAlignment={lyricsAlignment}
+            isAligningLyrics={isAligningLyrics}
+            onAlignLyrics={onAlignLyrics}
+            processing={processing}
+            onClose={() => {
+              setIsCanvasOpen(false);
+            }}
+          />
+        )}
       </div>
     </div>
   );
