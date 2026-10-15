@@ -458,7 +458,24 @@ textarea.cyber-input-field {
   flex-direction: column;
 }
 
+.modal-size-sm {
+  max-width: min(440px, calc(100vw - 24px));
+}
+
+.modal-size-md {
+  max-width: min(540px, calc(100vw - 24px));
+}
+
+.modal-size-lg {
+  max-width: min(640px, calc(100vw - 24px));
+}
+
+.modal-size-xl {
+  max-width: min(760px, calc(100vw - 24px));
+}
+
 .modal-inner-card {
+  container-type: inline-size;
   padding: clamp(14px, 2vw, 20px);
   border: 1px solid var(--primary);
   box-shadow: var(--glow-primary);
@@ -468,13 +485,28 @@ textarea.cyber-input-field {
   gap: 16px;
   max-height: 85dvh;
   overflow-y: auto;
+  overflow-x: hidden;
   border-radius: 4px;
+  box-sizing: border-box;
+}
+
+.modal-inner-card .btn-base {
+  min-width: 0;
+  max-width: 100%;
+  letter-spacing: clamp(0.03em, 0.1vw, 0.08em);
+}
+
+.modal-inner-card .btn-content-wrap {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .modal-body-wrap {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
   width: 100%;
 }
 
@@ -482,15 +514,21 @@ textarea.cyber-input-field {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 0.5rem;
   border-bottom: 1px solid var(--border-dim);
   padding-bottom: 10px;
+  min-width: 0;
 }
 
 .modal-title-text {
   color: var(--primary);
-  font-size: var(--font-md);
+  font-size: clamp(0.82rem, 2.2vw, var(--font-md));
   margin: 0;
-  letter-spacing: var(--letter-spacing-base);
+  letter-spacing: clamp(0.04em, 0.12vw, var(--letter-spacing-base));
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ==========================================================================

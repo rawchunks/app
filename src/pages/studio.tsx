@@ -1481,7 +1481,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '', style = {}
         isOpen={activeModal === 'voice'}
         onClose={() => setActiveModal(null)}
         title="CUSTOM VOCAL"
-        maxWidth="560px"
+        size="lg"
       >
         <div className="studio-param-modal-content">
           <input
@@ -1884,7 +1884,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '', style = {}
         isOpen={activeModal === 'lyrics'}
         onClose={() => setActiveModal(null)}
         title="LYRICS CANVAS"
-        maxWidth="840px"
+        size="xl"
         className="studio-lyrics-modal-dialog"
       >
         <div className="studio-lyrics-modal-content">

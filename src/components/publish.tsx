@@ -29,7 +29,7 @@ export const PublishModal: React.FC<PublishModalProps> = ({
   const album = albums.find((a) => a.id === song.album_id);
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="CONFIRM PUBLICATION" maxWidth="440px">
+    <Modal isOpen={isOpen} onClose={onClose} title="CONFIRM PUBLICATION" size="sm">
       <div className="publish-content">
         <div className="publish-desc">
           Publishing will mint this track on-chain and list it on the public Market for streaming and licensing.

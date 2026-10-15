@@ -82,7 +82,7 @@ export function Licenses({
         </Tooltip>
       )}
 
-      <Modal isOpen={confirm} onClose={() => setConfirm(false)} title="BUY COMMERCIAL LICENSE" maxWidth="420px">
+      <Modal isOpen={confirm} onClose={() => setConfirm(false)} title="BUY COMMERCIAL LICENSE" size="sm">
         <div className="license-modal-body">
           <div className="license-modal-title">
             {song.title}

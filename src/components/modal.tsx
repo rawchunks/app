@@ -1,13 +1,15 @@
 import React, { useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { X } from 'lucide-react';
 import { Button } from './button';
+import { Tooltip } from './daw/Tooltip';
 
 export interface Props {
   isOpen: boolean;
   onClose: () => void;
   title: string;
   children: React.ReactNode;
-  maxWidth?: string;
+  size?: 'sm' | 'md' | 'lg' | 'xl';
   className?: string;
 }
 
@@ -16,8 +18,8 @@ export const Modal: React.FC<Props> = ({
   onClose,
   title,
   children,
-  maxWidth,
-  className,
+  size = 'md',
+  className = '',
 }) => {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -37,20 +39,22 @@ export const Modal: React.FC<Props> = ({
       onClick={onClose}
     >
       <div
-        className={`modal-container ${className || ''}`}
-        style={maxWidth ? { maxWidth } : undefined}
+        className={`modal-container modal-size-${size} ${className}`.trim()}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="modal-inner-card">
           <div className="modal-header-row">
             <h3 className="modal-title-text">{title}</h3>
-            <Button
-              variant="ghost"
-              size="xs"
-              onClick={onClose}
-            >
-              [X]
-            </Button>
+            <Tooltip title="Close" description="ESC" position="bottom">
+              <Button
+                variant="ghost"
+                size="xs"
+                onClick={onClose}
+                aria-label="Close modal"
+              >
+                <X size={14} />
+              </Button>
+            </Tooltip>
           </div>
           <div className="modal-body-wrap">{children}</div>
         </div>
@@ -59,3 +63,4 @@ export const Modal: React.FC<Props> = ({
     document.body
   );
 };
+

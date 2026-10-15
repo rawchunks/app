@@ -526,7 +526,7 @@ export function SessionControl() {
         )}
       </button>
 
-      <Modal isOpen={open} onClose={() => setOpen(false)} title="SESSION CONTROLS" maxWidth="480px">
+      <Modal isOpen={open} onClose={() => setOpen(false)} title="SESSION CONTROLS" size="md">
         {!displayAddress ? (
           <div className="session-modal-content">
             <div className="session-info-strip">

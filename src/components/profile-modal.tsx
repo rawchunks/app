@@ -76,7 +76,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="EDIT PROFILE" maxWidth="420px">
+    <Modal isOpen={isOpen} onClose={onClose} title="EDIT PROFILE" size="sm">
       <div className="profile-modal-body">
         <div className="cyber-input-wrap">
           <label className="cyber-input-label">NICKNAME</label>

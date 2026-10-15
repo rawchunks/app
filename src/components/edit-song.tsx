@@ -191,7 +191,7 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="EDIT SONG DETAILS" maxWidth="480px">
+    <Modal isOpen={isOpen} onClose={onClose} title="EDIT SONG DETAILS" size="md">
       <div className="edit-song-content">
         {/* Title Field */}
         <div className="cyber-input-wrap">
