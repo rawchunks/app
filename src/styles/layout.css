@@ -194,6 +194,7 @@
 }
 
 .player-scrubber-progress {
+  width: var(--scrubber-progress, 0%);
   height: 100%;
   background-color: var(--primary);
   box-shadow: 0 0 6px var(--primary);
@@ -204,6 +205,8 @@
   position: absolute;
   top: 0;
   bottom: 0;
+  left: var(--selection-left, 0%);
+  width: var(--selection-width, 0%);
   background-color: rgba(255, 0, 160, 0.5);
   pointer-events: none;
 }
@@ -214,22 +217,22 @@
   align-items: center;
   justify-content: space-between;
   padding: 0 clamp(8px, 2vw, 24px);
-  gap: clamp(8px, 1.5vw, 16px);
+  gap: clamp(6px, 1.5vw, 16px);
   min-height: 0;
 }
 
 .player-track-info {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: clamp(6px, 1vw, 10px);
   min-width: 0;
   flex: 1 1 auto;
-  max-width: 320px;
+  max-width: clamp(140px, 32vw, 320px);
 }
 
 .player-track-avatar {
-  width: 32px;
-  height: 32px;
+  width: clamp(26px, 3vw, 32px);
+  height: clamp(26px, 3vw, 32px);
   background-color: var(--surface-elevated);
   border: 1px solid var(--border);
   display: flex;
@@ -238,7 +241,7 @@
   flex-shrink: 0;
   color: var(--primary);
   font-weight: 900;
-  font-size: 12px;
+  font-size: var(--font-xs);
 }
 
 .player-track-text {
@@ -267,12 +270,12 @@
 .player-controls {
   display: flex;
   align-items: center;
-  gap: clamp(6px, 1.2vw, 12px);
+  gap: clamp(4px, 1vw, 12px);
   flex-shrink: 0;
 }
 
 .player-play-btn {
-  min-width: clamp(70px, 9vw, 90px);
+  min-width: clamp(58px, 8vw, 90px);
 }
 
 .player-time-readout {
@@ -285,7 +288,7 @@
 .player-volume-wrap {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: clamp(6px, 1vw, 12px);
   flex-shrink: 0;
   width: clamp(60px, 8vw, 90px);
 }
