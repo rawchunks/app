@@ -84,17 +84,27 @@ export const Waveform: React.FC<Props> = ({
     }
     if (audioUrl) {
       let isMounted = true;
-      extractPeaksFromUrl(audioUrl, 256)
-        .then((p) => {
-          if (isMounted && p.length > 0) {
-            setLoadedPeaks(p);
-          }
-        })
-        .catch((err) => {
-          console.warn('Peak extraction error:', err);
-        });
+      let retryTimer: ReturnType<typeof setTimeout> | null = null;
+      const loadPeaks = () => {
+        extractPeaksFromUrl(audioUrl, 256, 'high')
+          .then((p) => {
+            if (isMounted && p.length > 0) {
+              setLoadedPeaks(p);
+            }
+          })
+          .catch((err) => {
+            if (!isMounted) return;
+            if (err && typeof err === 'object' && 'name' in err && err.name === 'AbortError') {
+              retryTimer = setTimeout(loadPeaks, 80);
+              return;
+            }
+            console.warn('Peak extraction error:', err);
+          });
+      };
+      loadPeaks();
       return () => {
         isMounted = false;
+        if (retryTimer) clearTimeout(retryTimer);
       };
     }
   }, [customPeaks, audioUrl]);
@@ -109,12 +119,28 @@ export const Waveform: React.FC<Props> = ({
   const layers = loadedLayers?.key === laneKey && loadedLayers.duration === duration ? loadedLayers.values : storedLayers;
   useEffect(() => {
     let current = true;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
     if (!sources.length || duration <= 0) return;
-    Promise.all(sources.map(async lane => {
-      const peaks = await Promise.all(lane.clips.map(clip => extractBipolarPeaksFromUrl(clip.url, Math.max(1, Math.ceil(clip.duration / duration * 256)), clip.offset, clip.duration)));
-      return { id: lane.id, name: lane.name, values: layerValues(lane.clips, duration, peaks) };
-    })).then(result => { if (current) setLayers({ key: laneKey, duration, values: result }); }).catch(error => console.error('Could not load separated waveforms:', error));
-    return () => { current = false; };
+    const loadSeparatedLayers = () => {
+      Promise.all(sources.map(async lane => {
+        const peaks = await Promise.all(lane.clips.map(clip => extractBipolarPeaksFromUrl(clip.url, Math.max(1, Math.ceil(clip.duration / duration * 256)), clip.offset, clip.duration)));
+        return { id: lane.id, name: lane.name, values: layerValues(lane.clips, duration, peaks) };
+      })).then(result => {
+        if (current) setLayers({ key: laneKey, duration, values: result });
+      }).catch(error => {
+        if (!current) return;
+        if (error && typeof error === 'object' && 'name' in error && error.name === 'AbortError') {
+          retryTimer = setTimeout(loadSeparatedLayers, 80);
+          return;
+        }
+        console.error('Could not load separated waveforms:', error);
+      });
+    };
+    loadSeparatedLayers();
+    return () => {
+      current = false;
+      if (retryTimer) clearTimeout(retryTimer);
+    };
   }, [sources, laneKey, duration]);
 
   const [dragMode, setDragMode] = useState<DragMode>('none');
