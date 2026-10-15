@@ -330,12 +330,13 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
     }
   };
 
-  // Global Keyboard Shortcuts (Space, Shift+Space, L, 0)
+  // Global Keyboard Shortcuts (Space, Shift+Space, L, 0, M, S, Escape)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName)) {
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName) || (e.target as HTMLElement)?.isContentEditable) {
         return;
       }
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.code === 'Space') {
         e.preventDefault();
         if (e.shiftKey) {
@@ -349,12 +350,35 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
       } else if (e.key === 'Home' || e.key === '0') {
         e.preventDefault();
         handleReturnToZero();
+      } else if (e.key === 'm' || e.key === 'M') {
+        e.preventDefault();
+        const targetId = selectedTrackId || 'master';
+        const st = useDawStore.getState();
+        const track = st.tracks.find((t) => t.id === targetId);
+        if (track) {
+          const currentMuted = track.mixer?.muted ?? track.muted ?? false;
+          st.updateTrackMixer(targetId, { muted: !currentMuted });
+        }
+      } else if (e.key === 's' || e.key === 'S') {
+        e.preventDefault();
+        const targetId = selectedTrackId || 'master';
+        const st = useDawStore.getState();
+        const track = st.tracks.find((t) => t.id === targetId);
+        if (track) {
+          const currentSolo = track.mixer?.solo ?? track.solo ?? false;
+          st.updateTrackMixer(targetId, { solo: !currentSolo });
+        }
+      } else if (e.key === 'Escape') {
+        if (useDawStore.getState().selection) {
+          e.preventDefault();
+          setSelection(null);
+        }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isPlaying, loop, selection, selectedTrackId, takes]);
+  }, [isPlaying, loop, selection, selectedTrackId, takes, setSelection]);
 
   // Track Creation
   const handleAddTrack = (type: TrackType) => {
