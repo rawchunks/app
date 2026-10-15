@@ -16,7 +16,6 @@ export interface Props {
   intensity?: 'low' | 'medium' | 'high';
   animated?: boolean;
   className?: string;
-  style?: React.CSSProperties;
 }
 
 const CHARS = '!@#$%^&*()_+-=[]{}|;:,.<>?~/\\01';
@@ -27,7 +26,6 @@ export const Glitch: React.FC<Props> = ({
   intensity = 'medium',
   animated = true,
   className = '',
-  style = {},
 }) => {
   const [displayText, setDisplayText] = useState(text || '');
   const [active, setActive] = useState(false);
@@ -100,33 +98,29 @@ export const Glitch: React.FC<Props> = ({
 
   if (text !== undefined && !children) {
     return (
-      <span
-        className={`glitch-text-only ${className}`}
-        style={style}
-      >
+      <span className={`glitch-text-only ${className}`}>
         {displayText}
       </span>
     );
   }
 
   return (
-    <div
-      className={`glitch-box-container ${className}`}
-      style={style}
-    >
+    <div className={`glitch-box-container ${className}`}>
       {/* Glitch vertical lines */}
       {lines.map((l, idx) => (
         <div
           key={idx}
           className="glitch-visual-line"
-          style={{
-            left: `${l.x + (active ? (Math.random() * 16 - 8) : 0)}px`,
-            top: `${l.top}px`,
-            width: `${l.width}px`,
-            height: `${l.height}px`,
-            backgroundColor: l.color,
-            opacity: active ? l.opacity * 2 : l.opacity * 0.4,
-          }}
+          style={
+            {
+              '--line-left': `${l.x + (active ? (Math.random() * 16 - 8) : 0)}px`,
+              '--line-top': `${l.top}px`,
+              '--line-w': `${l.width}px`,
+              '--line-h': `${l.height}px`,
+              '--line-bg': l.color,
+              '--line-opacity': active ? l.opacity * 2 : l.opacity * 0.4,
+            } as React.CSSProperties
+          }
         />
       ))}
 

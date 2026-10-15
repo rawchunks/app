@@ -328,6 +328,7 @@ textarea.cyber-input-field {
   cursor: pointer;
   margin: 0;
   border-radius: 2px;
+  background: linear-gradient(to right, var(--slider-color, var(--primary)) var(--slider-pct, 0%), #1f1f1f var(--slider-pct, 0%));
 }
 
 .cyber-slider-input::-webkit-slider-thumb {
@@ -335,20 +336,20 @@ textarea.cyber-input-field {
   appearance: none;
   width: 14px;
   height: 14px;
-  background-color: var(--primary);
+  background-color: var(--slider-color, var(--primary));
   border: 1px solid #000;
   border-radius: 2px;
-  box-shadow: 0 0 6px var(--primary);
+  box-shadow: 0 0 6px var(--slider-color, var(--primary));
   cursor: pointer;
 }
 
 .cyber-slider-input::-moz-range-thumb {
   width: 14px;
   height: 14px;
-  background-color: var(--primary);
+  background-color: var(--slider-color, var(--primary));
   border: 1px solid #000;
   border-radius: 2px;
-  box-shadow: 0 0 6px var(--primary);
+  box-shadow: 0 0 6px var(--slider-color, var(--primary));
   cursor: pointer;
 }
 
@@ -403,6 +404,12 @@ textarea.cyber-input-field {
   pointer-events: none;
   z-index: 1;
   transition: all 0.08s ease;
+  left: var(--line-left, 0px);
+  top: var(--line-top, 0px);
+  width: var(--line-w, 1px);
+  height: var(--line-h, 40px);
+  background-color: var(--line-bg, var(--primary));
+  opacity: var(--line-opacity, 0.2);
 }
 
 .glitch-inner-content {

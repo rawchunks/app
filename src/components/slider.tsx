@@ -10,7 +10,6 @@ export interface Props {
   unit?: string;
   color?: string;
   className?: string;
-  style?: React.CSSProperties;
 }
 
 export const Slider: React.FC<Props> = ({
@@ -23,12 +22,11 @@ export const Slider: React.FC<Props> = ({
   unit = '',
   color = 'var(--primary)',
   className = '',
-  style = {},
 }) => {
   const percentage = ((value - min) / (max - min)) * 100;
 
   return (
-    <div className={`cyber-slider-wrap ${className}`} style={style}>
+    <div className={`cyber-slider-wrap ${className}`.trim()}>
       {(label || unit) && (
         <div className="cyber-slider-header">
           {label && <span className="cyber-slider-label">{label}</span>}
@@ -49,10 +47,12 @@ export const Slider: React.FC<Props> = ({
           onChange={(e) => onChange(parseFloat(e.target.value))}
           className="cyber-slider-input"
           style={{
-            background: `linear-gradient(90deg, ${color} ${percentage}%, rgba(255, 255, 255, 0.15) ${percentage}%)`,
-          }}
+            '--slider-color': color,
+            '--slider-pct': `${percentage}%`,
+          } as React.CSSProperties}
         />
       </div>
     </div>
   );
 };
+
