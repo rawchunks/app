@@ -20,8 +20,8 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/button";
+import { Badge } from "@/components/badge";
 import { useSelectedUserAddress } from "@/hooks/use-address";
 import { toast } from "sonner";
 
@@ -160,7 +160,7 @@ export function DisclaimerModal({
         <DialogHeader>
           <span className="dialog-side">
             <ShieldAlert className="icon icon-gold" aria-hidden="true" />
-            <Badge tone="gold">Compliance</Badge>
+            <Badge variant="primary">Compliance</Badge>
           </span>
           <DialogTitle>Generation pass-through &amp; liability</DialogTitle>
           <span className="dialog-version">VERSION {DISCLAIMER_POLICY_VERSION}</span>

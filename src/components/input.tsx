@@ -10,7 +10,6 @@ export interface Props {
   disabled?: boolean;
   type?: string;
   className?: string;
-  style?: React.CSSProperties;
 }
 
 export const Input: React.FC<Props> = ({
@@ -23,7 +22,6 @@ export const Input: React.FC<Props> = ({
   disabled = false,
   type = 'text',
   className = '',
-  style = {},
 }) => {
   return (
     <div className={`cyber-input-wrap ${className}`}>
@@ -36,7 +34,6 @@ export const Input: React.FC<Props> = ({
           placeholder={placeholder}
           onChange={(e) => onChange(e.target.value)}
           className="cyber-input-field"
-          style={style}
         />
       ) : (
         <input
@@ -46,7 +43,6 @@ export const Input: React.FC<Props> = ({
           placeholder={placeholder}
           onChange={(e) => onChange(e.target.value)}
           className="cyber-input-field"
-          style={style}
         />
       )}
     </div>

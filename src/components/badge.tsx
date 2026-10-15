@@ -17,7 +17,7 @@ export const Badge: React.FC<Props> = ({
   active = false,
   onClick,
   className = '',
-  style = {},
+  style,
 }) => {
   const resolvedVariant = variant === 'outline' ? 'muted' : variant === 'default' ? 'primary' : variant;
 

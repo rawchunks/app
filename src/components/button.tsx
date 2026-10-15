@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 
 export interface Props {
   children: React.ReactNode;
@@ -6,7 +6,6 @@ export interface Props {
   variant?: 'primary' | 'secondary' | 'accent' | 'ghost' | 'default' | 'outline' | 'destructive' | 'warning';
   size?: 'xs' | 'sm' | 'md' | 'lg';
   className?: string;
-  style?: React.CSSProperties;
   disabled?: boolean;
   href?: string;
   target?: string;
@@ -19,22 +18,12 @@ export const Button: React.FC<Props> = ({
   variant = 'primary',
   size = 'md',
   className = '',
-  style = {},
   disabled = false,
   href,
   target,
   title,
 }) => {
   const [pressed, setPressed] = useState(false);
-  const [pulse, setPulse] = useState(1);
-
-  useEffect(() => {
-    if (disabled) return;
-    const interval = setInterval(() => {
-      setPulse((p) => (p === 1 ? 1.015 : 1));
-    }, 1800);
-    return () => clearInterval(interval);
-  }, [disabled]);
 
   const resolvedVariant =
     variant === 'default' ? 'primary' :
@@ -50,11 +39,6 @@ export const Button: React.FC<Props> = ({
     className,
   ].filter(Boolean).join(' ');
 
-  const dynamicStyle: React.CSSProperties = {
-    transform: disabled ? undefined : `scale(${pulse})`,
-    ...style,
-  };
-
   if (href) {
     return (
       <a
@@ -62,7 +46,6 @@ export const Button: React.FC<Props> = ({
         target={target}
         title={title}
         className={combinedClassName}
-        style={dynamicStyle}
         onMouseDown={() => setPressed(true)}
         onMouseUp={() => setPressed(false)}
         onMouseLeave={() => setPressed(false)}
@@ -78,7 +61,6 @@ export const Button: React.FC<Props> = ({
       type="button"
       title={title}
       className={combinedClassName}
-      style={dynamicStyle}
       disabled={disabled}
       onClick={onClick}
       onMouseDown={() => setPressed(true)}
