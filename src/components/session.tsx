@@ -48,6 +48,7 @@ import { approveTempoSession } from "@/components/connector";
 import { Modal } from "@/components/modal";
 import { Button } from "@/components/button";
 import { Badge } from "@/components/badge";
+import { Tooltip } from "@/components/daw/Tooltip";
 import { cn } from "@/lib/utils";
 
 export { useSession, emptySession, type SessionState, type SessionContextValue };
@@ -501,30 +502,44 @@ export function SessionControl() {
 
   return (
     <>
-      <button
-        type="button"
-        aria-label={
+      <Tooltip
+        title={
           session.active
-            ? `Session active: $${formatUsdc(session.budgetRemaining)} ${assetSymbol}`
-            : "Open session controls"
+            ? `SESSION ACTIVE // $${formatUsdc(session.budgetRemaining)} ${assetSymbol}`
+            : "SESSION CONTROLS"
         }
-        className={cn(
-          "header-session-trigger",
-          session.active && "active",
-          isCreating && "is-creating",
-        )}
-        onClick={() => setOpen(true)}
+        description={
+          session.active
+            ? `${percentRemaining}% budget remaining · Click to manage`
+            : "Enable one-click micropayments"
+        }
+        position="bottom"
       >
-        <Zap className="session-trigger-icon" size={13} />
-        {session.active ? (
-          <>
-            <span className="session-trigger-amount">${formatUsdc(session.budgetRemaining)}</span>
-            <span className="session-active-indicator" />
-          </>
-        ) : (
-          <span className="session-trigger-label">SESSION</span>
-        )}
-      </button>
+        <button
+          type="button"
+          aria-label={
+            session.active
+              ? `Session active: $${formatUsdc(session.budgetRemaining)} ${assetSymbol}`
+              : "Open session controls"
+          }
+          className={cn(
+            "header-session-trigger",
+            session.active && "active",
+            isCreating && "is-creating",
+          )}
+          onClick={() => setOpen(true)}
+        >
+          <Zap className="session-trigger-icon" size={13} />
+          {session.active ? (
+            <>
+              <span className="session-trigger-amount">${formatUsdc(session.budgetRemaining)}</span>
+              <span className="session-active-indicator" />
+            </>
+          ) : (
+            <span className="session-trigger-label">SESSION</span>
+          )}
+        </button>
+      </Tooltip>
 
       <Modal isOpen={open} onClose={() => setOpen(false)} title="SESSION CONTROLS" size="md">
         {!displayAddress ? (
@@ -558,15 +573,16 @@ export function SessionControl() {
                     <span>{chainInfo?.name || session.network}</span>
                   </Badge>
                 </div>
-                <button
-                  type="button"
-                  className="session-hud-refresh-btn"
-                  onClick={() => void refreshSession()}
-                  title="Refresh live budget"
-                  aria-label="Refresh live budget"
-                >
-                  <RefreshCw size={12} />
-                </button>
+                <Tooltip title="Refresh Budget" position="bottom">
+                  <button
+                    type="button"
+                    className="session-hud-refresh-btn"
+                    onClick={() => void refreshSession()}
+                    aria-label="Refresh live budget"
+                  >
+                    <RefreshCw size={12} />
+                  </button>
+                </Tooltip>
               </div>
 
               <div className="session-hud-budget-block">
@@ -591,7 +607,7 @@ export function SessionControl() {
                 >
                   <div
                     className="session-meter-fill"
-                    style={{ width: `${percentRemaining}%` }}
+                    style={{ "--meter-pct": `${percentRemaining}%` } as React.CSSProperties}
                   />
                 </div>
                 <div className="session-meter-footer">
@@ -642,15 +658,16 @@ export function SessionControl() {
                     {session.keyId ? `${session.keyId.slice(0, 6)}...${session.keyId.slice(-4)}` : "—"}
                   </span>
                   {session.keyId && (
-                    <button
-                      type="button"
-                      className="session-icon-action-btn"
-                      onClick={handleCopyKey}
-                      title="Copy Key ID"
-                      aria-label="Copy Key ID"
-                    >
-                      {copiedKey ? <Check size={12} color="var(--primary)" /> : <Copy size={12} />}
-                    </button>
+                    <Tooltip title="Copy Key ID" position="top">
+                      <button
+                        type="button"
+                        className="session-icon-action-btn"
+                        onClick={handleCopyKey}
+                        aria-label="Copy Key ID"
+                      >
+                        {copiedKey ? <Check size={12} className="session-grid-item-value-primary" /> : <Copy size={12} />}
+                      </button>
+                    </Tooltip>
                   )}
                 </div>
                 <span className="session-grid-item-sub">Compose authorization token</span>

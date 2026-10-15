@@ -1720,6 +1720,7 @@ div[data-state][class*="tw-modal"] {
 }
 
 .session-meter-fill {
+  width: var(--meter-pct, 0%);
   height: 100%;
   background: linear-gradient(90deg, #00ccff, #00ff41);
   box-shadow: 0 0 8px rgba(0, 255, 65, 0.4);
