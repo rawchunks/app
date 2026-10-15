@@ -532,7 +532,7 @@ export const Board: React.FC<BoardProps> = ({
                 <div
                   key={sec}
                   className="board-ruler-marker"
-                  style={{ left: `${(sec / totalDuration) * 100}%` }}
+                  style={{ '--pos-pct': `${(sec / totalDuration) * 100}%` } as React.CSSProperties}
                 >
                   <span>{formatTime(sec).slice(0, 5)}</span>
                 </div>
@@ -540,7 +540,10 @@ export const Board: React.FC<BoardProps> = ({
             </div>
 
             {/* Playhead indicator on ruler */}
-            <div className="board-playhead-line" style={{ left: `${playheadPercent}%` }}>
+            <div
+              className="board-playhead-line"
+              style={{ '--pos-pct': `${playheadPercent}%` } as React.CSSProperties}
+            >
               <div className="board-playhead-cap" />
             </div>
           </div>
@@ -798,7 +801,15 @@ export const Board: React.FC<BoardProps> = ({
                 const shift = drag?.id === track.id ? drag.shift - (clip.startTime - (clip.origin ?? clip.startTime)) : 0;
                 const start = clip.startTime + shift, end = start + clip.duration;
                 const selected = selectedTrackId === take.id;
-                return <div key={`${track.id}:${clip.id ?? clip.startTime}`} className={`board-overlay ${selected ? 'selected' : ''} ${track.muted ? 'muted' : ''}`} style={{ left: `${start / totalDuration * 100}%`, width: `${(end - start) / totalDuration * 100}%`, color: track.color }}>
+                return <div
+                  key={`${track.id}:${clip.id ?? clip.startTime}`}
+                  className={`board-overlay ${selected ? 'selected' : ''} ${track.muted ? 'muted' : ''}`}
+                  style={{
+                    '--start-pct': `${start / totalDuration * 100}%`,
+                    '--width-pct': `${(end - start) / totalDuration * 100}%`,
+                    '--track-color': track.color,
+                  } as React.CSSProperties}
+                >
                   <button type="button" className="board-overlay-wave" aria-label={`Select Take #${take.take_number} section`} aria-pressed={selected}
                     onPointerDown={event => {
                       if (event.button !== 0 || pendingTake) return;
@@ -840,7 +851,11 @@ export const Board: React.FC<BoardProps> = ({
                   ><ClipWaveform clip={clip} color={track.color} /></button>
                 </div>;
               }))}
-              {selectedOverlay && selectedClip && <div className="board-overlay-actions" style={{ left: `clamp(0px, calc(${selectedClip.startTime / totalDuration * 100}%), max(0px, calc(100% - var(--board-overlay-actions-w))))` }} onClick={event => event.stopPropagation()}>
+              {selectedOverlay && selectedClip && <div
+                className="board-overlay-actions"
+                style={{ '--actions-left': `${selectedClip.startTime / totalDuration * 100}%` } as React.CSSProperties}
+                onClick={event => event.stopPropagation()}
+              >
                 <div className="board-overlay-player">
                   <Tooltip title="Play section" description="Play the selected original and take audio for this segment."><button type="button" aria-label={`Play selected audio for Take #${selectedTake!.take_number}`} disabled={!originalEnabled && selectedOverlay.muted} onClick={() => { void dawEngine.auditionLayer(['master',selectedOverlay.id],selectedClip.startTime,selectedClip.startTime + selectedClip.duration).catch(error => toast.error(error instanceof Error ? error.message : 'Could not play the section')); }}><Play size={10}/></button></Tooltip>
                   <div className="board-overlay-choices">
@@ -854,7 +869,10 @@ export const Board: React.FC<BoardProps> = ({
               </div>}
             </div>
 
-            <div className="board-playhead-line" style={{ left: `${playheadPercent}%` }} />
+            <div
+              className="board-playhead-line"
+              style={{ '--pos-pct': `${playheadPercent}%` } as React.CSSProperties}
+            />
           </div>
         </div>
 
@@ -1136,16 +1154,19 @@ export const Board: React.FC<BoardProps> = ({
                     <div
                       className="board-clip-container"
                       style={{
-                        left: `${(clip.startTime / totalDuration) * 100}%`,
-                        width: `${(clip.duration / totalDuration) * 100}%`,
-                      }}
+                        '--start-pct': `${(clip.startTime / totalDuration) * 100}%`,
+                        '--width-pct': `${(clip.duration / totalDuration) * 100}%`,
+                      } as React.CSSProperties}
                     >
                       <ClipWaveform clip={clip} color={brandColor} />
                     </div>
                   )}
 
                   {/* Playhead needle */}
-                  <div className="board-playhead-line" style={{ left: `${playheadPercent}%` }} />
+                  <div
+                    className="board-playhead-line"
+                    style={{ '--pos-pct': `${playheadPercent}%` } as React.CSSProperties}
+                  />
                 </div>
               </div>
             );
@@ -1350,9 +1371,9 @@ export const Board: React.FC<BoardProps> = ({
                         <div
                           className="board-clip-container"
                           style={{
-                            left: `${(takeRange.start / rowDuration) * 100}%`,
-                            width: `${((takeRange.end - takeRange.start) / rowDuration) * 100}%`,
-                          }}
+                            '--start-pct': `${(takeRange.start / rowDuration) * 100}%`,
+                            '--width-pct': `${((takeRange.end - takeRange.start) / rowDuration) * 100}%`,
+                          } as React.CSSProperties}
                         >
                           <ClipWaveform
                             clip={{
@@ -1373,8 +1394,8 @@ export const Board: React.FC<BoardProps> = ({
                     <div
                       className="board-playhead-line"
                       style={{
-                        left: `${Math.max(0, Math.min(100, (playhead / Math.max(totalDuration, interval(currentTake, duration).end)) * 100))}%`,
-                      }}
+                        '--pos-pct': `${Math.max(0, Math.min(100, (playhead / Math.max(totalDuration, interval(currentTake, duration).end)) * 100))}%`,
+                      } as React.CSSProperties}
                     />
                   </div>
                 </div>
@@ -1413,49 +1434,65 @@ export const Board: React.FC<BoardProps> = ({
                             </div>
 
                             <div className="board-track-controls">
-                              <button
-                                type="button"
-                                className={`board-btn-mini play ${isRowTakePlaying ? 'active playing' : ''}`}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (isRowTakePlaying) {
-                                    dawEngine.stopAuditionTake();
-                                  } else {
-                                    onSelectTrack(take.id);
-                                    const range = preview(take);
-                                    dawEngine.auditionTake(take.url, range.start, range.end, range.timelineStart);
-                                    useDawStore.setState({ auditionId: take.id });
-                                  }
-                                }}
+                              <Tooltip
+                                title={isRowTakePlaying ? 'Stop playback' : 'Play take'}
+                                description={`Preview Take #${take.take_number}`}
                               >
-                                {isRowTakePlaying ? <Square size={10} /> : <Play size={10} />}
-                              </button>
+                                <button
+                                  type="button"
+                                  className={`board-btn-mini play ${isRowTakePlaying ? 'active playing' : ''}`}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (isRowTakePlaying) {
+                                      dawEngine.stopAuditionTake();
+                                    } else {
+                                      onSelectTrack(take.id);
+                                      const range = preview(take);
+                                      dawEngine.auditionTake(take.url, range.start, range.end, range.timelineStart);
+                                      useDawStore.setState({ auditionId: take.id });
+                                    }
+                                  }}
+                                >
+                                  {isRowTakePlaying ? <Square size={10} /> : <Play size={10} />}
+                                </button>
+                              </Tooltip>
 
-                              <button
-                                type="button"
-                                aria-label={isTakeCurrentActive ? `Unmount Take #${take.take_number}` : `Use Take #${take.take_number} as base`}
-                                aria-pressed={isTakeCurrentActive}
-                                disabled={Boolean(pendingTake)}
-                                className={`board-btn-mini solo ${isTakeCurrentActive ? 'active' : ''}`}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setActiveCategoryTakeId(prev => ({ ...prev, [category]: take.id }));
-                                  toggleTake(take.id);
-                                }}
+                              <Tooltip
+                                title={isTakeCurrentActive ? 'Unmount take' : 'Set as Base'}
+                                description={
+                                  isTakeCurrentActive
+                                    ? 'Remove this take from playback. Keep the other mounted takes.'
+                                    : 'Mount this take alongside the current arrangement.'
+                                }
                               >
-                                {isTakeCurrentActive ? <Check size={11} /> : 'BASE'}
-                              </button>
+                                <button
+                                  type="button"
+                                  aria-label={isTakeCurrentActive ? `Unmount Take #${take.take_number}` : `Use Take #${take.take_number} as base`}
+                                  aria-pressed={isTakeCurrentActive}
+                                  disabled={Boolean(pendingTake)}
+                                  className={`board-btn-mini solo ${isTakeCurrentActive ? 'active' : ''}`}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setActiveCategoryTakeId(prev => ({ ...prev, [category]: take.id }));
+                                    toggleTake(take.id);
+                                  }}
+                                >
+                                  {isTakeCurrentActive ? <Check size={11} /> : 'BASE'}
+                                </button>
+                              </Tooltip>
 
-                              <button
-                                type="button"
-                                className="board-btn-mini delete"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  deleteTake(take.id);
-                                }}
-                              >
-                                <Trash2 size={10} />
-                              </button>
+                              <Tooltip title="Delete Take" description={`Permanently remove Take #${take.take_number}`}>
+                                <button
+                                  type="button"
+                                  className="board-btn-mini delete"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    deleteTake(take.id);
+                                  }}
+                                >
+                                  <Trash2 size={10} />
+                                </button>
+                              </Tooltip>
                             </div>
                           </div>
                         </div>
@@ -1476,9 +1513,9 @@ export const Board: React.FC<BoardProps> = ({
                               <div
                                 className="board-clip-container"
                                 style={{
-                                  left: `${(takeRange.start / rowDuration) * 100}%`,
-                                  width: `${((takeRange.end - takeRange.start) / rowDuration) * 100}%`,
-                                }}
+                                  '--start-pct': `${(takeRange.start / rowDuration) * 100}%`,
+                                  '--width-pct': `${((takeRange.end - takeRange.start) / rowDuration) * 100}%`,
+                                } as React.CSSProperties}
                               >
                                 <ClipWaveform
                                   clip={{
@@ -1497,8 +1534,8 @@ export const Board: React.FC<BoardProps> = ({
                           <div
                             className="board-playhead-line"
                             style={{
-                              left: `${Math.max(0, Math.min(100, (playhead / Math.max(totalDuration, interval(take, duration).end)) * 100))}%`,
-                            }}
+                              '--pos-pct': `${Math.max(0, Math.min(100, (playhead / Math.max(totalDuration, interval(take, duration).end)) * 100))}%`,
+                            } as React.CSSProperties}
                           />
                         </div>
                       </div>
