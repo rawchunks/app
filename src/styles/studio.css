@@ -754,20 +754,50 @@
   box-sizing: border-box;
 }
 
+.studio-param-modal-content .studio-field-label {
+  font-size: clamp(0.75rem, 1.8vw, 0.86rem);
+  font-weight: 700;
+}
+
 .studio-param-presets-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 5.25rem), 1fr));
+  gap: clamp(0.4rem, 1.2vw, 0.65rem);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.studio-param-presets-grid > .daw-tooltip-wrapper {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+}
+
+.studio-param-presets-grid .btn-base {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  min-height: clamp(2.15rem, 4.8vh, 2.55rem);
+  padding: clamp(0.35rem, 0.8vh, 0.5rem) clamp(0.45rem, 1.2vw, 0.75rem);
+  font-size: clamp(0.75rem, 1.8vw, 0.88rem);
+  letter-spacing: 0.04em;
+}
+
+.studio-param-presets-grid .btn-content-wrap {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .studio-param-presets-grid.keys {
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 3.1rem), 1fr));
+  gap: clamp(0.35rem, 1vw, 0.5rem);
 }
 
 .studio-param-presets-grid.languages-scroll {
-  max-height: 200px;
+  max-height: clamp(11rem, 32dvh, 16rem);
   overflow-y: auto;
-  padding-right: 4px;
+  padding-right: 0.25rem;
 }
 
 /* Language Modal Dedicated Responsive Styles */

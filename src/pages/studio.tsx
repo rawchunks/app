@@ -1246,26 +1246,31 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
       <Modal
         isOpen={activeModal === 'duration'}
         onClose={() => setActiveModal(null)}
-        title="SELECT AUDIO DURATION"
+        title="DURATION"
       >
         <div className="studio-param-modal-content">
           <div className="studio-param-presets-grid">
             {[30, 60, 90, 120, 180, 240, 300].map((sec) => (
-              <Button
+              <Tooltip
                 key={sec}
-                variant={audioDurationSeconds === sec ? 'primary' : 'ghost'}
-                size="sm"
-                onClick={() => setAudioDurationSeconds(sec)}
+                title={`${sec} SECONDS`}
+                description={sec >= 60 ? `${sec / 60} minute${sec > 60 ? 's' : ''}` : `${sec} seconds`}
               >
-                {sec}s ({sec / 60 >= 1 ? `${sec / 60}m` : `${sec}s`})
-              </Button>
+                <Button
+                  variant={audioDurationSeconds === sec ? 'primary' : 'ghost'}
+                  size="sm"
+                  onClick={() => setAudioDurationSeconds(sec)}
+                >
+                  {sec}s
+                </Button>
+              </Tooltip>
             ))}
           </div>
 
           <div className="studio-param-slider-wrap">
             <div className="studio-field-label">
-              <span>CUSTOM DURATION</span>
-              <span className="studio-highlight">{audioDurationSeconds ? `${audioDurationSeconds} SECONDS` : '120s (DEFAULT)'}</span>
+              <span>DURATION</span>
+              <span className="studio-highlight">{audioDurationSeconds ? `${audioDurationSeconds}s` : '120s'}</span>
             </div>
             <input
               type="range"
@@ -1287,7 +1292,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                 setActiveModal(null);
               }}
             >
-              RESET TO DEFAULT
+              RESET
             </Button>
             <Button
               variant="primary"
@@ -1304,33 +1309,34 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
       <Modal
         isOpen={activeModal === 'bpm'}
         onClose={() => setActiveModal(null)}
-        title="SELECT TEMPO (BPM)"
+        title="TEMPO"
       >
         <div className="studio-param-modal-content">
           <div className="studio-param-presets-grid">
             {[
-              { val: 80, label: '80 (DOWNTEMPO)' },
-              { val: 110, label: '110 (MIDTEMPO)' },
-              { val: 128, label: '128 (HOUSE)' },
-              { val: 140, label: '140 (TECHNO)' },
-              { val: 160, label: '160 (HARDCORE)' },
-              { val: 174, label: '174 (D&B)' },
+              { val: 80, label: '80 BPM', desc: 'Downtempo' },
+              { val: 110, label: '110 BPM', desc: 'Midtempo' },
+              { val: 128, label: '128 BPM', desc: 'House' },
+              { val: 140, label: '140 BPM', desc: 'Techno' },
+              { val: 160, label: '160 BPM', desc: 'Hardcore' },
+              { val: 174, label: '174 BPM', desc: 'Drum & Bass' },
             ].map((p) => (
-              <Button
-                key={p.val}
-                variant={bpm === p.val ? 'primary' : 'ghost'}
-                size="sm"
-                onClick={() => setBpm(p.val)}
-              >
-                {p.label}
-              </Button>
+              <Tooltip key={p.val} title={p.label} description={p.desc}>
+                <Button
+                  variant={bpm === p.val ? 'primary' : 'ghost'}
+                  size="sm"
+                  onClick={() => setBpm(p.val)}
+                >
+                  {p.label}
+                </Button>
+              </Tooltip>
             ))}
           </div>
 
           <div className="studio-param-slider-wrap">
             <div className="studio-field-label">
-              <span>EXACT TEMPO</span>
-              <span className="studio-highlight">{bpm ? `${bpm} BPM` : 'AUTO (FROM PROMPT)'}</span>
+              <span>TEMPO</span>
+              <span className="studio-highlight">{bpm ? `${bpm} BPM` : 'AUTO'}</span>
             </div>
             <input
               type="range"
@@ -1352,7 +1358,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                 setActiveModal(null);
               }}
             >
-              AUTO (NONE)
+              AUTO
             </Button>
             <Button
               variant="primary"
@@ -1369,10 +1375,10 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
       <Modal
         isOpen={activeModal === 'key'}
         onClose={() => setActiveModal(null)}
-        title="SELECT KEY & SCALE"
+        title="KEY"
       >
         <div className="studio-param-modal-content">
-          <div className="studio-field-label">ROOT NOTE</div>
+          <div className="studio-field-label">ROOT</div>
           <div className="studio-param-presets-grid keys">
             {['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'].map((n) => (
               <Button
@@ -1389,7 +1395,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
             ))}
           </div>
 
-          <div className="studio-field-label studio-field-label-spaced">SCALE MODE</div>
+          <div className="studio-field-label studio-field-label-spaced">SCALE</div>
           <div className="studio-param-presets-grid">
             {['major', 'minor', 'dorian', 'phrygian', 'mixolydian'].map((m) => (
               <Button
@@ -1410,8 +1416,8 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
 
           <div className="studio-param-slider-wrap">
             <div className="studio-field-label">
-              <span>TARGET KEY</span>
-              <span className="studio-highlight">{keyScale ? keyScale.toUpperCase() : 'AUTO (DETECT FROM PROMPT)'}</span>
+              <span>KEY</span>
+              <span className="studio-highlight">{keyScale ? keyScale.toUpperCase() : 'AUTO'}</span>
             </div>
           </div>
 
@@ -1425,7 +1431,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                 setActiveModal(null);
               }}
             >
-              AUTO / CLEAR
+              AUTO
             </Button>
             <Button
               variant="primary"
