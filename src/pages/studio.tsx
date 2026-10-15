@@ -32,7 +32,6 @@ import {
 export interface Props {
   onEditSong?: (song: Song) => void;
   className?: string;
-  style?: React.CSSProperties;
 }
 
 const TAGS = [
@@ -48,7 +47,7 @@ const TAGS = [
   'NEURAL GLITCH',
 ];
 
-export const Studio: React.FC<Props> = ({ onEditSong, className = '', style = {} }) => {
+export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
   const [state, setState] = useState<State>(store.getState());
   const [title, setTitle] = useState('');
   const [prompt, setPrompt] = useState('');
@@ -587,10 +586,9 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '', style = {}
     <div
       className={`studio-container ${className}`}
       data-pocket={mobilePocket}
-      style={style}
     >
       {/* Mobile Pocket Tab Switcher */}
-      {state.tracks.length > 0 && <div className="studio-pocket-bar">
+      <div className="studio-pocket-bar">
         <button
           type="button"
           className={`studio-pocket-btn ${mobilePocket === 'create' ? 'active' : ''}`}
@@ -605,21 +603,35 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '', style = {}
         >
           <span>FEED ({state.tracks.length})</span>
         </button>
-      </div>}
+      </div>
 
       {/* Control Configuration Panel */}
       <div className="studio-panel-config panel">
         <div className="studio-panel-header">
           <Glitch text="STUDIO_CREATE" />
-          <Badge variant={model === 'turbo' ? 'primary' : 'secondary'}>
-            {model === 'turbo' ? 'FAST' : 'STUDIO MASTER'}
-          </Badge>
+          <div className="studio-mode-badge-switch" role="group" aria-label="Generation Mode">
+            {(generation?.modes
+              .slice()
+              .sort((a, b) => Number(b.id === 'turbo') - Number(a.id === 'turbo')) ?? [
+              { id: 'turbo' },
+              { id: 'sft' },
+            ]).map((mode) => {
+              const isFast = mode.id === 'turbo';
+              const isActive = model === mode.id;
+              return (
+                <button
+                  key={mode.id}
+                  type="button"
+                  className={`studio-mode-badge-btn ${isFast ? 'mode-fast' : 'mode-master'} ${isActive ? 'active' : ''}`}
+                  onClick={() => setModel(mode.id)}
+                >
+                  {isFast ? 'FAST' : 'MASTER'}
+                </button>
+              );
+            })}
+          </div>
         </div>
-
-        <div className="studio-engine-switcher">
-          {generation?.modes.slice().sort((a, b) => Number(b.id === 'turbo') - Number(a.id === 'turbo')).map(mode => <Button key={mode.id} variant={model === mode.id ? (mode.id === 'turbo' ? 'primary' : 'secondary') : 'ghost'} size="sm" onClick={() => setModel(mode.id)}>{mode.id === 'turbo' ? 'FAST' : 'STUDIO MASTER'}</Button>)}
-          {options.error && <span role="alert">{options.error.message}</span>}
-        </div>
+        {options.error && <span role="alert">{options.error.message}</span>}
 
         {/* Self-Contained Accordion (Strictly ONE open at a time) */}
         <div className="studio-accordion">
@@ -777,7 +789,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '', style = {}
                 </div>
 
                 {/* Prompt Input */}
-                <div className="studio-field-group">
+                <div className="studio-field-group studio-field-group-prompt">
                   <label className="studio-field-label">
                     <span>PROMPT</span>
                     <span className="studio-field-optional">REQUIRED</span>
@@ -791,7 +803,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '', style = {}
                 </div>
 
                 {/* Lyrics Input */}
-                <div className="studio-field-group">
+                <div className="studio-field-group studio-field-group-lyrics">
                   <div className="studio-lyrics-row">
                     <label className="studio-field-label studio-field-label-flush">
                       <span>LYRICS</span>
