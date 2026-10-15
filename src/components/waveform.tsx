@@ -689,9 +689,15 @@ export const Waveform: React.FC<Props> = ({
       if (targetTrackId !== 'master') {
         dawEngine.auditionTrack(targetTrackId, targetTime);
       } else {
-        dawEngine.stopAuditionTake();
+        const storeState = useDawStore.getState();
+        storeState.tracks.forEach((t) => {
+          if (t.id !== 'master' && t.solo) {
+            storeState.updateTrackMixer(t.id, { solo: false });
+          }
+        });
+        dawEngine.stopAuditionTake(true);
         dawEngine.seek(targetTime);
-        void dawEngine.startTransport();
+        void dawEngine.startTransport(false);
       }
     }
   };

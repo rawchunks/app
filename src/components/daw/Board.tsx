@@ -225,17 +225,38 @@ export const Board: React.FC<BoardProps> = ({
     }
   };
 
-  // Timeline seek on click
-  const handleTimelineClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const clickX = e.clientX - rect.left;
-    const ratio = Math.max(0, Math.min(1, clickX / rect.width));
+  // Helper to clear any soloed non-master tracks so Master plays all instruments together
+  const clearNonMasterSolos = () => {
+    const currentTracks = useDawStore.getState().tracks;
+    currentTracks.forEach((t) => {
+      if (t.id !== 'master' && t.solo) {
+        updateTrackMixer(t.id, { solo: false });
+      }
+    });
+  };
+
+  // Timeline seek & interactive scrubbing on ruler
+  const isScrubbingRulerRef = useRef(false);
+  const scrubRulerAtClientX = (el: HTMLElement, clientX: number, startIfPaused = false) => {
+    const rect = el.getBoundingClientRect();
+    const clickX = clientX - rect.left;
+    const ratio = rect.width > 0 ? Math.max(0, Math.min(1, clickX / rect.width)) : 0;
     const targetTime = ratio * totalDuration;
-    dawEngine.seek(targetTime);
-    setPlayhead(targetTime);
-    if (!isPlaying) {
-      void dawEngine.startTransport();
+    if (startIfPaused) {
+      onSelectTrack('master');
+      clearNonMasterSolos();
+      dawEngine.stopAuditionTake(true);
+      dawEngine.seek(targetTime);
+      setPlayhead(targetTime);
+      void dawEngine.startTransport(false);
+    } else {
+      dawEngine.seek(targetTime);
+      setPlayhead(targetTime);
     }
+  };
+
+  const handleTimelineClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    scrubRulerAtClientX(e.currentTarget, e.clientX, true);
   };
 
   const playExtractedTakeAtClick = (take: typeof takes[number], e?: React.MouseEvent<HTMLElement>) => {
@@ -442,7 +463,28 @@ export const Board: React.FC<BoardProps> = ({
             <span>I/O</span>
           </div>
 
-          <div className="board-ruler-timeline" onClick={handleTimelineClick}>
+          <div
+            className="board-ruler-timeline"
+            onClick={handleTimelineClick}
+            onPointerDown={(e) => {
+              if (e.button !== 0) return;
+              isScrubbingRulerRef.current = true;
+              e.currentTarget.setPointerCapture(e.pointerId);
+              scrubRulerAtClientX(e.currentTarget, e.clientX, false);
+            }}
+            onPointerMove={(e) => {
+              if (!isScrubbingRulerRef.current) return;
+              scrubRulerAtClientX(e.currentTarget, e.clientX, false);
+            }}
+            onPointerUp={(e) => {
+              if (!isScrubbingRulerRef.current) return;
+              isScrubbingRulerRef.current = false;
+              e.currentTarget.releasePointerCapture(e.pointerId);
+            }}
+            onPointerCancel={() => {
+              isScrubbingRulerRef.current = false;
+            }}
+          >
             <div className="board-ruler-ticks">
               {tickMarkers.map((sec) => (
                 <div
@@ -469,8 +511,9 @@ export const Board: React.FC<BoardProps> = ({
           className={`board-row master ${takes.some(take => take.provenance?.region) ? 'expanded' : ''}`}
           onClick={() => {
             onSelectTrack('master');
-            dawEngine.stopAuditionTake();
-            void dawEngine.startTransport();
+            clearNonMasterSolos();
+            dawEngine.stopAuditionTake(true);
+            void dawEngine.startTransport(false);
           }}
         >
           {/* Left Track Header */}
@@ -488,8 +531,9 @@ export const Board: React.FC<BoardProps> = ({
                       } else {
                         onSelectTrack('master');
                       }
-                      dawEngine.stopAuditionTake();
-                      void dawEngine.startTransport();
+                      clearNonMasterSolos();
+                      dawEngine.stopAuditionTake(true);
+                      void dawEngine.startTransport(false);
                     }}
                   >
                     MST
@@ -527,11 +571,12 @@ export const Board: React.FC<BoardProps> = ({
                     onClick={(e) => {
                       e.stopPropagation();
                       onSelectTrack('master');
-                      dawEngine.stopAuditionTake();
+                      clearNonMasterSolos();
+                      dawEngine.stopAuditionTake(true);
                       if (isMasterPlaying) {
                         dawEngine.pauseTransport();
                       } else {
-                        void dawEngine.startTransport().catch(error => toast.error(error instanceof Error ? error.message : 'Could not play the arrangement'));
+                        void dawEngine.startTransport(false).catch(error => toast.error(error instanceof Error ? error.message : 'Could not play the arrangement'));
                       }
                     }}
                   >
