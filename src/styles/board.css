@@ -175,26 +175,34 @@
   pointer-events: none;
 }
 
-/* Unified Track Segment Row */
-.board-row {
+/* Unified Track Segment Row - Master, Lanes, and Extracts grow naturally if badges wrap */
+.board-row,
+.board-row.has-versions {
   display: flex;
-  height: var(--board-row-h);
+  align-items: stretch;
+  height: auto;
   min-height: var(--board-row-h);
+  max-height: none;
   border-bottom: 1px solid var(--border);
   background: var(--surface);
   position: relative;
   transition: background 0.15s ease;
   box-sizing: border-box;
+  flex-shrink: 0;
 }
 
 .board-row.master {
-  height: var(--board-master-row-h);
+  display: flex;
+  align-items: stretch;
+  height: auto;
   min-height: var(--board-master-row-h);
-}
-
-.board-row.has-versions {
-  height: clamp(82px, 10.5vh, 104px);
-  min-height: clamp(82px, 10.5vh, 104px);
+  max-height: none;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  position: relative;
+  transition: background 0.15s ease;
+  box-sizing: border-box;
+  flex-shrink: 0;
 }
 
 .board-row:hover {
@@ -223,23 +231,31 @@
 .board-track-header {
   width: var(--board-header-w);
   min-width: var(--board-header-w);
-  height: 100%;
+  height: auto;
+  min-height: var(--board-row-h);
   border-right: 1px solid var(--border);
   background: var(--surface-elevated);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  padding: clamp(6px, 0.8vh, 8px) clamp(8px, 1vw, 12px);
+  padding: 5px 7px;
+  gap: 4px;
   box-sizing: border-box;
   flex-shrink: 0;
   user-select: none;
+  overflow: visible;
+}
+
+.board-row.master .board-track-header {
+  min-height: var(--board-master-row-h);
 }
 
 .board-track-header-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 6px;
+  flex-wrap: nowrap;
+  gap: clamp(0.15rem, 0.35vw, 0.3rem);
   width: 100%;
   min-width: 0;
 }
@@ -247,21 +263,58 @@
 .board-track-meta {
   display: flex;
   align-items: center;
-  gap: 6px;
+  flex-wrap: nowrap;
+  gap: clamp(0.15rem, 0.35vw, 0.25rem);
   min-width: 0;
-  flex: 1 1 0;
-  overflow: hidden;
+  flex: 0 0 auto;
+  overflow: visible;
 }
 
 .board-track-badge {
-  font-size: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--badge-track-font, calc(var(--badge-mst-font) * 0.95));
   font-weight: 900;
-  padding: 1px 5px;
-  border-radius: 2px;
+  height: var(--badge-track-h, calc(var(--badge-mst-h) * 0.95));
+  min-height: var(--badge-track-h, calc(var(--badge-mst-h) * 0.95));
+  padding: 0 clamp(5px, 0.48vw, 7px);
+  border-radius: 3px;
   background: var(--accent);
   color: #000;
   flex-shrink: 0;
   font-family: var(--font-family);
+  line-height: 1.1;
+  letter-spacing: 0.02em;
+  box-sizing: border-box;
+  white-space: nowrap;
+}
+
+/* Tier 1 (100%): Master 'MST' Badge */
+.board-track-badge.board-badge-mst {
+  height: var(--badge-mst-h);
+  min-height: var(--badge-mst-h);
+  font-size: var(--badge-mst-font);
+  padding: 0 clamp(6px, 0.55vw, 8px);
+  font-weight: 900;
+  letter-spacing: 0.03em;
+}
+
+/* Tier 2 (95% of MST): Track Row Leading Badges ('stems' & 'extracted' categories) */
+.board-track-badge.board-badge-track {
+  height: var(--badge-track-h);
+  min-height: var(--badge-track-h);
+  font-size: var(--badge-track-font);
+  padding: 0 clamp(5px, 0.48vw, 7px);
+}
+
+/* Tier 3 (90% of MST): Sub-badges ('stems'/'extracts' inside MST, 'versions' everywhere) */
+.board-track-badge.board-badge-sub,
+.board-take-badge-pill.board-badge-sub {
+  height: var(--badge-sub-h);
+  min-height: var(--badge-sub-h);
+  font-size: var(--badge-sub-font);
+  padding: 0 clamp(4px, 0.42vw, 6px);
 }
 
 .board-track-name {
@@ -279,25 +332,33 @@
 .board-track-controls {
   display: flex;
   align-items: center;
-  gap: 4px;
+  flex-wrap: nowrap;
+  gap: clamp(2px, 0.3vw, 4px);
   flex-shrink: 0;
+  margin-left: auto;
+  overflow: visible;
 }
 
 .board-btn-mini {
-  background: transparent;
-  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-bright);
   color: var(--text-dim);
-  border-radius: 2px;
-  padding: 2px 5px;
-  font-size: 9px;
+  border-radius: 3px;
+  height: var(--badge-track-h);
+  min-height: var(--badge-track-h);
+  min-width: var(--badge-track-h);
+  padding: 0 clamp(4px, 0.38vw, 6px);
+  font-size: var(--badge-track-font);
   font-family: var(--font-family);
-  font-weight: 700;
+  font-weight: 800;
   cursor: pointer;
-  line-height: 1;
+  line-height: 1.1;
   transition: all 0.15s ease;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
+  box-sizing: border-box;
 }
 
 .board-btn-mini:hover {
@@ -345,7 +406,7 @@
 .board-track-header-bottom {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   font-size: 9px;
   color: var(--text-secondary);
 }
@@ -382,7 +443,7 @@
   font-size: 9px;
   font-family: var(--font-family);
   color: var(--text-dim);
-  width: 28px;
+  min-width: 3ch;
   text-align: right;
   flex-shrink: 0;
 }

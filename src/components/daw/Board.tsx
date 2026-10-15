@@ -194,6 +194,39 @@ export const Board: React.FC<BoardProps> = ({
     ? masterLanes.filter(track => track.name.toLowerCase() !== 'vocals').map(track => track.id)
     : [selectedTrackId];
 
+  const formatTrackBadgeCode = (trackItem: typeof tracks[number]) => {
+    const raw = (trackItem.name || trackItem.type || '').trim();
+    const numMatch = raw.match(/\s+(\d+)$/);
+    const base = raw.replace(/\s+\d+$/, '').toLowerCase();
+    const codeMap: Record<string, string> = {
+      vocals: 'VOC',
+      'backing vocals': 'BGV',
+      backing_vocals: 'BGV',
+      drums: 'DRM',
+      'drum seq': 'DRM',
+      sequencer: 'DRM',
+      bass: 'BAS',
+      guitar: 'GTR',
+      keyboard: 'KEY',
+      keys: 'KEY',
+      'keys synth': 'KEY',
+      pianoroll: 'KEY',
+      strings: 'STR',
+      synth: 'SYN',
+      woodwinds: 'WIN',
+      brass: 'BRS',
+      percussion: 'PER',
+      fx: 'FX',
+      sample: 'SMP',
+      sampler: 'SMP',
+      strudel: 'COD',
+      code: 'COD',
+      'live code': 'COD',
+    };
+    const code = codeMap[base] || codeMap[trackItem.type] || base.slice(0, 3).toUpperCase();
+    return numMatch ? `${code} ${numMatch[1]}` : code;
+  };
+
   // Format seconds to mm:ss.ms
   const formatTime = (sec: number) => {
     const m = Math.floor(sec / 60);
@@ -531,7 +564,7 @@ export const Board: React.FC<BoardProps> = ({
                 <Tooltip title="Master" description={song.title}>
                   <button
                     type="button"
-                    className={`board-track-badge board-track-badge-btn ${masterRestyleTakes.length > 0 && !masterTrack?.activeVersionTakeId ? 'selected' : ''}`}
+                    className={`board-track-badge board-badge-mst board-track-badge-btn ${masterRestyleTakes.length > 0 && (!masterTrack?.activeVersionTakeId || masterTrack.activeVersionTakeId === 'MST') ? 'selected' : ''}`}
                     onClick={(e) => {
                       e.stopPropagation();
                       if (masterRestyleTakes.length > 0) {
@@ -547,28 +580,6 @@ export const Board: React.FC<BoardProps> = ({
                     MST
                   </button>
                 </Tooltip>
-                {masterRestyleTakes.map((take, idx) => {
-                  const isVersionActive = masterTrack?.activeVersionTakeId === take.id;
-                  return (
-                    <Tooltip
-                      key={take.id}
-                      title={`Restyle #TK${idx + 1}`}
-                      description={take.prompt || `Full-song Restyle Take #${take.take_number}`}
-                    >
-                      <button
-                        type="button"
-                        aria-pressed={isVersionActive}
-                        className={`board-take-badge-pill ${isVersionActive ? 'selected mix-active' : ''}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void selectMasterVersion(take.id);
-                        }}
-                      >
-                        #TK{idx + 1}
-                      </button>
-                    </Tooltip>
-                  );
-                })}
               </div>
 
               <div className="board-track-controls">
@@ -617,7 +628,7 @@ export const Board: React.FC<BoardProps> = ({
                     S
                   </button>
                 </Tooltip>
-                {masterTrack?.activeVersionTakeId && (
+                {masterTrack?.activeVersionTakeId && masterTrack.activeVersionTakeId !== 'MST' && (
                   <>
                     <Tooltip title="Merge Restyle" description="Commit this Restyle version as the new Master.">
                       <button
@@ -627,7 +638,7 @@ export const Board: React.FC<BoardProps> = ({
                         disabled={Boolean(pendingTake)}
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (masterTrack.activeVersionTakeId) {
+                          if (masterTrack.activeVersionTakeId && masterTrack.activeVersionTakeId !== 'MST') {
                             void activateTake(masterTrack.activeVersionTakeId, 'merge');
                           }
                         }}
@@ -643,7 +654,7 @@ export const Board: React.FC<BoardProps> = ({
                         disabled={Boolean(pendingTake)}
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (masterTrack.activeVersionTakeId) {
+                          if (masterTrack.activeVersionTakeId && masterTrack.activeVersionTakeId !== 'MST') {
                             void deleteTake(masterTrack.activeVersionTakeId);
                           }
                         }}
@@ -669,18 +680,67 @@ export const Board: React.FC<BoardProps> = ({
               </div>
             </div>
 
-            {separated.length > 0 && <div className="board-master-badges" aria-label="Instrument controls">
-              {separated.map(track => <Tooltip key={track.id} title={track.name} description={`Select and listen to ${track.name.toLowerCase()} in the master.`}>
-                <button type="button" className={`board-track-badge ${selectedTrackId === track.id ? 'selected' : ''}`} style={{ background: getStemColor(track.name), color: '#000' }} aria-label={`Select ${track.name} in master`} aria-pressed={selectedTrackId === track.id} onClick={event => { event.stopPropagation(); setMasterExpanded(true); onSelectTrack(track.id); dawEngine.auditionTrack(track.id); }}>
-                  {track.name.slice(0, 3).toUpperCase()}
-                </button>
-              </Tooltip>)}
-            </div>}
-            {overlays.length > 0 && <div className="board-master-badges" aria-label="Mounted layer controls">
-              {overlays.map(track => { const take = takes.find(take => take.id === track.id)!; return <Tooltip key={track.id} title={`Take #${take.take_number}`} description="Enable or silence this mounted section. It stays mounted until removed in Extracted.">
-                <button type="button" className={`board-track-badge ${selectedTrackId === track.id ? 'selected' : ''}`} style={{ background: track.color, color: '#000', opacity: track.muted ? .35 : 1 }} aria-label={`Toggle Take #${take.take_number} in master`} aria-pressed={!track.muted} onClick={event => { event.stopPropagation(); updateTrackMixer(track.id, { muted: !track.muted }); setSelection({ start: track.clips[0].startTime, end: track.clips[0].startTime + track.clips[0].duration }); onSelectTrack(track.id); }}>TK#{take.take_number}</button>
-              </Tooltip>; })}
-            </div>}
+            {masterRestyleTakes.length > 0 && (
+              <div className="board-master-badges" aria-label="Restyle version controls">
+                {masterRestyleTakes.map((take, idx) => {
+                  const isVersionActive = masterTrack?.activeVersionTakeId === take.id;
+                  return (
+                    <Tooltip
+                      key={take.id}
+                      title={`Restyle #TK${idx + 1}`}
+                      description={take.prompt || `Full-song Restyle Take #${take.take_number}`}
+                    >
+                      <button
+                        type="button"
+                        aria-pressed={isVersionActive}
+                        className={`board-take-badge-pill board-badge-sub ${isVersionActive ? 'selected mix-active' : ''}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void selectMasterVersion(take.id);
+                        }}
+                      >
+                        #TK{idx + 1}
+                      </button>
+                    </Tooltip>
+                  );
+                })}
+              </div>
+            )}
+            {(separated.length > 0 || overlays.length > 0) && (
+              <div className="board-master-badges" aria-label="Instrument and mounted layer controls">
+                {separated.map(track => (
+                  <Tooltip key={track.id} title={track.name} description={`Select and listen to ${track.name.toLowerCase()} in the master.`}>
+                    <button
+                      type="button"
+                      className={`board-track-badge board-badge-sub board-track-badge-colored ${selectedTrackId === track.id ? 'selected' : ''}`}
+                      style={{ '--track-color': getStemColor(track.stemType || track.name || track.type) } as React.CSSProperties}
+                      aria-label={`Select ${track.name} in master`}
+                      aria-pressed={selectedTrackId === track.id}
+                      onClick={event => { event.stopPropagation(); setMasterExpanded(true); onSelectTrack(track.id); dawEngine.auditionTrack(track.id); }}
+                    >
+                      {formatTrackBadgeCode(track)}
+                    </button>
+                  </Tooltip>
+                ))}
+                {overlays.map(track => {
+                  const take = takes.find(take => take.id === track.id)!;
+                  return (
+                    <Tooltip key={track.id} title={`Take #${take.take_number}`} description="Enable or silence this mounted section. It stays mounted until removed in Extracted.">
+                      <button
+                        type="button"
+                        className={`board-track-badge board-badge-sub board-track-badge-colored ${selectedTrackId === track.id ? 'selected' : ''} ${track.muted ? 'is-muted' : ''}`}
+                        style={{ '--track-color': track.color } as React.CSSProperties}
+                        aria-label={`Toggle Take #${take.take_number} in master`}
+                        aria-pressed={!track.muted}
+                        onClick={event => { event.stopPropagation(); updateTrackMixer(track.id, { muted: !track.muted }); setSelection({ start: track.clips[0].startTime, end: track.clips[0].startTime + track.clips[0].duration }); onSelectTrack(track.id); }}
+                      >
+                        TK#{take.take_number}
+                      </button>
+                    </Tooltip>
+                  );
+                })}
+              </div>
+            )}
 
             <div className="board-track-header-bottom">
               <div className="board-fader-wrap">
@@ -855,15 +915,12 @@ export const Board: React.FC<BoardProps> = ({
                 <div className="board-track-header">
                   <div className="board-track-header-top">
                     <div className="board-track-meta">
-                      <span
-                        className="board-track-badge"
-                        style={{ background: brandColor, color: '#000' }}
-                      >
-                        {trackItem.name.slice(0, 3).toUpperCase()}
-                      </span>
                       <Tooltip title={trackItem.name} description={`Stem channel: ${trackItem.name}`}>
-                        <span className="board-track-name">
-                          {trackItem.name}
+                        <span
+                          className="board-track-badge board-badge-track board-track-badge-colored"
+                          style={{ '--track-color': brandColor } as React.CSSProperties}
+                        >
+                          {formatTrackBadgeCode(trackItem)}
                         </span>
                       </Tooltip>
                     </div>
@@ -936,7 +993,7 @@ export const Board: React.FC<BoardProps> = ({
                             <button
                               type="button"
                               aria-pressed={!activeLayerTakeId}
-                              className={`board-take-badge-pill ${!activeLayerTakeId ? 'selected mix-active' : ''}`}
+                              className={`board-take-badge-pill board-badge-sub ${!activeLayerTakeId ? 'selected mix-active' : ''}`}
                               onClick={() => void selectLaneVersion(trackItem.id, null)}
                             >
                               ORG
@@ -954,7 +1011,7 @@ export const Board: React.FC<BoardProps> = ({
                               <button
                                 type="button"
                                 aria-pressed={isVersionActive}
-                                className={`board-take-badge-pill ${isVersionActive ? 'selected mix-active' : ''}`}
+                                className={`board-take-badge-pill board-badge-sub ${isVersionActive ? 'selected mix-active' : ''}`}
                                 onClick={() => void selectLaneVersion(trackItem.id, take.id)}
                               >
                                 #{idx + 1}
@@ -1118,7 +1175,7 @@ export const Board: React.FC<BoardProps> = ({
                           title={categoryTitle}
                           description={`Take #${currentTake.take_number} • ${currentTake.prompt || 'Session take'}`}
                         ><span
-                          className={`board-track-badge board-track-badge-category ${isCurrentActive ? 'active' : ''}`}
+                          className={`board-track-badge board-badge-track board-track-badge-category ${isCurrentActive ? 'active' : ''}`}
                           aria-label={`${categoryTitle}, Take #${currentTake.take_number}`}
                         >
                           {categoryTitle}
@@ -1203,7 +1260,7 @@ export const Board: React.FC<BoardProps> = ({
                               key={take.id}
                               type="button"
                               aria-pressed={isTakeSelected}
-                              className={`board-take-badge-pill ${isTakeSelected ? 'selected' : ''} ${isTakeMixActive ? 'mix-active' : ''}`}
+                              className={`board-take-badge-pill board-badge-sub ${isTakeSelected ? 'selected' : ''} ${isTakeMixActive ? 'mix-active' : ''}`}
                               onClick={(e) => {
                                 e.stopPropagation();
                                 setActiveCategoryTakeId((prev) => ({ ...prev, [category]: take.id }));
@@ -1302,7 +1359,7 @@ export const Board: React.FC<BoardProps> = ({
                           <div className="board-track-header-top">
                             <div className="board-track-meta">
                               <Tooltip title={`${categoryTitle} · Take #${take.take_number}`} description={take.prompt || 'Session take'}><span
-                                className={`board-track-badge board-track-badge-take ${isTakeCurrentActive ? 'active' : ''}`}
+                                className={`board-track-badge board-badge-track board-track-badge-take ${isTakeCurrentActive ? 'active' : ''}`}
                                 aria-label={`${categoryTitle}, Take #${take.take_number}`}
                               >
                                 #{take.take_number}
