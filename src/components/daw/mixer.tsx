@@ -111,14 +111,14 @@ const ChannelStrip: React.FC<ChannelStripProps> = ({ track, isMaster = false }) 
 
       {/* Comprehensive Real-time Section Processor (Master Only when section is selected) */}
       {isMaster && selection && (
-        <div className="mixer-section-group" style={{ borderColor: 'var(--warning)', background: 'rgba(255, 170, 0, 0.08)' }}>
-          <div className="mixer-group-label" style={{ color: 'var(--warning)', fontWeight: 800 }}>
+        <div className="mixer-section-group mixer-section-group-warning">
+          <div className="mixer-group-label mixer-group-label-warning">
             SECTION [{selection.start.toFixed(1)}s – {selection.end.toFixed(1)}s]
           </div>
 
           <div className="mixer-tone-controls">
             <div className="mixer-knob-cell">
-              <span className="mixer-knob-name" style={{ color: 'var(--warning)' }}>TRIM</span>
+              <span className="mixer-knob-name mixer-knob-warning">TRIM</span>
               <input
                 type="range"
                 className="mixer-rotary-slider"
@@ -131,7 +131,7 @@ const ChannelStrip: React.FC<ChannelStripProps> = ({ track, isMaster = false }) 
                   setSectionGain(val);
                 }}
               />
-              <span className="mixer-knob-readout" style={{ color: 'var(--warning)' }}>
+              <span className="mixer-knob-readout mixer-knob-warning">
                 {sectionGain > 0 ? `+${sectionGain}` : sectionGain} dB
               </span>
             </div>
@@ -194,21 +194,10 @@ const ChannelStrip: React.FC<ChannelStripProps> = ({ track, isMaster = false }) 
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: '4px', marginTop: '6px', flexWrap: 'wrap' }}>
+          <div className="mixer-section-actions">
             <button
               type="button"
-              className="mixer-audition-btn"
-              style={{
-                flex: '1 1 auto',
-                fontSize: '9px',
-                padding: '3px 6px',
-                background: isPlaying ? 'var(--warning)' : 'rgba(255, 170, 0, 0.15)',
-                color: isPlaying ? '#000' : 'var(--warning)',
-                border: '1px solid var(--warning)',
-                borderRadius: '3px',
-                cursor: 'pointer',
-                fontWeight: 700,
-              }}
+              className={`mixer-audition-btn mixer-audition-btn-warning ${isPlaying ? 'playing' : ''}`}
               onClick={() => {
                 if (isPlaying) {
                   dawEngine.pauseTransport();
@@ -224,18 +213,7 @@ const ChannelStrip: React.FC<ChannelStripProps> = ({ track, isMaster = false }) 
 
             <button
               type="button"
-              className="mixer-audition-btn"
-              style={{
-                flex: '1 1 auto',
-                fontSize: '9px',
-                padding: '3px 6px',
-                background: 'rgba(255, 255, 255, 0.08)',
-                color: 'var(--text)',
-                border: '1px solid var(--border)',
-                borderRadius: '3px',
-                cursor: 'pointer',
-                fontWeight: 700,
-              }}
+              className="mixer-audition-btn mixer-audition-btn-loop"
               onClick={() => {
                 dawEngine.auditionSection(selection.start, selection.end, true);
                 setPlaying(true);
@@ -246,19 +224,7 @@ const ChannelStrip: React.FC<ChannelStripProps> = ({ track, isMaster = false }) 
 
             <button
               type="button"
-              className="mixer-audition-btn"
-              style={{
-                width: '100%',
-                fontSize: '9px',
-                padding: '4px 6px',
-                background: 'var(--primary)',
-                color: '#000',
-                border: 'none',
-                borderRadius: '3px',
-                cursor: 'pointer',
-                fontWeight: 800,
-                marginTop: '2px',
-              }}
+              className="mixer-audition-btn mixer-audition-btn-extract"
               onClick={async () => {
                 await extractCurrentSection();
               }}

@@ -775,7 +775,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '', style = {}
                       type="file"
                       ref={coverFileInputRef}
                       accept="image/*"
-                      style={{ display: 'none' }}
+                      className="hidden-file-input"
                       onChange={handleCoverFileUpload}
                     />
                     {coverUrl ? (
@@ -867,7 +867,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '', style = {}
                 {/* Lyrics Input */}
                 <div className="studio-field-group">
                   <div className="studio-lyrics-row">
-                    <label className="studio-field-label" style={{ margin: 0 }}>
+                    <label className="studio-field-label studio-field-label-flush">
                       <span>LYRICS</span>
                       <span className="studio-field-optional">(OPTIONAL)</span>
                     </label>
@@ -1245,7 +1245,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '', style = {}
         }}
         title="NEW ALBUM"
       >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '8px 0' }}>
+        <div className="studio-new-album-body">
           <div className="studio-field-group">
             <label className="studio-field-label">TITLE</label>
             <input
@@ -1257,7 +1257,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '', style = {}
               autoFocus
             />
           </div>
-          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '4px' }}>
+          <div className="studio-new-album-actions">
             <Button
               variant="ghost"
               size="sm"
@@ -1427,7 +1427,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '', style = {}
             ))}
           </div>
 
-          <div className="studio-field-label" style={{ marginTop: '8px' }}>SCALE MODE</div>
+          <div className="studio-field-label studio-field-label-spaced">SCALE MODE</div>
           <div className="studio-param-presets-grid">
             {['major', 'minor', 'dorian', 'phrygian', 'mixolydian'].map((m) => (
               <Button
@@ -1488,7 +1488,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '', style = {}
             type="file"
             ref={voiceFileInputRef}
             accept="audio/*"
-            style={{ display: 'none' }}
+            className="hidden-file-input"
             onChange={handleFileChange}
           />
 
@@ -1689,7 +1689,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '', style = {}
 
           {/* Currently Selected Strip */}
           <div className="studio-voice-active-strip">
-            <div className="studio-field-label" style={{ margin: 0 }}>
+            <div className="studio-field-label studio-field-label-flush">
               <span>ACTIVE VOCAL SELECTION</span>
               <span className="studio-highlight">
                 {voiceMode === 'reference' && voiceFile
@@ -1772,7 +1772,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '', style = {}
         onClose={() => setActiveModal(null)}
         title="SELECT VOCAL LANGUAGE"
       >
-        <div className="studio-param-modal-content" style={{ gap: '10px' }}>
+        <div className="studio-param-modal-content studio-param-modal-compact">
           <div className="studio-lang-search-wrap">
             <span className="studio-lang-search-icon">🔍</span>
             <input
@@ -1847,7 +1847,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '', style = {}
           </div>
 
           <div className="studio-lang-selected-strip">
-            <div className="studio-field-label" style={{ margin: 0 }}>
+            <div className="studio-field-label studio-field-label-flush">
               <span>TARGET VOCAL LANGUAGE</span>
               <span className="studio-highlight">
                 {selectedLanguage
@@ -1857,7 +1857,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '', style = {}
             </div>
           </div>
 
-          <div className="studio-param-actions-row" style={{ marginTop: '2px', paddingTop: '8px' }}>
+          <div className="studio-param-actions-row studio-param-actions-compact">
             <Button
               variant="ghost"
               size="sm"
@@ -1927,7 +1927,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '', style = {}
               {/* Quick Tag Palette Bar */}
               <div className="studio-lyrics-palette">
                 <div className="studio-lyrics-palette-tabs">
-                  <span className="studio-field-label" style={{ margin: 0, fontSize: '10px' }}>
+                  <span className="studio-field-label studio-field-label-compact">
                     TAG PALETTE:
                   </span>
                   {(['all', 'structure', 'intensity', 'solo', 'vocal'] as const).map((cat) => {
@@ -2209,7 +2209,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '', style = {}
           )}
 
           {/* Modal Actions Footer */}
-          <div className="studio-param-actions-row" style={{ marginTop: '4px', paddingTop: '8px' }}>
+          <div className="studio-param-actions-row studio-lyrics-modal-actions">
             <Button
               variant="ghost"
               size="sm"
@@ -2220,7 +2220,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '', style = {}
             >
               CLEAR CANVAS
             </Button>
-            <div style={{ display: 'flex', gap: '8px' }}>
+            <div className="studio-lyrics-modal-actions-right">
               <Button
                 variant="ghost"
                 size="sm"

@@ -145,3 +145,34 @@
   justify-content: flex-end;
   gap: 8px;
 }
+
+.editor-status-screen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--primary);
+  font-family: var(--font-mono);
+  letter-spacing: 0.05em;
+  padding: 16px;
+  text-align: center;
+}
+
+.editor-back-btn,
+.editor-commit-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+@media (max-width: 768px) {
+  .editor-btn-label {
+    display: none;
+  }
+
+  .editor-back-btn,
+  .editor-commit-btn {
+    padding: 4px 8px;
+  }
+}
+

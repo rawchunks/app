@@ -365,8 +365,7 @@ export const Board: React.FC<BoardProps> = ({
                 <Tooltip title="Rework Section" description="Open studio generator pre-configured for this section">
                   <button
                     type="button"
-                    className="board-transport-btn"
-                    style={{ borderColor: 'var(--accent)', color: 'var(--accent)' }}
+                    className="board-transport-btn board-transport-btn-accent"
                     onClick={onReworkSection}
                   >
                     <Sparkles size={12} />
@@ -381,8 +380,7 @@ export const Board: React.FC<BoardProps> = ({
             <Tooltip title="Restore Original Mix" description="Revert master track audio back to original source">
               <button
                 type="button"
-                className="board-transport-btn"
-                style={{ borderColor: 'var(--warning)', color: 'var(--warning)' }}
+                className="board-transport-btn board-transport-btn-warning"
                 onClick={() => revertToOriginalMaster()}
               >
                 <RotateCcw size={12} />
@@ -419,16 +417,7 @@ export const Board: React.FC<BoardProps> = ({
               max="240"
               value={bpm}
               onChange={(e) => setBpm(parseInt(e.target.value) || 120)}
-              style={{
-                width: '44px',
-                background: 'transparent',
-                border: 'none',
-                color: 'var(--text)',
-                fontFamily: 'var(--font-family)',
-                fontSize: '11px',
-                fontWeight: 'bold',
-                outline: 'none',
-              }}
+              className="board-bpm-input"
             />
           </div>
 
@@ -491,8 +480,7 @@ export const Board: React.FC<BoardProps> = ({
                 <Tooltip title="Master" description={song.title}>
                   <button
                     type="button"
-                    className={`board-track-badge ${masterRestyleTakes.length > 0 && !masterTrack?.activeVersionTakeId ? 'selected' : ''}`}
-                    style={{ border: 'none', cursor: 'pointer' }}
+                    className={`board-track-badge board-track-badge-btn ${masterRestyleTakes.length > 0 && !masterTrack?.activeVersionTakeId ? 'selected' : ''}`}
                     onClick={(e) => {
                       e.stopPropagation();
                       if (masterRestyleTakes.length > 0) {
@@ -599,7 +587,6 @@ export const Board: React.FC<BoardProps> = ({
                         type="button"
                         className="board-btn-mini delete"
                         aria-label="Discard Restyle version"
-                        style={{ color: '#ef4444' }}
                         disabled={Boolean(pendingTake)}
                         onClick={(e) => {
                           e.stopPropagation();
@@ -684,7 +671,7 @@ export const Board: React.FC<BoardProps> = ({
               lanes={masterExpanded ? masterLanes : []}
               selectedTrackId={selectedTrackId}
               highlighted={highlighted}
-              style={{ width: '100%', height: 'var(--board-master-row-h)', background: 'transparent' }}
+              className="board-master-waveform"
             />
 
             <div className="board-overlays" aria-label="Mounted sections">
@@ -942,7 +929,6 @@ export const Board: React.FC<BoardProps> = ({
                               type="button"
                               className="board-btn-mini delete"
                               aria-label={`Discard Layer take`}
-                              style={{ color: '#ef4444' }}
                               disabled={Boolean(pendingTake)}
                               onClick={() => void deleteTake(activeLayerTakeId)}
                             >
@@ -997,11 +983,10 @@ export const Board: React.FC<BoardProps> = ({
 
                   {clip && clip.url && (
                     <div
+                      className="board-clip-container"
                       style={{
-                        position: 'absolute',
                         left: `${(clip.startTime / totalDuration) * 100}%`,
                         width: `${(clip.duration / totalDuration) * 100}%`,
-                        height: '100%',
                       }}
                     >
                       <ClipWaveform clip={clip} color={brandColor} />
@@ -1080,12 +1065,8 @@ export const Board: React.FC<BoardProps> = ({
                           title={categoryTitle}
                           description={`Take #${currentTake.take_number} • ${currentTake.prompt || 'Session take'}`}
                         ><span
-                          className="board-track-badge"
+                          className={`board-track-badge board-track-badge-category ${isCurrentActive ? 'active' : ''}`}
                           aria-label={`${categoryTitle}, Take #${currentTake.take_number}`}
-                          style={{
-                            background: isCurrentActive ? 'var(--primary)' : 'var(--accent)',
-                            color: '#000',
-                          }}
                         >
                           {categoryTitle}
                         </span></Tooltip>
@@ -1147,7 +1128,6 @@ export const Board: React.FC<BoardProps> = ({
                           <button
                             type="button"
                             className="board-btn-mini delete"
-                            style={{ color: '#ef4444' }}
                             onClick={(e) => {
                               e.stopPropagation();
                               deleteTake(currentTake.id);
@@ -1217,11 +1197,10 @@ export const Board: React.FC<BoardProps> = ({
                       const rowDuration = Math.max(totalDuration, takeRange.end);
                       return (
                         <div
+                          className="board-clip-container"
                           style={{
-                            position: 'absolute',
                             left: `${(takeRange.start / rowDuration) * 100}%`,
                             width: `${((takeRange.end - takeRange.start) / rowDuration) * 100}%`,
-                            height: '100%',
                           }}
                         >
                           <ClipWaveform
@@ -1270,16 +1249,12 @@ export const Board: React.FC<BoardProps> = ({
                           <div className="board-track-header-top">
                             <div className="board-track-meta">
                               <Tooltip title={`${categoryTitle} · Take #${take.take_number}`} description={take.prompt || 'Session take'}><span
-                                className="board-track-badge"
+                                className={`board-track-badge board-track-badge-take ${isTakeCurrentActive ? 'active' : ''}`}
                                 aria-label={`${categoryTitle}, Take #${take.take_number}`}
-                                style={{
-                                  background: isTakeCurrentActive ? 'var(--primary)' : 'rgba(255,255,255,0.15)',
-                                  color: isTakeCurrentActive ? '#000' : '#fff',
-                                }}
                               >
                                 #{take.take_number}
                               </span></Tooltip>
-                              <span className="board-track-name" style={{ fontSize: '10px' }}>
+                              <span className="board-track-name board-track-name-compact">
                                 {take.repainting_start != null && take.repainting_end != null
                                   ? `[${formatTime(take.repainting_start)} ➔ ${formatTime(take.repainting_end)}]`
                                   : 'Full Mix'}
@@ -1323,7 +1298,6 @@ export const Board: React.FC<BoardProps> = ({
                               <button
                                 type="button"
                                 className="board-btn-mini delete"
-                                style={{ color: '#ef4444' }}
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   deleteTake(take.id);
@@ -1349,11 +1323,10 @@ export const Board: React.FC<BoardProps> = ({
                             const rowDuration = Math.max(totalDuration, takeRange.end);
                             return (
                               <div
+                                className="board-clip-container"
                                 style={{
-                                  position: 'absolute',
                                   left: `${(takeRange.start / rowDuration) * 100}%`,
                                   width: `${((takeRange.end - takeRange.start) / rowDuration) * 100}%`,
-                                  height: '100%',
                                 }}
                               >
                                 <ClipWaveform

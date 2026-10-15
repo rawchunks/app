@@ -303,7 +303,7 @@ export const CoverArt: React.FC<{
             }}
             aria-label={isPlayingThis ? 'Pause' : 'Stream'}
           >
-            {isPlayingThis ? <Pause size={16} /> : <Play size={16} style={{ marginLeft: 2 }} />}
+            {isPlayingThis ? <Pause size={16} /> : <Play size={16} className="market-play-icon-offset" />}
           </button>
         </Tooltip>
       </div>
@@ -580,7 +580,7 @@ export const Market: React.FC<Props> = ({ className = '', style = {} }) => {
                     : 'Creators can make their generated tracks public from /my-page to list them here.')}
             </span>
             {hasActiveFilters && (
-              <Button variant="ghost" size="sm" onClick={clearAllFilters} style={{ marginTop: 12 }}>
+              <Button variant="ghost" size="sm" onClick={clearAllFilters} className="market-clear-btn">
                 CLEAR FILTERS
               </Button>
             )}

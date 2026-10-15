@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { AudioWaveform, Radio, FileMusic } from 'lucide-react';
 import { Player } from './player';
+import { Tooltip } from './daw/Tooltip';
 import { store } from '../lib/store';
 import { NetworkSelector } from './network';
 import { SessionControl } from './session';
@@ -55,15 +56,17 @@ export const Layout: React.FC<Props> = ({ current, onNavigate, children }) => {
             const active = current === item.id;
             const Icon = item.Icon;
             return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => onNavigate(item.id)}
-                className={`service-nav-btn ${active ? 'active' : ''}`}
-              >
-                <span className="service-nav-icon"><Icon className="nav-icon-svg" /></span>
-                <span className="service-nav-label">{item.label}</span>
-              </button>
+              <Tooltip key={item.id} title={item.label} position="bottom">
+                <button
+                  type="button"
+                  onClick={() => onNavigate(item.id)}
+                  aria-label={item.label}
+                  className={`service-nav-btn ${active ? 'active' : ''}`}
+                >
+                  <span className="service-nav-icon"><Icon className="nav-icon-svg" /></span>
+                  <span className="service-nav-label">{item.label}</span>
+                </button>
+              </Tooltip>
             );
           })}
         </nav>

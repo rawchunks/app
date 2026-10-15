@@ -285,10 +285,11 @@ export function WalletConnector({ className, compact = true }: WalletConnectorPr
         <button
           type="button"
           disabled
+          aria-label="Loading wallet"
           className={cn("btn btn-ghost connect", className)}
         >
           <Wallet className="icon" aria-hidden="true" />
-          <span>Loading...</span>
+          <span className="connect-address">Loading...</span>
         </button>
       );
     }
@@ -301,7 +302,12 @@ export function WalletConnector({ className, compact = true }: WalletConnectorPr
         accountAbstraction={accountAbstraction}
         autoConnect={false}
         connectButton={{
-          label: "CONNECT",
+          label: (
+            <>
+              <Wallet className="icon" aria-hidden="true" />
+              <span className="connect-address">CONNECT</span>
+            </>
+          ),
           className: cn("btn btn-solid connect", className),
         }}
         connectModal={{

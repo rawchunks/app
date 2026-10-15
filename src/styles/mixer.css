@@ -398,3 +398,67 @@
   overflow: hidden !important;
 }
 
+.mixer-section-group-warning {
+  border-color: var(--warning);
+  background: rgba(255, 170, 0, 0.08);
+}
+
+.mixer-group-label-warning {
+  color: var(--warning);
+  font-weight: 800;
+}
+
+.mixer-knob-warning {
+  color: var(--warning);
+}
+
+.mixer-section-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
+.mixer-audition-btn-warning {
+  flex: 1 1 auto;
+  font-size: 9px;
+  padding: 3px 6px;
+  background: rgba(255, 170, 0, 0.15);
+  color: var(--warning);
+  border: 1px solid var(--warning);
+  border-radius: 3px;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.mixer-audition-btn-warning.playing {
+  background: var(--warning);
+  color: #000;
+}
+
+.mixer-audition-btn-loop {
+  flex: 1 1 auto;
+  font-size: 9px;
+  padding: 3px 6px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.mixer-audition-btn-extract {
+  width: 100%;
+  font-size: 9px;
+  padding: 4px 6px;
+  background: var(--primary);
+  color: #000;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  font-weight: 800;
+  margin-top: 2px;
+}
+
+

@@ -26,7 +26,7 @@ export function Licenses({
     return (
       <Tooltip title="Remix Track" description="This song is derived from another work">
         <Badge variant="secondary">
-          <GitFork size={10} style={{ marginRight: 3 }} />
+          <GitFork size={10} />
           REMIX
         </Badge>
       </Tooltip>
@@ -83,17 +83,17 @@ export function Licenses({
       )}
 
       <Modal isOpen={confirm} onClose={() => setConfirm(false)} title="BUY COMMERCIAL LICENSE" maxWidth="420px">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <div style={{ fontSize: 'var(--font-md)', fontWeight: 700, color: 'var(--text)' }}>
+        <div className="license-modal-body">
+          <div className="license-modal-title">
             {song.title}
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(0,0,0,0.4)', padding: '10px 14px', border: '1px solid var(--border)', borderRadius: 2 }}>
-            <span style={{ fontSize: 'var(--font-xs)', color: 'var(--text-dim)' }}>PRICE</span>
-            <span style={{ fontSize: 'var(--font-md)', fontWeight: 900, color: 'var(--accent)' }}>
+          <div className="license-modal-price-row">
+            <span className="license-modal-price-label">PRICE</span>
+            <span className="license-modal-price-val">
               ${data ? weiToUsdc(data.price.toString()).toFixed(2) : song.license_price.toFixed(2)} USDC
             </span>
           </div>
-          <div style={{ fontSize: 'var(--font-xs)', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+          <div className="license-modal-desc">
             Purchasing this commercial license grants stem access and the right to create minted derivatives & remixes.
           </div>
           <Button

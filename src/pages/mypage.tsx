@@ -189,7 +189,7 @@ const MySongCard: React.FC<{
                         className="mypage-menu-item mypage-item-details"
                         onClick={() => onEditDetails(song)}
                       >
-                        <Sliders size={12} style={{ marginRight: 6 }} /> EDIT DETAILS
+                        <Sliders size={12} /> EDIT DETAILS
                       </button>
                     )}
                     <button
@@ -197,21 +197,21 @@ const MySongCard: React.FC<{
                       className="mypage-menu-item mypage-item-edit"
                       onClick={() => onEditInStudio(song)}
                     >
-                      <Pencil size={12} style={{ marginRight: 6 }} /> MUSIC EDITOR
+                      <Pencil size={12} /> MUSIC EDITOR
                     </button>
                     <button
                       type="button"
                       className="mypage-menu-item mypage-item-download"
                       onClick={() => onDownload(song)}
                     >
-                      <Download size={12} style={{ marginRight: 6 }} /> DOWNLOAD
+                      <Download size={12} /> DOWNLOAD
                     </button>
                     <button
                       type="button"
                       className="mypage-menu-item mypage-item-delete"
                       onClick={() => onDelete(song.id)}
                     >
-                      <Trash2 size={12} style={{ marginRight: 6 }} /> DELETE
+                      <Trash2 size={12} /> DELETE
                     </button>
                   </div>
                 )}

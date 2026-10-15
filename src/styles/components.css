@@ -167,6 +167,8 @@
   border-radius: 2px;
   transition: all 0.15s ease;
   line-height: 1.2;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .cyber-badge-primary {
@@ -607,6 +609,11 @@ textarea.cyber-input-field {
   font-size: clamp(10px, 0.75vw + 0.3vh, 13px);
   letter-spacing: var(--letter-spacing-tight);
   white-space: nowrap;
+}
+
+.btn-solid .connect-address {
+  color: inherit;
+  font-weight: 900;
 }
 
 .menu-head {
@@ -1473,17 +1480,19 @@ div[data-state][class*="tw-modal"] {
 
 .daw-tooltip-portal {
   position: fixed !important;
+  top: var(--tooltip-top, -9999px);
+  left: var(--tooltip-left, -9999px);
+  transform: translateX(-50%);
+  z-index: 99999;
   pointer-events: none !important;
 }
 
 @keyframes tooltipFadeIn {
   from {
     opacity: 0;
-    transform: translateY(2px);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
   }
 }
 
@@ -1963,5 +1972,99 @@ div[data-state][class*="tw-modal"] {
   box-shadow: 0 0 8px rgba(255, 0, 102, 0.3) !important;
 }
 
+.session-grid-item-value-primary {
+  color: var(--primary);
+}
 
+.session-key-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
 
+.session-section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.session-section-val {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--primary);
+  font-weight: 700;
+}
+
+/* ==========================================================================
+   LICENSE PURCHASE MODAL & PROFILE MODAL UTILITIES
+   ========================================================================== */
+.hidden-file-input {
+  display: none !important;
+}
+
+.license-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.license-modal-title {
+  font-size: var(--font-md);
+  font-weight: 700;
+  color: var(--text);
+}
+
+.license-modal-price-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(0, 0, 0, 0.4);
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+}
+
+.license-modal-price-label {
+  font-size: var(--font-xs);
+  color: var(--text-dim);
+}
+
+.license-modal-price-val {
+  font-size: var(--font-md);
+  font-weight: 900;
+  color: var(--accent);
+}
+
+.license-modal-desc {
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.profile-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 4px 0;
+}
+
+.profile-modal-avatar-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.profile-modal-avatar-hint {
+  flex: 1;
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.profile-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}

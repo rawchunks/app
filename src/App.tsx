@@ -139,7 +139,7 @@ export const App: React.FC = () => {
         <Editor song={editingSong} onBack={handleBackFromEditor} />
       )}
       {route === 'editor' && (!editingSong || editingSong.metadata_cid) && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--primary)', fontFamily: 'var(--font-mono)', letterSpacing: '0.05em' }}>
+        <div className="editor-status-screen">
           {editorError ?? (readAddress || isReconnecting ? 'Opening song…' : 'Connect your wallet to open this song')}
         </div>
       )}

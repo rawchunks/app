@@ -77,7 +77,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="EDIT PROFILE" maxWidth="420px">
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '18px', padding: '4px 0' }}>
+      <div className="profile-modal-body">
         <div className="cyber-input-wrap">
           <label className="cyber-input-label">NICKNAME</label>
           <input
@@ -93,13 +93,13 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
 
         <div className="cyber-input-wrap">
           <label className="cyber-input-label">AVATAR IMAGE</label>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+          <div className="profile-modal-avatar-row">
             <div className={`studio-avatar-box ${avatar ? 'has-image' : ''}`}>
               <input
                 type="file"
                 ref={fileInputRef}
                 accept="image/*"
-                style={{ display: 'none' }}
+                className="hidden-file-input"
                 onChange={handleFileUpload}
               />
               {avatar ? (
@@ -137,13 +137,13 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
               )}
             </div>
 
-            <div style={{ flex: 1, fontSize: 'var(--font-xs)', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
+            <div className="profile-modal-avatar-hint">
               Upload your custom artist picture or avatar. Supported formats: PNG, JPG, WebP.
             </div>
           </div>
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '8px' }}>
+        <div className="profile-modal-actions">
           <Button variant="ghost" size="sm" onClick={onClose} disabled={saving || uploading}>
             CANCEL
           </Button>

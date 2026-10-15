@@ -46,8 +46,11 @@
 
 .header-brand-logo {
   display: block;
-  width: clamp(150px, 15.5vw, 230px);
-  height: auto;
+  height: clamp(18px, 1.9vw, 24px);
+  width: auto;
+  aspect-ratio: 590 / 88;
+  object-fit: contain;
+  flex-shrink: 0;
 }
 
 .header-brand:focus-visible {
@@ -57,8 +60,8 @@
 
 @media (max-width: 768px) {
   .header-brand-logo {
-    width: clamp(80px, calc(50vw - 80px), 180px);
-    height: auto;
+    height: clamp(16px, 4.1vw, 20px);
+    width: auto;
   }
 }
 
@@ -82,13 +85,14 @@
 .service-switcher {
   display: flex;
   align-items: center;
-  gap: clamp(4px, 1vw, 8px);
+  gap: clamp(3px, 0.8vw, 8px);
   background-color: rgba(18, 18, 18, 0.7);
   border: 1px solid var(--border);
   padding: 3px;
   border-radius: 4px;
   overflow-x: auto;
   scrollbar-width: none;
+  flex-shrink: 0;
 }
 
 .service-switcher::-webkit-scrollbar {
@@ -149,8 +153,9 @@
 .header-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: clamp(4px, 0.8vw, 8px);
   flex-shrink: 0;
+  min-width: 0;
 }
 
 /* ==========================================================================

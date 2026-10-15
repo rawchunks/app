@@ -2238,3 +2238,50 @@
   color: var(--text-dim);
   font-family: var(--font-mono);
 }
+
+.studio-field-label-flush {
+  margin: 0;
+}
+
+.studio-field-label-spaced {
+  margin-top: 8px;
+}
+
+.studio-field-label-compact {
+  margin: 0;
+  font-size: 10px;
+}
+
+.studio-new-album-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 8px 0;
+}
+
+.studio-new-album-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+.studio-param-modal-compact {
+  gap: 10px;
+}
+
+.studio-param-actions-compact {
+  margin-top: 2px;
+  padding-top: 8px;
+}
+
+.studio-lyrics-modal-actions {
+  margin-top: 4px;
+  padding-top: 8px;
+}
+
+.studio-lyrics-modal-actions-right {
+  display: flex;
+  gap: 8px;
+}
+

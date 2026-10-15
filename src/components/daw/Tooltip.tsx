@@ -17,16 +17,16 @@ export const Tooltip: React.FC<TooltipProps> = ({
   className = '',
 }) => {
   const [isVisible, setIsVisible] = useState(false);
-  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const bubbleRef = useRef<HTMLDivElement | null>(null);
   const hideTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const calculatePosition = () => {
-    if (!wrapperRef.current) return;
+    if (!wrapperRef.current || !bubbleRef.current) return;
     const rect = wrapperRef.current.getBoundingClientRect();
-    const tooltipWidth = bubbleRef.current?.offsetWidth || 220;
-    const tooltipHeight = bubbleRef.current?.offsetHeight || 44;
+    const tooltipWidth = bubbleRef.current.offsetWidth || 220;
+    const tooltipHeight = bubbleRef.current.offsetHeight || 44;
     const padding = 12;
 
     let left = rect.left + rect.width / 2;
@@ -48,28 +48,47 @@ export const Tooltip: React.FC<TooltipProps> = ({
     // Clamp vertically
     top = Math.max(padding, Math.min(top, window.innerHeight - tooltipHeight - padding));
 
-    setCoords({ top, left });
+    bubbleRef.current.style.setProperty('--tooltip-top', `${top}px`);
+    bubbleRef.current.style.setProperty('--tooltip-left', `${left}px`);
   };
 
   const showTooltip = () => {
+    if (typeof window !== 'undefined' && window.matchMedia('(hover: none)').matches) {
+      return;
+    }
     if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
     setIsVisible(true);
   };
 
   const hideTooltip = () => {
+    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
     hideTimerRef.current = setTimeout(() => {
       setIsVisible(false);
-    }, 100);
+    }, 80);
   };
 
-  const handleTouchToggle = (e: React.MouseEvent) => {
+  const handleTouchStart = () => {
     if (typeof window !== 'undefined' && window.matchMedia('(hover: none)').matches) {
-      if (!isVisible) {
-        e.preventDefault();
-        e.stopPropagation();
+      if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = setTimeout(() => {
         setIsVisible(true);
-      }
+      }, 450);
     }
+  };
+
+  const handleTouchEnd = () => {
+    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+    if (isVisible) {
+      hideTimerRef.current = setTimeout(() => {
+        setIsVisible(false);
+      }, 1200);
+    }
+  };
+
+  const handleClick = () => {
+    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    setIsVisible(false);
   };
 
   useLayoutEffect(() => {
@@ -90,6 +109,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
       window.removeEventListener('scroll', handleScrollOrResize, true);
       window.removeEventListener('resize', handleScrollOrResize);
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+      if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
     };
   }, [isVisible]);
 
@@ -99,7 +119,10 @@ export const Tooltip: React.FC<TooltipProps> = ({
       className={`daw-tooltip-wrapper ${className}`}
       onMouseEnter={showTooltip}
       onMouseLeave={hideTooltip}
-      onClick={handleTouchToggle}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleTouchEnd}
+      onClick={handleClick}
     >
       {children}
       {isVisible &&
@@ -109,14 +132,6 @@ export const Tooltip: React.FC<TooltipProps> = ({
             ref={bubbleRef}
             className="daw-tooltip-bubble daw-tooltip-portal"
             role="tooltip"
-            style={{
-              position: 'fixed',
-              top: coords ? `${coords.top}px` : '-9999px',
-              left: coords ? `${coords.left}px` : '-9999px',
-              transform: 'translateX(-50%)',
-              zIndex: 99999,
-              pointerEvents: 'none',
-            }}
           >
             <div className="daw-tooltip-title">{title}</div>
             {description && <div className="daw-tooltip-desc">{description}</div>}

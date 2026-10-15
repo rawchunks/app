@@ -231,7 +231,7 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
                 type="file"
                 ref={fileInputRef}
                 accept="image/*"
-                style={{ display: 'none' }}
+                className="hidden-file-input"
                 onChange={handleFileUpload}
               />
               {image ? (
@@ -276,7 +276,7 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
                 onClick={handleGenerateCover}
                 disabled={generatingCover || uploading}
               >
-                <Sparkles size={12} style={{ marginRight: 6 }} />
+                <Sparkles size={12} />
                 {generatingCover ? 'GENERATING…' : 'GENERATE AI COVER'}
               </Button>
               <div className="edit-song-cover-hint">

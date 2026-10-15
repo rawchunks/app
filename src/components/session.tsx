@@ -617,7 +617,7 @@ export function SessionControl() {
                   <Zap className="session-grid-item-icon" size={12} />
                   <span>ONE-CLICK FLOW</span>
                 </div>
-                <span className="session-grid-item-value" style={{ color: "var(--primary)" }}>
+                <span className="session-grid-item-value session-grid-item-value-primary">
                   ENABLED
                 </span>
                 <span className="session-grid-item-sub">Zero wallet signature prompts</span>
@@ -637,8 +637,8 @@ export function SessionControl() {
                   <Key className="session-grid-item-icon" size={12} />
                   <span>SESSION KEY ID</span>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "6px" }}>
-                  <span className="session-grid-item-value" style={{ fontFamily: "var(--font-mono)" }}>
+                <div className="session-key-row">
+                  <span className="session-grid-item-value">
                     {session.keyId ? `${session.keyId.slice(0, 6)}...${session.keyId.slice(-4)}` : "—"}
                   </span>
                   {session.keyId && (
@@ -666,7 +666,7 @@ export function SessionControl() {
                 disabled={isEnding}
                 onClick={() => void handleEndSession()}
               >
-                <LogOut size={13} style={{ marginRight: 4 }} />
+                <LogOut size={13} />
                 {isEnding ? "ENDING..." : "END SESSION"}
               </Button>
               <Button
@@ -704,9 +704,9 @@ export function SessionControl() {
 
             {/* Budget Presets & Custom */}
             <div className="session-section">
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div className="session-section-head">
                 <span className="session-section-label">BUDGET CAP</span>
-                <span style={{ fontFamily: "var(--font-mono)", fontSize: "11px", color: "var(--primary)", fontWeight: 700 }}>
+                <span className="session-section-val">
                   ${effectiveBudgetUsd} {assetSymbol}
                 </span>
               </div>

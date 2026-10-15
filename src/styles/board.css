@@ -817,3 +817,69 @@
 .waveform-selection { position: absolute; inset: 0; pointer-events: none; z-index: 5; }
 .waveform-range { position: absolute; top: 0; height: 100%; width: 14px; padding: 0; border: 0; background: transparent; pointer-events: auto; touch-action: none; cursor: ew-resize; transform: translateX(-50%); }
 .waveform-range.pan { height: 12px; transform: none; cursor: grab; }
+
+.board-transport-btn-accent {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.board-transport-btn-warning {
+  border-color: var(--warning);
+  color: var(--warning);
+}
+
+.board-bpm-input {
+  width: 44px;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-family: var(--font-family);
+  font-size: 11px;
+  font-weight: bold;
+  outline: none;
+}
+
+.board-track-badge-btn {
+  border: none;
+  cursor: pointer;
+}
+
+.board-btn-mini.delete {
+  color: #ef4444;
+}
+
+.board-master-waveform {
+  width: 100%;
+  height: var(--board-master-row-h);
+  background: transparent;
+}
+
+.board-clip-container {
+  position: absolute;
+  height: 100%;
+}
+
+.board-track-badge-category {
+  background: var(--accent);
+  color: #000;
+}
+
+.board-track-badge-category.active {
+  background: var(--primary);
+  color: #000;
+}
+
+.board-track-badge-take {
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+}
+
+.board-track-badge-take.active {
+  background: var(--primary);
+  color: #000;
+}
+
+.board-track-name-compact {
+  font-size: 10px;
+}
+

@@ -45,19 +45,25 @@
 
   /* Header adjustments */
   .app-header {
-    padding: 0 8px;
+    padding: 0 clamp(6px, 1.5vw, 10px);
     padding-top: var(--sat);
-    gap: 6px;
+    gap: clamp(4px, 1vw, 8px);
   }
 
   .header-brand-tag {
     display: none;
   }
 
+  .service-switcher {
+    padding: 2px;
+    gap: 3px;
+  }
+
   .service-nav-btn {
-    padding: 0 8px !important;
+    padding: 0 7px !important;
     font-size: var(--header-btn-font);
     height: var(--header-btn-h);
+    min-height: var(--header-btn-h);
     min-width: unset;
   }
 
@@ -71,11 +77,17 @@
 
   .header-network-trigger,
   .header-session-trigger {
-    padding: 0 8px !important;
+    padding: 0 clamp(5px, 1.2vw, 8px) !important;
+    gap: 4px !important;
   }
 
   .session-trigger-label {
     display: none !important;
+  }
+
+  .session-trigger-amount {
+    font-size: clamp(9.5px, 2.4vw, 11px);
+    letter-spacing: 0;
   }
 
   .session-grid {
@@ -90,22 +102,27 @@
     flex: 1 1 calc(50% - 6px);
   }
 
-  /* Wallet connector in header - Proportional Scaling */
+  /* Wallet connector in header - Compact Avatar/Icon-Only on Mobile */
   .connect,
   .tw-connect-wallet {
-    padding: var(--header-btn-pad) !important;
-    font-size: var(--header-btn-font) !important;
+    padding: 0 !important;
+    width: var(--header-btn-h) !important;
+    min-width: var(--header-btn-h) !important;
+    max-width: var(--header-btn-h) !important;
     height: var(--header-btn-h) !important;
     min-height: var(--header-btn-h) !important;
-    min-width: unset !important;
-    max-width: none !important;
-    gap: clamp(4px, 0.6vw, 6px) !important;
+    gap: 0 !important;
   }
 
-  .connect-address {
-    max-width: clamp(70px, 15vw, 110px);
-    overflow: hidden;
-    text-overflow: ellipsis;
+  .connect-address,
+  .connect-balance,
+  .connect .icon-fold {
+    display: none !important;
+  }
+
+  .connect-avatar {
+    width: calc(var(--header-btn-h) - 6px);
+    height: calc(var(--header-btn-h) - 6px);
   }
 
   .dropdown-menu-content {
@@ -137,87 +154,57 @@
   /* Market & MyPage */
   .market-container,
   .mypage-container {
-    padding: 8px;
-    gap: 10px;
+    padding: clamp(6px, 1.8vw, 12px);
+    gap: clamp(8px, 2vw, 12px);
+  }
+
+  .market-filter-bar {
+    padding: clamp(6px, 1.5vw, 10px);
+    gap: 8px;
+  }
+
+  .market-search-box {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
+  .market-tags-row {
+    width: 100%;
+    padding-bottom: 2px;
   }
 
   .market-grid {
-    padding: 8px;
-    grid-template-columns: 1fr;
+    padding: clamp(6px, 1.5vw, 10px);
   }
 
   .mypage-list {
-    padding: 8px;
+    padding: clamp(6px, 1.5vw, 10px);
   }
 
+  .mypage-profile-card {
+    padding: clamp(10px, 2.5vw, 16px);
+    gap: clamp(10px, 2.5vw, 16px);
+  }
+
+  .mypage-profile-stats {
+    gap: clamp(12px, 3vw, 20px);
+  }
 }
 
 /* ==========================================================================
    EXTRA SMALL / PHONES (<= 520px)
    ========================================================================== */
 @media (max-width: 520px) {
-  /* Service switcher on mobile: larger icons and keep active page label visible */
   .service-switcher {
     padding: 2px;
-    gap: 3px;
+    gap: 2px;
   }
 
   .service-nav-btn {
-    padding: 4px 6px;
-    min-height: 30px;
-    gap: 4px;
-  }
-
-  /* Make header page icons noticeably bigger and clearer */
-  .service-nav-btn span:first-child {
-    font-size: 15px;
-    line-height: 1;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  /* Inactive page buttons hide text label to conserve space */
-  .service-nav-btn:not(.active) {
-    padding: 4px 7px;
-  }
-
-  .service-nav-btn:not(.active) span:last-child {
-    display: none;
-  }
-
-  /* Active page button shows full "/ ${page}" label */
-  .service-nav-btn.active {
-    padding: var(--header-btn-pad);
-    background-color: rgba(0, 255, 65, 0.14);
-    border-color: var(--primary);
-  }
-
-  .service-nav-btn.active span:last-child {
-    display: inline-block;
-    font-size: var(--header-btn-font);
-    font-weight: 700;
-    margin-left: 2px;
-  }
-
-  /* Connect button fluid on phones */
-  .connect,
-  .tw-connect-wallet {
-    padding: var(--header-btn-pad) !important;
-    font-size: var(--header-btn-font) !important;
-    height: var(--header-btn-h) !important;
-    min-height: var(--header-btn-h) !important;
-    min-width: unset !important;
-    max-width: none !important;
-    white-space: nowrap !important;
-  }
-
-  /* Address smoothly truncates rather than vanishing */
-  .connect-address {
-    max-width: clamp(54px, 14vw, 85px);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    display: inline-block;
+    padding: 0 6px !important;
+    min-height: 28px;
+    height: 28px;
+    gap: 0;
   }
 }
 
@@ -227,28 +214,42 @@
 @media (max-width: 480px) {
   .app-header {
     gap: 4px;
+    padding: 0 6px;
   }
 
-  .service-switcher {
-    padding: 2px;
-    gap: 2px;
+  .header-actions {
+    gap: 4px;
   }
 
-  .service-nav-btn {
-    padding: 3px 6px;
-    min-height: 30px;
+  .header-network-trigger,
+  .header-session-trigger {
+    padding: 0 5px !important;
+    height: 28px;
+    min-height: 28px;
   }
 
-  .service-nav-btn span:first-child {
-    font-size: 15px;
+  .header-network-trigger .icon-fold {
+    display: none;
   }
 
-  .studio-pricing-grid,
-  .market-pricing-box {
+  .connect,
+  .tw-connect-wallet {
+    padding: 0 !important;
+    width: 28px !important;
+    min-width: 28px !important;
+    max-width: 28px !important;
+    height: 28px !important;
+    min-height: 28px !important;
+  }
+
+  .connect-avatar {
+    width: 22px;
+    height: 22px;
+  }
+
+  .studio-pricing-grid {
     grid-template-columns: 1fr;
   }
-
-
 
   .player-track-info {
     max-width: 120px;
@@ -306,44 +307,47 @@
     gap: 3px;
   }
 
+  .header-brand-logo {
+    height: clamp(14px, 3.9vw, 16px);
+    width: auto;
+  }
+
   .service-switcher {
-    gap: 2px;
+    gap: 1px;
     padding: 1px;
   }
 
   .service-nav-btn {
-    padding: var(--btn-pad-xs);
-    height: var(--header-btn-h);
-    min-height: var(--header-btn-h);
-    gap: 3px;
+    padding: 0 5px !important;
+    height: 26px;
+    min-height: 26px;
   }
 
-  .service-nav-btn span:first-child {
-    font-size: 13px;
+  .header-network-trigger,
+  .header-session-trigger {
+    padding: 0 4px !important;
+    height: 26px;
+    min-height: 26px;
   }
 
-  .service-nav-btn.active {
-    padding: var(--btn-pad-xs);
-  }
-
-  .service-nav-btn.active span:last-child {
-    font-size: var(--btn-font-xs);
-    margin-left: 1px;
+  .session-active-indicator {
+    width: 5px;
+    height: 5px;
   }
 
   .connect,
   .tw-connect-wallet {
-    padding: var(--btn-pad-xs) !important;
-    font-size: var(--btn-font-xs) !important;
-    height: var(--header-btn-h) !important;
-    min-height: var(--header-btn-h) !important;
-    min-width: unset !important;
-    max-width: none !important;
+    padding: 0 !important;
+    width: 26px !important;
+    min-width: 26px !important;
+    max-width: 26px !important;
+    height: 26px !important;
+    min-height: 26px !important;
   }
 
-  /* Only hide address text on ultra-narrow <=360px screens */
-  .connect-address {
-    display: none;
+  .connect-avatar {
+    width: 20px;
+    height: 20px;
   }
 }
 

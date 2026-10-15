@@ -13,7 +13,7 @@ import { useSession, promptSessionModal } from '../components/session';
 import { Board } from '../components/daw/Board';
 import { Toolbox, ActiveTool } from '../components/daw/Toolbox';
 import { Tooltip } from '../components/daw/Tooltip';
-import { GitCommit } from 'lucide-react';
+import { GitCommit, ArrowLeft } from 'lucide-react';
 import { source, sourceInterval, interval, isLayerTake, layerTrackName, isFullSongRestyleTake } from '../lib/daw/takes';
 import { readProject, writeProject } from '../lib/cache';
 import { useQueryClient } from '@tanstack/react-query';
@@ -22,10 +22,9 @@ export interface Props {
   song: Song;
   onBack: () => void;
   className?: string;
-  style?: React.CSSProperties;
 }
 
-export const Editor: React.FC<Props> = ({ song, onBack, className = '', style = {} }) => {
+export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
   const {
     tracks,
     isPlaying,
@@ -908,13 +907,15 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '', style = 
   }, [setActiveTool, setTask, setPrompt]);
 
   return (
-    <div className={`editor-container ${className}`} style={style}>
+    <div className={`editor-container ${className}`}>
       {/* Top Workstation Bar */}
       <div className="editor-header-bar">
         <div className="editor-header-left">
-          <Button variant="ghost" size="sm" onClick={onBack}>
-            ← STUDIO
-          </Button>
+          <Tooltip title="Return to Library" description="Exit workstation and return to your tracks">
+            <Button variant="ghost" size="sm" onClick={onBack} className="editor-back-btn">
+              <ArrowLeft size={14} /> <span className="editor-btn-label">STUDIO</span>
+            </Button>
+          </Tooltip>
           <div className="editor-header-text">
             <Glitch text={song.title} className="editor-track-title" />
             <div className="editor-track-sub">
@@ -929,8 +930,9 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '', style = 
               size="sm"
               variant="outline"
               onClick={() => setIsCommitModalOpen(true)}
+              className="editor-commit-btn"
             >
-              <GitCommit size={13} /> COMMIT
+              <GitCommit size={13} /> <span className="editor-btn-label">COMMIT</span>
             </Button>
           </Tooltip>
           {processing && (
