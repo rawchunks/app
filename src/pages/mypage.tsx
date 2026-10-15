@@ -37,7 +37,7 @@ import { readSongs, writeSongs } from '../lib/cache';
 import { groupSongs } from '../lib/versions';
 import { Licenses } from '../components/licenses';
 import { Versions } from '../components/versions';
-import { CoverArt } from './market';
+import { CoverArt } from '../components/card';
 import { useSession, promptSessionModal } from '../components/session';
 
 export interface Props {

@@ -227,10 +227,10 @@
 /* Catalog Grid */
 .market-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, clamp(142px, 42vw, 220px)), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--card-min-w)), 1fr));
   grid-auto-rows: max-content;
-  gap: clamp(8px, 1.4vw, 16px);
-  padding: clamp(6px, 1.2vw, 14px);
+  gap: var(--card-gap);
+  padding: clamp(6px, 1vw, 12px);
   align-content: start;
   flex: 1 1 0;
   min-height: 0;
@@ -259,7 +259,7 @@
 .market-empty-desc {
   font-size: var(--font-xs);
   color: var(--text-dim);
-  max-width: 380px;
+  max-width: min(380px, 90vw);
   line-height: 1.5;
 }
 
@@ -294,10 +294,10 @@
   box-shadow: 0 0 16px rgba(0, 255, 65, 0.22);
 }
 
-/* 1. Square Artwork Media Container */
+/* 1. Compact Artwork Media Container */
 .market-card-media {
   width: 100%;
-  aspect-ratio: 1 / 1;
+  aspect-ratio: 5 / 4;
   position: relative;
   background: #050505;
   overflow: hidden;
@@ -329,8 +329,8 @@
 }
 
 .market-card-fallback-logo {
-  width: 42%;
-  height: 42%;
+  width: 40%;
+  height: 40%;
   opacity: 0.85;
   filter: drop-shadow(0 0 12px rgba(0, 255, 65, 0.35));
   user-select: none;
@@ -350,24 +350,91 @@
   padding: clamp(1px, 0.8cqi, 2px) clamp(4px, 2.5cqi, 7px);
 }
 
+.market-card-versions-badge {
+  position: absolute;
+  bottom: clamp(3px, 2.5cqi, 7px);
+  left: clamp(3px, 2.5cqi, 7px);
+  right: clamp(38px, 24cqi, 56px);
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  pointer-events: auto;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.market-card-versions-badge::-webkit-scrollbar {
+  display: none;
+}
+
+.market-card-versions-badge .board-category-badges-list {
+  display: inline-flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  gap: clamp(2px, 1.2cqi, 4px) !important;
+  max-width: 100%;
+}
+
+.market-card-versions-badge .daw-tooltip-wrapper {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.market-card-versions-badge .board-take-badge-pill {
+  pointer-events: auto;
+  cursor: pointer;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  font-size: clamp(7px, 3.6cqi, 9.5px) !important;
+  font-family: var(--font-family);
+  font-weight: 700;
+  padding: clamp(1px, 0.8cqi, 2px) clamp(3.5px, 2cqi, 6px) !important;
+  height: auto !important;
+  min-height: 0 !important;
+  line-height: 1.2 !important;
+  border-radius: 3px !important;
+  background: rgba(0, 0, 0, 0.84);
+  backdrop-filter: blur(4px);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.market-card-versions-badge .board-take-badge-pill:hover {
+  border-color: var(--primary);
+  color: #ffffff;
+  background: rgba(0, 255, 65, 0.16);
+}
+
+.market-card-versions-badge .board-take-badge-pill.selected {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: rgba(0, 255, 65, 0.22);
+  box-shadow: 0 0 8px rgba(0, 255, 65, 0.35);
+}
+
 .market-card-media-badge-right {
   position: absolute;
-  top: clamp(4px, 3cqi, 8px);
-  right: clamp(4px, 3cqi, 8px);
-  z-index: 10;
-  background: rgba(0, 0, 0, 0.8);
+  top: clamp(3px, 2.5cqi, 7px);
+  right: clamp(3px, 2.5cqi, 7px);
+  z-index: 12;
+  background: rgba(0, 0, 0, 0.82);
   backdrop-filter: blur(4px);
   border: 1px solid var(--border);
   border-radius: 3px;
-  padding: clamp(2px, 1.2cqi, 3px) clamp(3px, 2cqi, 5px);
+  padding: clamp(1.5px, 1cqi, 3px) clamp(3px, 1.8cqi, 5px);
   display: flex;
   align-items: center;
-  gap: clamp(2px, 1.5cqi, 4px);
+  gap: clamp(2px, 1.4cqi, 4px);
 }
 
 .market-card-media-net-logo {
-  width: clamp(12px, 6.5cqi, 16px);
-  height: clamp(12px, 6.5cqi, 16px);
+  width: clamp(11px, 6cqi, 15px);
+  height: clamp(11px, 6cqi, 15px);
   object-fit: contain;
   display: block;
 }
@@ -376,7 +443,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: clamp(2px, 1.2cqi, 3px);
+  padding: clamp(1.5px, 1cqi, 2.5px);
   background: rgba(0, 0, 0, 0.75);
   backdrop-filter: blur(4px);
   border: 1px solid rgba(255, 255, 255, 0.15);
@@ -397,7 +464,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: clamp(2px, 1.2cqi, 3px);
+  padding: clamp(1.5px, 1cqi, 2.5px);
   background: rgba(0, 0, 0, 0.75);
   backdrop-filter: blur(4px);
   border: 1px solid rgba(255, 255, 255, 0.15);
@@ -406,18 +473,18 @@
 
 .market-card-duration-badge {
   position: absolute;
-  bottom: clamp(4px, 3cqi, 8px);
-  right: clamp(4px, 3cqi, 8px);
+  bottom: clamp(3px, 2.5cqi, 7px);
+  right: clamp(3px, 2.5cqi, 7px);
   background: rgba(0, 0, 0, 0.82);
   backdrop-filter: blur(4px);
   border: 1px solid rgba(255, 255, 255, 0.16);
   color: #ffffff;
-  font-size: clamp(8px, 4cqi, 10px);
+  font-size: clamp(7.5px, 3.8cqi, 10px);
   font-family: var(--font-family);
   font-weight: 700;
-  padding: clamp(1px, 0.8cqi, 2px) clamp(4px, 2.4cqi, 6px);
+  padding: clamp(1px, 0.8cqi, 2px) clamp(3.5px, 2.2cqi, 6px);
   border-radius: 3px;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.4px;
   z-index: 6;
   pointer-events: none;
   line-height: 1.2;
@@ -434,6 +501,12 @@
   opacity: 0;
   transition: opacity 0.2s ease;
   z-index: 3;
+  pointer-events: none;
+}
+
+.market-card-play-overlay .daw-tooltip-wrapper,
+.market-overlay-play-btn {
+  pointer-events: auto;
 }
 
 .market-card:hover .market-card-play-overlay,
@@ -442,8 +515,8 @@
 }
 
 .market-overlay-play-btn {
-  width: clamp(30px, 18cqi, 46px);
-  height: clamp(30px, 18cqi, 46px);
+  width: clamp(28px, 17cqi, 42px);
+  height: clamp(28px, 17cqi, 42px);
   border-radius: 50%;
   background: var(--primary);
   color: #000;
@@ -474,8 +547,8 @@
 .market-card-body {
   display: flex;
   flex-direction: column;
-  padding: clamp(6px, 4.2cqi, 12px);
-  gap: clamp(3px, 2cqi, 6px);
+  padding: clamp(5px, 3.8cqi, 10px);
+  gap: clamp(2.5px, 1.8cqi, 5px);
   box-sizing: border-box;
   flex: 1 1 auto;
   justify-content: space-between;
@@ -486,9 +559,9 @@
 
 /* Row 1: Title */
 .market-card-row-title {
-  height: clamp(16px, 9cqi, 24px);
+  height: clamp(14px, 8cqi, 20px);
   line-height: 1.2;
-  font-size: clamp(10px, 5.2cqi, 13px);
+  font-size: clamp(9.5px, 5cqi, 12.5px);
   font-weight: 700;
   color: var(--text);
   white-space: nowrap;
@@ -500,13 +573,13 @@
 
 /* Row 2: Album */
 .market-card-row-album {
-  height: clamp(13px, 7cqi, 18px);
+  height: clamp(12px, 6.5cqi, 16px);
   line-height: 1.2;
-  font-size: clamp(8.5px, 4.2cqi, 11px);
+  font-size: clamp(8px, 4cqi, 10.5px);
   color: var(--accent);
   display: flex;
   align-items: center;
-  gap: clamp(3px, 1.5cqi, 4px);
+  gap: clamp(2.5px, 1.4cqi, 4px);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -521,8 +594,8 @@
 .market-album-icon {
   flex-shrink: 0;
   color: var(--accent);
-  width: clamp(9px, 4.5cqi, 12px);
-  height: clamp(9px, 4.5cqi, 12px);
+  width: clamp(8.5px, 4.2cqi, 11px);
+  height: clamp(8.5px, 4.2cqi, 11px);
 }
 
 .market-album-text {
