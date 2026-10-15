@@ -417,7 +417,12 @@ export const useDawStore = create<DAWState>((set, get) => ({
     if (project?.stems.length) get().syncStems(project.stems);
     if (project?.session) {
       const saved = retained(project.session.tracks, project.takes);
-      set({ ...project.session, tracks: saved, operations: project.session.operations.filter(operation => operation.status !== 'submitting') });
+      set({
+        ...project.session,
+        tracks: saved,
+        selection: get().selection ?? { start: 0, end: Math.min(15, dur) },
+        operations: project.session.operations.filter(operation => operation.status !== 'submitting'),
+      });
       for (const track of saved) {
         const shouldLoadEagerly =
           track.id === 'master' ||

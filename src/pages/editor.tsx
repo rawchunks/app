@@ -258,7 +258,9 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
   useEffect(() => {
     dawEngine.resetProject();
     const initialDur = typeof song.duration === 'number' && song.duration > 0 ? song.duration : 60;
-    const cached = readAddress ? readProject(song.id, readAddress) : null;
+    const cached =
+      (readAddress ? readProject(song.id, readAddress) : null) ??
+      (song.creator ? readProject(song.id, song.creator) : null);
     sessionRef.current = Boolean(cached?.session || cached?.commits.some(commit => Array.isArray(commit.timeline_snapshot?.tracks)));
     initProject(song.id, song.title, initialDur, song.url, cached ?? undefined);
 
