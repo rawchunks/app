@@ -35,7 +35,7 @@ export function Licenses({
 
   return (
     <>
-      {placement === 'mypage' && (
+      {placement === 'mypage' && !compact && (
         <Tooltip title="Licenses Sold" description={(salesError ?? error)?.message}>
           <Badge variant={sold ? 'secondary' : 'muted'}>
             {sold !== undefined ? `${sold} SOLD` : !song.chain_song_id ? '0 SOLD' : salesError || error ? 'SALES UNAVAILABLE' : 'LOADING SALES'}
@@ -45,11 +45,11 @@ export function Licenses({
 
       {placement === 'market' && !data?.owned && (
         <Tooltip
-          title="Buy License"
+          title={pending ? 'Confirming Purchase…' : 'Buy License'}
           description={
             pending
-              ? 'Confirming purchase…'
-              : (error?.message || `$${(data ? weiToUsdc(data.price.toString()) : song.license_price).toFixed(2)} • Stems & commercial remix rights`)
+              ? 'Confirming transaction on-chain…'
+              : (error?.message || `$${(data ? weiToUsdc(data.price.toString()) : song.license_price).toFixed(2)} USDC • Commercial stem & remix rights`)
           }
         >
           <Button
@@ -66,13 +66,19 @@ export function Licenses({
         </Tooltip>
       )}
 
-      {data?.owned && (
-        <Tooltip title="Remix in Studio" description="You own this license. Open in Studio to create a remix">
+      {(data?.owned || (placement === 'mypage' && compact)) && (
+        <Tooltip title="Remix in Studio" description="Open stems in Studio to create a remix">
           <Button
             variant="accent"
             size="sm"
-            onClick={() => void remix()}
-            disabled={pending || Boolean(error)}
+            onClick={() => {
+              if (data?.owned) {
+                void remix();
+              } else if (onEditSong) {
+                onEditSong(song);
+              }
+            }}
+            disabled={pending}
             aria-label="Remix Song"
             className={compact ? 'market-btn-icon' : ''}
           >
