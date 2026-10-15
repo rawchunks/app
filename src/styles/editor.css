@@ -18,11 +18,11 @@
    ========================================================================== */
 .editor-header-bar {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   justify-content: space-between;
   flex-wrap: nowrap;
-  gap: clamp(8px, 1vw, 14px);
-  padding-bottom: 6px;
+  gap: clamp(0.45rem, 1.1vw, 0.9rem);
+  padding-bottom: 0.35rem;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
@@ -30,26 +30,39 @@
 .editor-header-left {
   display: flex;
   align-items: center;
-  gap: clamp(8px, 1vw, 12px);
+  gap: clamp(0.45rem, 1vw, 0.75rem);
   min-width: 0;
-  flex: 1 1 0;
-  overflow: hidden;
+  flex: 0 1 auto;
+  overflow: visible;
 }
 
 .editor-header-text {
   min-width: 0;
-  flex: 1 1 0;
-  overflow: hidden;
+  flex: 0 1 auto;
+  overflow: visible;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.14rem;
+}
+
+.editor-title-row {
+  display: flex;
+  align-items: center;
+  gap: clamp(0.4rem, 1vw, 0.75rem);
+  min-width: 0;
+  flex-wrap: nowrap;
 }
 
 .editor-track-title {
-  font-size: clamp(13px, 1.3vw, 18px);
+  font-size: clamp(0.84rem, 1.35vw, 1.125rem);
   font-weight: 900;
   color: var(--primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 100%;
+  min-width: 0;
+  flex: 0 1 auto;
   letter-spacing: -0.01em;
 }
 
@@ -108,10 +121,169 @@
   font-family: var(--font-family);
 }
 
-.editor-header-actions {
+/* Header BPM Trigger Pill & Theme Modal */
+.editor-bpm-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: var(--daw-badge-h);
+  padding: 0 clamp(6px, 0.8vw, 10px);
+  background: rgba(0, 255, 65, 0.08);
+  border: 1px solid rgba(0, 255, 65, 0.38);
+  border-radius: 3px;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--daw-badge-font);
+  font-weight: 900;
+  cursor: pointer;
+  transition: all 0.14s ease;
+}
+
+.editor-bpm-trigger:hover {
+  border-color: var(--primary);
+  background: rgba(0, 255, 65, 0.16);
+  box-shadow: 0 0 10px rgba(0, 255, 65, 0.22);
+}
+
+.editor-bpm-trigger-val {
+  color: var(--primary);
+  font-weight: 900;
+}
+
+.editor-bpm-trigger-unit {
+  color: var(--text-secondary);
+  font-size: 0.92em;
+  letter-spacing: 0.04em;
+}
+
+.editor-bpm-modal {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(10px, 1.8vh, 14px);
+}
+
+.editor-bpm-modal-top {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(6px, 1vw, 10px);
+}
+
+.editor-bpm-nudge {
+  min-width: clamp(32px, 6vw, 40px);
+  min-height: clamp(32px, 4.4vh, 38px);
+  font-size: clamp(11px, 1.1vw, 13px);
+}
+
+.editor-bpm-typer-wrap {
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 4px;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(0, 255, 65, 0.5);
+  border-radius: 4px;
+  padding: 4px 10px;
+  box-shadow: inset 0 0 12px rgba(0, 255, 65, 0.08);
+}
+
+.editor-bpm-typer-input {
+  width: 4.5ch;
+  background: transparent;
+  border: none;
+  color: var(--primary);
+  font-family: var(--font-mono);
+  font-size: clamp(18px, 2.5vw, 24px);
+  font-weight: 900;
+  text-align: center;
+  outline: none;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.editor-bpm-typer-input::-webkit-inner-spin-button,
+.editor-bpm-typer-input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.editor-bpm-typer-unit {
+  font-family: var(--font-mono);
+  font-size: clamp(10px, 1vw, 12px);
+  font-weight: 800;
+  color: var(--text-secondary);
+  letter-spacing: 0.05em;
+}
+
+.editor-bpm-slider-row {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.editor-bpm-range {
+  flex: 1 1 0;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+.editor-bpm-presets-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(64px, 1fr));
+  gap: 5px;
+}
+
+.editor-bpm-preset-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 5px 6px;
+  min-height: 36px;
+}
+
+.editor-bpm-preset-num {
+  font-size: clamp(11px, 1vw, 13px);
+  font-weight: 900;
+  color: var(--text);
+}
+
+.editor-bpm-preset-btn.active .editor-bpm-preset-num {
+  color: var(--primary);
+}
+
+.editor-bpm-preset-tag {
+  font-size: clamp(9.5px, 0.7vw, 11px);
+  color: var(--text-dim);
+  letter-spacing: 0.03em;
+}
+
+.editor-bpm-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding-top: 0.25rem;
+  border-top: 1px solid var(--border);
+}
+
+.editor-bpm-tap-btn {
+  flex: 1 1 auto;
+  min-height: 2.1rem;
+  border-color: rgba(0, 240, 255, 0.45);
+  color: var(--accent);
+}
+
+.editor-bpm-tap-btn:hover {
+  border-color: var(--accent);
+  background: rgba(0, 240, 255, 0.12);
+}
+
+.editor-header-actions {
+  display: flex;
+  align-items: center;
+  gap: clamp(0.25rem, 0.7vw, 0.5rem);
   flex-shrink: 0;
 }
 

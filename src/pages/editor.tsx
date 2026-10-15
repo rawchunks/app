@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { Glitch } from '../components/glitch';
 import { Button } from '../components/button';
 import { Badge } from '../components/badge';
+import { Modal } from '../components/modal';
 import { Song, Task } from '../lib/schema';
 import { useDawStore, TrackType, type Take, type LyricsAlignment } from '../lib/daw/store';
 import { dawEngine } from '../lib/daw/engine';
@@ -46,6 +47,186 @@ const EditorTimeCounter: React.FC<{ fallbackDuration?: number }> = ({ fallbackDu
   );
 };
 
+const BPM_PRESETS: Array<{ bpm: number; label: string }> = [
+  { bpm: 80, label: 'LO-FI' },
+  { bpm: 95, label: 'HIP-HOP' },
+  { bpm: 110, label: 'GROOVE' },
+  { bpm: 120, label: 'HOUSE' },
+  { bpm: 128, label: 'TECHNO' },
+  { bpm: 140, label: 'TRAP / D&B' },
+  { bpm: 160, label: 'JUNGLE' },
+];
+
+const EditorBpmControl: React.FC<{
+  bpm: number;
+  onChange: (nextBpm: number) => void;
+}> = ({ bpm, onChange }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [draft, setDraft] = useState(String(bpm));
+  const tapTimesRef = useRef<number[]>([]);
+
+  useEffect(() => {
+    setDraft(String(bpm));
+  }, [bpm]);
+
+  const commitBpm = (val: number) => {
+    const clamped = Math.max(40, Math.min(240, Math.round(val)));
+    setDraft(String(clamped));
+    onChange(clamped);
+  };
+
+  const handleTapTempo = () => {
+    const now = performance.now();
+    const taps = tapTimesRef.current.filter((t) => now - t < 2500);
+    taps.push(now);
+    tapTimesRef.current = taps;
+    if (taps.length >= 2) {
+      let sum = 0;
+      for (let i = 1; i < taps.length; i++) {
+        sum += taps[i] - taps[i - 1];
+      }
+      const avgMs = sum / (taps.length - 1);
+      if (avgMs > 0) {
+        commitBpm(60000 / avgMs);
+      }
+    }
+  };
+
+  return (
+    <>
+      <Tooltip title="Project Tempo (BPM)" description="Click to open Tempo & BPM Studio Modal">
+        <button
+          type="button"
+          className="editor-bpm-trigger daw-badge"
+          onClick={() => setIsOpen(true)}
+          aria-label={`Project Tempo ${bpm} BPM — Click to edit`}
+        >
+          <span className="editor-bpm-trigger-val">{bpm}</span>
+          <span className="editor-bpm-trigger-unit">BPM</span>
+        </button>
+      </Tooltip>
+
+      <Modal
+        isOpen={isOpen}
+        onClose={() => setIsOpen(false)}
+        title="TEMPO // BPM CONTROLLER"
+        size="sm"
+      >
+        <div className="editor-bpm-modal">
+          <div className="editor-bpm-modal-top">
+            <button
+              type="button"
+              className="daw-ctrl-btn editor-bpm-nudge"
+              onClick={() => commitBpm(bpm - 5)}
+              aria-label="Decrease BPM by 5"
+            >
+              −5
+            </button>
+            <button
+              type="button"
+              className="daw-ctrl-btn editor-bpm-nudge"
+              onClick={() => commitBpm(bpm - 1)}
+              aria-label="Decrease BPM by 1"
+            >
+              −1
+            </button>
+
+            <div className="editor-bpm-typer-wrap">
+              <input
+                type="number"
+                min={40}
+                max={240}
+                value={draft}
+                onChange={(e) => {
+                  setDraft(e.target.value);
+                  const v = parseInt(e.target.value, 10);
+                  if (!isNaN(v) && v >= 40 && v <= 240) {
+                    onChange(v);
+                  }
+                }}
+                onBlur={() => {
+                  const v = parseInt(draft, 10);
+                  if (!isNaN(v)) commitBpm(v);
+                  else setDraft(String(bpm));
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    const v = parseInt(draft, 10);
+                    if (!isNaN(v)) commitBpm(v);
+                    setIsOpen(false);
+                  }
+                }}
+                className="editor-bpm-typer-input"
+                aria-label="Direct BPM value"
+              />
+              <span className="editor-bpm-typer-unit">BPM</span>
+            </div>
+
+            <button
+              type="button"
+              className="daw-ctrl-btn editor-bpm-nudge"
+              onClick={() => commitBpm(bpm + 1)}
+              aria-label="Increase BPM by 1"
+            >
+              +1
+            </button>
+            <button
+              type="button"
+              className="daw-ctrl-btn editor-bpm-nudge"
+              onClick={() => commitBpm(bpm + 5)}
+              aria-label="Increase BPM by 5"
+            >
+              +5
+            </button>
+          </div>
+
+          <div className="editor-bpm-slider-row">
+            <span className="daw-field-label">40</span>
+            <input
+              type="range"
+              min={40}
+              max={240}
+              step={1}
+              value={bpm}
+              onChange={(e) => commitBpm(parseInt(e.target.value, 10))}
+              className="editor-bpm-range"
+              aria-label="BPM Tempo Slider"
+            />
+            <span className="daw-field-label">240</span>
+          </div>
+
+          <div className="editor-bpm-presets-grid">
+            {BPM_PRESETS.map((preset) => (
+              <button
+                key={preset.bpm}
+                type="button"
+                className={`daw-ctrl-btn editor-bpm-preset-btn ${bpm === preset.bpm ? 'active' : ''}`}
+                onClick={() => commitBpm(preset.bpm)}
+              >
+                <span className="editor-bpm-preset-num">{preset.bpm}</span>
+                <span className="editor-bpm-preset-tag">{preset.label}</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="editor-bpm-modal-footer">
+            <button
+              type="button"
+              className="daw-ctrl-btn editor-bpm-tap-btn"
+              onClick={handleTapTempo}
+            >
+              TAP TEMPO
+            </button>
+            <Button size="sm" variant="primary" onClick={() => setIsOpen(false)}>
+              DONE
+            </Button>
+          </div>
+        </div>
+      </Modal>
+    </>
+  );
+};
+
 export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
   const {
     tracks,
@@ -60,6 +241,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
     initProject,
     setPlaying,
     setPlayhead,
+    setBpm,
     setLoop,
     setSelection,
     setSelectedTrackId,
@@ -965,9 +1147,21 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
             </Button>
           </Tooltip>
           <div className="editor-header-text">
-            <Glitch text={song.title} className="editor-track-title" />
+            <div className="editor-title-row">
+              <Glitch text={song.title} className="editor-track-title" />
+            </div>
             <div className="editor-track-sub">
-              {duration.toFixed(1)}s • {tracks.length} TRACKS • {takes.length} TAKES • {bpm} BPM
+              <span>{tracks.length} TRACKS</span>
+              <span>•</span>
+              <span>{takes.length} TAKES</span>
+              <span>•</span>
+              <EditorBpmControl
+                bpm={bpm}
+                onChange={(v) => {
+                  setBpm(v);
+                  dawEngine.setBpm(v);
+                }}
+              />
             </div>
           </div>
         </div>
