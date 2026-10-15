@@ -13,7 +13,8 @@ import { useSession, promptSessionModal } from '../components/session';
 import { toast } from 'sonner';
 import { Modal } from '../components/modal';
 import { Languages } from '../components/languages';
-import { Mic2, UploadCloud, FileAudio } from 'lucide-react';
+import { Mic2, UploadCloud, FileAudio, Play, Pause, Sliders, Globe, Lock } from 'lucide-react';
+import { Tooltip } from '../components/daw/Tooltip';
 import { useOptions } from '@/hooks/use-options';
 import { useVoices, voiceAvailability, voiceReady, voiceStatus } from '@/hooks/use-voices';
 import {
@@ -1108,21 +1109,24 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                 >
                   <div className="variation-card-row-top">
                     <div className="variation-card-track-info">
-                      <Button
-                        variant={isPlayingThis ? 'primary' : 'ghost'}
-                        size="sm"
-                        disabled={t.status !== 'ready' || !t.song.url}
-                        onClick={() => {
-                          if (isPlayingThis) {
-                            store.setPlaying(false);
-                          } else {
-                            store.setActiveSong(t.song);
-                            store.setPlaying(true);
-                          }
-                        }}
-                      >
-                        {isPlayingThis ? 'PAUSE' : 'PLAY'}
-                      </Button>
+                      <Tooltip title={isPlayingThis ? 'Pause' : 'Play'} description="Preview generated track">
+                        <Button
+                          variant={isPlayingThis ? 'primary' : 'ghost'}
+                          size="sm"
+                          aria-label={isPlayingThis ? 'PAUSE' : 'PLAY'}
+                          disabled={t.status !== 'ready' || !t.song.url}
+                          onClick={() => {
+                            if (isPlayingThis) {
+                              store.setPlaying(false);
+                            } else {
+                              store.setActiveSong(t.song);
+                              store.setPlaying(true);
+                            }
+                          }}
+                        >
+                          {isPlayingThis ? <Pause size={13} /> : <Play size={13} />}
+                        </Button>
+                      </Tooltip>
                       <div className="variation-card-text">
                         <div className="variation-card-title">{t.song.title}</div>
                         <div className="variation-card-meta">
@@ -1145,22 +1149,42 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                     <div className="variation-card-actions">
                       {t.status === 'ready' && (
                         <>
-                          {onEditSong && <Button variant="ghost" size="xs" onClick={() => onEditSong(t.song)}>EDIT</Button>}
-                          <Button
-                            variant="ghost"
-                            size="xs"
-                            onClick={() => handleSaveVoice(t)}
+                          {onEditSong && (
+                            <Tooltip title="Edit in DAW" description="Open multitrack workstation">
+                              <Button
+                                variant="ghost"
+                                size="xs"
+                                aria-label="EDIT"
+                                onClick={() => onEditSong(t.song)}
+                              >
+                                <Sliders size={12} />
+                              </Button>
+                            </Tooltip>
+                          )}
+                          <Tooltip title="Save Voice" description="Extract vocal timbre profile from track">
+                            <Button
+                              variant="ghost"
+                              size="xs"
+                              aria-label="SAVE VOICE"
+                              onClick={() => handleSaveVoice(t)}
+                            >
+                              <Mic2 size={12} />
+                            </Button>
+                          </Tooltip>
+                          <Tooltip
+                            title={t.song.public ? 'Make Private' : 'Make Public'}
+                            description={t.song.public ? 'Hide from public Market' : 'Publish to public Market'}
                           >
-                            SAVE VOICE
-                          </Button>
-                          <Button
-                            variant={t.song.public ? 'secondary' : 'ghost'}
-                            size="xs"
-                            disabled={Boolean(publicPending)}
-                            onClick={() => togglePublic(t.song)}
-                          >
-                            {t.song.public ? 'MAKE PRIVATE' : 'MAKE PUBLIC'}
-                          </Button>
+                            <Button
+                              variant={t.song.public ? 'secondary' : 'ghost'}
+                              size="xs"
+                              aria-label={t.song.public ? 'MAKE PRIVATE' : 'MAKE PUBLIC'}
+                              disabled={Boolean(publicPending)}
+                              onClick={() => togglePublic(t.song)}
+                            >
+                              {t.song.public ? <Globe size={12} /> : <Lock size={12} />}
+                            </Button>
+                          </Tooltip>
                         </>
                       )}
                     </div>
