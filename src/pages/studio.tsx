@@ -13,10 +13,10 @@ import { useSession, promptSessionModal } from '../components/session';
 import { toast } from 'sonner';
 import { Modal } from '../components/modal';
 import { Languages } from '../components/languages';
-import { Mic2, UploadCloud, FileAudio, Play, Pause, Sliders, Globe, Lock } from 'lucide-react';
 import { Tooltip } from '../components/daw/Tooltip';
+import { Mic2, UploadCloud, FileAudio, Play, Pause, Sliders, Globe, Lock } from 'lucide-react';
 import { useOptions } from '@/hooks/use-options';
-import { useVoices, voiceAvailability, voiceReady, voiceStatus } from '@/hooks/use-voices';
+import { useVoices, voiceReady, voiceStatus } from '@/hooks/use-voices';
 import {
   parseLyricsToBlocks,
   serializeBlocksToLyrics,
@@ -68,7 +68,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
   const [voiceTab, setVoiceTab] = useState<'saved' | 'upload'>('saved');
   const [isDraggingVoice, setIsDraggingVoice] = useState(false);
   const uploadedVoice = useRef<{ file: File; creator: string; id: string } | null>(null);
-  const [uploadedVoiceId, setUploadedVoiceId] = useState<string | null>(null);
+  const [, setUploadedVoiceId] = useState<string | null>(null);
   const scopeRef = useRef(0);
   const streamRef = useRef<AbortController | null>(null);
   const [streamPrice, setStreamPrice] = useState(0.01);
@@ -227,7 +227,6 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
   const { voices, loading: loadingVoices, error: voicesError, refresh: refreshVoices, remember: rememberVoice } = useVoices(readAddress);
   const voiceOutput = model === 'sft' ? 'sft' : 'turbo';
   const selectedVoice = voices.find(voice => voice.id === selectedVoiceId);
-  const attachedVoice = voices.find(voice => voice.id === uploadedVoiceId);
   const canUseVoice = voiceMode === 'reference' ? Boolean(voiceFile) : Boolean(selectedVoice && voiceReady(selectedVoice, voiceOutput));
   const voiceName = voiceMode === 'reference' ? voiceFile?.name : selectedVoice?.name;
   useEffect(() => { scopeRef.current++; return () => { scopeRef.current++; streamRef.current?.abort(); store.setGenerating(false); }; }, [userAddr]);
@@ -1448,8 +1447,8 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
       <Modal
         isOpen={activeModal === 'voice'}
         onClose={() => setActiveModal(null)}
-        title="CUSTOM VOCAL"
-        size="lg"
+        title="VOICE"
+        size="md"
       >
         <div className="studio-param-modal-content">
           <input
@@ -1468,7 +1467,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
               onClick={() => setVoiceTab('saved')}
             >
               <Mic2 size={13} />
-              <span>SAVED VOICES</span>
+              <span>SAVED</span>
               <span className="studio-voice-count-badge">{voices.length}</span>
             </button>
             <button
@@ -1477,7 +1476,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
               onClick={() => setVoiceTab('upload')}
             >
               <UploadCloud size={13} />
-              <span>UPLOAD SAMPLE</span>
+              <span>UPLOAD</span>
             </button>
           </div>
 
@@ -1495,13 +1494,13 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
 
               {loadingVoices && (
                 <div className="studio-voice-status-box" role="status">
-                  <span className="studio-voice-status-title">LOADING SAVED VOICES...</span>
+                  <span className="studio-voice-status-title">LOADING VOICES...</span>
                 </div>
               )}
 
               {!loadingVoices && !voicesError && !readAddress && (
                 <div className="studio-voice-status-box">
-                  <span className="studio-voice-status-title">WALLET NOT CONNECTED</span>
+                  <span className="studio-voice-status-title">WALLET DISCONNECTED</span>
                   <span className="studio-voice-status-desc">Connect your wallet to access your saved custom vocal profiles.</span>
                 </div>
               )}
@@ -1509,7 +1508,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
               {!loadingVoices && !voicesError && readAddress && voices.length === 0 && (
                 <div className="studio-voice-empty-state">
                   <Mic2 size={24} className="studio-voice-empty-icon" />
-                  <span className="studio-voice-empty-title">NO SAVED VOICES YET</span>
+                  <span className="studio-voice-empty-title">NO VOICES</span>
                   <span className="studio-voice-empty-desc">
                     Upload an audio sample to use as a vocal reference, or save a vocal profile from one of your generated songs.
                   </span>
@@ -1518,7 +1517,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                     size="sm"
                     onClick={() => setVoiceTab('upload')}
                   >
-                    UPLOAD VOCAL SAMPLE
+                    UPLOAD
                   </Button>
                 </div>
               )}
@@ -1549,16 +1548,13 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                             <span className="studio-voice-card-name">{voice.name}</span>
                           </div>
                           <div className="studio-voice-card-badges">
-                            <Badge variant={voice.status === 'ready' ? 'secondary' : voice.status === 'error' ? 'warning' : 'default'}>
-                              {voiceStatus(voice).toUpperCase()}
-                            </Badge>
+                            {voice.status !== 'ready' && (
+                              <Badge variant={voice.status === 'error' ? 'warning' : 'default'}>
+                                {voiceStatus(voice).toUpperCase()}
+                              </Badge>
+                            )}
                             {isSelected && <span className="studio-voice-card-check">✓</span>}
                           </div>
-                        </div>
-
-                        <div className="studio-voice-availability" role="status">
-                          <span>Fast: {voiceAvailability(voice, 'turbo')}</span>
-                          <span>Master: {voiceAvailability(voice, 'sft')}</span>
                         </div>
 
                         {(['turbo', 'sft'] as const).map((output) => {
@@ -1609,10 +1605,10 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
               >
                 <UploadCloud size={24} className="studio-voice-upload-icon" />
                 <span className="studio-voice-upload-title">
-                  CLICK OR DRAG AUDIO TO UPLOAD VOCAL SAMPLE
+                  DROP OR SELECT AUDIO SAMPLE
                 </span>
                 <span className="studio-voice-upload-sub">
-                  WAV, MP3, FLAC, OGG, WebM (isolated vocals recommended)
+                  WAV, MP3, FLAC, OGG, WebM
                 </span>
               </div>
 
@@ -1623,8 +1619,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                     <div className="studio-voice-file-meta">
                       <span className="studio-voice-file-name">{voiceFile.name}</span>
                       <span className="studio-voice-file-size">
-                        {(voiceFile.size / 1024 / 1024).toFixed(2)} MB · REFERENCE SAMPLE
-                        {attachedVoice && ` · Fast: ${voiceAvailability(attachedVoice, 'turbo')} · Master: ${voiceAvailability(attachedVoice, 'sft')}`}
+                        {(voiceFile.size / 1024 / 1024).toFixed(2)} MB
                       </span>
                     </div>
                   </div>
@@ -1658,13 +1653,13 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
           {/* Currently Selected Strip */}
           <div className="studio-voice-active-strip">
             <div className="studio-field-label studio-field-label-flush">
-              <span>ACTIVE VOCAL SELECTION</span>
+              <span>VOICE</span>
               <span className="studio-highlight">
                 {voiceMode === 'reference' && voiceFile
-                  ? `SAMPLE: ${voiceFile.name}`
+                  ? voiceFile.name
                   : voiceMode === 'trained' && selectedVoice
-                  ? `PROFILE: ${selectedVoice.name.toUpperCase()}`
-                  : 'NONE (DEFAULT INSTRUMENTAL / VOCAL)'}
+                    ? selectedVoice.name.toUpperCase()
+                    : 'NONE'}
               </span>
             </div>
           </div>
@@ -1673,7 +1668,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
           {(voiceFile || selectedVoice) && (
             <div className="studio-param-slider-wrap">
               <div className="studio-field-label">
-                <span>VOCAL RESEMBLANCE</span>
+                <span>RESEMBLANCE</span>
                 <span className="studio-highlight">{Math.round(voiceCoverStrength * 100)}%</span>
               </div>
               <input
@@ -1687,8 +1682,8 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                 className="cyber-slider"
               />
               <div className="studio-voice-slider-hint">
-                <span>CREATIVE FREEDOM</span>
-                <span>EXACT TIMBRE MATCH</span>
+                <span>FREE</span>
+                <span>EXACT</span>
               </div>
             </div>
           )}
@@ -1709,7 +1704,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                   setUseVoice(false);
                 }}
               >
-                REMOVE VOICE
+                CLEAR
               </Button>
             )}
             <Button
