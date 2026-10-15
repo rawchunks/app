@@ -71,6 +71,7 @@ export const Board: React.FC<BoardProps> = ({
     extractCurrentSection,
     toggleLegoContext,
     updateTrackMixer,
+    removeTrack,
     toggleTake,
     activateTake,
     selectLaneVersion,
@@ -753,6 +754,10 @@ export const Board: React.FC<BoardProps> = ({
                   step="0.01"
                   value={masterTrack?.volume ?? 1}
                   onClick={(e) => e.stopPropagation()}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    updateTrackMixer('master', { volume: 1 });
+                  }}
                   onChange={(e) =>
                     updateTrackMixer('master', { volume: parseFloat(e.target.value) })
                   }
@@ -898,8 +903,15 @@ export const Board: React.FC<BoardProps> = ({
             const laneLayerTakes = takes
               .filter(t => isLayerTake(t) && !t.provenance?.mergedInto && !t.is_active && (layerTrackName(t) ?? 'other') === normalizedLaneName)
               .sort((a, b) => a.take_number - b.take_number);
-            const activeLayerTakeId = trackItem.activeVersionTakeId ?? null;
-            const hasOriginal = trackItem.hasOriginalStem !== false;
+            const activeLayerTakeId =
+              trackItem.activeVersionTakeId && trackItem.activeVersionTakeId !== 'ORG'
+                ? trackItem.activeVersionTakeId
+                : null;
+            const hasOriginal =
+              trackItem.type === 'stem' &&
+              trackItem.hasOriginalStem !== false &&
+              !trackItem.id.startsWith('layer-');
+            const canDeleteLaneOrTake = Boolean(activeLayerTakeId) || !hasOriginal || laneLayerTakes.length > 0;
 
             return (
               <div
@@ -982,6 +994,57 @@ export const Board: React.FC<BoardProps> = ({
                           L
                         </button>
                       </Tooltip>
+
+                      {activeLayerTakeId && (
+                        <Tooltip title="Merge Layer" description={`Commit this layer take into the ${trackItem.name} lane`}>
+                          <button
+                            type="button"
+                            className="board-btn-mini active"
+                            aria-label={`Merge Layer into ${trackItem.name}`}
+                            disabled={Boolean(pendingTake)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void activateTake(activeLayerTakeId, 'merge');
+                            }}
+                          >
+                            <Check size={10} />
+                          </button>
+                        </Tooltip>
+                      )}
+
+                      {canDeleteLaneOrTake && (
+                        <Tooltip
+                          title={activeLayerTakeId || laneLayerTakes.length > 0 ? 'Discard Layer' : `Delete ${trackItem.name}`}
+                          description={
+                            activeLayerTakeId || laneLayerTakes.length > 0
+                              ? 'Remove unmerged layer take'
+                              : `Delete ${trackItem.name} lane`
+                          }
+                        >
+                          <button
+                            type="button"
+                            className="board-btn-mini delete"
+                            aria-label={
+                              activeLayerTakeId || laneLayerTakes.length > 0
+                                ? `Discard Layer take`
+                                : `Delete ${trackItem.name} lane`
+                            }
+                            disabled={Boolean(pendingTake)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (activeLayerTakeId) {
+                                void deleteTake(activeLayerTakeId);
+                              } else if (laneLayerTakes.length > 0) {
+                                void deleteTake(laneLayerTakes[laneLayerTakes.length - 1].id);
+                              } else {
+                                removeTrack(trackItem.id);
+                              }
+                            }}
+                          >
+                            <Trash2 size={10} />
+                          </button>
+                        </Tooltip>
+                      )}
                     </div>
                   </div>
 
@@ -1020,33 +1083,6 @@ export const Board: React.FC<BoardProps> = ({
                           );
                         })}
                       </div>
-
-                      {activeLayerTakeId && (
-                        <div className="board-track-controls">
-                          <Tooltip title="Merge Layer" description={`Commit this layer take into the ${trackItem.name} lane`}>
-                            <button
-                              type="button"
-                              className="board-btn-mini active"
-                              aria-label={`Merge Layer into ${trackItem.name}`}
-                              disabled={Boolean(pendingTake)}
-                              onClick={() => void activateTake(activeLayerTakeId, 'merge')}
-                            >
-                              <Check size={10} />
-                            </button>
-                          </Tooltip>
-                          <Tooltip title="Discard Layer" description="Remove this layer take">
-                            <button
-                              type="button"
-                              className="board-btn-mini delete"
-                              aria-label={`Discard Layer take`}
-                              disabled={Boolean(pendingTake)}
-                              onClick={() => void deleteTake(activeLayerTakeId)}
-                            >
-                              <Trash2 size={9} />
-                            </button>
-                          </Tooltip>
-                        </div>
-                      )}
                     </div>
                   )}
 
@@ -1061,6 +1097,11 @@ export const Board: React.FC<BoardProps> = ({
                         step="0.01"
                         value={trackItem.volume}
                         onClick={(e) => e.stopPropagation()}
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
+                          updateTrackMixer(trackItem.id, { volume: 1 });
+                        }}
+                        title="Double-click to reset volume to 100%"
                         onChange={(e) =>
                           updateTrackMixer(trackItem.id, { volume: parseFloat(e.target.value) })
                         }
