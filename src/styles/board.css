@@ -1,12 +1,4 @@
-/* RAWCHUNKS UNIFIED DAW BOARD STYLES */
 
-:root {
-  --board-header-w: clamp(160px, 16vw, 240px);
-  --board-row-h: clamp(68px, 9vh, 92px);
-  --board-master-row-h: clamp(88px, 11vh, 120px);
-  --board-section-h: clamp(24px, 3vh, 30px);
-  --board-ruler-h: clamp(24px, 3vh, 30px);
-}
 
 /* ==========================================================================
    UNIFIED BOARD CONTAINER
@@ -401,10 +393,16 @@
 .board-track-lane {
   flex: 1 1 0;
   min-width: 0;
-  height: 100%;
+  height: auto;
+  min-height: var(--board-row-h);
+  align-self: stretch;
   position: relative;
   overflow: hidden;
   background: rgba(0, 0, 0, 0.4);
+}
+
+.board-row.master .board-track-lane {
+  min-height: var(--board-master-row-h);
 }
 
 /* Grid Lines Behind Waveform */
@@ -429,6 +427,7 @@
   position: absolute;
   top: 0;
   bottom: 0;
+  left: var(--pos-pct, 0%);
   width: 2px;
   background: var(--accent);
   box-shadow: 0 0 6px var(--accent);
@@ -598,16 +597,24 @@
 .waveform-box {
   position: relative;
   width: 100%;
-  height: 100%;
+  height: var(--waveform-h, 100%);
+  min-height: 0;
   overflow: visible;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  display: block;
+}
+
+.board-track-lane .waveform-box {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
 }
 
 .waveform-canvas {
-  width: 100%;
-  height: 100%;
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 0;
   display: block;
 }
 
@@ -812,8 +819,6 @@
 .board-master-badges .board-track-badge.selected { border-color: var(--text); box-shadow: 0 0 4px currentColor; }
 .board-row.master .board-track-header { justify-content: flex-start; }
 .board-row.master .board-track-header-bottom { margin-top: auto; }
-
-.waveform-box { position: relative; }
 .waveform-selection { position: absolute; inset: 0; pointer-events: none; z-index: 5; }
 .waveform-range { position: absolute; top: 0; height: 100%; width: 14px; padding: 0; border: 0; background: transparent; pointer-events: auto; touch-action: none; cursor: ew-resize; transform: translateX(-50%); }
 .waveform-range.pan { height: 12px; transform: none; cursor: grab; }

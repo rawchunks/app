@@ -22,7 +22,6 @@ export interface Props {
   onReworkSection?: () => void;
   onSelectTrack?: (trackId: string) => void;
   className?: string;
-  style?: React.CSSProperties;
 }
 
 type DragMode = 'none' | 'pinch' | 'start' | 'end' | 'pan' | 'create';
@@ -46,6 +45,45 @@ function layerValues(clips: DAWTrack['clips'], duration: number, peaks: { bins: 
   return values;
 }
 
+function synthLayerValues(lane: DAWTrack): number[] {
+  const values = new Array<number>(256).fill(0.14);
+  if (lane.type === 'pianoroll') {
+    const notes = lane.pianoRollNotes ?? [];
+    if (notes.length > 0) {
+      for (let bin = 0; bin < 256; bin++) {
+        const stepPos = ((bin / 256) * 64) % 16;
+        let energy = 0.08;
+        for (const n of notes) {
+          if (stepPos >= n.startTime && stepPos < n.startTime + Math.max(0.25, n.duration)) {
+            energy += (n.velocity ?? 0.8) * 0.28;
+          }
+        }
+        values[bin] = Math.min(0.95, energy);
+      }
+    }
+  } else if (lane.type === 'sequencer') {
+    const voices = lane.sequencerVoices ?? [];
+    if (voices.length > 0) {
+      for (let bin = 0; bin < 256; bin++) {
+        const stepIdx = Math.floor(((bin / 256) * 64) % 16);
+        let activeCount = 0;
+        for (const v of voices) {
+          if (!v.muted && v.steps?.[stepIdx]) activeCount++;
+        }
+        values[bin] = Math.min(0.95, 0.08 + activeCount * 0.22);
+      }
+    }
+  } else if (lane.type === 'strudel') {
+    const code = (lane.strudelCode ?? '').trim();
+    const seed = code.split('').reduce((acc, ch) => acc + ch.charCodeAt(0), 0) || 7;
+    for (let bin = 0; bin < 256; bin++) {
+      const pulse = ((bin + seed) % 8 === 0 || (bin + seed) % 8 === 3 || (bin + seed) % 8 === 6) ? 0.34 : 0.12;
+      values[bin] = code.length > 0 ? pulse : 0.08;
+    }
+  }
+  return values;
+}
+
 export const Waveform: React.FC<Props> = ({
   height,
   interactive = true,
@@ -64,7 +102,6 @@ export const Waveform: React.FC<Props> = ({
   onSelectTrack,
   onReworkSection,
   className = '',
-  style = {},
 }) => {
   const playhead = useDawStore(state => state.playhead);
   const savedDuration = useDawStore(state => state.duration);
@@ -109,9 +146,22 @@ export const Waveform: React.FC<Props> = ({
     }
   }, [customPeaks, audioUrl]);
 
-  const laneKey = JSON.stringify(lanes.map(lane => ({ id: lane.id, name: lane.name, clips: lane.clips.map(({ url, offset, duration, startTime }) => ({ url, offset, duration, startTime })) })));
+  const laneKey = JSON.stringify(
+    lanes.map(lane => ({
+      id: lane.id,
+      name: lane.name,
+      type: lane.type,
+      clips: lane.clips.map(({ url, offset, duration, startTime }) => ({ url, offset, duration, startTime })),
+      pianoRollNotes: lane.pianoRollNotes,
+      sequencerVoices: lane.sequencerVoices?.map(v => ({ muted: v.muted, steps: v.steps })),
+      strudelCode: lane.strudelCode,
+    }))
+  );
   const sources = useMemo<DAWTrack[]>(() => JSON.parse(laneKey), [laneKey]);
   const storedLayers = useMemo(() => duration > 0 ? sources.flatMap(lane => {
+    if (lane.clips.length === 0 && (lane.type === 'pianoroll' || lane.type === 'sequencer' || lane.type === 'strudel' || lane.type === 'sample')) {
+      return [{ id: lane.id, name: lane.name, values: synthLayerValues(lane) }];
+    }
     const peaks = lane.clips.map(clip => readPeaks(clip.url, Math.max(1, Math.ceil(clip.duration / duration * 256)), clip.offset, clip.duration));
     return peaks.every(peak => peak !== null) ? [{ id: lane.id, name: lane.name, values: layerValues(lane.clips, duration, peaks) }] : [];
   }) : [], [sources, duration]);
@@ -123,6 +173,9 @@ export const Waveform: React.FC<Props> = ({
     if (!sources.length || duration <= 0) return;
     const loadSeparatedLayers = () => {
       Promise.all(sources.map(async lane => {
+        if (lane.clips.length === 0 && (lane.type === 'pianoroll' || lane.type === 'sequencer' || lane.type === 'strudel' || lane.type === 'sample')) {
+          return { id: lane.id, name: lane.name, values: synthLayerValues(lane) };
+        }
         const peaks = await Promise.all(lane.clips.map(clip => extractBipolarPeaksFromUrl(clip.url, Math.max(1, Math.ceil(clip.duration / duration * 256)), clip.offset, clip.duration)));
         return { id: lane.id, name: lane.name, values: layerValues(lane.clips, duration, peaks) };
       })).then(result => {
@@ -191,7 +244,15 @@ export const Waveform: React.FC<Props> = ({
       return time < baseDuration ? sourcePeaks[Math.min(sourcePeaks.length - 1, Math.floor(time / baseDuration * sourcePeaks.length))] : 0;
     });
   }, [sourcePeaks, segments, timelineDuration, duration, savedDuration]);
-  const boundaries = useMemo(() => contributions(activePeaks, layers.map(layer => layer.values)), [activePeaks, layers]);
+  const boundaries = useMemo(() => {
+    if (!layers.length) return [];
+    const hasAudioStems = sources.some(s => s.type === 'stem' && s.clips.length > 0);
+    if (!hasAudioStems) {
+      const baseMaster = activePeaks.map(p => Math.max(0.24, p * 0.65));
+      return contributions(activePeaks, [baseMaster, ...layers.map(layer => layer.values)]).slice(1);
+    }
+    return contributions(activePeaks, layers.map(layer => layer.values));
+  }, [activePeaks, layers, sources]);
 
   // Active time selection normalized to [0, 1]
   const storeSel = useDawStore((s) => s.selection);
@@ -323,12 +384,19 @@ export const Waveform: React.FC<Props> = ({
       }
       ctx.closePath();
 
+      const baseGrad = ctx.createLinearGradient(0, 0, 0, h);
+      baseGrad.addColorStop(0, layers.length ? 'rgba(0, 240, 255, 0.16)' : 'rgba(0, 240, 255, 0.28)');
+      baseGrad.addColorStop(0.5, layers.length ? 'rgba(0, 212, 255, 0.42)' : 'rgba(0, 212, 255, 0.68)');
+      baseGrad.addColorStop(1, layers.length ? 'rgba(0, 240, 255, 0.16)' : 'rgba(0, 240, 255, 0.28)');
+      ctx.fillStyle = baseGrad;
+      ctx.fill();
+
       if (layers.length) {
         const focused = highlighted ?? (selectedTrackId ? [selectedTrackId] : []);
         const hasFocus = layers.some(layer => focused.includes(layer.id));
         for (let layer = 0; layer < layers.length; layer++) {
           ctx.fillStyle = getStemColor(layers[layer].name);
-          ctx.globalAlpha = hasFocus ? (focused.includes(layers[layer].id) ? 0.95 : 0.25) : 0.68;
+          ctx.globalAlpha = hasFocus ? (focused.includes(layers[layer].id) ? 0.95 : 0.28) : 0.72;
           for (const side of [-1, 1]) {
             ctx.beginPath();
             for (let bin = 0; bin < barCount; bin++) {
@@ -344,13 +412,6 @@ export const Waveform: React.FC<Props> = ({
           }
         }
         ctx.globalAlpha = 1;
-      } else {
-        const baseGrad = ctx.createLinearGradient(0, 0, 0, h);
-        baseGrad.addColorStop(0, 'rgba(0, 240, 255, 0.25)');
-        baseGrad.addColorStop(0.5, 'rgba(0, 212, 255, 0.65)');
-        baseGrad.addColorStop(1, 'rgba(0, 240, 255, 0.25)');
-        ctx.fillStyle = baseGrad;
-        ctx.fill();
       }
 
       // Sharp stroke contour
@@ -758,10 +819,7 @@ export const Waveform: React.FC<Props> = ({
   return (
     <div
       className={`waveform-box ${className}`}
-      style={{
-        ...(height ? { height: `${height}px` } : {}),
-        ...style,
-      }}
+      style={height ? ({ '--waveform-h': `${height}px` } as React.CSSProperties) : undefined}
     >
       <canvas
         ref={canvasRef}
@@ -781,7 +839,12 @@ export const Waveform: React.FC<Props> = ({
         {(['start', 'end', 'pan'] as const).map(mode => <button
           key={mode} type="button" className={`waveform-range ${mode}`}
           aria-label={mode === 'pan' ? 'Move selection' : `Selection ${mode}`}
-          style={{ left: `${effectiveRatioSelection[mode === 'end' ? 'end' : 'start'] * 100}%`, ...(mode === 'pan' ? { width: `${(effectiveRatioSelection.end - effectiveRatioSelection.start) * 100}%` } : {}) }}
+          style={
+            {
+              '--range-left': `${effectiveRatioSelection[mode === 'end' ? 'end' : 'start'] * 100}%`,
+              ...(mode === 'pan' ? { '--range-width': `${(effectiveRatioSelection.end - effectiveRatioSelection.start) * 100}%` } : {}),
+            } as React.CSSProperties
+          }
           onPointerDown={event => handleRangeDown(event, mode)} onPointerMove={handleRangeMove}
           onPointerUp={handleRangeUp} onPointerCancel={handleRangeUp} onClick={event => event.stopPropagation()}
         />)}

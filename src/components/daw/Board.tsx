@@ -178,7 +178,15 @@ export const Board: React.FC<BoardProps> = ({
     });
     positions.current = next;
   }, [tracks, selectedTrackId]);
-  const separated = laneTracks.filter(track => track.type === 'stem' && track.clips.length > 0);
+  const hasExtractedStems = laneTracks.some(track => track.type === 'stem' && track.clips.length > 0);
+  const separated = laneTracks.filter(
+    track =>
+      track.clips.length > 0 ||
+      track.type === 'pianoroll' ||
+      track.type === 'sequencer' ||
+      track.type === 'strudel' ||
+      track.type === 'sample'
+  );
   const completeSeparation = ['drums', 'bass', 'other'].every(name => separated.some(track => track.name.toLowerCase() === name));
   const masterLanes = separated.filter(track => !completeSeparation || track.name.toLowerCase() !== 'instrumental');
   const selectedLane = separated.find(track => track.id === selectedTrackId);
@@ -645,13 +653,13 @@ export const Board: React.FC<BoardProps> = ({
                     </Tooltip>
                   </>
                 )}
-                <Tooltip title={!separated.length ? 'Extract stems' : masterExpanded ? 'Compact waveform' : 'Expand stems'} description={!separated.length ? 'Separate the recording into instruments and vocals.' : masterExpanded ? 'Show the master as one waveform. Keep the extracted lanes.' : 'Show instrument and vocal colors in the master waveform.'}>
-                  <button type="button" className="board-btn-mini" aria-label={!separated.length ? 'Extract stems' : masterExpanded ? 'Compact waveform' : 'Expand stems'} disabled={isSeparating} onClick={event => {
+                <Tooltip title={!hasExtractedStems ? 'Extract stems' : masterExpanded ? 'Compact waveform' : 'Expand stems'} description={!hasExtractedStems ? 'Separate the recording into instruments and vocals.' : masterExpanded ? 'Show the master as one waveform. Keep the extracted lanes.' : 'Show instrument and vocal colors in the master waveform.'}>
+                  <button type="button" className="board-btn-mini" aria-label={!hasExtractedStems ? 'Extract stems' : masterExpanded ? 'Compact waveform' : 'Expand stems'} disabled={isSeparating} onClick={event => {
                     event.stopPropagation();
-                    if (!separated.length) { setMasterExpanded(true); onSeparateStems(); }
+                    if (!hasExtractedStems) { setMasterExpanded(true); onSeparateStems(); }
                     else { setMasterExpanded(!masterExpanded); if (masterExpanded) onSelectTrack('master'); }
                   }}>
-                    {separated.length && masterExpanded ? <Minimize2 size={11} /> : <Split size={11} />}
+                    {hasExtractedStems && masterExpanded ? <Minimize2 size={11} /> : <Split size={11} />}
                   </button>
                 </Tooltip>
                 <Tooltip title="Merge all" description="Commit all enabled mounted sections to the master.">

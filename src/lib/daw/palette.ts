@@ -15,9 +15,9 @@ export type StemType = keyof typeof STEM_PALETTE;
 export function getStemColor(name: string): string {
   const lower = (name || '').toLowerCase();
   if (lower.includes('vocal')) return STEM_PALETTE.vocals;
-  if (lower.includes('drum')) return STEM_PALETTE.drums;
+  if (lower.includes('drum') || lower.includes('sequencer')) return STEM_PALETTE.drums;
   if (lower.includes('bass')) return STEM_PALETTE.bass;
-  if (lower.includes('synth')) return STEM_PALETTE.synth;
+  if (lower.includes('synth') || lower.includes('strudel') || lower.includes('code')) return STEM_PALETTE.synth;
   if (lower.includes('key') || lower.includes('piano')) return STEM_PALETTE.keys;
   if (lower.includes('guitar')) return STEM_PALETTE.guitar;
   if (lower.includes('master') || lower.includes('main')) return STEM_PALETTE.master;
