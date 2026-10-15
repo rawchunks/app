@@ -5,6 +5,13 @@ import {
   ExternalLink,
   Disc3,
   User,
+  Pencil,
+  Download,
+  Trash2,
+  Upload,
+  Sliders,
+  Tag,
+  MoreHorizontal,
 } from 'lucide-react';
 import { Button } from './button';
 import { Badge } from './badge';
@@ -13,6 +20,7 @@ import { Versions } from './versions';
 import { Licenses } from './licenses';
 import { store } from '../lib/store';
 import { useProfile } from '../hooks/use-profile';
+import { useLicense } from '../hooks/use-license';
 import { NETWORK_LOGOS, networkLogo } from '../contexts/Network';
 import { getExplorerUrl, getExplorerTxUrl } from '../lib/chains';
 import type { Song } from '../lib/schema';
@@ -284,6 +292,42 @@ export const CoverArt: React.FC<{
     );
   };
 
+/**
+ * On-chain live pricing and remaining/sold license statistics for published songs on My-Page.
+ */
+const PublicSongPricingBox: React.FC<{ song: Song }> = ({ song }) => {
+  const { data, sold } = useLicense(song);
+  const remaining = data?.remaining !== undefined ? Number(data.remaining) : song.licenses;
+  const soldCount = sold !== undefined ? sold : 0;
+
+  return (
+    <div className="market-pricing-box">
+      <div className="market-price-item">
+        <span className="market-price-label">STREAM</span>
+        <span className="market-price-val market-price-val-stream">
+          ${song.stream_price.toFixed(2)}
+          <span className="market-price-unit">/m</span>
+        </span>
+      </div>
+      <div className="market-price-item">
+        <span className="market-price-label">LICENSES</span>
+        <div className="mypage-license-stats-row">
+          <Tooltip title="Licenses Sold" description={`${soldCount} licenses sold`}>
+            <span className="mypage-stat-badge sold">
+              <Tag size={9} /> {soldCount}
+            </span>
+          </Tooltip>
+          <Tooltip title="Licenses Remaining" description={`${remaining} licenses remaining`}>
+            <span className="mypage-stat-badge left">
+              <Tag size={9} /> {remaining}
+            </span>
+          </Tooltip>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export interface CardProps {
   variant: 'market' | 'mypage';
   song: Song;
@@ -320,6 +364,14 @@ export const Card: React.FC<CardProps> = ({
   onSelectVersion,
   selectedGenre,
   onSelectGenre,
+  isMenuOpen = false,
+  onToggleMenu,
+  onEditDetails,
+  onEditInStudio,
+  onDownload,
+  onDelete,
+  onPublishClick,
+  publicPending = false,
   isRemixLicensed = false,
 }) => {
   const tags = normalizeTags(song.tags);
@@ -343,8 +395,72 @@ export const Card: React.FC<CardProps> = ({
         txHash={song.tx_hash}
         txUrl={song.tx_url}
         duration={song.duration}
-
+        topRightActions={
+          variant === 'mypage' && !isRemixLicensed && onToggleMenu ? (
+            <div className="mypage-menu-wrap">
+              <Tooltip title="Track Options" description="Edit details, open in Studio, download, or delete">
+                <button
+                  type="button"
+                  className="mypage-card-more-btn"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onToggleMenu();
+                  }}
+                  aria-label="Track options"
+                >
+                  <MoreHorizontal size={13} />
+                </button>
+              </Tooltip>
+            </div>
+          ) : null
+        }
       />
+
+      {/* Card-level Dropdown Menu (avoids overflow clipping on artwork) */}
+      {variant === 'mypage' && !isRemixLicensed && isMenuOpen && (
+        <div className="mypage-menu-dropdown" onClick={(e) => e.stopPropagation()}>
+          {!song.public && !song.tx_hash && !song.metadata_cid && onEditDetails && (
+            <button
+              type="button"
+              className="mypage-menu-item mypage-item-details"
+              onClick={() => onEditDetails(song)}
+            >
+              <Sliders size={11} />
+              <span>SONG DETAILS</span>
+            </button>
+          )}
+          {onEditInStudio && (
+            <button
+              type="button"
+              className="mypage-menu-item mypage-item-edit"
+              onClick={() => onEditInStudio(song)}
+            >
+              <Pencil size={11} />
+              <span>AUDIO EDITOR</span>
+            </button>
+          )}
+          {onDownload && (
+            <button
+              type="button"
+              className="mypage-menu-item mypage-item-download"
+              onClick={() => onDownload(song)}
+            >
+              <Download size={11} />
+              <span>DOWNLOAD</span>
+            </button>
+          )}
+          {onDelete && (
+            <button
+              type="button"
+              className="mypage-menu-item mypage-item-delete"
+              onClick={() => onDelete(song.id)}
+            >
+              <Trash2 size={11} />
+              <span>DELETE</span>
+            </button>
+          )}
+        </div>
+      )}
 
       {/* 2. Structured Information Body */}
       <div className="market-card-body">
@@ -418,6 +534,23 @@ export const Card: React.FC<CardProps> = ({
         </div>
 
         {/* Row 5: Pricing Box */}
+        {variant === 'mypage' && isRemixLicensed ? (
+          <div className="market-pricing-box">
+            <div className="market-price-item">
+              <span className="market-price-label">STREAM</span>
+              <span className="market-price-val market-price-val-stream">
+                ${song.stream_price.toFixed(2)}
+                <span className="market-price-unit">/m</span>
+              </span>
+            </div>
+            <div className="market-price-item">
+              <span className="market-price-label">STATUS</span>
+              <span className="market-price-val market-price-val-license">LICENSED</span>
+            </div>
+          </div>
+        ) : variant === 'mypage' && song.public ? (
+          <PublicSongPricingBox song={song} />
+        ) : (
           <div className="market-pricing-box">
             <div className="market-price-item">
               <span className="market-price-label">STREAM</span>
@@ -437,6 +570,8 @@ export const Card: React.FC<CardProps> = ({
               </span>
             </div>
           </div>
+        )}
+
         {/* Row 6: Actions Toolbar (Icon + Tooltip) */}
         <div className="market-card-actions">
           <Tooltip
@@ -458,7 +593,48 @@ export const Card: React.FC<CardProps> = ({
             </Button>
           </Tooltip>
 
-          <Licenses key={song.id} song={song} placement="market" compact />
+          {variant === 'market' ? (
+            <Licenses key={song.id} song={song} placement="market" compact />
+          ) : isRemixLicensed ? (
+            <Licenses
+              key={song.id}
+              song={song}
+              placement="mypage"
+              onEditSong={onEditInStudio}
+              compact
+            />
+          ) : song.public ? (
+            <div className="mypage-public-action-wrap">
+              <Badge variant="secondary" className="mypage-status-badge">
+                PUBLIC
+              </Badge>
+              <Licenses
+                key={song.id}
+                song={song}
+                placement="mypage"
+                onEditSong={onEditInStudio}
+                compact
+              />
+            </div>
+          ) : (
+            <div className="mypage-private-action-wrap">
+              <Badge variant="muted" className="mypage-status-badge">
+                PRIVATE
+              </Badge>
+              <Tooltip title="Publish Track" description="Mint on-chain and publish to Market">
+                <Button
+                  variant="primary"
+                  size="sm"
+                  className="mypage-publish-icon-btn"
+                  onClick={() => onPublishClick?.(song)}
+                  disabled={Boolean(publicPending)}
+                  aria-label="Publish track"
+                >
+                  <Upload size={12} />
+                </Button>
+              </Tooltip>
+            </div>
+          )}
         </div>
       </div>
     </div>

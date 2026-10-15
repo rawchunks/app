@@ -11,16 +11,11 @@ import {
   Music,
   Volume2,
   User,
-  Download,
-  Trash2,
-  Upload,
-  Sliders,
-  Tag,
 } from 'lucide-react';
-import { Tooltip } from '../components/daw/Tooltip';
 import { Glitch } from '../components/glitch';
 import { Button } from '../components/button';
 import { Badge } from '../components/badge';
+import { Card } from '../components/card';
 import { store, State } from '../lib/store';
 import { Song, Album } from '../lib/schema';
 import { useSelectedUserAddress } from '../hooks/use-address';
@@ -28,316 +23,23 @@ import { usePublic } from '../hooks/use-public';
 import { useMint } from '../hooks/use-mint';
 import { useProfile } from '../hooks/use-profile';
 import { useSongs } from '../hooks/use-songs';
-import { useLicensedSongs, useLicense } from '../hooks/use-license';
+import { useLicensedSongs } from '../hooks/use-license';
 import { useVoices, voiceAvailability, voiceStatus } from '../hooks/use-voices';
 import { ProfileModal } from '../components/profile-modal';
 import { EditSongModal } from '../components/edit-song';
 import { PublishModal } from '../components/publish';
 import { readSongs, writeSongs } from '../lib/cache';
 import { groupSongs } from '../lib/versions';
-import { Licenses } from '../components/licenses';
-import { Versions } from '../components/versions';
-import { CoverArt } from '../components/card';
 import { useSession, promptSessionModal } from '../components/session';
 
 export interface Props {
   onEditSong: (song: Song) => void;
   className?: string;
-  style?: React.CSSProperties;
 }
 
-/**
- * On-chain live pricing and remaining/sold license statistics for published songs.
- */
-const PublicSongPricingBox: React.FC<{ song: Song }> = ({ song }) => {
-  const { data, sold } = useLicense(song);
-  const remaining = data?.remaining !== undefined ? Number(data.remaining) : song.licenses;
-  const soldCount = sold !== undefined ? sold : 0;
-
-  return (
-    <div className="market-pricing-box">
-      <div className="market-price-item">
-        <span className="market-price-label">STREAM</span>
-        <span className="market-price-val market-price-val-stream">
-          ${song.stream_price.toFixed(2)}
-          <span className="market-price-unit">/m</span>
-        </span>
-      </div>
-      <div className="market-price-item">
-        <span className="market-price-label">LICENSES</span>
-        <div className="mypage-license-stats-row">
-          <Tooltip title="Licenses Sold" description={`${soldCount} licenses sold`}>
-            <span className="mypage-stat-badge sold">
-              <Tag size={10} /> {soldCount}
-            </span>
-          </Tooltip>
-          <Tooltip title="Licenses Remaining" description={`${remaining} licenses remaining`}>
-            <span className="mypage-stat-badge left">
-              <Tag size={10} /> {remaining}
-            </span>
-          </Tooltip>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-/**
- * Uniform pricing box for user songs: shows stream + license price for private songs,
- * and stream + live sold/left statistics for published songs.
- */
-const MySongPricingBox: React.FC<{ song: Song }> = ({ song }) => {
-  if (!song.public) {
-    return (
-      <div className="market-pricing-box">
-        <div className="market-price-item">
-          <span className="market-price-label">STREAM</span>
-          <span className="market-price-val market-price-val-stream">
-            ${song.stream_price.toFixed(2)}
-            <span className="market-price-unit">/m</span>
-          </span>
-        </div>
-        <div className="market-price-item">
-          <span className="market-price-label">LICENSE</span>
-          <span className="market-price-val market-price-val-license">
-            {song.source ? (
-              <span className="market-price-remix">REMIX</span>
-            ) : (
-              `$${song.license_price.toFixed(2)}`
-            )}
-          </span>
-        </div>
-      </div>
-    );
-  }
-
-  return <PublicSongPricingBox song={song} />;
-};
-
-/**
- * Compact, uniform 7-row Song Card for My-Page.
- * Matches market.tsx dimensions and visual hierarchy strictly.
- */
-const MySongCard: React.FC<{
-  song: Song;
-  versions: Song[];
-  albumTitle: string | null;
-  albumCover: string | null;
-  isPlayingThis: boolean;
-  onPlayToggle: () => void;
-  onSelectVersion: (version: Song) => void;
-  isMenuOpen: boolean;
-  onToggleMenu: () => void;
-  onEditDetails: (song: Song) => void;
-  onEditInStudio: (song: Song) => void;
-  onDownload: (song: Song) => void;
-  onDelete: (id: string) => void;
-  onPublishClick: (song: Song) => void;
-  publicPending: boolean;
-  isRemixLicensed?: boolean;
-}> = ({
-  song,
-  versions,
-  albumTitle,
-  albumCover,
-  isPlayingThis,
-  onPlayToggle,
-  onSelectVersion,
-  isMenuOpen,
-  onToggleMenu,
-  onEditDetails,
-  onEditInStudio,
-  onDownload,
-  onDelete,
-  onPublishClick,
-  publicPending,
-  isRemixLicensed = false,
-}) => {
-    return (
-      <div className={`market-card ${isPlayingThis ? 'playing' : ''}`}>
-        {/* 1. Square Artwork Media Container */}
-        <CoverArt
-          image={song.image}
-          albumCover={albumCover}
-          title={song.title}
-          isPlayingThis={isPlayingThis}
-          onPlayToggle={onPlayToggle}
-          network={song.network}
-          txHash={song.tx_hash}
-          txUrl={song.tx_url}
-          duration={song.duration}
-          topRightActions={
-            !isRemixLicensed ? (
-              <div className="mypage-menu-wrap">
-                <button
-                  type="button"
-                  className="mypage-card-more-btn"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onToggleMenu();
-                  }}
-                  aria-label="Track options"
-                  title="Track Options"
-                >
-                  •••
-                </button>
-                {isMenuOpen && (
-                  <div className="mypage-menu-dropdown">
-                    {!song.public && !song.tx_hash && !song.metadata_cid && (
-                      <button
-                        type="button"
-                        className="mypage-menu-item mypage-item-details"
-                        onClick={() => onEditDetails(song)}
-                      >
-                        <Sliders size={12} /> EDIT DETAILS
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      className="mypage-menu-item mypage-item-edit"
-                      onClick={() => onEditInStudio(song)}
-                    >
-                      <Pencil size={12} /> MUSIC EDITOR
-                    </button>
-                    <button
-                      type="button"
-                      className="mypage-menu-item mypage-item-download"
-                      onClick={() => onDownload(song)}
-                    >
-                      <Download size={12} /> DOWNLOAD
-                    </button>
-                    <button
-                      type="button"
-                      className="mypage-menu-item mypage-item-delete"
-                      onClick={() => onDelete(song.id)}
-                    >
-                      <Trash2 size={12} /> DELETE
-                    </button>
-                  </div>
-                )}
-              </div>
-            ) : null
-          }
-        />
-
-        {/* 2. Structured Metadata Body */}
-        <div className="market-card-body mypage-card-body">
-          {/* Top: Info (Title+Versions, Album, Tags) */}
-          <div className="mypage-card-info">
-            {/* Row 1: Title + Versions (horizontal, title occupies up to two thirds) */}
-            <div className="mypage-card-row-title-wrap">
-              <div className="mypage-card-title-col">
-                <Tooltip title={song.title} description="Song title" className="mypage-card-title-tooltip">
-                  <span className="mypage-card-title-text">{song.title}</span>
-                </Tooltip>
-              </div>
-              {versions && versions.length > 1 && onSelectVersion && (
-                <div className="mypage-card-versions-col">
-                  <Versions
-                    songs={versions}
-                    selected={song.id}
-                    onSelect={onSelectVersion}
-                  />
-                </div>
-              )}
-            </div>
-
-            {/* Album (if present) */}
-            {albumTitle && (
-              <div className="market-card-row-album" title={`Album: ${albumTitle}`}>
-                <Disc3 size={11} className="market-album-icon" />
-                <span className="market-album-text">{albumTitle}</span>
-              </div>
-            )}
-
-            {/* Tags & Remix Badge (if present) */}
-            {((song.tags && song.tags.length > 0) || isRemixLicensed) && (
-              <div className="market-card-row-tags">
-                {isRemixLicensed && (
-                  <Badge variant="warning" className="mypage-remix-badge">
-                    REMIX
-                  </Badge>
-                )}
-                {song.tags?.map((t) => (
-                  <Badge key={t} variant="secondary">
-                    {t}
-                  </Badge>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Bottom: Pricing & Actions */}
-          <div className="mypage-card-footer-box">
-            {isRemixLicensed ? (
-              <div className="market-pricing-box">
-                <div className="market-price-item">
-                  <span className="market-price-label">STREAM</span>
-                  <span className="market-price-val market-price-val-stream">
-                    ${song.stream_price.toFixed(2)}
-                    <span className="market-price-unit">/m</span>
-                  </span>
-                </div>
-                <div className="market-price-item">
-                  <span className="market-price-label">STATUS</span>
-                  <span className="market-price-val market-price-val-license">
-                    LICENSED
-                  </span>
-                </div>
-              </div>
-            ) : (
-              <MySongPricingBox song={song} />
-            )}
-
-            {/* Actions Toolbar */}
-            <div className="market-card-actions">
-              {isRemixLicensed ? (
-                <Licenses
-                  song={song}
-                  placement="mypage"
-                  onEditSong={onEditInStudio}
-                  compact
-                />
-              ) : song.public ? (
-                <div className="mypage-public-action-wrap">
-                  <Badge variant="secondary" className="mypage-status-badge">
-                    PUBLIC
-                  </Badge>
-                  <Licenses
-                    song={song}
-                    placement="mypage"
-                    onEditSong={onEditInStudio}
-                    compact
-                  />
-                </div>
-              ) : (
-                <div className="mypage-private-action-wrap">
-                  <Badge variant="muted" className="mypage-status-badge">
-                    PRIVATE
-                  </Badge>
-                  <Tooltip title="Publish" description="Mint on-chain and publish to Market">
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      className="mypage-publish-icon-btn"
-                      onClick={() => onPublishClick(song)}
-                      disabled={Boolean(publicPending)}
-                      aria-label="Publish track"
-                    >
-                      <Upload size={12} />
-                    </Button>
-                  </Tooltip>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-export const Mypage: React.FC<Props> = ({ onEditSong, className = '', style = {} }) => {
-  const { readAddress, userAddress, evmAddress, svmAddress, isReconnecting } = useSelectedUserAddress();
+export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
+  const { readAddress, userAddress, evmAddress, svmAddress, isReconnecting } =
+    useSelectedUserAddress();
   const { session } = useSession();
 
   const [state, setState] = useState<State>(() => ({
@@ -580,7 +282,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '', style = {}
   };
 
   return (
-    <div className={`mypage-container ${className}`} style={style}>
+    <div className={`mypage-container ${className}`}>
       {/* Page Header */}
       <div className="mypage-header">
         <div>
@@ -687,8 +389,9 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '', style = {}
                   const albumCover = album?.cover || null;
 
                   return (
-                    <MySongCard
+                    <Card
                       key={family}
+                      variant="mypage"
                       song={song}
                       versions={versions}
                       albumTitle={albumTitle}
@@ -778,8 +481,9 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '', style = {}
                   const albumCover = album?.cover || null;
 
                   return (
-                    <MySongCard
+                    <Card
                       key={family}
+                      variant="mypage"
                       song={song}
                       versions={versions}
                       albumTitle={albumTitle}
@@ -805,14 +509,9 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '', style = {}
                           store.setActiveSong(v);
                         }
                       }}
-                      isMenuOpen={false}
-                      onToggleMenu={() => { }}
-                      onEditDetails={() => { }}
                       onEditInStudio={onEditSong}
                       onDownload={handleDownload}
                       onDelete={handleDelete}
-                      onPublishClick={() => { }}
-                      publicPending={false}
                       isRemixLicensed={true}
                     />
                   );
