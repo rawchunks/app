@@ -137,6 +137,14 @@ const REWORK_INTENSITY_PRESETS = [
   { id: 'bold', mode: 'aggressive' as const, strength: 1.0, label: 'Bold (100%)', shortLabel: 'Bold', desc: 'Reimagines the selected region freely from your prompt' },
 ];
 
+const COMPLETE_ARRANGEMENT_PRESETS = [
+  { id: 'full_band', label: 'Full Arrangement', classes: 'drums, bass, keyboard, guitar, strings', tag: 'Full band arrangement', desc: 'Generates drums, bass & harmonic accompaniment' },
+  { id: 'rhythm', label: 'Rhythm Section', classes: 'drums, bass, percussion', tag: 'Tight rhythm section with punchy drums and bass', desc: 'Locks in drums, bass & rhythmic groove' },
+  { id: 'electronic', label: 'Electronic Production', classes: 'drums, bass, synth, fx', tag: 'Modern electronic synths & punchy drums', desc: 'Builds modern synth, bass & beat production' },
+  { id: 'acoustic', label: 'Organic / Acoustic', classes: 'guitar, keyboard, strings, percussion', tag: 'Warm acoustic instrumentation', desc: 'Adds organic acoustic instruments around stem' },
+  { id: 'cinematic', label: 'Cinematic Score', classes: 'strings, brass, woodwinds, synth', tag: 'Lush orchestral strings & atmospheric pads', desc: 'Layers wide orchestral & ambient backing' },
+];
+
 const PROMPT_QUICK_TAGS = [
   'Punchy 808 Bass',
   'Warm Analog Synth',
@@ -203,6 +211,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
   const [splitHeight, setSplitHeight] = useState<number | null>(null);
   const [isPromptModalOpen, setIsPromptModalOpen] = useState<boolean>(false);
   const [isParamModalOpen, setIsParamModalOpen] = useState<boolean>(false);
+  const [completePreset, setCompletePreset] = useState<string>('full_band');
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   const prevRevealRef = useRef(reveal);
@@ -365,6 +374,9 @@ export const Toolbox: React.FC<ToolboxProps> = ({
   const activeInstrumentLabel = instrumentList.find((i) => i.id === instrument)?.label ?? instrument;
   const stemList = options?.stems ?? DEFAULT_STEMS;
   const activeStemLabel = stemList.find((s) => s.id === stemType)?.label ?? stemType;
+  const activeCompletePreset =
+    COMPLETE_ARRANGEMENT_PRESETS.find((p) => p.id === completePreset) ?? COMPLETE_ARRANGEMENT_PRESETS[0];
+
   const getActiveSubnavParamSummary = (
     actionId: string,
   ): { tag: string; value: string; title: string } => {
@@ -389,6 +401,13 @@ export const Toolbox: React.FC<ToolboxProps> = ({
         title: 'Extension Target Length & Seam',
       };
     }
+    if (actionId === 'complete') {
+      return {
+        tag: 'FOCUS',
+        value: activeCompletePreset.label,
+        title: 'Accompaniment Focus & Stems',
+      };
+    }
     return { tag: 'PARAM', value: 'Configure', title: 'Configure Parameters' };
   };
 
@@ -403,6 +422,9 @@ export const Toolbox: React.FC<ToolboxProps> = ({
     }
     if (actionId === 'extend') {
       return `Seamlessly extends arrangement to ${Math.round(targetDuration)}s total duration`;
+    }
+    if (actionId === 'complete') {
+      return activeCompletePreset.desc;
     }
     return '';
   };
@@ -606,7 +628,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
                         aria-selected={isCurrent}
                         className={`toolbox-tab-btn toolbox-subnav-btn ${isCurrent ? 'active tab-studio' : ''}`}
                         onClick={() => {
-                          if (isCurrent && (['repaint','lego','extend'] as string[]).includes(task)) {
+                          if (isCurrent && (['repaint','lego','extend','complete'] as string[]).includes(task)) {
                             setIsParamModalOpen(true);
                           } else {
                             onSelectTask(action.id as Task);
@@ -619,7 +641,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
                     </Tooltip>
 
                     {/* Standardized Expandable Modal Trigger Inside Active Sub-Menu Item (Neighbor-Aware, Full Fill) */}
-                    {isCurrent && (['repaint','lego','extend'] as string[]).includes(task) && (
+                    {isCurrent && (['repaint','lego','extend','complete'] as string[]).includes(task) && (
                       <Tooltip
                         title={paramSummary.title}
                         description={`${filterDesc} — Click to open ${shortName} parameters modal (Preselects + Granular Slider)`}
@@ -1071,7 +1093,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
 
       {/* Standardized AI Studio Parameter Modal (Presets + Granular Dragging Bar) */}
       <Modal
-        isOpen={isParamModalOpen && (['repaint','lego','extend'] as string[]).includes(task)}
+        isOpen={isParamModalOpen && (['repaint','lego','extend','complete'] as string[]).includes(task)}
         onClose={() => setIsParamModalOpen(false)}
         title={`AI STUDIO PARAMETERS // ${taskLabel(task).toUpperCase()}`}
         size="md"
@@ -1389,6 +1411,112 @@ export const Toolbox: React.FC<ToolboxProps> = ({
                   >
                     +0.05s
                   </button>
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* 4. ACCOMPANY (complete): Preselect Arrangement Focus + Track Classes + Granular Density Slider */}
+          {task === 'complete' && (
+            <>
+              <div className="toolbox-param-section">
+                <div className="toolbox-param-section-head">
+                  <span className="daw-field-label">PRESELECT ARRANGEMENT FOCUS</span>
+                  <span className="toolbox-param-readout-tag">
+                    {activeCompletePreset.label.toUpperCase()}
+                  </span>
+                </div>
+                <div className="toolbox-param-presets-grid cols-3">
+                  {COMPLETE_ARRANGEMENT_PRESETS.map((preset) => {
+                    const isSelected = completePreset === preset.id;
+                    return (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        className={`toolbox-param-preset-btn ${isSelected ? 'active' : ''}`}
+                        onClick={() => {
+                          setCompletePreset(preset.id);
+                          onParametersChange({ ...parameters, trackClasses: preset.classes });
+                        }}
+                      >
+                        <span className="preset-btn-title">{preset.label}</span>
+                        <span className="preset-btn-sub">{preset.classes}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="toolbox-param-section">
+                <div className="toolbox-param-section-head">
+                  <span className="daw-field-label">ACTIVE TRACK CLASSES (MODEL TARGETS)</span>
+                  <span className="toolbox-param-readout-val">
+                    {String(parameters.trackClasses || 'drums, bass, guitar, keyboard, synths')}
+                  </span>
+                </div>
+                <div className="toolbox-param-chip-list">
+                  {instrumentList.slice(0, 8).map((inst) => {
+                    const currentClasses = String(parameters.trackClasses || 'drums, bass, guitar, keyboard, synths')
+                      .split(',')
+                      .map((s) => s.trim())
+                      .filter(Boolean);
+                    const isIncluded = currentClasses.includes(inst.id);
+                    return (
+                      <button
+                        key={inst.id}
+                        type="button"
+                        className={`toolbox-param-chip ${isIncluded ? 'active' : ''}`}
+                        onClick={() => {
+                          const next = isIncluded
+                            ? currentClasses.filter((c) => c !== inst.id)
+                            : [...currentClasses, inst.id];
+                          if (next.length > 0) {
+                            onParametersChange({ ...parameters, trackClasses: next.join(', ') });
+                          }
+                        }}
+                      >
+                        {isIncluded ? '✓ ' : '+ '}
+                        {inst.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="toolbox-param-section">
+                <div className="toolbox-param-section-head">
+                  <span className="daw-field-label">GRANULAR ARRANGEMENT DENSITY</span>
+                  <span className="toolbox-param-readout-val">{Math.round(repaintStrength * 100)}%</span>
+                </div>
+                <div className="toolbox-param-slider-row">
+                  <button
+                    type="button"
+                    className="toolbox-param-step-btn"
+                    onClick={() => onRepaintStrengthChange(Math.max(0.1, Number((repaintStrength - 0.05).toFixed(2))))}
+                  >
+                    -5%
+                  </button>
+                  <input
+                    type="range"
+                    min="0.1"
+                    max="1"
+                    step="0.01"
+                    value={repaintStrength}
+                    onChange={(e) => onRepaintStrengthChange(Number(e.target.value))}
+                    className="daw-ContextSlider toolbox-param-range"
+                  />
+                  <button
+                    type="button"
+                    className="toolbox-param-step-btn"
+                    onClick={() => onRepaintStrengthChange(Math.min(1, Number((repaintStrength + 0.05).toFixed(2))))}
+                  >
+                    +5%
+                  </button>
+                </div>
+                <div className="toolbox-param-scale-labels">
+                  <span>Sparse Pocket</span>
+                  <span>Balanced Full Band</span>
+                  <span>Dense Orchestration</span>
                 </div>
               </div>
             </>
