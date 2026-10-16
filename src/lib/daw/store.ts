@@ -232,6 +232,8 @@ export interface DAWState {
   selectLaneVersion: (trackId: string, versionId: string | null) => Promise<void>;
   selectMasterVersion: (versionId: string | null) => Promise<void>;
   addTrack: (type: TrackType, name?: string) => DAWTrack;
+  pendingModalTrackId: string | null;
+  clearPendingModalTrackId: () => void;
   removeTrack: (trackId: string) => void;
   updateTrackMixer: (trackId: string, partial: Partial<Pick<DAWTrack, 'volume' | 'pan' | 'muted' | 'solo'>> | { volume?: number; pan?: number; muted?: boolean; solo?: boolean }) => void;
   updateTrackFx: <K extends keyof DSPFxConfig>(trackId: string, fxKeyOrConfig: K | DSPFxConfig, partial?: Partial<DSPFxConfig[K]>) => void;
@@ -954,6 +956,9 @@ export const useDawStore = create<DAWState>((set, get) => ({
     await dawEngine.loadClip('master', 'clip-master', take.url, 0, 0, dur);
   },
 
+  pendingModalTrackId: null,
+  clearPendingModalTrackId: () => set({ pendingModalTrackId: null }),
+
   addTrack: (type, name) => {
     const id = `track-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const colors = ['#00ffff', '#ff0055', '#00ff66', '#ffaa00', '#9933ff', '#0099ff'];
@@ -970,16 +975,20 @@ export const useDawStore = create<DAWState>((set, get) => ({
       solo: false,
       mixer: { volume: 0.9, pan: 0, muted: false, solo: false },
       fx: JSON.parse(JSON.stringify(DEFAULT_FX)),
+      hasOriginalStem: false,
       clips: [],
       sequencerVoices: type === 'sequencer' ? JSON.parse(JSON.stringify(DEFAULT_SEQUENCER_VOICES)) : undefined,
       pianoRollNotes: type === 'pianoroll' ? [] : undefined,
       strudelCode: type === 'strudel' ? '' : undefined,
     };
 
+    const isInstrumentModalTrack = type === 'sequencer' || type === 'pianoroll' || type === 'strudel';
+
     set((state) => ({
       tracks: [...state.tracks, newTrack],
       selectedTrackId: id,
       activeView: type === 'sequencer' ? 'sequencer' : type === 'pianoroll' ? 'pianoroll' : type === 'strudel' ? 'strudel' : state.activeView,
+      pendingModalTrackId: isInstrumentModalTrack ? id : state.pendingModalTrackId,
     }));
 
     return newTrack;

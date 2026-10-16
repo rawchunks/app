@@ -1,10 +1,11 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useDawStore, DAWTrack } from '../../lib/daw/store';
 import { dawEngine } from '../../lib/daw/engine';
 import { PIANO_STEPS } from '../../lib/daw/notes';
 import { Button } from '../button';
-import { Badge } from '../badge';
-import { Plus, Trash2, Volume2, ChevronUp, ChevronDown } from 'lucide-react';
+import { Modal } from '../modal';
+import { Tooltip } from './Tooltip';
+import { Plus, Trash2, ChevronUp, ChevronDown, Magnet, Maximize2 } from 'lucide-react';
 import { Key } from './Key';
 
 interface PianoRollProps {
@@ -12,6 +13,7 @@ interface PianoRollProps {
 }
 
 const NOTE_NAMES = ['B', 'A#', 'A', 'G#', 'G', 'F#', 'F', 'E', 'D#', 'D', 'C#', 'C'];
+const QUICK_PREVIEW_NOTES = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
 
 const pitchToMidi = (pitch: string): number => {
   const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
@@ -37,6 +39,8 @@ export const PianoRoll: React.FC<PianoRollProps> = ({ track }) => {
     removePianoRollNote,
     clearPianoRollNotes,
     quantizePianoRoll,
+    pendingModalTrackId,
+    clearPendingModalTrackId,
   } = useDawStore();
 
   const pianoTrack =
@@ -48,6 +52,15 @@ export const PianoRoll: React.FC<PianoRollProps> = ({ track }) => {
   const [selectedGrid, setSelectedGrid] = useState<number>(1);
   const [velocity, setVelocity] = useState<number>(0.85);
   const [activeAuditionPitch, setActiveAuditionPitch] = useState<string | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
+
+  // Auto-open modal when a new Keys track is created from Toolbox or Board '+' menu
+  useEffect(() => {
+    if (pianoTrack && pendingModalTrackId === pianoTrack.id) {
+      setIsModalOpen(true);
+      clearPendingModalTrackId();
+    }
+  }, [pianoTrack?.id, pendingModalTrackId, clearPendingModalTrackId]);
 
   // Generate 2 octaves dynamically from baseOctave (e.g., C3 to B4 = 24 pitches)
   const pitches = useMemo(() => {
@@ -60,19 +73,56 @@ export const PianoRoll: React.FC<PianoRollProps> = ({ track }) => {
     return list;
   }, [baseOctave]);
 
+  const notes = pianoTrack?.pianoRollNotes || [];
+
+  const handleKeyAudition = useCallback(
+    (pitch: string) => {
+      if (!pianoTrack) return;
+      setActiveAuditionPitch(pitch);
+      dawEngine.playNote(pitch, '8n', velocity, pianoTrack.id);
+      setTimeout(() => setActiveAuditionPitch(null), 220);
+    },
+    [pianoTrack, velocity]
+  );
+
+  const handleCellClick = useCallback(
+    (pitch: string, timeStep: number) => {
+      if (!pianoTrack) return;
+      const existing = notes.find(
+        (n) => n.pitch === pitch && Math.floor(n.startTime) === timeStep
+      );
+
+      if (existing) {
+        removePianoRollNote(pianoTrack.id, existing.id);
+      } else {
+        dawEngine.playNote(pitch, '8n', velocity, pianoTrack.id);
+        addPianoRollNote(pianoTrack.id, {
+          pitch,
+          midi: pitchToMidi(pitch),
+          startTime: timeStep,
+          duration: selectedGrid,
+          velocity,
+        });
+      }
+    },
+    [pianoTrack, notes, removePianoRollNote, velocity, addPianoRollNote, selectedGrid]
+  );
+
   if (!pianoTrack) {
     return (
       <div className="pianoroll-wrap">
         <div className="pianoroll-empty-card">
-          <Key size={32} className="pianoroll-empty-icon" />
-          <h4 className="pianoroll-empty-title">NO PIANO ROLL TRACK ACTIVE</h4>
+          <Key size={22} className="pianoroll-empty-icon" />
           <p className="pianoroll-empty-desc">
-            Create an instrument synthesizer track to compose notes, melodies, and chords.
+            Create a polyphonic synth track to compose melodies &amp; chords with mouse or laptop QWERTY keys.
           </p>
           <Button
             size="sm"
             variant="default"
-            onClick={() => addTrack('pianoroll', 'Keys Synth')}
+            onClick={() => {
+              addTrack('pianoroll', 'Keys Synth');
+              setIsModalOpen(true);
+            }}
           >
             <Plus size={13} /> CREATE KEYS TRACK
           </Button>
@@ -81,211 +131,244 @@ export const PianoRoll: React.FC<PianoRollProps> = ({ track }) => {
     );
   }
 
-  const notes = pianoTrack.pianoRollNotes || [];
-
-  const handleKeyAudition = (pitch: string) => {
-    setActiveAuditionPitch(pitch);
-    dawEngine.playNote(pitch, '8n', velocity, pianoTrack.id);
-    setTimeout(() => setActiveAuditionPitch(null), 250);
-  };
-
-  const handleCellClick = (pitch: string, timeStep: number) => {
-    // Check if an existing note covers this exact cell
-    const existing = notes.find(
-      (n) => n.pitch === pitch && Math.floor(n.startTime) === timeStep
-    );
-
-    if (existing) {
-      removePianoRollNote(pianoTrack.id, existing.id);
-    } else {
-      dawEngine.playNote(pitch, '8n', velocity, pianoTrack.id);
-      addPianoRollNote(pianoTrack.id, {
-        pitch,
-        midi: pitchToMidi(pitch),
-        startTime: timeStep,
-        duration: selectedGrid,
-        velocity,
-      });
-    }
-  };
-
-  return (
-    <div className="pianoroll-wrap">
-      {/* Top Toolbar */}
-      <div className="pianoroll-toolbar">
-        <div className="pianoroll-meta">
-          <Key size={14} className="pianoroll-meta-icon" />
-          <span className="pianoroll-track-name">{pianoTrack.name}</span>
-          <Badge variant="outline">{notes.length} NOTES</Badge>
-        </div>
-
-        <div className="pianoroll-controls-cluster">
-          {/* Octave Shift */}
-          <div className="pianoroll-octave-picker">
-            <span className="pianoroll-label">OCT:</span>
+  const renderToolbar = (inModal = false) => (
+    <div className={`pianoroll-toolbar daw-ui-toolbar ${inModal ? 'is-modal-toolbar' : ''}`}>
+      <div className="pianoroll-controls-cluster">
+        {/* Octave Shift */}
+        <div className="pianoroll-octave-picker">
+          <Tooltip title="Octave Down (Key: Z)">
             <button
               type="button"
               className="pianoroll-mini-btn"
               disabled={baseOctave <= 1}
               onClick={() => setBaseOctave((o) => Math.max(1, o - 1))}
-              title="Octave Down"
             >
               <ChevronDown size={12} />
             </button>
-            <span className="pianoroll-octave-val">C{baseOctave}–B{baseOctave + 1}</span>
+          </Tooltip>
+          <span className="pianoroll-octave-val">C{baseOctave}–B{baseOctave + 1}</span>
+          <Tooltip title="Octave Up (Key: X)">
             <button
               type="button"
               className="pianoroll-mini-btn"
               disabled={baseOctave >= 6}
               onClick={() => setBaseOctave((o) => Math.min(6, o + 1))}
-              title="Octave Up"
             >
               <ChevronUp size={12} />
             </button>
-          </div>
+          </Tooltip>
+        </div>
 
-          {/* Grid Snap Selector */}
-          <div className="pianoroll-grid-picker">
-            <span className="pianoroll-label">SNAP:</span>
+        {/* Tempo / Division Dropdown */}
+        <Tooltip title="Step Division" description="Grid note length and quantization division">
+          <select
+            className="toolbox-text-input toolbox-select-compact pianoroll-grid-select daw-select daw-ui-select"
+            aria-label="Note division"
+            value={selectedGrid}
+            onChange={(e) => setSelectedGrid(parseFloat(e.target.value))}
+          >
             {GRID_DIVISIONS.map((g) => (
-              <button
-                key={g.label}
-                type="button"
-                className={`pianoroll-grid-btn ${selectedGrid === g.steps ? 'active' : ''}`}
-                onClick={() => setSelectedGrid(g.steps)}
-              >
+              <option key={g.label} value={g.steps}>
                 {g.label}
-              </button>
+              </option>
             ))}
-          </div>
+          </select>
+        </Tooltip>
 
-          {/* Quantize Action */}
+        {/* Velocity Dropdown */}
+        <Tooltip title="Note Velocity (Keys: C / V)" description="Default velocity for newly placed notes">
+          <select
+            className="toolbox-text-input toolbox-select-compact pianoroll-vel-select daw-select daw-ui-select"
+            aria-label="Note velocity"
+            value={velocity}
+            onChange={(e) => setVelocity(parseFloat(e.target.value))}
+          >
+            {[0.25, 0.5, 0.75, 0.85, 0.9, 1.0].map((v) => (
+              <option key={v} value={v}>
+                VEL {Math.round(v * 100)}%
+              </option>
+            ))}
+          </select>
+        </Tooltip>
+
+        {/* Quantize Action */}
+        <Tooltip title="Quantize Notes to Selected Division">
           <Button
             size="sm"
             variant="outline"
-            className="pianoroll-action-btn"
+            className="pianoroll-action-btn daw-ui-btn"
             onClick={() => quantizePianoRoll(pianoTrack.id, selectedGrid)}
           >
-            QUANTIZE
+            <Magnet size={12} />
+            <span className="daw-btn-label">QUANTIZE</span>
           </Button>
+        </Tooltip>
 
-          {/* Clear Action */}
-          {notes.length > 0 && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="pianoroll-action-btn danger"
-              onClick={() => clearPianoRollNotes(pianoTrack.id)}
-            >
-              <Trash2 size={12} /> CLEAR
-            </Button>
-          )}
-        </div>
+        {/* Clear Bin Action */}
+        <Tooltip title="Clear All Notes">
+          <Button
+            size="sm"
+            variant="outline"
+            className="pianoroll-action-btn daw-ui-btn danger"
+            disabled={notes.length === 0}
+            onClick={() => clearPianoRollNotes(pianoTrack.id)}
+            aria-label="Clear notes"
+          >
+            <Trash2 size={12} />
+          </Button>
+        </Tooltip>
       </div>
+    </div>
+  );
 
-      {/* Main Piano Roll Container */}
-      <div className="pianoroll-body">
-        {/* Left Keys Gutter */}
-        <div className="pianoroll-keys-gutter">
-          {pitches.map((pitch) => {
-            const isAccidental = pitch.includes('#');
-            const isAuditioning = activeAuditionPitch === pitch;
-            return (
-              <div
-                key={pitch}
-                className={`pianoroll-key ${isAccidental ? 'accidental' : 'natural'} ${isAuditioning ? 'active' : ''}`}
-                onClick={() => handleKeyAudition(pitch)}
-                title={`Play ${pitch}`}
-              >
-                <span className="pianoroll-key-label">{pitch}</span>
-              </div>
-            );
-          })}
-        </div>
+  return (
+    <div className="pianoroll-wrap daw-compact-instrument-deck">
+      {/* Row 1: Single-Row Command Bar */}
+      {renderToolbar(false)}
 
-        {/* Right Scrollable Step Grid */}
-        <div className="pianoroll-grid-scroll">
-          <div className="pianoroll-grid-content">
-            {pitches.map((pitch) => {
-              const isAccidental = pitch.includes('#');
-              return (
-                <div
-                  key={pitch}
-                  className={`pianoroll-pitch-row ${isAccidental ? 'accidental' : 'natural'}`}
-                >
-                  {Array.from({ length: PIANO_STEPS }).map((_, stepIdx) => {
-                    const isQuarter = stepIdx % 4 === 0;
-                    return (
-                      <button
-                        type="button"
-                        aria-label={`Add ${pitch} at step ${stepIdx + 1}`}
-                        key={stepIdx}
-                        className={`pianoroll-grid-cell ${isQuarter ? 'quarter-beat' : ''}`}
-                        onClick={() => handleCellClick(pitch, stepIdx)}
-                      />
-                    );
-                  })}
-                </div>
-              );
-            })}
+      {/* Row 2: Self-Contained Compact Preview + Expand Modal Trigger */}
+      <div className="daw-instrument-preview-row">
+        <div
+          className="daw-instrument-preview-viz"
+          onClick={() => setIsModalOpen(true)}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              setIsModalOpen(true);
+            }
+          }}
+          title="Click to open full 2-octave Piano Roll & QWERTY Synth Modal"
+        >
+          <span className="daw-instrument-preview-badge">
+            {notes.length} {notes.length === 1 ? 'NOTE' : 'NOTES'}
+          </span>
 
-            {/* Note Blocks Overlay */}
-            {notes.map((n) => {
-              const pitchIdx = pitches.indexOf(n.pitch);
-              if (pitchIdx === -1) return null;
-
-              const rowHeightPct = 100 / pitches.length;
-              const topPct = pitchIdx * rowHeightPct;
-              const leftPct = (n.startTime / PIANO_STEPS) * 100;
-              const widthPct = Math.max(1.8, (n.duration / PIANO_STEPS) * 100);
-
+          <div className="daw-instrument-preview-steps" onClick={(e) => e.stopPropagation()}>
+            {QUICK_PREVIEW_NOTES.map((noteName) => {
+              const pitch = `${noteName}${baseOctave}`;
+              const hasNote = notes.some((n) => n.pitch === pitch);
+              const isAuditioning = activeAuditionPitch === pitch;
               return (
                 <button
+                  key={pitch}
                   type="button"
-                  aria-label={`Remove ${n.pitch} at step ${n.startTime + 1}`}
-                  key={n.id}
-                  className="pianoroll-note-item"
-                  style={{
-                    top: `${topPct}%`,
-                    left: `${leftPct}%`,
-                    width: `${widthPct}%`,
-                    height: `${rowHeightPct}%`,
-                    opacity: 0.4 + (n.velocity || 0.8) * 0.6,
-                  }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    removePianoRollNote(pianoTrack.id, n.id);
-                  }}
-                  title={`${n.pitch} (Step ${n.startTime}, Length ${n.duration}) - Click to delete`}
+                  className={`pianoroll-mini-btn ${hasNote || isAuditioning ? 'active' : ''}`}
+                  onClick={() => handleKeyAudition(pitch)}
+                  title={`Audition ${pitch}`}
                 >
-                  <span className="pianoroll-note-label">{n.pitch}</span>
+                  {pitch}
                 </button>
               );
             })}
           </div>
         </div>
+
+        <button
+          type="button"
+          className="daw-expand-modal-btn"
+          onClick={() => setIsModalOpen(true)}
+        >
+          <Maximize2 size={12} />
+          <span>OPEN KEYS EDITOR</span>
+        </button>
       </div>
 
-      {/* Footer Velocity Bar */}
-      <div className="pianoroll-footer">
-        <div className="pianoroll-velocity-ctrl">
-          <Volume2 size={12} className="pianoroll-vel-icon" />
-          <span className="pianoroll-label">VELOCITY:</span>
-          <input
-            type="range"
-            min="0.1"
-            max="1.0"
-            step="0.05"
-            value={velocity}
-            onChange={(e) => setVelocity(parseFloat(e.target.value))}
-            className="pianoroll-velocity-slider"
-          />
-          <span className="pianoroll-velocity-readout">
-            {Math.round(velocity * 100)}%
-          </span>
+      {/* Expanded Full-Featured 2D Piano Roll + QWERTY Synth Modal */}
+      <Modal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        title={`PIANO ROLL & QWERTY SYNTH • ${pianoTrack.name.toUpperCase()}`}
+        size="lg"
+      >
+        <div className="daw-instrument-modal-body">
+          {renderToolbar(true)}
+
+          <div className="pianoroll-body">
+            {/* Left Keys Gutter with QWERTY Keycap Badges */}
+            <div className="pianoroll-keys-gutter">
+              {pitches.map((pitch) => {
+                const isAccidental = pitch.includes('#');
+                const isAuditioning = activeAuditionPitch === pitch;
+                return (
+                  <div
+                    key={pitch}
+                    className={`pianoroll-key ${isAccidental ? 'accidental' : 'natural'} ${isAuditioning ? 'active' : ''}`}
+                    onClick={() => handleKeyAudition(pitch)}
+                    title={`Play ${pitch}`}
+                  >
+                    <span className="pianoroll-key-label">{pitch}</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Right Scrollable Step Grid */}
+            <div className="pianoroll-grid-scroll">
+              <div className="pianoroll-grid-content">
+                {pitches.map((pitch) => {
+                  const isAccidental = pitch.includes('#');
+                  return (
+                    <div
+                      key={pitch}
+                      className={`pianoroll-pitch-row ${isAccidental ? 'accidental' : 'natural'}`}
+                    >
+                      {Array.from({ length: PIANO_STEPS }).map((_, stepIdx) => {
+                        const isQuarter = stepIdx % 4 === 0;
+                        return (
+                          <button
+                            type="button"
+                            aria-label={`Add ${pitch} at step ${stepIdx + 1}`}
+                            key={stepIdx}
+                            className={`pianoroll-grid-cell ${isQuarter ? 'quarter-beat' : ''}`}
+                            onClick={() => handleCellClick(pitch, stepIdx)}
+                          />
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+
+                {/* Note Blocks Overlay */}
+                {notes.map((n) => {
+                  const pitchIdx = pitches.indexOf(n.pitch);
+                  if (pitchIdx === -1) return null;
+
+                  const rowHeightPct = 100 / pitches.length;
+                  const topPct = pitchIdx * rowHeightPct;
+                  const leftPct = (n.startTime / PIANO_STEPS) * 100;
+                  const widthPct = Math.max(1.8, (n.duration / PIANO_STEPS) * 100);
+
+                  return (
+                    <button
+                      type="button"
+                      aria-label={`Remove ${n.pitch} at step ${n.startTime + 1}`}
+                      key={n.id}
+                      className="pianoroll-note-item"
+                      style={{
+                        '--note-top': `${topPct}%`,
+                        '--note-left': `${leftPct}%`,
+                        '--note-w': `${widthPct}%`,
+                        '--note-h': `${rowHeightPct}%`,
+                        '--note-opacity': 0.4 + (n.velocity || 0.8) * 0.6,
+                      } as React.CSSProperties}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        removePianoRollNote(pianoTrack.id, n.id);
+                      }}
+                      title={`${n.pitch} (Step ${n.startTime + 1}, Length ${n.duration}) - Click to delete`}
+                    >
+                      <span className="pianoroll-note-label">{n.pitch}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
         </div>
-        <span className="pianoroll-hint">Click grid to add/delete note • Click key to audition</span>
-      </div>
+      </Modal>
     </div>
   );
 };
