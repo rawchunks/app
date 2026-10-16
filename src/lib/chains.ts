@@ -10,6 +10,42 @@ export type { ContractName, SolanaProgramName } from "./performance/chains-data"
 
 const env = import.meta.env ?? {};
 
+export type NetworkMode = "testnet" | "mainnet";
+
+export const TESTNET_NETWORKS: readonly NetworkId[] = [
+  "eip155:84532",
+  "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
+  "eip155:42431",
+];
+
+export const MAINNET_NETWORKS: readonly NetworkId[] = [
+  "eip155:8453",
+  "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+];
+
+export function getNetworkMode(): NetworkMode {
+  const metaEnv = import.meta.env ?? {};
+  const procEnv = typeof process !== "undefined" ? process.env : undefined;
+  const raw = String(metaEnv.NETWORK_MODE ?? metaEnv.VITE_NETWORK_MODE ?? procEnv?.NETWORK_MODE ?? procEnv?.VITE_NETWORK_MODE ?? "testnet").trim().toLowerCase();
+  return raw === "mainnet" ? "mainnet" : "testnet";
+}
+
+export const NETWORK_MODE: NetworkMode = getNetworkMode();
+
+export function isTestnet(network?: NetworkId | string | null): boolean {
+  if (!network) return getNetworkMode() === "testnet";
+  return (TESTNET_NETWORKS as readonly string[]).includes(network);
+}
+
+export function isMainnet(network?: NetworkId | string | null): boolean {
+  if (!network) return getNetworkMode() === "mainnet";
+  return (MAINNET_NETWORKS as readonly string[]).includes(network);
+}
+
+export function getModeNetworks(mode: NetworkMode = getNetworkMode()): readonly NetworkId[] {
+  return mode === "mainnet" ? MAINNET_NETWORKS : TESTNET_NETWORKS;
+}
+
 type AppChain = FacilitatorChain & {
   chainId?: number;
   usdcAddress?: `0x${string}`;
@@ -51,9 +87,38 @@ function normalizeChain(chain: FacilitatorChain): AppChain {
   };
 }
 
+function getConfiguredEnvChains(): { chains: FacilitatorChain[]; defaultNetwork?: NetworkId } {
+  const metaEnv = import.meta.env ?? {};
+  const procEnv = typeof process !== "undefined" ? process.env : undefined;
+  const rawNetworks = metaEnv.VITE_NETWORKS ?? procEnv?.VITE_NETWORKS;
+  const rawDefault = (metaEnv.VITE_DEFAULT_NETWORK ?? procEnv?.VITE_DEFAULT_NETWORK) as NetworkId | undefined;
+  let chains: FacilitatorChain[] = [];
+  if (typeof rawNetworks === "string" && rawNetworks.trim()) {
+    try {
+      const parsed = JSON.parse(rawNetworks);
+      if (Array.isArray(parsed)) chains = parsed as FacilitatorChain[];
+    } catch {
+      chains = [];
+    }
+  }
+  return { chains, ...(rawDefault ? { defaultNetwork: rawDefault } : {}) };
+}
+
 export function setChainRegistry(chains: FacilitatorChain[], defaultNetwork: NetworkId): void {
-  const nextChains = chains.map(normalizeChain);
-  if (!nextChains.some(chain => chain.network === defaultNetwork)) throw new Error('The default network is not advertised');
+  const configured = getConfiguredEnvChains();
+  const merged = [...chains];
+  for (const cfg of configured.chains) {
+    if (!merged.some((c) => c.network === cfg.network)) {
+      merged.push(cfg);
+    }
+  }
+  const nextChains = merged.map(normalizeChain);
+  const resolvedDefault = nextChains.some((chain) => chain.network === defaultNetwork)
+    ? defaultNetwork
+    : configured.defaultNetwork && nextChains.some((chain) => chain.network === configured.defaultNetwork)
+      ? configured.defaultNetwork
+      : undefined;
+  if (!resolvedDefault) throw new Error('The default network is not advertised');
   const nextObjects = new Map<number, Chain>();
   for (const c of nextChains) {
     if (c.chainId == null) continue;
@@ -70,7 +135,15 @@ export function setChainRegistry(chains: FacilitatorChain[], defaultNetwork: Net
   }
   resolvedChains = nextChains;
   resolvedChainObjects = nextObjects;
-  resolvedDefaultNetwork = defaultNetwork;
+  resolvedDefaultNetwork = resolvedDefault;
+}
+
+{
+  const initial = getConfiguredEnvChains();
+  if (initial.chains.length > 0) {
+    const initialDefault = initial.defaultNetwork ?? initial.chains[0].network;
+    if (initialDefault) setChainRegistry(initial.chains, initialDefault);
+  }
 }
 
 export function getChains(): AppChain[] {

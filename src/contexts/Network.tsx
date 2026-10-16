@@ -6,7 +6,7 @@ import {
 import React from "react";
 import { Globe } from "lucide-react";
 import { fetchChains, type FacilitatorChainsResponse, type NetworkId } from "@compose-market/sdk/chains";
-import { evmChainId, isEvmNetwork, setChainRegistry } from "@/lib/chains";
+import { evmChainId, isEvmNetwork, setChainRegistry, TESTNET_NETWORKS, MAINNET_NETWORKS } from "@/lib/chains";
 import { COMPOSE_API_URL } from "@/lib/sdk";
 import { Network, useNetwork, type NetworkValue } from "@/hooks/use-network";
 import { cn } from "@/lib/utils";
@@ -60,11 +60,8 @@ export const REGISTRY_VERSION = 2;
 export const SELECTED_NETWORK_KEY = "selected_network";
 export const FETCH_CHAINS_TIMEOUT_MS = 8_000;
 export const VISIBLE_NETWORKS: readonly NetworkId[] = [
-  "eip155:84532",
-  "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
-  "eip155:42431",
-  "eip155:8453",
-  "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+  ...TESTNET_NETWORKS,
+  ...MAINNET_NETWORKS,
 ];
 
 export function visibleRegistry(registry: FacilitatorChainsResponse): FacilitatorChainsResponse {

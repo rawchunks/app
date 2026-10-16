@@ -6,6 +6,7 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
 
   return {
+    envPrefix: ['VITE_', 'NETWORK_MODE'],
     plugins: [react()],
     resolve: {
       alias: {
