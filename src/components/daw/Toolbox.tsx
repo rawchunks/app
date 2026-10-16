@@ -31,7 +31,6 @@ import {
 } from 'lucide-react';
 import type { Options } from '../../hooks/use-options';
 import { Modal } from '../modal';
-import { Parameters } from '../parameters';
 import { Task } from '../../lib/schema';
 import { DspRack } from './DspRack';
 import { PianoRoll } from './PianoRoll';
@@ -405,6 +404,13 @@ export const Toolbox: React.FC<ToolboxProps> = ({
         title: 'Layer Stem & Expression',
       };
     }
+    if (actionId === 'extract') {
+      return {
+        tag: 'TARGET',
+        value: activeStemLabel,
+        title: 'Target Stem to Isolate',
+      };
+    }
     if (actionId === 'extend') {
       return {
         tag: 'LENGTH',
@@ -437,6 +443,9 @@ export const Toolbox: React.FC<ToolboxProps> = ({
       return instrument === 'vocals' || instrument === 'backing_vocals'
         ? `Adds ${activeInstrumentLabel} stem — opens Lyrics Canvas to write or sync lines`
         : `Layers new ${activeInstrumentLabel} stem locked to your arrangement`;
+    }
+    if (actionId === 'extract') {
+      return `Isolates ${activeStemLabel} into its own dedicated track lane`;
     }
     if (actionId === 'extend') {
       return `Seamlessly extends arrangement to ${Math.round(targetDuration)}s total duration`;
@@ -649,7 +658,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
                         aria-selected={isCurrent}
                         className={`toolbox-tab-btn toolbox-subnav-btn ${isCurrent ? 'active tab-studio' : ''}`}
                         onClick={() => {
-                          if (isCurrent && (['repaint','lego','extend','complete','cover'] as string[]).includes(task)) {
+                          if (isCurrent && (['repaint','lego','extend','complete','cover','extract'] as string[]).includes(task)) {
                             setIsParamModalOpen(true);
                           } else {
                             onSelectTask(action.id as Task);
@@ -662,7 +671,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
                     </Tooltip>
 
                     {/* Standardized Expandable Modal Trigger Inside Active Sub-Menu Item (Neighbor-Aware, Full Fill) */}
-                    {isCurrent && (['repaint','lego','extend','complete','cover'] as string[]).includes(task) && (
+                    {isCurrent && (['repaint','lego','extend','complete','cover','extract'] as string[]).includes(task) && (
                       <Tooltip
                         title={paramSummary.title}
                         description={`${filterDesc} — Click to open ${shortName} parameters modal (Preselects + Granular Slider)`}
@@ -702,30 +711,6 @@ export const Toolbox: React.FC<ToolboxProps> = ({
             <div className="toolbox-studio-strip">
               {optionsError && <p role="alert" className="toolbox-error-alert">{optionsError}</p>}
 
-              {options && <Parameters parameters={Object.fromEntries(Object.entries(options.parameters).filter(([key, parameter]) => parameter.tasks?.includes(task) && !['trackName', 'coverStrength'].includes(key)))} values={parameters} onChange={onParametersChange} />}
-              <div className="toolbox-params-grid">
-                      {task === 'extract' && (
-                        <div className="toolbox-param-box">
-                          <div className="toolbox-param-title">SEPARATE TRACKS</div>
-                          <div className="toolbox-param-row">
-                            <label>TARGET STEM:</label>
-                            <div className="toolbox-radio-group">
-                              {options?.stems.map(({ id: st, label }) => (
-                                <button
-                                  key={st}
-                                  type="button"
-                                  className={`toolbox-mode-btn ${stemType === st ? 'active' : ''}`}
-                                  onClick={() => onStemTypeChange(st)}
-                                >
-                                  {label}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-              </div>
               <div className="studio-deck-grid studio-deck-clean">
                 {/* Row 1: Full-Width Responsive Prompt Box (or Isolate Banner) + Edit Lyrics on Same Row */}
                 <div className="studio-row-top studio-row-main">
@@ -1096,7 +1081,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
 
       {/* Standardized AI Studio Parameter Modal (Presets + Granular Dragging Bar) */}
       <Modal
-        isOpen={isParamModalOpen && (['repaint','lego','extend','complete','cover'] as string[]).includes(task)}
+        isOpen={isParamModalOpen && (['repaint','lego','extend','complete','cover','extract'] as string[]).includes(task)}
         onClose={() => setIsParamModalOpen(false)}
         title={`AI STUDIO PARAMETERS // ${taskLabel(task).toUpperCase()}`}
         size="md"
@@ -1635,6 +1620,71 @@ export const Toolbox: React.FC<ToolboxProps> = ({
                   >
                     +5%
                   </button>
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* 6. ISOLATE (extract): Preselect Stem Targets + Granular Isolation Focus Slider */}
+          {task === 'extract' && (
+            <>
+              <div className="toolbox-param-section">
+                <div className="toolbox-param-section-head">
+                  <span className="daw-field-label">PRESELECT ISOLATION TARGET</span>
+                  <span className="toolbox-param-readout-tag">{activeStemLabel.toUpperCase()}</span>
+                </div>
+                <div className="toolbox-param-presets-grid cols-3">
+                  {stemList.map((stem) => {
+                    const isSelected = stemType === stem.id;
+                    return (
+                      <button
+                        key={stem.id}
+                        type="button"
+                        className={`toolbox-param-preset-btn compact ${isSelected ? 'active' : ''}`}
+                        onClick={() => onStemTypeChange(stem.id)}
+                      >
+                        <span className="preset-btn-title">{stem.label}</span>
+                        <span className="preset-btn-sub">Isolate {stem.label.toLowerCase()} lane</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="toolbox-param-section">
+                <div className="toolbox-param-section-head">
+                  <span className="daw-field-label">GRANULAR ISOLATION SEPARATION FOCUS</span>
+                  <span className="toolbox-param-readout-val">{Math.round(repaintStrength * 100)}%</span>
+                </div>
+                <div className="toolbox-param-slider-row">
+                  <button
+                    type="button"
+                    className="toolbox-param-step-btn"
+                    onClick={() => onRepaintStrengthChange(Math.max(0.1, Number((repaintStrength - 0.05).toFixed(2))))}
+                  >
+                    -5%
+                  </button>
+                  <input
+                    type="range"
+                    min="0.1"
+                    max="1"
+                    step="0.01"
+                    value={repaintStrength}
+                    onChange={(e) => onRepaintStrengthChange(Number(e.target.value))}
+                    className="daw-ContextSlider toolbox-param-range"
+                  />
+                  <button
+                    type="button"
+                    className="toolbox-param-step-btn"
+                    onClick={() => onRepaintStrengthChange(Math.min(1, Number((repaintStrength + 0.05).toFixed(2))))}
+                  >
+                    +5%
+                  </button>
+                </div>
+                <div className="toolbox-param-scale-labels">
+                  <span>Natural Room Bleed</span>
+                  <span>Balanced Stem Isolation</span>
+                  <span>Surgical Gate</span>
                 </div>
               </div>
             </>
