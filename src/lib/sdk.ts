@@ -19,7 +19,12 @@ export const sdk: ComposeSDK = new ComposeSDK({
 export const API_BASE_URL = RAWCHUNKS_API_URL;
 
 // Match endpoints that belong to Rawchunks' backend service
-const RAWCHUNKS_PATH_REGEX = /^\/?(?:api\/)?(songs|albums|user|generation|editing|voices?|options|status|sample|format|repaint|layer|extend|remix|separate)(\/|$|\?)/;
+const RAWCHUNKS_PATH_REGEX = /^\/?(?:api\/)?(credits|songs|albums|user|generation|editing|voices?|options|status|sample|format|repaint|layer|extend|remix|separate)(\/|$|\?)/;
+
+interface CreditRequestContext { userAddress: string; authToken: string; sessionToken?: string | null }
+let creditContext: CreditRequestContext | null = null;
+export function setCreditRequestContext(value: CreditRequestContext | null): void { creditContext = value; }
+export function hasCreditSession(): boolean { return Boolean(creditContext?.sessionToken); }
 
 const originalFetch = sdk.fetch.bind(sdk);
 
@@ -38,10 +43,25 @@ sdk.fetch = async function patchedFetch(
     }
   }
   const headers = new Headers(init?.headers);
+  const url = new URL(typeof target === "string" ? target : target instanceof URL ? target.href : target.url);
+  const rawchunks = url.origin === new URL(RAWCHUNKS_API_URL).origin;
+  const credits = /^\/api\/credits(\/|$)/.test(url.pathname);
+  const prepaid = rawchunks && Boolean(creditContext?.sessionToken);
+  headers.delete("x-wallet-auth-token");
+  headers.delete("x-credit-session-token");
+  if (rawchunks && creditContext && (credits || prepaid)) {
+    headers.set("x-wallet-auth-token", creditContext.authToken);
+    headers.set("x-session-user-address", creditContext.userAddress);
+    if (prepaid && !credits) headers.set("x-credit-session-token", creditContext.sessionToken!);
+  }
+  if (credits || prepaid) {
+    for (const name of ["authorization", "payment-signature", "x-x402-max-amount-wei"]) headers.delete(name);
+  }
   if (init?.userAddress && !headers.has("x-session-user-address")) {
     headers.set("x-session-user-address", init.userAddress);
   }
-  const response = await originalFetch(target, { ...init, headers });
+  const response = await originalFetch(target, { ...init, headers,
+    ...(credits || prepaid ? { key: null, paymentMode: "key", paymentSignature: undefined } : {}) });
   if (response.status === 402) {
     promptSessionModal();
   }

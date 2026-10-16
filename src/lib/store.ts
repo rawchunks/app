@@ -1,7 +1,7 @@
 import { Song, Track } from './schema';
 import { audio } from './audio';
 import { bus } from './bus';
-import { sdk } from './sdk';
+import { sdk, hasCreditSession } from './sdk';
 import { toast } from 'sonner';
 import { promptSessionModal } from '../components/session';
 
@@ -133,6 +133,7 @@ class Store {
         body: JSON.stringify({
           paymentIntentId,
           listenedSeconds,
+          terminal: isTerminal,
         }),
       });
 
@@ -303,7 +304,7 @@ class Store {
     }
 
     const token = sdk.keys.currentToken();
-    if (!isCreator && !token) {
+    if (!isCreator && !token && !hasCreditSession()) {
       toast.error('An active session is required to stream music. Please create a session.');
       promptSessionModal();
       this.state = { ...this.state, isPlaying: false };
