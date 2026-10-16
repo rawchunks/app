@@ -2,10 +2,14 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useDawStore, DAWTrack } from '../../lib/daw/store';
 import { dawEngine } from '../../lib/daw/engine';
 import { PIANO_STEPS } from '../../lib/daw/notes';
+import {
+  usePianoMusicalTyping,
+  getKeycapForPitch,
+} from '../../lib/daw/useMusicalTyping';
 import { Button } from '../button';
 import { Modal } from '../modal';
 import { Tooltip } from './Tooltip';
-import { Plus, Trash2, ChevronUp, ChevronDown, Magnet, Maximize2 } from 'lucide-react';
+import { Plus, Trash2, ChevronUp, ChevronDown, Magnet, Maximize2, Disc } from 'lucide-react';
 import { Key } from './Key';
 
 interface PianoRollProps {
@@ -53,6 +57,8 @@ export const PianoRoll: React.FC<PianoRollProps> = ({ track }) => {
   const [velocity, setVelocity] = useState<number>(0.85);
   const [activeAuditionPitch, setActiveAuditionPitch] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
+  const [isKeyRecEnabled, setIsKeyRecEnabled] = useState<boolean>(true);
+  const [stepCursor, setStepCursor] = useState<number>(0);
 
   // Auto-open modal when a new Keys track is created from Toolbox or Board '+' menu
   useEffect(() => {
@@ -88,6 +94,7 @@ export const PianoRoll: React.FC<PianoRollProps> = ({ track }) => {
   const handleCellClick = useCallback(
     (pitch: string, timeStep: number) => {
       if (!pianoTrack) return;
+      setStepCursor(timeStep);
       const existing = notes.find(
         (n) => n.pitch === pitch && Math.floor(n.startTime) === timeStep
       );
@@ -107,6 +114,45 @@ export const PianoRoll: React.FC<PianoRollProps> = ({ track }) => {
     },
     [pianoTrack, notes, removePianoRollNote, velocity, addPianoRollNote, selectedGrid]
   );
+
+  const handleMusicalTypingTrigger = useCallback(
+    (pitch: string, shouldRecord: boolean) => {
+      if (!pianoTrack) return;
+      handleKeyAudition(pitch);
+      if (shouldRecord) {
+        const step = Math.min(PIANO_STEPS - 1, Math.max(0, Math.floor(stepCursor)));
+        const existing = notes.find(
+          (n) => n.pitch === pitch && Math.floor(n.startTime) === step
+        );
+        if (!existing) {
+          addPianoRollNote(pianoTrack.id, {
+            pitch,
+            midi: pitchToMidi(pitch),
+            startTime: step,
+            duration: selectedGrid,
+            velocity,
+          });
+        }
+        const advance = Math.max(1, Math.round(selectedGrid));
+        setStepCursor((prev) => (prev + advance) % PIANO_STEPS);
+      }
+    },
+    [pianoTrack, handleKeyAudition, stepCursor, notes, addPianoRollNote, selectedGrid, velocity]
+  );
+
+  const { heldPitches } = usePianoMusicalTyping({
+    enabled: isModalOpen && Boolean(pianoTrack),
+    baseOctave,
+    setBaseOctave,
+    velocity,
+    setVelocity,
+    stepCursor,
+    setStepCursor,
+    maxSteps: PIANO_STEPS,
+    stepSize: Math.max(1, Math.round(selectedGrid)),
+    onTriggerPitch: handleMusicalTypingTrigger,
+    recordEnabled: isKeyRecEnabled,
+  });
 
   if (!pianoTrack) {
     return (
@@ -191,6 +237,22 @@ export const PianoRoll: React.FC<PianoRollProps> = ({ track }) => {
           </select>
         </Tooltip>
 
+        {inModal && (
+          <Tooltip
+            title="Computer Keyboard Step Recording"
+            description="When active, typing laptop keys [A–'] records notes at the step cursor and advances automatically"
+          >
+            <button
+              type="button"
+              className={`daw-ui-btn daw-keyrec-btn ${isKeyRecEnabled ? 'active' : ''}`}
+              onClick={() => setIsKeyRecEnabled((v) => !v)}
+            >
+              <Disc size={11} />
+              <span>KEY {isKeyRecEnabled ? `S${stepCursor + 1}` : 'OFF'}</span>
+            </button>
+          </Tooltip>
+        )}
+
         {/* Quantize Action */}
         <Tooltip title="Quantize Notes to Selected Division">
           <Button
@@ -249,7 +311,7 @@ export const PianoRoll: React.FC<PianoRollProps> = ({ track }) => {
             {QUICK_PREVIEW_NOTES.map((noteName) => {
               const pitch = `${noteName}${baseOctave}`;
               const hasNote = notes.some((n) => n.pitch === pitch);
-              const isAuditioning = activeAuditionPitch === pitch;
+              const isAuditioning = activeAuditionPitch === pitch || heldPitches.has(pitch);
               return (
                 <button
                   key={pitch}
@@ -290,14 +352,16 @@ export const PianoRoll: React.FC<PianoRollProps> = ({ track }) => {
             <div className="pianoroll-keys-gutter">
               {pitches.map((pitch) => {
                 const isAccidental = pitch.includes('#');
-                const isAuditioning = activeAuditionPitch === pitch;
+                const isAuditioning = activeAuditionPitch === pitch || heldPitches.has(pitch);
+                const keycap = getKeycapForPitch(pitch, baseOctave);
                 return (
                   <div
                     key={pitch}
                     className={`pianoroll-key ${isAccidental ? 'accidental' : 'natural'} ${isAuditioning ? 'active' : ''}`}
                     onClick={() => handleKeyAudition(pitch)}
-                    title={`Play ${pitch}`}
+                    title={keycap ? `Play ${pitch} (Laptop Key: [${keycap}])` : `Play ${pitch}`}
                   >
+                    {keycap && <kbd className="daw-keycap-badge">{keycap}</kbd>}
                     <span className="pianoroll-key-label">{pitch}</span>
                   </div>
                 );
@@ -316,12 +380,13 @@ export const PianoRoll: React.FC<PianoRollProps> = ({ track }) => {
                     >
                       {Array.from({ length: PIANO_STEPS }).map((_, stepIdx) => {
                         const isQuarter = stepIdx % 4 === 0;
+                        const isCursorStep = isKeyRecEnabled && stepIdx === stepCursor;
                         return (
                           <button
                             type="button"
                             aria-label={`Add ${pitch} at step ${stepIdx + 1}`}
                             key={stepIdx}
-                            className={`pianoroll-grid-cell ${isQuarter ? 'quarter-beat' : ''}`}
+                            className={`pianoroll-grid-cell ${isQuarter ? 'quarter-beat' : ''} ${isCursorStep ? 'cursor-step' : ''}`}
                             onClick={() => handleCellClick(pitch, stepIdx)}
                           />
                         );
@@ -367,6 +432,15 @@ export const PianoRoll: React.FC<PianoRollProps> = ({ track }) => {
             </div>
           </div>
 
+          {/* Musical Typing Legend Footer */}
+          <div className="pianoroll-footer">
+            <span className="pianoroll-hint">
+              <strong>QWERTY SYNTH:</strong> Home Row <kbd>A</kbd>–<kbd>&apos;</kbd> White Keys • Top Row <kbd>W</kbd> <kbd>E</kbd> <kbd>T</kbd> <kbd>Y</kbd> <kbd>U</kbd> <kbd>O</kbd> <kbd>P</kbd> Black Keys
+            </span>
+            <span className="pianoroll-hint">
+              <kbd>Z</kbd>/<kbd>X</kbd> Octave • <kbd>C</kbd>/<kbd>V</kbd> Velocity • <kbd>←</kbd>/<kbd>→</kbd> Step Cursor ({stepCursor + 1}/{PIANO_STEPS})
+            </span>
+          </div>
         </div>
       </Modal>
     </div>
