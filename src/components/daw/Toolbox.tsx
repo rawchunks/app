@@ -137,6 +137,13 @@ const REWORK_INTENSITY_PRESETS = [
   { id: 'bold', mode: 'aggressive' as const, strength: 1.0, label: 'Bold (100%)', shortLabel: 'Bold', desc: 'Reimagines the selected region freely from your prompt' },
 ];
 
+const COVER_BLEND_PRESETS = [
+  { id: '0.35', value: 0.35, label: 'Subtle (35%)', shortLabel: 'Subtle', desc: 'Light timbral restyling while keeping original groove' },
+  { id: '0.65', value: 0.65, label: 'Balanced (65%)', shortLabel: 'Balanced', desc: 'Balanced style & timbre transformation' },
+  { id: '0.85', value: 0.85, label: 'Bold (85%)', shortLabel: 'Bold', desc: 'Deep genre & instrumentation transformation' },
+  { id: '1', value: 1.0, label: 'Full Cover (100%)', shortLabel: 'Full Cover', desc: 'Complete musical reinterpretation' },
+];
+
 const COMPLETE_ARRANGEMENT_PRESETS = [
   { id: 'full_band', label: 'Full Arrangement', classes: 'drums, bass, keyboard, guitar, strings', tag: 'Full band arrangement', desc: 'Generates drums, bass & harmonic accompaniment' },
   { id: 'rhythm', label: 'Rhythm Section', classes: 'drums, bass, percussion', tag: 'Tight rhythm section with punchy drums and bass', desc: 'Locks in drums, bass & rhythmic groove' },
@@ -370,6 +377,10 @@ export const Toolbox: React.FC<ToolboxProps> = ({
     }
   };
 
+  const closestCoverPreset = COVER_BLEND_PRESETS.reduce((prev, curr) =>
+    Math.abs(curr.value - coverStrength) < Math.abs(prev.value - coverStrength) ? curr : prev,
+  );
+
   const instrumentList = options?.parameters.trackName?.options ?? DEFAULT_INSTRUMENTS;
   const activeInstrumentLabel = instrumentList.find((i) => i.id === instrument)?.label ?? instrument;
   const stemList = options?.stems ?? DEFAULT_STEMS;
@@ -401,6 +412,13 @@ export const Toolbox: React.FC<ToolboxProps> = ({
         title: 'Extension Target Length & Seam',
       };
     }
+    if (actionId === 'cover') {
+      return {
+        tag: 'BLEND',
+        value: `${closestCoverPreset.shortLabel} · ${Math.round(coverStrength * 100)}%`,
+        title: 'Restyle Blend & Source Detail',
+      };
+    }
     if (actionId === 'complete') {
       return {
         tag: 'FOCUS',
@@ -422,6 +440,9 @@ export const Toolbox: React.FC<ToolboxProps> = ({
     }
     if (actionId === 'extend') {
       return `Seamlessly extends arrangement to ${Math.round(targetDuration)}s total duration`;
+    }
+    if (actionId === 'cover') {
+      return closestCoverPreset.desc;
     }
     if (actionId === 'complete') {
       return activeCompletePreset.desc;
@@ -628,7 +649,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
                         aria-selected={isCurrent}
                         className={`toolbox-tab-btn toolbox-subnav-btn ${isCurrent ? 'active tab-studio' : ''}`}
                         onClick={() => {
-                          if (isCurrent && (['repaint','lego','extend','complete'] as string[]).includes(task)) {
+                          if (isCurrent && (['repaint','lego','extend','complete','cover'] as string[]).includes(task)) {
                             setIsParamModalOpen(true);
                           } else {
                             onSelectTask(action.id as Task);
@@ -641,7 +662,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
                     </Tooltip>
 
                     {/* Standardized Expandable Modal Trigger Inside Active Sub-Menu Item (Neighbor-Aware, Full Fill) */}
-                    {isCurrent && (['repaint','lego','extend','complete'] as string[]).includes(task) && (
+                    {isCurrent && (['repaint','lego','extend','complete','cover'] as string[]).includes(task) && (
                       <Tooltip
                         title={paramSummary.title}
                         description={`${filterDesc} — Click to open ${shortName} parameters modal (Preselects + Granular Slider)`}
@@ -683,24 +704,6 @@ export const Toolbox: React.FC<ToolboxProps> = ({
 
               {options && <Parameters parameters={Object.fromEntries(Object.entries(options.parameters).filter(([key, parameter]) => parameter.tasks?.includes(task) && !['trackName', 'coverStrength'].includes(key)))} values={parameters} onChange={onParametersChange} />}
               <div className="toolbox-params-grid">
-                      {task === 'cover' && (
-                        <div className="toolbox-param-box">
-                          <div className="toolbox-param-title">RESTYLE</div>
-                          <div className="toolbox-param-row">
-                            <label>SOURCE RESEMBLANCE:</label>
-                            <input
-                              type="range"
-                              min={options?.parameters.coverStrength.min}
-                              max={options?.parameters.coverStrength.max}
-                              step="0.05"
-                              value={coverStrength}
-                              onChange={(e) => onCoverStrengthChange(parseFloat(e.target.value))}
-                            />
-                            <span>{Math.round(coverStrength * 100)}%</span>
-                          </div>
-                        </div>
-                      )}
-
                       {task === 'extract' && (
                         <div className="toolbox-param-box">
                           <div className="toolbox-param-title">SEPARATE TRACKS</div>
@@ -1093,7 +1096,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
 
       {/* Standardized AI Studio Parameter Modal (Presets + Granular Dragging Bar) */}
       <Modal
-        isOpen={isParamModalOpen && (['repaint','lego','extend','complete'] as string[]).includes(task)}
+        isOpen={isParamModalOpen && (['repaint','lego','extend','complete','cover'] as string[]).includes(task)}
         onClose={() => setIsParamModalOpen(false)}
         title={`AI STUDIO PARAMETERS // ${taskLabel(task).toUpperCase()}`}
         size="md"
@@ -1517,6 +1520,121 @@ export const Toolbox: React.FC<ToolboxProps> = ({
                   <span>Sparse Pocket</span>
                   <span>Balanced Full Band</span>
                   <span>Dense Orchestration</span>
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* 5. RESTYLE (cover): Unified Preselect Blend Profiles + Granular Blend Slider + Cover Noise Strength */}
+          {task === 'cover' && (
+            <>
+              <div className="toolbox-param-section">
+                <div className="toolbox-param-section-head">
+                  <span className="daw-field-label">PRESELECT RESTYLE BLEND PROFILES</span>
+                  <span className="toolbox-param-readout-tag">{closestCoverPreset.label.toUpperCase()}</span>
+                </div>
+                <div className="toolbox-param-presets-grid cols-4">
+                  {COVER_BLEND_PRESETS.map((preset) => {
+                    const isSelected = closestCoverPreset.value === preset.value;
+                    return (
+                      <button
+                        key={preset.value}
+                        type="button"
+                        className={`toolbox-param-preset-btn ${isSelected ? 'active' : ''}`}
+                        onClick={() => onCoverStrengthChange(preset.value)}
+                      >
+                        <span className="preset-btn-title">{preset.shortLabel}</span>
+                        <span className="preset-btn-val">{Math.round(preset.value * 100)}%</span>
+                        <span className="preset-btn-sub">{preset.desc}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="toolbox-param-section">
+                <div className="toolbox-param-section-head">
+                  <span className="daw-field-label">GRANULAR STYLE TRANSFER BLEND</span>
+                  <span className="toolbox-param-readout-val">{Math.round(coverStrength * 100)}%</span>
+                </div>
+                <div className="toolbox-param-slider-row">
+                  <button
+                    type="button"
+                    className="toolbox-param-step-btn"
+                    onClick={() => onCoverStrengthChange(Math.max(0.05, Number((coverStrength - 0.05).toFixed(2))))}
+                  >
+                    -5%
+                  </button>
+                  <input
+                    type="range"
+                    min="0.05"
+                    max="1"
+                    step="0.01"
+                    value={coverStrength}
+                    onChange={(e) => onCoverStrengthChange(Number(e.target.value))}
+                    className="daw-ContextSlider toolbox-param-range"
+                  />
+                  <button
+                    type="button"
+                    className="toolbox-param-step-btn"
+                    onClick={() => onCoverStrengthChange(Math.min(1, Number((coverStrength + 0.05).toFixed(2))))}
+                  >
+                    +5%
+                  </button>
+                </div>
+                <div className="toolbox-param-scale-labels">
+                  <span>5% (Keep Original Timbre)</span>
+                  <span>60% (Balanced Restyle)</span>
+                  <span>100% (Full Genre Reimagination)</span>
+                </div>
+              </div>
+
+              <div className="toolbox-param-section">
+                <div className="toolbox-param-section-head">
+                  <span className="daw-field-label">TIMBRE REIMAGINATION FREEDOM (NOISE STRENGTH)</span>
+                  <span className="toolbox-param-readout-val">
+                    {Math.round(Number(parameters.coverNoiseStrength ?? 0.25) * 100)}%
+                  </span>
+                </div>
+                <div className="toolbox-param-slider-row">
+                  <button
+                    type="button"
+                    className="toolbox-param-step-btn"
+                    onClick={() =>
+                      onParametersChange({
+                        ...parameters,
+                        coverNoiseStrength: Math.max(0, Number((Number(parameters.coverNoiseStrength ?? 0.25) - 0.05).toFixed(2))),
+                      })
+                    }
+                  >
+                    -5%
+                  </button>
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    value={Number(parameters.coverNoiseStrength ?? 0.25)}
+                    onChange={(e) =>
+                      onParametersChange({
+                        ...parameters,
+                        coverNoiseStrength: Number(e.target.value),
+                      })
+                    }
+                    className="daw-ContextSlider toolbox-param-range"
+                  />
+                  <button
+                    type="button"
+                    className="toolbox-param-step-btn"
+                    onClick={() =>
+                      onParametersChange({
+                        ...parameters,
+                        coverNoiseStrength: Math.min(1, Number((Number(parameters.coverNoiseStrength ?? 0.25) + 0.05).toFixed(2))),
+                      })
+                    }
+                  >
+                    +5%
+                  </button>
                 </div>
               </div>
             </>
