@@ -1,16 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { useDawStore, DAWTrack } from '../../lib/daw/store';
 import { dawEngine } from '../../lib/daw/engine';
-import { Button } from '../button';
-import { Play, Square, Repeat, Sliders, Activity } from 'lucide-react';
+import { Tooltip } from './Tooltip';
+import { Play, Sliders, Volume2 } from 'lucide-react';
 import { getStemColor } from '../../lib/daw/palette';
 
-interface ChannelStripProps {
+interface HorizontalChannelDeckProps {
   track: DAWTrack;
   isMaster?: boolean;
 }
 
-const ChannelStrip: React.FC<ChannelStripProps> = ({ track, isMaster = false }) => {
+const HorizontalChannelDeck: React.FC<HorizontalChannelDeckProps> = ({ track, isMaster = false }) => {
   const {
     updateTrackMixer,
     updateTrackFx,
@@ -21,29 +21,31 @@ const ChannelStrip: React.FC<ChannelStripProps> = ({ track, isMaster = false }) 
     sectionHigh,
     setSectionGain,
     setSectionTone,
-    extractCurrentSection,
-    isPlaying,
-    setPlaying,
-    selectedTrackId,
-    setSelectedTrackId,
   } = useDawStore();
+
   const [level, setLevel] = useState(-Infinity);
   const [peak, setPeak] = useState(-Infinity);
+
   useEffect(() => {
+    setPeak(-Infinity);
     let frame: number;
-    const update = () => { const value = dawEngine.level(track.id); setLevel(value); setPeak(peak => Math.max(peak, value)); frame = requestAnimationFrame(update); };
+    const update = () => {
+      const value = dawEngine.level(track.id);
+      setLevel(value);
+      setPeak((prev) => Math.max(prev, value));
+      frame = requestAnimationFrame(update);
+    };
     frame = requestAnimationFrame(update);
     return () => cancelAnimationFrame(frame);
   }, [track.id]);
+
   const selectionStart = selection?.start ?? null;
   const selectionEnd = selection?.end ?? null;
 
-  // Tone controls: BASS (120Hz), MID (1kHz), HIGH (6kHz) in dB (-12 to +12)
+  // Sync local EQ & filter state when track changes
   const [eqLow, setEqLow] = useState<number>(track.fx?.eq?.low ?? 0);
   const [eqMid, setEqMid] = useState<number>(track.fx?.eq?.mid ?? 0);
   const [eqHigh, setEqHigh] = useState<number>(track.fx?.eq?.high ?? 0);
-
-  // Smoothing filter cutoff (200Hz to 20,000Hz)
   const [cutoff, setCutoff] = useState<number>(track.fx?.filter?.cutoff ?? 20000);
 
   const vol = track.mixer?.volume ?? 1.0;
@@ -88,392 +90,325 @@ const ChannelStrip: React.FC<ChannelStripProps> = ({ track, isMaster = false }) 
     dawEngine.auditionTrack(track.id, start, end);
   };
 
-  // Convert volume (0.0 - 1.5) to approximate dB display
   const volDb = vol > 0.0001 ? (20 * Math.log10(vol)).toFixed(1) : '-inf';
+  const meterPct = Math.min(100, Math.max(0, ((level + 60) / 60) * 100));
+  const isSectionMode = Boolean(isMaster && selection);
 
-  const isSelected = selectedTrackId === track.id || (isMaster && selectedTrackId === 'master');
+  const activeLow = isSectionMode ? sectionLow : eqLow;
+  const activeMid = isSectionMode ? sectionMid : eqMid;
+  const activeHigh = isSectionMode ? sectionHigh : eqHigh;
 
   return (
     <div
-      className={`mixer-strip ${isMaster ? 'mixer-strip-master' : ''} ${isSelected ? 'selected' : ''}`}
+      className={`mixer-horizontal-deck ${isMaster ? 'mixer-deck-master' : ''}`}
       style={{ '--accent-color': accentColor } as React.CSSProperties}
-      onClick={() => setSelectedTrackId(track.id)}
     >
-      {/* Strip Header */}
-      <div className="mixer-strip-header">
-        <div className="mixer-strip-badge" style={{ backgroundColor: accentColor }}>
-          {isMaster ? 'MST' : (track.name.slice(0, 3).toUpperCase())}
+      {/* Row 1: Channel Identity + M/S/Audition Actions + Horizontal Fader & Live Meter */}
+      <div className="mixer-horiz-fader-row">
+        <div className="mixer-horiz-identity">
+          <span className="mixer-strip-badge daw-badge">
+            {isMaster ? (selection ? 'MST•SEC' : 'MST') : track.name.slice(0, 3).toUpperCase()}
+          </span>
+          <span className="mixer-strip-title" title={track.name}>
+            {isMaster && selection
+              ? `Master (${selection.start.toFixed(1)}s–${selection.end.toFixed(1)}s)`
+              : track.name}
+          </span>
         </div>
-        <div className="mixer-strip-title" title={track.name}>
-          {track.name}
+
+        <div className="mixer-button-cluster">
+          <Tooltip title={isSoloed ? 'Unsolo Track (S)' : 'Solo Track (S)'}>
+            <button
+              type="button"
+              className={`mixer-action-btn mixer-btn-solo ${isSoloed ? 'active' : ''}`}
+              onClick={() => updateTrackMixer(track.id, { solo: !isSoloed })}
+            >
+              S
+            </button>
+          </Tooltip>
+          <Tooltip title={isMuted ? 'Unmute Track (M)' : 'Mute Track (M)'}>
+            <button
+              type="button"
+              className={`mixer-action-btn mixer-btn-mute ${isMuted ? 'active' : ''}`}
+              onClick={() => updateTrackMixer(track.id, { muted: !isMuted })}
+            >
+              M
+            </button>
+          </Tooltip>
+          <Tooltip title="Audition Track in Isolation">
+            <button
+              type="button"
+              className="mixer-action-btn mixer-btn-audition"
+              onClick={handleAudition}
+            >
+              <Play size={11} />
+            </button>
+          </Tooltip>
+        </div>
+
+        <div className="mixer-horiz-fader-well" title="Double-click fader to reset to 0.0 dB">
+          <Volume2 size={13} className="mixer-fader-icon" />
+          <div className="mixer-horiz-fader-track-wrap">
+            <div className="mixer-horiz-meter-lane">
+              <div
+                className="mixer-horiz-meter-fill"
+                data-level={Number.isFinite(level) ? level.toFixed(1) : 'silent'}
+                style={{ '--meter-w': `${meterPct}%` } as React.CSSProperties}
+              />
+            </div>
+            <input
+              type="range"
+              className="mixer-horiz-fader"
+              min="0.0"
+              max="1.3"
+              step="0.01"
+              value={vol}
+              onChange={(e) => handleVolChange(parseFloat(e.target.value))}
+              onDoubleClick={() => handleVolChange(1.0)}
+              aria-label={`${track.name} Volume`}
+            />
+          </div>
+          <span
+            className="mixer-fader-readout"
+            title={`Peak: ${Number.isFinite(peak) ? peak.toFixed(1) : '-∞'} dB (Double-click to reset)`}
+            onDoubleClick={() => handleVolChange(1.0)}
+          >
+            {volDb} dB
+          </span>
         </div>
       </div>
 
-      {/* Comprehensive Real-time Section Processor (Master Only when section is selected) */}
-      {isMaster && selection && (
-        <div className="mixer-section-group mixer-section-group-warning">
-          <div className="mixer-group-label mixer-group-label-warning">
-            SECTION [{selection.start.toFixed(1)}s – {selection.end.toFixed(1)}s]
-          </div>
-
-          <div className="mixer-tone-controls">
-            <div className="mixer-knob-cell">
+      {/* Row 2: Proportional Horizontal Parameter Matrix (EQ / Filter / Pan / Optional Section Trim) */}
+      <div className="mixer-horiz-matrix">
+        {isSectionMode && (
+          <div className="mixer-param-cell mixer-param-cell-warning" title="Double-click to reset Section Trim">
+            <div className="mixer-param-header">
               <span className="mixer-knob-name mixer-knob-warning">TRIM</span>
-              <input
-                type="range"
-                className="mixer-rotary-slider"
-                min="-24"
-                max="12"
-                step="0.5"
-                value={sectionGain}
-                onChange={(e) => {
-                  const val = parseFloat(e.target.value);
-                  setSectionGain(val);
-                }}
-              />
               <span className="mixer-knob-readout mixer-knob-warning">
                 {sectionGain > 0 ? `+${sectionGain}` : sectionGain} dB
               </span>
             </div>
-
-            <div className="mixer-knob-cell">
-              <span className="mixer-knob-name">BASS</span>
-              <input
-                type="range"
-                className="mixer-rotary-slider"
-                min="-12"
-                max="12"
-                step="0.5"
-                value={sectionLow}
-                onChange={(e) => {
-                  const val = parseFloat(e.target.value);
-                  setSectionTone(val, sectionMid, sectionHigh);
-                }}
-              />
-              <span className="mixer-knob-readout">
-                {sectionLow > 0 ? `+${sectionLow}` : sectionLow} dB
-              </span>
-            </div>
-
-            <div className="mixer-knob-cell">
-              <span className="mixer-knob-name">MID</span>
-              <input
-                type="range"
-                className="mixer-rotary-slider"
-                min="-12"
-                max="12"
-                step="0.5"
-                value={sectionMid}
-                onChange={(e) => {
-                  const val = parseFloat(e.target.value);
-                  setSectionTone(sectionLow, val, sectionHigh);
-                }}
-              />
-              <span className="mixer-knob-readout">
-                {sectionMid > 0 ? `+${sectionMid}` : sectionMid} dB
-              </span>
-            </div>
-
-            <div className="mixer-knob-cell">
-              <span className="mixer-knob-name">HIGH</span>
-              <input
-                type="range"
-                className="mixer-rotary-slider"
-                min="-12"
-                max="12"
-                step="0.5"
-                value={sectionHigh}
-                onChange={(e) => {
-                  const val = parseFloat(e.target.value);
-                  setSectionTone(sectionLow, sectionMid, val);
-                }}
-              />
-              <span className="mixer-knob-readout">
-                {sectionHigh > 0 ? `+${sectionHigh}` : sectionHigh} dB
-              </span>
-            </div>
-          </div>
-
-          <div className="mixer-section-actions">
-            <button
-              type="button"
-              className={`mixer-audition-btn mixer-audition-btn-warning ${isPlaying ? 'playing' : ''}`}
-              onClick={() => {
-                if (isPlaying) {
-                  dawEngine.pauseTransport();
-                  setPlaying(false);
-                } else {
-                  dawEngine.auditionSection(selection.start, selection.end, false);
-                  setPlaying(true);
-                }
-              }}
-            >
-              {isPlaying ? 'STOP' : 'AUDITION'}
-            </button>
-
-            <button
-              type="button"
-              className="mixer-audition-btn mixer-audition-btn-loop"
-              onClick={() => {
-                dawEngine.auditionSection(selection.start, selection.end, true);
-                setPlaying(true);
-              }}
-            >
-              LOOP
-            </button>
-
-            <button
-              type="button"
-              className="mixer-audition-btn mixer-audition-btn-extract"
-              onClick={async () => {
-                await extractCurrentSection();
-              }}
-            >
-              ✂ EXTRACT SECTION
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Tone Controls (EQ3) - shown when not in section trim mode on master */}
-      {!(isMaster && selection) && (
-        <div className="mixer-section-group">
-          <div className="mixer-group-label">TONE (EQ)</div>
-          <div className="mixer-tone-controls">
-            <div className="mixer-knob-cell">
-              <span className="mixer-knob-name">HIGH</span>
-              <input
-                type="range"
-                className="mixer-rotary-slider"
-                min="-12"
-                max="12"
-                step="0.5"
-                value={eqHigh}
-                onChange={(e) => handleEqChange('high', parseFloat(e.target.value))}
-              />
-              <span className="mixer-knob-readout">{eqHigh > 0 ? `+${eqHigh}` : eqHigh} dB</span>
-            </div>
-
-            <div className="mixer-knob-cell">
-              <span className="mixer-knob-name">MID</span>
-              <input
-                type="range"
-                className="mixer-rotary-slider"
-                min="-12"
-                max="12"
-                step="0.5"
-                value={eqMid}
-                onChange={(e) => handleEqChange('mid', parseFloat(e.target.value))}
-              />
-              <span className="mixer-knob-readout">{eqMid > 0 ? `+${eqMid}` : eqMid} dB</span>
-            </div>
-
-            <div className="mixer-knob-cell">
-              <span className="mixer-knob-name">BASS</span>
-              <input
-                type="range"
-                className="mixer-rotary-slider"
-                min="-12"
-                max="12"
-                step="0.5"
-                value={eqLow}
-                onChange={(e) => handleEqChange('low', parseFloat(e.target.value))}
-              />
-              <span className="mixer-knob-readout">{eqLow > 0 ? `+${eqLow}` : eqLow} dB</span>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Smoothing Filter & Stereo Pan */}
-      <div className="mixer-dual-row">
-        <div className="mixer-section-group mixer-half">
-          <div className="mixer-group-label">FILTER</div>
-          <div className="mixer-smoothing-cell">
             <input
               type="range"
-              className="mixer-filter-slider"
-              min="200"
-              max="20000"
-              step="100"
-              value={cutoff}
-              onChange={(e) => handleCutoffChange(parseFloat(e.target.value))}
+              className="mixer-rotary-slider"
+              min="-24"
+              max="12"
+              step="0.5"
+              value={sectionGain}
+              onChange={(e) => setSectionGain(parseFloat(e.target.value))}
+              onDoubleClick={() => setSectionGain(0)}
             />
+          </div>
+        )}
+
+        <div className="mixer-param-cell" title="Low Shelf 120Hz (Double-click to reset)">
+          <div className="mixer-param-header">
+            <span className="mixer-knob-name">BASS</span>
+            <span className="mixer-knob-readout">{activeLow > 0 ? `+${activeLow}` : activeLow} dB</span>
+          </div>
+          <input
+            type="range"
+            className="mixer-rotary-slider"
+            min="-12"
+            max="12"
+            step="0.5"
+            value={activeLow}
+            onChange={(e) => {
+              const val = parseFloat(e.target.value);
+              if (isSectionMode) setSectionTone(val, sectionMid, sectionHigh);
+              else handleEqChange('low', val);
+            }}
+            onDoubleClick={() => {
+              if (isSectionMode) setSectionTone(0, sectionMid, sectionHigh);
+              else handleEqChange('low', 0);
+            }}
+          />
+        </div>
+
+        <div className="mixer-param-cell" title="Mid Peaking 1kHz (Double-click to reset)">
+          <div className="mixer-param-header">
+            <span className="mixer-knob-name">MID</span>
+            <span className="mixer-knob-readout">{activeMid > 0 ? `+${activeMid}` : activeMid} dB</span>
+          </div>
+          <input
+            type="range"
+            className="mixer-rotary-slider"
+            min="-12"
+            max="12"
+            step="0.5"
+            value={activeMid}
+            onChange={(e) => {
+              const val = parseFloat(e.target.value);
+              if (isSectionMode) setSectionTone(sectionLow, val, sectionHigh);
+              else handleEqChange('mid', val);
+            }}
+            onDoubleClick={() => {
+              if (isSectionMode) setSectionTone(sectionLow, 0, sectionHigh);
+              else handleEqChange('mid', 0);
+            }}
+          />
+        </div>
+
+        <div className="mixer-param-cell" title="High Shelf 6kHz (Double-click to reset)">
+          <div className="mixer-param-header">
+            <span className="mixer-knob-name">HIGH</span>
+            <span className="mixer-knob-readout">{activeHigh > 0 ? `+${activeHigh}` : activeHigh} dB</span>
+          </div>
+          <input
+            type="range"
+            className="mixer-rotary-slider"
+            min="-12"
+            max="12"
+            step="0.5"
+            value={activeHigh}
+            onChange={(e) => {
+              const val = parseFloat(e.target.value);
+              if (isSectionMode) setSectionTone(sectionLow, sectionMid, val);
+              else handleEqChange('high', val);
+            }}
+            onDoubleClick={() => {
+              if (isSectionMode) setSectionTone(sectionLow, sectionMid, 0);
+              else handleEqChange('high', 0);
+            }}
+          />
+        </div>
+
+        <div className="mixer-param-cell" title="Low-Pass Filter Cutoff (Double-click to reset)">
+          <div className="mixer-param-header">
+            <span className="mixer-knob-name">FILTER</span>
             <span className="mixer-filter-readout">
-              {cutoff >= 1000 ? `${(cutoff / 1000).toFixed(1)}k` : `${Math.round(cutoff)}`}
+              {cutoff >= 1000 ? `${(cutoff / 1000).toFixed(1)}kHz` : `${Math.round(cutoff)}Hz`}
             </span>
           </div>
+          <input
+            type="range"
+            className="mixer-filter-slider"
+            min="200"
+            max="20000"
+            step="100"
+            value={cutoff}
+            onChange={(e) => handleCutoffChange(parseFloat(e.target.value))}
+            onDoubleClick={() => handleCutoffChange(20000)}
+          />
         </div>
 
-        <div className="mixer-section-group mixer-half">
-          <div className="mixer-group-label">PAN</div>
-          <div className="mixer-pan-cell">
-            <input
-              type="range"
-              className="mixer-pan-slider"
-              min="-1.0"
-              max="1.0"
-              step="0.05"
-              value={pan}
-              onChange={(e) => handlePanChange(parseFloat(e.target.value))}
-            />
+        <div className="mixer-param-cell" title="Stereo Panning (Double-click to center)">
+          <div className="mixer-param-header">
+            <span className="mixer-knob-name">PAN</span>
             <span className="mixer-pan-readout">
               {pan === 0 ? 'C' : pan < 0 ? `L${Math.round(Math.abs(pan) * 100)}` : `R${Math.round(pan * 100)}`}
             </span>
           </div>
-        </div>
-      </div>
-
-      {/* Solo, Mute & Audition Buttons */}
-      <div className="mixer-button-cluster">
-        <button
-          className={`mixer-action-btn mixer-btn-solo ${isSoloed ? 'active' : ''}`}
-          onClick={() => updateTrackMixer(track.id, { solo: !isSoloed })}
-        >
-          S
-        </button>
-        <button
-          className={`mixer-action-btn mixer-btn-mute ${isMuted ? 'active' : ''}`}
-          onClick={() => updateTrackMixer(track.id, { muted: !isMuted })}
-        >
-          M
-        </button>
-        <button
-          className="mixer-action-btn mixer-btn-audition"
-          title="Audition in isolation"
-          onClick={handleAudition}
-        >
-          <Play size={10} />
-        </button>
-      </div>
-
-      {/* Vertical Fader & Meter Area */}
-      <div className="mixer-fader-well">
-        <div className="mixer-meter-lane">
-          <div
-            className="mixer-meter-fill"
-            data-level={Number.isFinite(level) ? level.toFixed(1) : 'silent'}
-            title={`Peak: ${Number.isFinite(peak) ? peak.toFixed(1) : '-∞'} dB`}
-            style={{
-              height: `${Math.min(100, Math.max(0, (level + 60) / 60 * 100))}%`,
-              backgroundColor: accentColor,
-            }}
+          <input
+            type="range"
+            className="mixer-pan-slider"
+            min="-1.0"
+            max="1.0"
+            step="0.05"
+            value={pan}
+            onChange={(e) => handlePanChange(parseFloat(e.target.value))}
+            onDoubleClick={() => handlePanChange(0)}
           />
         </div>
-        <input
-          type="range"
-          className="mixer-vertical-fader"
-          min="0.0"
-          max="1.3"
-          step="0.01"
-          value={vol}
-          onChange={(e) => handleVolChange(parseFloat(e.target.value))}
-        />
-      </div>
-
-      {/* Fader Readout */}
-      <div className="mixer-fader-readout">
-        {volDb} dB
       </div>
     </div>
   );
 };
 
 export const Mixer: React.FC = () => {
-  const { tracks, selection, duration, isPlaying, setPlaying } = useDawStore();
-  const selectionStart = selection?.start ?? null;
-  const selectionEnd = selection?.end ?? null;
+  const { tracks, selectedTrackId, setSelectedTrackId, selection } = useDawStore();
 
-  const masterTrack = tracks.find((t) => t.id === 'master') || {
+  const masterTrack: DAWTrack = tracks.find((t) => t.id === 'master') || {
     id: 'master',
     name: 'Master',
+    type: 'stem',
+    color: '#00ff41',
     volume: 1.0,
     pan: 0.0,
     muted: false,
     solo: false,
     clips: [],
+    mixer: {
+      volume: 1.0,
+      pan: 0.0,
+      muted: false,
+      solo: false,
+    },
+    fx: {
+      eq: { enabled: true, low: 0, mid: 0, high: 0 },
+      compressor: { enabled: false, threshold: -24, ratio: 4, attack: 0.003, release: 0.25 },
+      reverb: { enabled: false, decay: 2.5, wet: 0.25 },
+      delay: { enabled: false, delayTime: 0.25, feedback: 0.35, wet: 0.2 },
+      distortion: { enabled: false, drive: 0.2, wet: 0.3 },
+      chorus: { enabled: false, rate: 1.5, depth: 0.5, wet: 0.3 },
+      filter: { enabled: false, cutoff: 20000, resonance: 1, type: 'lowpass' },
+    },
   };
 
   const stemTracks = tracks.filter((t) => t.id !== 'master');
+  const allChannels: DAWTrack[] = [masterTrack, ...stemTracks];
 
-  const hasSelection = selectionStart !== null && selectionEnd !== null && selectionEnd > selectionStart;
-
-  const handleAuditionSection = () => {
-    if (hasSelection) {
-      dawEngine.auditionSection(selectionStart!, selectionEnd!, true);
-      setPlaying(true);
-    } else {
-      dawEngine.seek(0);
-      dawEngine.startTransport();
-      setPlaying(true);
-    }
-  };
-
-  const handleStopAudition = () => {
-    dawEngine.pauseTransport();
-    setPlaying(false);
-  };
-
-  const formatTime = (sec: number) => {
-    const m = Math.floor(sec / 60);
-    const s = (sec % 60).toFixed(2);
-    return `${m}:${Number(s) < 10 ? '0' : ''}${s}`;
-  };
+  const activeTrack =
+    allChannels.find((t) => t.id === selectedTrackId) || masterTrack;
+  const isActiveMaster = activeTrack.id === 'master';
 
   return (
     <div className="mixer-console-container">
-      {/* Top Console Bar */}
-      <div className="mixer-console-bar">
-        <div className="mixer-console-title-group">
-          <Sliders size={18} className="text-cyan-400" />
-          <span className="mixer-console-title">Hardware Console Mixer</span>
-          <span className="mixer-console-subtitle">Sample-Accurate Multi-Track Tone & Smoothing</span>
-        </div>
+      {/* Sub-Navigation Bar below Mixer Tab (FX-style channel selector pills) */}
+      <div className="mixer-subnav-bar" role="tablist" aria-label="Mixer Channels">
+        {allChannels.map((track) => {
+          const isMaster = track.id === 'master';
+          const isSelected = activeTrack.id === track.id;
+          const color = isMaster ? '#00ffff' : getStemColor(track.name);
+          const isMuted = track.mixer?.muted ?? false;
+          const isSoloed = track.mixer?.solo ?? false;
+          const shortCode = isMaster
+            ? selection
+              ? 'MST•SEC'
+              : 'MST'
+            : track.name.slice(0, 3).toUpperCase();
 
-        {/* Section Audition Controller */}
-        <div className="mixer-section-audition-bar">
-          <div className="mixer-selection-indicator">
-            <span className="mixer-selection-label">ACTIVE SECTION:</span>
-            <span className="mixer-selection-bounds">
-              {hasSelection
-                ? `${formatTime(selectionStart!)} ➔ ${formatTime(selectionEnd!)} (${(selectionEnd! - selectionStart!).toFixed(2)}s)`
-                : `Full Song (0:00.00 ➔ ${formatTime(duration)})`}
-            </span>
-          </div>
-
-          <div className="mixer-section-buttons">
-            <Button
-              size="sm"
-              variant={isPlaying ? 'destructive' : 'default'}
-              onClick={isPlaying ? handleStopAudition : handleAuditionSection}
+          return (
+            <Tooltip
+              key={track.id}
+              title={
+                isMaster
+                  ? selection
+                    ? `Master Bus + Section Trim (${selection.start.toFixed(1)}s–${selection.end.toFixed(1)}s)`
+                    : 'Master Bus Channel'
+                  : `${track.name} Channel${isSoloed ? ' [SOLO]' : ''}${isMuted ? ' [MUTED]' : ''}`
+              }
             >
-              {isPlaying ? <Square size={13} /> : <Repeat size={13} />}
-              {isPlaying ? 'STOP' : 'AUDITION SECTION LOOP'}
-            </Button>
-          </div>
-        </div>
-      </div>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={isSelected}
+                className={`mixer-subnav-pill ${isSelected ? 'active' : ''} ${isMuted ? 'is-muted' : ''} ${isSoloed ? 'is-solo' : ''}`}
+                style={{ '--channel-color': color } as React.CSSProperties}
+                onClick={() => setSelectedTrackId(track.id)}
+              >
+                <span className="mixer-subnav-dot" />
+                <span className="mixer-subnav-code">{shortCode}</span>
+                {isSelected && !isMaster && (
+                  <span className="mixer-subnav-fullname">{track.name}</span>
+                )}
+                {isSoloed && <span className="mixer-subnav-status-tag solo">S</span>}
+                {isMuted && <span className="mixer-subnav-status-tag mute">M</span>}
+              </button>
+            </Tooltip>
+          );
+        })}
 
-      {/* Channel Strips Bay */}
-      <div className="mixer-strips-bay">
-        {/* Master Strip */}
-        <ChannelStrip track={masterTrack as DAWTrack} isMaster={true} />
-
-        <div className="mixer-strips-divider" />
-
-        {/* Stem Strips */}
-        {stemTracks.length > 0 ? (
-          stemTracks.map((track) => (
-            <ChannelStrip key={track.id} track={track} isMaster={false} />
-          ))
-        ) : (
-          <div className="mixer-no-stems-placeholder">
-            <Activity size={24} className="text-zinc-600 mb-2" />
-            <span>No isolated stems yet.</span>
-            <span className="text-xs text-zinc-500">Run stem separation in the timeline to mix tracks individually.</span>
-          </div>
+        {stemTracks.length === 0 && (
+          <span className="mixer-subnav-hint">
+            <Sliders size={10} />
+            <span>Extract stems or add synth lanes for multi-channel mixing</span>
+          </span>
         )}
       </div>
+
+      {/* Selected Channel Horizontal Mixer Deck */}
+      <HorizontalChannelDeck track={activeTrack} isMaster={isActiveMaster} />
     </div>
   );
 };
