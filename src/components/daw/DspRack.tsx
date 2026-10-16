@@ -1,11 +1,21 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useDawStore, DAWTrack, DSPFxConfig } from '../../lib/daw/store';
-import { Badge } from '../badge';
-import { Power, Activity } from 'lucide-react';
+import { Power } from 'lucide-react';
+import { Tooltip } from './Tooltip';
 
 interface DspRackProps {
   track?: DAWTrack;
 }
+
+const DSP_MODULES: { key: keyof DSPFxConfig; short: string; label: string; desc: string }[] = [
+  { key: 'eq', short: 'EQ', label: '3-Band Equalizer', desc: 'Shape Low, Mid, and High frequency balance (±12 dB)' },
+  { key: 'filter', short: 'FLT', label: 'Resonant Filter', desc: 'Multi-mode Lowpass, Highpass, or Bandpass frequency filter' },
+  { key: 'distortion', short: 'DRV', label: 'Harmonic Drive', desc: 'Warm tube overdrive and harmonic saturation' },
+  { key: 'chorus', short: 'CHR', label: 'Stereo Chorus', desc: 'Modulated stereo widening and detuned ensemble' },
+  { key: 'delay', short: 'DLY', label: 'Feedback Delay', desc: 'Tempo-synced stereo echo with feedback control' },
+  { key: 'reverb', short: 'REV', label: 'Studio Reverb', desc: 'Algorithmic spatial room & hall decay' },
+  { key: 'compressor', short: 'CMP', label: 'Bus Compressor', desc: 'Dynamic range compression (Threshold, Ratio, Attack, Release)' },
+];
 
 const DEFAULT_FX_FALLBACK: DSPFxConfig = {
   eq: { enabled: false, low: 0, mid: 0, high: 0 },
@@ -19,6 +29,7 @@ const DEFAULT_FX_FALLBACK: DSPFxConfig = {
 
 export const DspRack: React.FC<DspRackProps> = ({ track }) => {
   const { tracks, selectedTrackId, updateTrackFx } = useDawStore();
+  const [activeFxKey, setActiveFxKey] = useState<keyof DSPFxConfig>('eq');
   const currentTrack = track ?? tracks.find((t) => t.id === selectedTrackId);
   if (!currentTrack) return <div className="dsp-rack-wrap">Select a lane to edit its effects.</div>;
 
@@ -39,30 +50,32 @@ export const DspRack: React.FC<DspRackProps> = ({ track }) => {
 
   return (
     <div className="dsp-rack-wrap">
-      {/* Rack Header */}
-      <div className="stem-lane-header">
-        <div className="stem-lane-info">
-          <Activity size={18} color="#00ffff" />
-          <h3 className="dsp-rack-title">7-EFFECT DSP CHANNEL STRIP</h3>
-          <Badge
-            variant="default"
-            className="track-color-badge"
-            style={{ '--track-color': currentTrack.color } as React.CSSProperties}
-          >
-            {currentTrack.name}
-          </Badge>
-        </div>
-        <span className="dsp-rack-sub">
-          SERIAL: EQ ➔ FILTER ➔ DISTORTION ➔ CHORUS ➔ DELAY ➔ REVERB ➔ COMP
-        </span>
+      {/* Single-Row FX Chain Bar (allows instant 1-row module switching on mobile & quick bypass overview) */}
+      <div className="dsp-chain-bar">
+        {DSP_MODULES.map((mod) => {
+          const isEnabled = fx[mod.key].enabled;
+          const isFocused = activeFxKey === mod.key;
+          return (
+            <Tooltip key={mod.key} title={mod.label} description={mod.desc}>
+              <button
+                type="button"
+                onClick={() => setActiveFxKey(mod.key)}
+                className={`dsp-chain-pill ${isFocused ? 'focused' : ''} ${isEnabled ? 'enabled' : ''}`}
+              >
+                <span className={`dsp-chain-led ${isEnabled ? 'on' : ''}`} />
+                <span>{mod.short}</span>
+              </button>
+            </Tooltip>
+          );
+        })}
       </div>
 
       {/* Grid of 7 DSP Modules */}
       <div className="dsp-modules-grid">
         {/* 1. EQ3 Module */}
-        <div className={`dsp-module-card ${!fx.eq.enabled ? 'disabled' : ''}`}>
+        <div className={`dsp-module-card ${!fx.eq.enabled ? 'disabled' : ''} ${activeFxKey === 'eq' ? 'active-module' : ''}`}>
           <div className="dsp-module-header">
-            <span className="dsp-module-title">1. 3-BAND EQ</span>
+            <span className="dsp-module-title">EQ</span>
             <PowerToggle
               enabled={fx.eq.enabled}
               onToggle={(enabled) => handleFxChange('eq', { enabled })}
@@ -70,7 +83,7 @@ export const DspRack: React.FC<DspRackProps> = ({ track }) => {
           </div>
           <div className="dsp-control-group">
             <RangeSlider
-              label="LOW (-12 to +12 dB)"
+              label="LOW"
               min={-12}
               max={12}
               step={0.5}
@@ -79,7 +92,7 @@ export const DspRack: React.FC<DspRackProps> = ({ track }) => {
               unit="dB"
             />
             <RangeSlider
-              label="MID (-12 to +12 dB)"
+              label="MID"
               min={-12}
               max={12}
               step={0.5}
@@ -88,7 +101,7 @@ export const DspRack: React.FC<DspRackProps> = ({ track }) => {
               unit="dB"
             />
             <RangeSlider
-              label="HIGH (-12 to +12 dB)"
+              label="HIGH"
               min={-12}
               max={12}
               step={0.5}
@@ -100,9 +113,9 @@ export const DspRack: React.FC<DspRackProps> = ({ track }) => {
         </div>
 
         {/* 2. Filter Module */}
-        <div className={`dsp-module-card ${!fx.filter.enabled ? 'disabled' : ''}`}>
+        <div className={`dsp-module-card ${!fx.filter.enabled ? 'disabled' : ''} ${activeFxKey === 'filter' ? 'active-module' : ''}`}>
           <div className="dsp-module-header">
-            <span className="dsp-module-title">2. STATE-VARIABLE FILTER</span>
+            <span className="dsp-module-title">FILTER</span>
             <PowerToggle
               enabled={fx.filter.enabled}
               onToggle={(enabled) => handleFxChange('filter', { enabled })}
@@ -122,7 +135,7 @@ export const DspRack: React.FC<DspRackProps> = ({ track }) => {
               ))}
             </div>
             <RangeSlider
-              label="CUTOFF FREQUENCY"
+              label="CUTOFF"
               min={60}
               max={18000}
               step={50}
@@ -131,7 +144,7 @@ export const DspRack: React.FC<DspRackProps> = ({ track }) => {
               unit="Hz"
             />
             <RangeSlider
-              label="RESONANCE (Q)"
+              label="RESONANCE"
               min={0.1}
               max={18}
               step={0.2}
@@ -143,9 +156,9 @@ export const DspRack: React.FC<DspRackProps> = ({ track }) => {
         </div>
 
         {/* 3. Distortion Module */}
-        <div className={`dsp-module-card ${!fx.distortion.enabled ? 'disabled' : ''}`}>
+        <div className={`dsp-module-card ${!fx.distortion.enabled ? 'disabled' : ''} ${activeFxKey === 'distortion' ? 'active-module' : ''}`}>
           <div className="dsp-module-header">
-            <span className="dsp-module-title">3. SATURATION / DRIVE</span>
+            <span className="dsp-module-title">DRIVE</span>
             <PowerToggle
               enabled={fx.distortion.enabled}
               onToggle={(enabled) => handleFxChange('distortion', { enabled })}
@@ -153,7 +166,7 @@ export const DspRack: React.FC<DspRackProps> = ({ track }) => {
           </div>
           <div className="dsp-control-group">
             <RangeSlider
-              label="DRIVE AMOUNT"
+              label="AMOUNT"
               min={0}
               max={1}
               step={0.05}
@@ -163,7 +176,7 @@ export const DspRack: React.FC<DspRackProps> = ({ track }) => {
               isPercent
             />
             <RangeSlider
-              label="DRY / WET MIX"
+              label="MIX"
               min={0}
               max={1}
               step={0.05}
@@ -176,9 +189,9 @@ export const DspRack: React.FC<DspRackProps> = ({ track }) => {
         </div>
 
         {/* 4. Chorus Module */}
-        <div className={`dsp-module-card ${!fx.chorus.enabled ? 'disabled' : ''}`}>
+        <div className={`dsp-module-card ${!fx.chorus.enabled ? 'disabled' : ''} ${activeFxKey === 'chorus' ? 'active-module' : ''}`}>
           <div className="dsp-module-header">
-            <span className="dsp-module-title">4. STEREO CHORUS</span>
+            <span className="dsp-module-title">CHORUS</span>
             <PowerToggle
               enabled={fx.chorus.enabled}
               onToggle={(enabled) => handleFxChange('chorus', { enabled })}
@@ -186,7 +199,7 @@ export const DspRack: React.FC<DspRackProps> = ({ track }) => {
           </div>
           <div className="dsp-control-group">
             <RangeSlider
-              label="LFO RATE"
+              label="RATE"
               min={0.1}
               max={10}
               step={0.1}
@@ -205,7 +218,7 @@ export const DspRack: React.FC<DspRackProps> = ({ track }) => {
               isPercent
             />
             <RangeSlider
-              label="DRY / WET MIX"
+              label="MIX"
               min={0}
               max={1}
               step={0.05}
@@ -218,9 +231,9 @@ export const DspRack: React.FC<DspRackProps> = ({ track }) => {
         </div>
 
         {/* 5. Feedback Delay Module */}
-        <div className={`dsp-module-card ${!fx.delay.enabled ? 'disabled' : ''}`}>
+        <div className={`dsp-module-card ${!fx.delay.enabled ? 'disabled' : ''} ${activeFxKey === 'delay' ? 'active-module' : ''}`}>
           <div className="dsp-module-header">
-            <span className="dsp-module-title">5. TEMPO FEEDBACK DELAY</span>
+            <span className="dsp-module-title">DELAY</span>
             <PowerToggle
               enabled={fx.delay.enabled}
               onToggle={(enabled) => handleFxChange('delay', { enabled })}
@@ -244,7 +257,7 @@ export const DspRack: React.FC<DspRackProps> = ({ track }) => {
               ))}
             </div>
             <RangeSlider
-              label="DELAY TIME"
+              label="TIME"
               min={0.05}
               max={1}
               step={0.05}
@@ -253,7 +266,7 @@ export const DspRack: React.FC<DspRackProps> = ({ track }) => {
               unit="s"
             />
             <RangeSlider
-              label="FEEDBACK DECAY"
+              label="FEEDBACK"
               min={0.05}
               max={0.9}
               step={0.05}
@@ -263,7 +276,7 @@ export const DspRack: React.FC<DspRackProps> = ({ track }) => {
               isPercent
             />
             <RangeSlider
-              label="DRY / WET MIX"
+              label="MIX"
               min={0}
               max={1}
               step={0.05}
@@ -276,9 +289,9 @@ export const DspRack: React.FC<DspRackProps> = ({ track }) => {
         </div>
 
         {/* 6. Algorithmic Reverb Module */}
-        <div className={`dsp-module-card ${!fx.reverb.enabled ? 'disabled' : ''}`}>
+        <div className={`dsp-module-card ${!fx.reverb.enabled ? 'disabled' : ''} ${activeFxKey === 'reverb' ? 'active-module' : ''}`}>
           <div className="dsp-module-header">
-            <span className="dsp-module-title">6. ALGORITHMIC REVERB</span>
+            <span className="dsp-module-title">REVERB</span>
             <PowerToggle
               enabled={fx.reverb.enabled}
               onToggle={(enabled) => handleFxChange('reverb', { enabled })}
@@ -286,7 +299,7 @@ export const DspRack: React.FC<DspRackProps> = ({ track }) => {
           </div>
           <div className="dsp-control-group">
             <RangeSlider
-              label="DECAY TIME"
+              label="DECAY"
               min={0.5}
               max={10}
               step={0.5}
@@ -295,7 +308,7 @@ export const DspRack: React.FC<DspRackProps> = ({ track }) => {
               unit="s"
             />
             <RangeSlider
-              label="DRY / WET MIX"
+              label="MIX"
               min={0}
               max={1}
               step={0.05}
@@ -308,9 +321,9 @@ export const DspRack: React.FC<DspRackProps> = ({ track }) => {
         </div>
 
         {/* 7. Master Bus Compressor Module */}
-        <div className={`dsp-module-card ${!fx.compressor.enabled ? 'disabled' : ''}`}>
+        <div className={`dsp-module-card ${!fx.compressor.enabled ? 'disabled' : ''} ${activeFxKey === 'compressor' ? 'active-module' : ''}`}>
           <div className="dsp-module-header">
-            <span className="dsp-module-title">7. BUS COMPRESSOR</span>
+            <span className="dsp-module-title">COMPRESSOR</span>
             <PowerToggle
               enabled={fx.compressor.enabled}
               onToggle={(enabled) => handleFxChange('compressor', { enabled })}
@@ -327,7 +340,7 @@ export const DspRack: React.FC<DspRackProps> = ({ track }) => {
               unit="dB"
             />
             <RangeSlider
-              label="COMPRESSION RATIO"
+              label="RATIO"
               min={1}
               max={20}
               step={0.5}
