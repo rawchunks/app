@@ -3172,19 +3172,22 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  flex-wrap: wrap;
+  gap: 6px;
+  flex-wrap: nowrap;
   background: rgba(0, 0, 0, 0.45);
   border: 1px solid var(--border);
   border-radius: 4px;
-  padding: 6px 10px;
+  padding: 4px 8px;
   flex-shrink: 0;
+  min-width: 0;
 }
 
 .strudel-meta {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .strudel-meta-icon {
@@ -3192,21 +3195,34 @@
 }
 
 .strudel-track-name {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
   color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .strudel-controls-cluster {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
+}
+
+.strudel-starters-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding-right: 4px;
+  border-right: 1px solid rgba(255, 255, 255, 0.12);
 }
 
 .strudel-action-btn {
-  font-size: 10px !important;
+  font-size: var(--daw-badge-font, clamp(0.62rem, 0.56rem + 0.2vw, 0.7rem)) !important;
   padding: 3px 8px !important;
-  height: 22px;
+  height: var(--daw-badge-h, clamp(1.38rem, 2.75dvh, 1.58rem));
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -3289,7 +3305,7 @@
   padding: 3px 8px;
   background: #0a0b0f;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  font-size: 9px;
+  font-size: var(--daw-badge-font, clamp(0.62rem, 0.56rem + 0.2vw, 0.7rem));
   font-weight: 700;
   color: var(--text-muted);
 }
@@ -3318,6 +3334,19 @@
 
 .strudel-log-line.err {
   color: #ef4444;
+}
+
+/* ==========================================================================
+   SAMPLE IMPORTER & CHOPPER STYLES
+   ========================================================================== */
+.sample-importer-wrap {
+  padding: 0.45rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  height: 100%;
+  box-sizing: border-box;
+  overflow-y: auto;
 }
 
 /* ==========================================================================
