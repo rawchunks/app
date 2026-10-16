@@ -10,15 +10,16 @@ import {
   Activity,
   Plus,
   History,
+  ArrowUp,
   X,
   Minimize2,
   Maximize2,
-  GripHorizontal,
   Sparkles,
   Layers,
   ArrowRightCircle,
   Shuffle,
   Split,
+  GripHorizontal,
   Trash2,
   Play,
   Pause,
@@ -29,8 +30,9 @@ import {
   Columns3,
 } from 'lucide-react';
 import type { Options } from '../../hooks/use-options';
-import { Task } from '../../lib/schema';
+import { Modal } from '../modal';
 import { Parameters } from '../parameters';
+import { Task } from '../../lib/schema';
 import { DspRack } from './DspRack';
 import { PianoRoll } from './PianoRoll';
 import { StepSequencer } from './StepSequencer';
@@ -107,6 +109,26 @@ const DEFAULT_AI_TASKS = [
   { id: 'extract', label: 'Extract Stem', description: 'Isolate stem into separate lane' },
 ];
 
+const DEFAULT_STEMS = [
+  { id: 'vocals', label: 'Vocals' },
+  { id: 'drums', label: 'Drums' },
+  { id: 'bass', label: 'Bass' },
+  { id: 'guitar', label: 'Guitar' },
+  { id: 'keyboard', label: 'Keyboard' },
+  { id: 'synths', label: 'Synths' },
+];
+
+const PROMPT_QUICK_TAGS = [
+  'Punchy 808 Bass',
+  'Warm Analog Synth',
+  'Crisp Acoustic Drums',
+  'Airy Lead Vocals',
+  'Lush Backing Harmonies',
+  'Funky Electric Guitar',
+  'Cinematic Strings',
+  'Lo-Fi Tape Saturation',
+];
+
 export const Toolbox: React.FC<ToolboxProps> = ({
   options,
   optionsError,
@@ -118,8 +140,8 @@ export const Toolbox: React.FC<ToolboxProps> = ({
   onSelectTask,
   prompt,
   onPromptChange,
-  selectedQuality,
-  onQualityChange,
+  selectedQuality: _selectedQuality,
+  onQualityChange: _onQualityChange,
   repaintMode,
   onRepaintModeChange,
   repaintStrength,
@@ -160,6 +182,8 @@ export const Toolbox: React.FC<ToolboxProps> = ({
   const [controllerMode, setControllerMode] = useState<'split' | 'compact'>('compact');
   const [isMinimized, setIsMinimized] = useState<boolean>(false);
   const [splitHeight, setSplitHeight] = useState<number | null>(null);
+  const [isPromptModalOpen, setIsPromptModalOpen] = useState<boolean>(false);
+  const [, setIsParamModalOpen] = useState<boolean>(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   const prevRevealRef = useRef(reveal);
@@ -273,6 +297,29 @@ export const Toolbox: React.FC<ToolboxProps> = ({
     { id: 'history' as ActiveTool, label: 'HISTORY', desc: `Session takes (${takes.length}) and commit milestones (${commits.length})`, icon: History, className: 'tab-history' },
   ];
 
+  const stemList = options?.stems ?? DEFAULT_STEMS;
+  const activeStemLabel = stemList.find((s) => s.id === stemType)?.label ?? stemType;
+  const getActiveSubnavParamSummary = (
+    _actionId: string,
+  ): { tag: string; value: string; title: string } => {
+    return { tag: 'PARAM', value: 'Configure', title: 'Configure Parameters' };
+  };
+
+  const getActiveFilterDescription = (_actionId: string): string => {
+    return '';
+  };
+
+  const promptPlaceholder =
+    task === 'repaint'
+      ? 'Describe rework (e.g. synth bass, vocal hook)...'
+      : task === 'lego'
+        ? 'Describe new layer (e.g. funk bassline, airy vocal harmony)...'
+        : task === 'extend'
+          ? 'Describe continuation (e.g. building outro, drum breakdown)...'
+          : task === 'cover'
+            ? 'Describe style transformation (e.g. cyberpunk synthwave)...'
+            : 'Describe accompaniment style and arrangement...';
+
   const controllerStyle: React.CSSProperties | undefined =
     controllerMode === 'split' && splitHeight !== null
       ? ({ '--controller-h': `${splitHeight}px` } as React.CSSProperties)
@@ -296,8 +343,6 @@ export const Toolbox: React.FC<ToolboxProps> = ({
           <GripHorizontal size={11} className="toolbox-split-resizer-grip" />
         </div>
       )}
-
-      <select aria-label="Quality" value={selectedQuality} onChange={e => onQualityChange(e.target.value)}>{options?.modes.filter(mode => options.tasks.find(action => action.id === task)?.modes.includes(mode.id)).map(q => <option key={q.id} value={q.id}>{q.label}</option>)}</select>
 
       {/* TIER 1: Unified Master Transport + 8-Tool Switcher + Mode/Collapse */}
       <div className="toolbox-header-row">
@@ -432,15 +477,78 @@ export const Toolbox: React.FC<ToolboxProps> = ({
         </div>
       </div>
 
+      {/* TIER 1.5: AI Studio Operations Sub-Menu (Appears ONLY when AI Studio tab is active) */}
       {activeTool === 'studio' && !isMinimized && (
         <div className="toolbox-ai-subnav toolbox-interactive-element">
           <div className="toolbox-tabs-bar toolbox-subnav-tabs" role="tablist" aria-label="AI Studio Operations">
-            {(options?.tasks ?? DEFAULT_AI_TASKS).filter(action => action.id in ACTION_ICONS).map(action => {
-              const ActionIcon = ACTION_ICONS[action.id as keyof typeof ACTION_ICONS];
-              return <button type="button" role="tab" aria-selected={task === action.id} key={action.id}
-                className={`toolbox-tab-btn toolbox-subnav-btn ${task === action.id ? 'active tab-studio' : ''}`}
-                onClick={() => onSelectTask(action.id as Task)}><ActionIcon size={13} /><span>{taskLabel(action.id)}</span></button>;
-            })}
+            {(options?.tasks ?? DEFAULT_AI_TASKS)
+              .filter((action) => action.id in ACTION_ICONS)
+              .map((action) => {
+                const ActionIcon = ACTION_ICONS[action.id as keyof typeof ACTION_ICONS];
+                const isCurrent = task === action.id;
+                const shortName = taskLabel(action.id);
+                const filterDesc = isCurrent ? getActiveFilterDescription(action.id) : '';
+                const paramSummary = isCurrent
+                  ? getActiveSubnavParamSummary(action.id)
+                  : { tag: '', value: '', title: '' };
+
+                return (
+                  <div
+                    key={action.id}
+                    className={`toolbox-subnav-item-group ${isCurrent ? 'active' : ''}`}
+                  >
+                    <Tooltip
+                      title={action.label}
+                      description={action.description}
+                      className="toolbox-subnav-btn-tooltip"
+                    >
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={isCurrent}
+                        className={`toolbox-tab-btn toolbox-subnav-btn ${isCurrent ? 'active tab-studio' : ''}`}
+                        onClick={() => {
+                          if (isCurrent && ([] as string[]).includes(task)) {
+                            setIsParamModalOpen(true);
+                          } else {
+                            onSelectTask(action.id as Task);
+                          }
+                        }}
+                      >
+                        <ActionIcon size={13} className="toolbox-subnav-icon" />
+                        <span className="tab-label-full toolbox-subnav-label">{shortName.toUpperCase()}</span>
+                      </button>
+                    </Tooltip>
+
+                    {/* Standardized Expandable Modal Trigger Inside Active Sub-Menu Item (Neighbor-Aware, Full Fill) */}
+                    {isCurrent && ([] as string[]).includes(task) && (
+                      <Tooltip
+                        title={paramSummary.title}
+                        description={`${filterDesc} — Click to open ${shortName} parameters modal (Preselects + Granular Slider)`}
+                        className="toolbox-subnav-param-tooltip"
+                      >
+                        <button
+                          type="button"
+                          className="toolbox-subnav-param-trigger"
+                          aria-label={`${paramSummary.title}: ${paramSummary.value}`}
+                          onClick={() => setIsParamModalOpen(true)}
+                        >
+                          <span className="toolbox-subnav-param-main">
+                            <span className="toolbox-subnav-param-tag">{paramSummary.tag}</span>
+                            <span className="toolbox-subnav-param-val">{paramSummary.value}</span>
+                            {filterDesc && (
+                              <span className="toolbox-subnav-filter-desc">{filterDesc}</span>
+                            )}
+                          </span>
+                          <span className="toolbox-subnav-param-caret" aria-hidden="true">
+                            <Sliders size={11} />
+                          </span>
+                        </button>
+                      </Tooltip>
+                    )}
+                  </div>
+                );
+              })}
           </div>
         </div>
       )}
@@ -448,11 +556,13 @@ export const Toolbox: React.FC<ToolboxProps> = ({
       {/* TIER 2: Expanded Hardware Tool Deck Body */}
       {activeTool && !isMinimized && (
         <div className="toolbox-expanded-body toolbox-interactive-element">
-          {activeTool === 'studio' && <div className="toolbox-studio-content">
-                    {optionsError && <p role="alert">{optionsError}</p>}
-                    {options && <Parameters parameters={Object.fromEntries(Object.entries(options.parameters).filter(([key, parameter]) => parameter.tasks?.includes(task) && !['trackName', 'coverStrength'].includes(key)))} values={parameters} onChange={onParametersChange} />}
-                    {/* Action Parameter Sliders */}
-                    <div className="toolbox-params-grid">
+          {/* 1. AI STUDIO — Zero-Duplication Command Deck (Parameters Live exclusively in Sub-Menu + Modal) */}
+          {activeTool === 'studio' && (
+            <div className="toolbox-studio-strip">
+              {optionsError && <p role="alert" className="toolbox-error-alert">{optionsError}</p>}
+
+              {options && <Parameters parameters={Object.fromEntries(Object.entries(options.parameters).filter(([key, parameter]) => parameter.tasks?.includes(task) && !['trackName', 'coverStrength'].includes(key)))} values={parameters} onChange={onParametersChange} />}
+              <div className="toolbox-params-grid">
                       {task === 'repaint' && (
                         <div className="toolbox-param-box">
                           <div className="toolbox-param-title">REWORK INTENSITY & MODE</div>
@@ -577,52 +687,93 @@ export const Toolbox: React.FC<ToolboxProps> = ({
                         </div>
                       )}
 
-                      {/* Sound Description Prompt & Lyrics */}
-                      <div className="toolbox-param-box">
-                        <div className="toolbox-param-title">SOUND DESCRIPTION</div>
-                        <textarea
-                          className="toolbox-prompt-textarea"
-                          rows={2}
-                          placeholder={
-                            task === 'repaint'
-                              ? 'Describe the new section (e.g. analog synth bass, shimmering vocal hook)...'
-                              : task === 'lego'
-                                ? 'Describe the new part (e.g. groovy funk bassline, rhythm guitar)...'
-                                : task === 'extend'
-                                  ? 'Describe how the song should evolve and continue...'
-                                  : task === 'cover'
-                                    ? 'Describe the musical genre or style transformation...'
-                                    : 'Describe the part you want to hear...'
-                          }
+              </div>
+              <div className="studio-deck-grid studio-deck-clean">
+                {/* Row 1: Full-Width Responsive Prompt Box (or Isolate Banner) + Edit Lyrics on Same Row */}
+                <div className="studio-row-top studio-row-main">
+                  <div className="studio-row-prompt">
+                    {task !== 'extract' ? (
+                      <div className="toolbox-prompt-box-wrapper">
+                        <input
+                          type="text"
+                          className="toolbox-prompt-input"
+                          placeholder={promptPlaceholder}
                           value={prompt}
+                          onClick={() => setIsPromptModalOpen(true)}
                           onChange={(e) => onPromptChange(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !processing) {
+                              onExecute();
+                            }
+                          }}
                         />
+                        <Tooltip title="Expand Prompt Editor" description="Open full-size modal prompt editor">
+                          <button
+                            type="button"
+                            className="daw-ui-btn toolbox-prompt-expand-btn"
+                            onClick={() => setIsPromptModalOpen(true)}
+                            aria-label="Expand prompt editor"
+                          >
+                            <Maximize2 size={12} />
+                            <span className="prompt-expand-label">EXPAND</span>
+                          </button>
+                        </Tooltip>
                       </div>
-
-                      {/* Progress bar during generation */}
-                      {processing && (
-                        <div className="toolbox-progress-box">
-                          <div className="toolbox-progress-header">
-                            <span>PROCESSING AUDIO...</span>
-                            <span>{progress === undefined ? '' : `${progress}%`}</span>
-                          </div>
-                          {progress !== undefined && <div className="toolbox-progress-track">
-                            <div className="toolbox-progress-bar" style={{ width: `${progress}%` }} />
-                          </div>}
-                        </div>
-                      )}
-
-                      {/* Prominent Action Execution Button */}
-                      <button
-                        type="button"
-                        className="btn-base btn-variant-primary btn-size-md toolbox-execute-btn"
-                        disabled={processing || !options}
-                        onClick={onExecute}
+                    ) : (
+                      <div
+                        className="studio-extract-banner"
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => setIsParamModalOpen(true)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            setIsParamModalOpen(true);
+                          }
+                        }}
                       >
-                        {processing ? 'PROCESSING AUDIO...' : options?.tasks.find(action => action.id === task)?.label.toUpperCase()}
-                      </button>
-                    </div>
-          </div>}
+                        <span className="studio-extract-hint">
+                          Isolate <strong>{activeStemLabel}</strong> stem into its own dedicated track lane
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+
+                </div>
+
+                {/* Row 2: Larger Full-Width Confirm AI Operation CTA Button */}
+                <div className="studio-row-cta">
+                  <Tooltip
+                    title={taskLabel(task)}
+                    description="Execute AI audio operation (Enter)"
+                    className="studio-cta-tooltip"
+                  >
+                    <button
+                      type="button"
+                      className="btn-base btn-variant-primary btn-size-sm toolbox-execute-btn"
+                      disabled={processing || !options}
+                      onClick={onExecute}
+                    >
+                      <ArrowUp size={13} />
+                      <span>{processing ? (progress !== undefined ? `${progress}%` : 'WAIT') : taskLabel(task)}</span>
+                    </button>
+                  </Tooltip>
+                </div>
+              </div>
+
+              {processing && (
+                <div className="toolbox-progress-box">
+                  <div className="toolbox-progress-track">
+                    <div
+                      className="toolbox-progress-bar"
+                      style={{ '--progress-pct': `${progress ?? 15}%` } as React.CSSProperties}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* 2. MIXER */}
           {activeTool === 'mixer' && <Mixer />}
@@ -905,6 +1056,108 @@ export const Toolbox: React.FC<ToolboxProps> = ({
         </div>
       )}
 
+      {/* Expandable Brand-Aligned Prompt-Box Modal (Item #6) */}
+      <Modal
+        isOpen={isPromptModalOpen}
+        onClose={() => setIsPromptModalOpen(false)}
+        title={`AI STUDIO PROMPT // ${taskLabel(task).toUpperCase()}`}
+        size="md"
+      >
+        <div className="toolbox-prompt-editor-modal">
+          <div className="toolbox-prompt-modal-meta">
+            <div className="toolbox-prompt-modal-badges">
+              <span className="toolbox-prompt-modal-badge">{contextChipText}</span>
+              <button
+                type="button"
+                className="toolbox-prompt-modal-tag is-interactive"
+                onClick={() => {
+                  setIsPromptModalOpen(false);
+                  setIsParamModalOpen(true);
+                }}
+                title="Click to configure task parameters"
+              >
+                <Sliders size={10} />
+                <span>
+                  {getActiveSubnavParamSummary(task).tag}: {getActiveSubnavParamSummary(task).value}
+                </span>
+              </button>
+            </div>
+            {prompt.trim().length > 0 && (
+              <button
+                type="button"
+                className="toolbox-prompt-clear-btn"
+                onClick={() => onPromptChange('')}
+              >
+                CLEAR
+              </button>
+            )}
+          </div>
+
+          <p className="toolbox-prompt-modal-desc">{getActiveFilterDescription(task)}</p>
+
+          <textarea
+            className="toolbox-prompt-modal-textarea"
+            placeholder={promptPlaceholder}
+            value={prompt}
+            onChange={(e) => onPromptChange(e.target.value)}
+            onKeyDown={(e) => {
+              if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && !processing) {
+                e.preventDefault();
+                setIsPromptModalOpen(false);
+                onExecute();
+              }
+            }}
+            autoFocus
+            rows={5}
+          />
+
+          <div className="toolbox-prompt-modal-tags-header">
+            <span className="daw-field-label">QUICK PRODUCTION DESCRIPTORS</span>
+            <span className="toolbox-prompt-char-count">{prompt.length} chars</span>
+          </div>
+          <div className="toolbox-prompt-modal-tags">
+            {PROMPT_QUICK_TAGS.map((tag) => (
+              <button
+                key={tag}
+                type="button"
+                className="toolbox-prompt-quick-tag"
+                onClick={() => {
+                  const next = prompt.trim() ? `${prompt.trim()}, ${tag}` : tag;
+                  onPromptChange(next);
+                }}
+              >
+                + {tag}
+              </button>
+            ))}
+          </div>
+
+          <div className="toolbox-prompt-modal-footer">
+            <div className="toolbox-prompt-modal-actions">
+              <button
+                type="button"
+                className="btn-base btn-variant-ghost btn-size-sm"
+                onClick={() => setIsPromptModalOpen(false)}
+              >
+                DONE
+              </button>
+              <button
+                type="button"
+                className="btn-base btn-variant-primary btn-size-sm"
+                disabled={processing || !options}
+                onClick={() => {
+                  setIsPromptModalOpen(false);
+                  onExecute();
+                }}
+              >
+                <ArrowUp size={12} />
+                <span>{taskLabel(task).toUpperCase()}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Lyrics Canvas Overlay Modal (Item #10) */}
     </section>
   );
 };
