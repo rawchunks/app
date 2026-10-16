@@ -88,6 +88,7 @@ export const DspRack: React.FC<DspRackProps> = ({ track }) => {
               max={12}
               step={0.5}
               value={fx.eq.low}
+              defaultValue={0}
               onChange={(val) => handleFxChange('eq', { low: val })}
               unit="dB"
             />
@@ -97,6 +98,7 @@ export const DspRack: React.FC<DspRackProps> = ({ track }) => {
               max={12}
               step={0.5}
               value={fx.eq.mid}
+              defaultValue={0}
               onChange={(val) => handleFxChange('eq', { mid: val })}
               unit="dB"
             />
@@ -106,6 +108,7 @@ export const DspRack: React.FC<DspRackProps> = ({ track }) => {
               max={12}
               step={0.5}
               value={fx.eq.high}
+              defaultValue={0}
               onChange={(val) => handleFxChange('eq', { high: val })}
               unit="dB"
             />
@@ -140,6 +143,7 @@ export const DspRack: React.FC<DspRackProps> = ({ track }) => {
               max={18000}
               step={50}
               value={fx.filter.cutoff}
+              defaultValue={18000}
               onChange={(val) => handleFxChange('filter', { cutoff: val })}
               unit="Hz"
             />
@@ -149,6 +153,7 @@ export const DspRack: React.FC<DspRackProps> = ({ track }) => {
               max={18}
               step={0.2}
               value={fx.filter.resonance}
+              defaultValue={1}
               onChange={(val) => handleFxChange('filter', { resonance: val })}
               unit="Q"
             />
@@ -171,6 +176,7 @@ export const DspRack: React.FC<DspRackProps> = ({ track }) => {
               max={1}
               step={0.05}
               value={fx.distortion.drive}
+              defaultValue={0.2}
               onChange={(val) => handleFxChange('distortion', { drive: val })}
               unit=""
               isPercent
@@ -181,6 +187,7 @@ export const DspRack: React.FC<DspRackProps> = ({ track }) => {
               max={1}
               step={0.05}
               value={fx.distortion.wet}
+              defaultValue={0.5}
               onChange={(val) => handleFxChange('distortion', { wet: val })}
               unit=""
               isPercent
@@ -204,6 +211,7 @@ export const DspRack: React.FC<DspRackProps> = ({ track }) => {
               max={10}
               step={0.1}
               value={fx.chorus.rate}
+              defaultValue={1.5}
               onChange={(val) => handleFxChange('chorus', { rate: val })}
               unit="Hz"
             />
@@ -213,6 +221,7 @@ export const DspRack: React.FC<DspRackProps> = ({ track }) => {
               max={1}
               step={0.05}
               value={fx.chorus.depth}
+              defaultValue={0.5}
               onChange={(val) => handleFxChange('chorus', { depth: val })}
               unit=""
               isPercent
@@ -223,6 +232,7 @@ export const DspRack: React.FC<DspRackProps> = ({ track }) => {
               max={1}
               step={0.05}
               value={fx.chorus.wet}
+              defaultValue={0.4}
               onChange={(val) => handleFxChange('chorus', { wet: val })}
               unit=""
               isPercent
@@ -262,6 +272,7 @@ export const DspRack: React.FC<DspRackProps> = ({ track }) => {
               max={1}
               step={0.05}
               value={fx.delay.delayTime}
+              defaultValue={0.25}
               onChange={(val) => handleFxChange('delay', { delayTime: val })}
               unit="s"
             />
@@ -271,6 +282,7 @@ export const DspRack: React.FC<DspRackProps> = ({ track }) => {
               max={0.9}
               step={0.05}
               value={fx.delay.feedback}
+              defaultValue={0.35}
               onChange={(val) => handleFxChange('delay', { feedback: val })}
               unit=""
               isPercent
@@ -281,6 +293,7 @@ export const DspRack: React.FC<DspRackProps> = ({ track }) => {
               max={1}
               step={0.05}
               value={fx.delay.wet}
+              defaultValue={0.3}
               onChange={(val) => handleFxChange('delay', { wet: val })}
               unit=""
               isPercent
@@ -304,6 +317,7 @@ export const DspRack: React.FC<DspRackProps> = ({ track }) => {
               max={10}
               step={0.5}
               value={fx.reverb.decay}
+              defaultValue={2.5}
               onChange={(val) => handleFxChange('reverb', { decay: val })}
               unit="s"
             />
@@ -313,6 +327,7 @@ export const DspRack: React.FC<DspRackProps> = ({ track }) => {
               max={1}
               step={0.05}
               value={fx.reverb.wet}
+              defaultValue={0.3}
               onChange={(val) => handleFxChange('reverb', { wet: val })}
               unit=""
               isPercent
@@ -336,6 +351,7 @@ export const DspRack: React.FC<DspRackProps> = ({ track }) => {
               max={0}
               step={1}
               value={fx.compressor.threshold}
+              defaultValue={-18}
               onChange={(val) => handleFxChange('compressor', { threshold: val })}
               unit="dB"
             />
@@ -345,6 +361,7 @@ export const DspRack: React.FC<DspRackProps> = ({ track }) => {
               max={20}
               step={0.5}
               value={fx.compressor.ratio}
+              defaultValue={4}
               onChange={(val) => handleFxChange('compressor', { ratio: val })}
               unit=":1"
             />
@@ -354,6 +371,7 @@ export const DspRack: React.FC<DspRackProps> = ({ track }) => {
               max={0.2}
               step={0.005}
               value={fx.compressor.attack}
+              defaultValue={0.01}
               onChange={(val) => handleFxChange('compressor', { attack: val })}
               unit="s"
             />
@@ -363,6 +381,7 @@ export const DspRack: React.FC<DspRackProps> = ({ track }) => {
               max={1}
               step={0.05}
               value={fx.compressor.release}
+              defaultValue={0.2}
               onChange={(val) => handleFxChange('compressor', { release: val })}
               unit="s"
             />
@@ -390,10 +409,11 @@ const RangeSlider: React.FC<{
   max: number;
   step: number;
   value: number;
+  defaultValue: number;
   onChange: (val: number) => void;
   unit: string;
   isPercent?: boolean;
-}> = ({ label, min, max, step, value, onChange, unit, isPercent }) => (
+}> = ({ label, min, max, step, value, defaultValue, onChange, unit, isPercent }) => (
   <div>
     <div className="dsp-slider-row">
       <span>{label}</span>
@@ -408,6 +428,8 @@ const RangeSlider: React.FC<{
       step={step}
       value={value}
       onChange={(e) => onChange(parseFloat(e.target.value))}
+      onDoubleClick={() => onChange(defaultValue)}
+      title="Double-click to reset"
       className="dsp-knob-slider"
     />
   </div>
