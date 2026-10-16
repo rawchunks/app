@@ -48,6 +48,13 @@ const HorizontalChannelDeck: React.FC<HorizontalChannelDeckProps> = ({ track, is
   const [eqHigh, setEqHigh] = useState<number>(track.fx?.eq?.high ?? 0);
   const [cutoff, setCutoff] = useState<number>(track.fx?.filter?.cutoff ?? 20000);
 
+  useEffect(() => {
+    setEqLow(track.fx?.eq?.low ?? 0);
+    setEqMid(track.fx?.eq?.mid ?? 0);
+    setEqHigh(track.fx?.eq?.high ?? 0);
+    setCutoff(track.fx?.filter?.cutoff ?? 20000);
+  }, [track.id, track.fx?.eq?.low, track.fx?.eq?.mid, track.fx?.eq?.high, track.fx?.filter?.cutoff]);
+
   const vol = track.mixer?.volume ?? 1.0;
   const pan = track.mixer?.pan ?? 0.0;
   const isMuted = track.mixer?.muted ?? false;
