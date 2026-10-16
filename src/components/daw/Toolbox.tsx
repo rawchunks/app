@@ -257,6 +257,11 @@ export const Toolbox: React.FC<ToolboxProps> = ({
     window.addEventListener('pointercancel', onUp);
   };
 
+  const [historyTab, setHistoryTab] = useState<'takes' | 'commits'>('takes');
+  const [activeTakeCategory, setActiveTakeCategory] = useState<string | null>(null);
+  const [activeCommitCategory, setActiveCommitCategory] = useState<string | null>(null);
+  const [selectedCommitId, setSelectedCommitId] = useState<string | null>(null);
+
   const tabs = [
     { id: 'studio' as ActiveTool, label: 'AI STUDIO', desc: 'AI Generative Studio: rework, layer, extend & isolate', icon: Wand2, className: 'tab-studio' },
     { id: 'mixer' as ActiveTool, label: 'MIXER', desc: 'Multitrack faders, panning, mute & solo console', icon: Sliders, className: 'tab-mixer' },
@@ -637,39 +642,142 @@ export const Toolbox: React.FC<ToolboxProps> = ({
           {/* 7. SAMPLER */}
           {activeTool === 'sample' && <SampleImporter onImportComplete={() => onSelectTool('studio')} />}
 
-              {activeTool === 'history' && (
-                <div className="toolbox-history-panel">
-                  <div className="toolbox-history-header">
-                    <span className="toolbox-history-title">SESSION TAKES &amp; COMMITS</span>
+          {/* 8. HISTORY (Takes & Commits — Progressive Revealing: Folded Categories + Vertical Extension + Selected Horizontal Controllers) */}
+          {activeTool === 'history' && (() => {
+            const getTakeCat = (t: (typeof takes)[number]) => taskLabel(t.task).toUpperCase();
+            const takeCategories = Array.from(new Set(takes.map(getTakeCat)));
+            const resolvedTakeCat =
+              activeTakeCategory && takeCategories.includes(activeTakeCategory)
+                ? activeTakeCategory
+                : takeCategories[0] || null;
+            const visibleTakes = resolvedTakeCat
+              ? takes.filter((t) => getTakeCat(t) === resolvedTakeCat)
+              : takes;
+
+            const getCommitCat = (c: (typeof commits)[number]) => {
+              if (c.timeline_snapshot?.action) {
+                return taskLabel(String(c.timeline_snapshot.action)).toUpperCase();
+              }
+              if (Array.isArray(c.timeline_snapshot?.tracks)) {
+                return 'SNAPSHOT';
+              }
+              const msg = (c.message || '').toLowerCase();
+              if (msg.includes('repaint') || msg.includes('rework')) return 'REWORK';
+              if (msg.includes('extend')) return 'EXTEND';
+              if (msg.includes('extract') || msg.includes('stem')) return 'ISOLATE';
+              if (msg.includes('lego') || msg.includes('layer')) return 'LAYER';
+              if (msg.includes('cover') || msg.includes('restyle')) return 'RESTYLE';
+              return 'SESSION';
+            };
+            const commitCategories = Array.from(new Set(commits.map(getCommitCat)));
+            const resolvedCommitCat =
+              activeCommitCategory && commitCategories.includes(activeCommitCategory)
+                ? activeCommitCategory
+                : commitCategories[0] || null;
+            const visibleCommits = resolvedCommitCat
+              ? commits.filter((c) => getCommitCat(c) === resolvedCommitCat)
+              : commits;
+            const resolvedSelectedCommitId =
+              selectedCommitId && visibleCommits.some((c) => c.id === selectedCommitId)
+                ? selectedCommitId
+                : visibleCommits[0]?.id || null;
+
+            return (
+              <div className="toolbox-history-panel">
+                <div className="toolbox-history-toolbar">
+                  <div className="toolbox-history-tabs">
                     <button
                       type="button"
-                      className="btn-base btn-variant-primary btn-size-xs"
-                      onClick={onOpenCommitModal}
+                      className={`toolbox-mode-btn ${historyTab === 'takes' ? 'active' : ''}`}
+                      onClick={() => setHistoryTab('takes')}
                     >
-                      COMMIT SNAPSHOT
+                      TAKES ({takes.length})
+                    </button>
+                    <button
+                      type="button"
+                      className={`toolbox-mode-btn ${historyTab === 'commits' ? 'active' : ''}`}
+                      onClick={() => setHistoryTab('commits')}
+                    >
+                      COMMITS ({commits.length})
                     </button>
                   </div>
 
+                  {/* Folded Category Switcher Pills */}
+                  {historyTab === 'takes' && takeCategories.length > 1 && (
+                    <div className="toolbox-history-categories" role="tablist" aria-label="Take categories">
+                      {takeCategories.map((cat) => {
+                        const count = takes.filter((t) => getTakeCat(t) === cat).length;
+                        const isCatActive = resolvedTakeCat === cat;
+                        return (
+                          <button
+                            key={cat}
+                            type="button"
+                            role="tab"
+                            aria-selected={isCatActive}
+                            className={`toolbox-history-cat-pill ${isCatActive ? 'active' : 'folded'}`}
+                            onClick={() => setActiveTakeCategory(cat)}
+                            title={`${cat} (${count})`}
+                          >
+                            <span className="toolbox-history-cat-name">{cat}</span>
+                            <span className="toolbox-history-cat-count">{count}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {historyTab === 'commits' && commitCategories.length > 1 && (
+                    <div className="toolbox-history-categories" role="tablist" aria-label="Commit categories">
+                      {commitCategories.map((cat) => {
+                        const count = commits.filter((c) => getCommitCat(c) === cat).length;
+                        const isCatActive = resolvedCommitCat === cat;
+                        return (
+                          <button
+                            key={cat}
+                            type="button"
+                            role="tab"
+                            aria-selected={isCatActive}
+                            className={`toolbox-history-cat-pill ${isCatActive ? 'active' : 'folded'}`}
+                            onClick={() => setActiveCommitCategory(cat)}
+                            title={`${cat} (${count})`}
+                          >
+                            <span className="toolbox-history-cat-name">{cat}</span>
+                            <span className="toolbox-history-cat-count">{count}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    className="btn-base btn-variant-primary btn-size-xs"
+                    onClick={onOpenCommitModal}
+                  >
+                    COMMIT
+                  </button>
+                </div>
+
+                {historyTab === 'takes' ? (
                   <div className="toolbox-takes-section">
-                    <span className="toolbox-takes-subtitle">ACTIVE TAKES ({takes.length})</span>
                     {takes.length === 0 ? (
-                      <p className="toolbox-history-empty">No extractions or takes in session yet.</p>
+                      <p className="toolbox-history-empty">No takes in session yet.</p>
                     ) : (
                       <div className="toolbox-takes-list">
-                        {takes.map((take) => {
-                          const isSelected = selectedTrackId === take.id;
+                        {visibleTakes.map((take) => {
+                          const isSelected = selectedTrackId === take.id || (!takes.some((t) => t.id === selectedTrackId) && visibleTakes[0]?.id === take.id);
                           const active = mounted(take, tracks, takes);
                           return (
                             <div
                               key={take.id}
-                              className={`toolbox-take-item ${active ? 'active' : ''} ${isSelected ? 'selected' : ''}`}
+                              className={`toolbox-take-item ${active ? 'active' : ''} ${isSelected ? 'selected' : 'folded'}`}
                               onClick={() => {
                                 if (onSelectTrack) onSelectTrack(take.id);
                                 useDawStore.getState().setSelectedTrackId(take.id);
                               }}
                             >
                               <div className="toolbox-take-meta">
-                                <span className="toolbox-take-num">TK#{take.take_number}</span>
+                                <span className="toolbox-take-num">#{take.take_number}</span>
                                 <span className="toolbox-take-task">{taskLabel(take.task)}</span>
                                 {take.repainting_start != null && take.repainting_end != null && (
                                   <span className="toolbox-take-range">
@@ -677,73 +785,123 @@ export const Toolbox: React.FC<ToolboxProps> = ({
                                   </span>
                                 )}
                               </div>
-                              <div className="toolbox-take-actions">
-                                <button
-                                  type="button"
-                                  className="btn-base btn-variant-ghost btn-size-xs"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    if (isSelected && isPlaying) {
-                                      dawEngine.stopAuditionTake();
-                                      setPlaying(false);
-                                    } else {
-                                      if (onSelectTrack) onSelectTrack(take.id);
-                                    }
-                                  }}
-                                >
-                                  {isSelected && isPlaying ? 'STOP' : 'AUDITION'}
-                                </button>
-                                <button
-                                  type="button"
-                                  title={active ? 'Unmount take' : 'Set as Base'}
-                                  aria-pressed={active}
-                                  className={`btn-base ${active ? 'btn-variant-primary' : 'btn-variant-ghost'} btn-size-xs`}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    toggleTake(take.id);
-                                  }}
-                                >
-                                  {active ? 'BASE' : 'SET AS BASE'}
-                                </button>
-                                <button
-                                  type="button"
-                                  className="btn-base btn-variant-ghost btn-size-xs toolbox-take-delete-btn"
-                                  title="Delete take"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    deleteTake(take.id);
-                                  }}
-                                >
-                                  <Trash2 size={11} />
-                                </button>
-                              </div>
+                              {isSelected && (
+                                <div className="toolbox-take-actions">
+                                  <button
+                                    type="button"
+                                    className="btn-base btn-variant-ghost btn-size-xs"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (isSelected && isPlaying) {
+                                        dawEngine.stopAuditionTake();
+                                        setPlaying(false);
+                                      } else {
+                                        if (onSelectTrack) onSelectTrack(take.id);
+                                      }
+                                    }}
+                                  >
+                                    {isSelected && isPlaying ? 'STOP' : 'PLAY'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    title={active ? 'Unmount take' : 'Mount take as base'}
+                                    aria-pressed={active}
+                                    className={`btn-base ${active ? 'btn-variant-primary' : 'btn-variant-ghost'} btn-size-xs`}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      toggleTake(take.id);
+                                    }}
+                                  >
+                                    {active ? 'BASE' : 'MOUNT'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="btn-base btn-variant-ghost btn-size-xs toolbox-take-delete-btn"
+                                    title="Delete take"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      deleteTake(take.id);
+                                    }}
+                                  >
+                                    <Trash2 size={11} />
+                                  </button>
+                                </div>
+                              )}
                             </div>
                           );
                         })}
                       </div>
                     )}
                   </div>
-
+                ) : (
                   <div className="toolbox-commits-section">
-                    <span className="toolbox-takes-subtitle">COMMITS ({commits.length})</span>
                     {commits.length === 0 ? (
-                      <p className="toolbox-history-empty">No milestones committed yet.</p>
+                      <p className="toolbox-history-empty">No commits yet.</p>
                     ) : (
                       <div className="toolbox-commits-list">
-                        {commits.map((c) => (
-                          <div key={c.id} className="toolbox-commit-item">
-                            <span className="toolbox-commit-msg">{c.message}</span>
-                            <span className="toolbox-commit-time">
-                              {new Date(c.created_at).toLocaleTimeString()}
-                            </span>
-                          </div>
-                        ))}
+                        {visibleCommits.map((c, idx) => {
+                          const isSelected = resolvedSelectedCommitId === c.id;
+                          const snapTakeId = c.timeline_snapshot?.activeTakeId
+                            ? String(c.timeline_snapshot.activeTakeId)
+                            : null;
+                          return (
+                            <div
+                              key={c.id}
+                              className={`toolbox-commit-item ${isSelected ? 'selected' : 'folded'}`}
+                              onClick={() => setSelectedCommitId(c.id)}
+                            >
+                              <div className="toolbox-commit-meta">
+                                <span className="toolbox-commit-badge">C{commits.length - idx}</span>
+                                <span className="toolbox-commit-cat-tag">{getCommitCat(c)}</span>
+                                <span className="toolbox-commit-msg">{c.message}</span>
+                                <span className="toolbox-commit-time">
+                                  {new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                              </div>
+                              {isSelected && (
+                                <div className="toolbox-commit-actions">
+                                  {snapTakeId && (
+                                    <button
+                                      type="button"
+                                      className="btn-base btn-variant-ghost btn-size-xs"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (onSelectTrack) onSelectTrack(snapTakeId);
+                                        useDawStore.getState().setSelectedTrackId(snapTakeId);
+                                      }}
+                                    >
+                                      AUDITION
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    className="btn-base btn-variant-primary btn-size-xs"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (Array.isArray(c.timeline_snapshot?.tracks)) {
+                                        useDawStore.getState().restoreSession([c]);
+                                        toast.success(`Restored commit: ${c.message}`);
+                                      } else if (snapTakeId) {
+                                        void toggleTake(snapTakeId);
+                                      } else {
+                                        toast.success(`Selected commit: ${c.message}`);
+                                      }
+                                    }}
+                                  >
+                                    RESTORE
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
-                </div>
-              )}
-
+                )}
+              </div>
+            );
+          })()}
         </div>
       )}
 

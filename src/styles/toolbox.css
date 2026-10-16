@@ -1109,119 +1109,213 @@
   min-height: 0;
 }
 
-.toolbox-history-header {
+.toolbox-history-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 0.4rem;
+  flex-wrap: nowrap;
   border-bottom: 1px solid var(--border);
-  padding-bottom: 6px;
+  padding-bottom: 0.25rem;
+  flex-shrink: 0;
 }
 
-.toolbox-history-title {
-  font-size: var(--font-xs);
-  font-weight: 700;
-  color: var(--text);
+.toolbox-history-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.toolbox-history-categories {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.toolbox-history-cat-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.24rem;
+  height: var(--badge-sub-h, 21px);
+  padding: 0 0.42rem;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+  font-family: var(--font-mono, monospace);
+  font-size: var(--badge-sub-font, 0.65rem);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.toolbox-history-cat-pill.folded {
+  opacity: 0.72;
+}
+
+.toolbox-history-cat-pill.active {
+  background: rgba(0, 255, 65, 0.12);
+  border-color: rgba(0, 255, 65, 0.55);
+  color: var(--primary);
+  opacity: 1;
+}
+
+.toolbox-history-cat-count {
+  padding: 0 0.22rem;
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.4);
+  font-size: 0.9em;
 }
 
 .toolbox-takes-section,
 .toolbox-commits-section {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 0.22rem;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
-.toolbox-takes-subtitle {
-  font-size: 10px;
-  font-weight: 700;
-  color: var(--text-secondary);
-  letter-spacing: 0.5px;
+.floating-toolbox.toolbox-controller.mode-compact .toolbox-takes-section,
+.floating-toolbox.toolbox-controller.mode-compact .toolbox-commits-section {
+  overflow-y: auto;
+  overflow-x: hidden;
+  justify-content: flex-start;
+  scrollbar-width: thin;
 }
 
 .toolbox-history-empty {
-  font-size: var(--font-xs);
+  font-size: var(--daw-badge-font, clamp(0.64rem, 0.58rem + 0.25vw, 0.74rem));
   color: var(--text-muted);
   font-style: italic;
-  padding: 4px 0;
+  padding: 0.15rem 0;
+  margin: 0;
 }
 
 .toolbox-takes-list,
 .toolbox-commits-list {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  align-items: stretch;
+  gap: 0.22rem;
+  width: 100%;
+  min-width: 0;
+  overflow-x: hidden;
 }
 
-.toolbox-take-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  background: rgba(0, 0, 0, 0.4);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  padding: 5px 8px;
-  cursor: pointer;
+.floating-toolbox.toolbox-controller.mode-compact .toolbox-takes-list,
+.floating-toolbox.toolbox-controller.mode-compact .toolbox-commits-list {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.22rem;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
 }
 
-.toolbox-take-item.active {
-  border-color: var(--primary);
-  background: rgba(0, 255, 65, 0.08);
-}
-
-.toolbox-take-actions {
-  display: flex;
-  gap: 4px;
-}
-
-.toolbox-take-delete-btn {
-  color: #ef4444;
-  padding: 0 5px;
-}
-
-.toolbox-take-meta {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: var(--font-xs);
-}
-
-.toolbox-take-num {
-  font-weight: 700;
-  color: var(--text);
-}
-
-.toolbox-take-task {
-  font-size: 9px;
-  padding: 1px 4px;
-  border-radius: 2px;
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--text-dim);
-}
-
-.toolbox-take-range {
-  font-size: 9px;
-  color: var(--warning);
-}
-
+.toolbox-take-item,
 .toolbox-commit-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  background: rgba(0, 0, 0, 0.3);
+  gap: 0.45rem;
+  background: rgba(0, 0, 0, 0.42);
   border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.2rem 0.48rem;
+  cursor: pointer;
+  flex-shrink: 0;
+  min-width: 0;
+  transition: all 0.14s ease;
+}
+
+.toolbox-take-item.folded,
+.toolbox-commit-item.folded {
+  padding: 0.14rem 0.45rem;
+  background: rgba(0, 0, 0, 0.26);
+  border-color: rgba(255, 255, 255, 0.08);
+  opacity: 0.85;
+}
+
+.toolbox-take-item.selected,
+.toolbox-commit-item.selected {
+  border-color: rgba(0, 255, 65, 0.55);
+  background: rgba(0, 255, 65, 0.08);
+  opacity: 1;
+}
+
+.toolbox-take-item.active {
+  border-color: var(--primary);
+  background: rgba(0, 255, 65, 0.1);
+}
+
+.toolbox-take-actions,
+.toolbox-commit-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+
+.toolbox-take-delete-btn {
+  color: #ef4444 !important;
+  padding: 0 0.35rem;
+}
+
+.toolbox-take-meta,
+.toolbox-commit-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.36rem;
+  min-width: 0;
+  flex: 1 1 0;
+  font-size: var(--badge-sub-font, clamp(0.62rem, 0.56rem + 0.22vw, 0.72rem));
+}
+
+.toolbox-take-num,
+.toolbox-commit-badge {
+  font-weight: 800;
+  color: var(--primary);
+  flex-shrink: 0;
+}
+
+.toolbox-take-task,
+.toolbox-commit-cat-tag {
+  font-size: var(--badge-sub-font, clamp(0.6rem, 0.54rem + 0.18vw, 0.68rem));
+  font-weight: 700;
+  padding: 0.06rem 0.3rem;
   border-radius: 3px;
-  padding: 5px 8px;
-  font-size: var(--font-xs);
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.toolbox-take-range {
+  font-size: var(--badge-sub-font, clamp(0.6rem, 0.54rem + 0.18vw, 0.68rem));
+  font-weight: 700;
+  color: var(--warning);
+  flex-shrink: 0;
 }
 
 .toolbox-commit-msg {
   color: var(--text);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1 1 0;
 }
 
 .toolbox-commit-time {
-  color: var(--text-muted);
-  font-size: 9px;
+  color: var(--text-secondary);
+  font-size: clamp(0.58rem, 0.52rem + 0.18vw, 0.66rem);
+  flex-shrink: 0;
 }
 
 /* ==========================================================================
