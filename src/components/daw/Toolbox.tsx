@@ -322,6 +322,22 @@ export const Toolbox: React.FC<ToolboxProps> = ({
 
   };
 
+  const baseDur = Math.max(5, Math.ceil(duration || 30));
+  const minExtendDur = Math.min(
+    options?.duration.max ?? 300,
+    Math.max(options?.duration.min ?? 5, baseDur + 1),
+  );
+  const maxExtendDur = options?.duration.max ?? 300;
+  const addedExtendSec = Math.max(1, Math.round(targetDuration - baseDur));
+  const extendPresets = [
+    { value: Math.min(maxExtendDur, baseDur + 15), shortLabel: '+15s', label: `+15s (${Math.min(maxExtendDur, baseDur + 15)}s)` },
+    { value: Math.min(maxExtendDur, baseDur + 30), shortLabel: '+30s', label: `+30s (${Math.min(maxExtendDur, baseDur + 30)}s)` },
+    { value: Math.min(maxExtendDur, baseDur + 45), shortLabel: '+45s', label: `+45s (${Math.min(maxExtendDur, baseDur + 45)}s)` },
+    { value: Math.min(maxExtendDur, baseDur + 60), shortLabel: '+60s', label: `+60s (${Math.min(maxExtendDur, baseDur + 60)}s)` },
+    { value: Math.min(maxExtendDur, baseDur + 120), shortLabel: '+120s', label: `+120s (${Math.min(maxExtendDur, baseDur + 120)}s)` },
+    { value: maxExtendDur, shortLabel: 'Max', label: `Max (${maxExtendDur}s)` },
+  ].filter((preset, idx, arr) => arr.findIndex((p) => p.value === preset.value) === idx);
+
   const effectiveRepaintVal =
     repaintMode === 'conservative' ? 0 : repaintMode === 'aggressive' ? 1 : repaintStrength;
   const effectiveRepaintPct = Math.round(effectiveRepaintVal * 100);
@@ -366,6 +382,13 @@ export const Toolbox: React.FC<ToolboxProps> = ({
         title: 'Layer Stem & Expression',
       };
     }
+    if (actionId === 'extend') {
+      return {
+        tag: 'LENGTH',
+        value: `+${addedExtendSec}s (${Math.round(targetDuration)}s)`,
+        title: 'Extension Target Length & Seam',
+      };
+    }
     return { tag: 'PARAM', value: 'Configure', title: 'Configure Parameters' };
   };
 
@@ -377,6 +400,9 @@ export const Toolbox: React.FC<ToolboxProps> = ({
       return instrument === 'vocals' || instrument === 'backing_vocals'
         ? `Adds ${activeInstrumentLabel} stem — opens Lyrics Canvas to write or sync lines`
         : `Layers new ${activeInstrumentLabel} stem locked to your arrangement`;
+    }
+    if (actionId === 'extend') {
+      return `Seamlessly extends arrangement to ${Math.round(targetDuration)}s total duration`;
     }
     return '';
   };
@@ -580,7 +606,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
                         aria-selected={isCurrent}
                         className={`toolbox-tab-btn toolbox-subnav-btn ${isCurrent ? 'active tab-studio' : ''}`}
                         onClick={() => {
-                          if (isCurrent && (['repaint','lego'] as string[]).includes(task)) {
+                          if (isCurrent && (['repaint','lego','extend'] as string[]).includes(task)) {
                             setIsParamModalOpen(true);
                           } else {
                             onSelectTask(action.id as Task);
@@ -593,7 +619,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
                     </Tooltip>
 
                     {/* Standardized Expandable Modal Trigger Inside Active Sub-Menu Item (Neighbor-Aware, Full Fill) */}
-                    {isCurrent && (['repaint','lego'] as string[]).includes(task) && (
+                    {isCurrent && (['repaint','lego','extend'] as string[]).includes(task) && (
                       <Tooltip
                         title={paramSummary.title}
                         description={`${filterDesc} — Click to open ${shortName} parameters modal (Preselects + Granular Slider)`}
@@ -635,24 +661,6 @@ export const Toolbox: React.FC<ToolboxProps> = ({
 
               {options && <Parameters parameters={Object.fromEntries(Object.entries(options.parameters).filter(([key, parameter]) => parameter.tasks?.includes(task) && !['trackName', 'coverStrength'].includes(key)))} values={parameters} onChange={onParametersChange} />}
               <div className="toolbox-params-grid">
-                      {task === 'extend' && (
-                        <div className="toolbox-param-box">
-                          <div className="toolbox-param-title">EXTEND ARRANGEMENT</div>
-                          <div className="toolbox-param-row">
-                            <label>TARGET DURATION:</label>
-                            <input
-                              type="range"
-                              min={Math.min(options?.duration.max ?? 300, Math.max(options?.duration.min ?? 5, Math.ceil(duration) + 1))}
-                              max={options?.duration.max}
-                              step={1}
-                              value={targetDuration}
-                              onChange={(e) => onTargetDurationChange(parseFloat(e.target.value))}
-                            />
-                            <span>{targetDuration}s</span>
-                          </div>
-                        </div>
-                      )}
-
                       {task === 'cover' && (
                         <div className="toolbox-param-box">
                           <div className="toolbox-param-title">RESTYLE</div>
@@ -1063,7 +1071,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
 
       {/* Standardized AI Studio Parameter Modal (Presets + Granular Dragging Bar) */}
       <Modal
-        isOpen={isParamModalOpen && (['repaint','lego'] as string[]).includes(task)}
+        isOpen={isParamModalOpen && (['repaint','lego','extend'] as string[]).includes(task)}
         onClose={() => setIsParamModalOpen(false)}
         title={`AI STUDIO PARAMETERS // ${taskLabel(task).toUpperCase()}`}
         size="md"
@@ -1264,6 +1272,123 @@ export const Toolbox: React.FC<ToolboxProps> = ({
                   <span>Subtle Backing</span>
                   <span>Balanced Mix</span>
                   <span>Lead Foreground</span>
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* 3. EXTEND (extend): Preselect Extension Increments + Granular Target Duration Slider + Seam Crossfade */}
+          {task === 'extend' && (
+            <>
+              <div className="toolbox-param-section">
+                <div className="toolbox-param-section-head">
+                  <span className="daw-field-label">PRESELECT EXTENSION LENGTH</span>
+                  <span className="toolbox-param-readout-tag">+{addedExtendSec}S (TOTAL {Math.round(targetDuration)}S)</span>
+                </div>
+                <div className="toolbox-param-presets-grid cols-3">
+                  {extendPresets.map((preset) => {
+                    const isSelected = Math.abs(Math.round(targetDuration) - preset.value) <= 2;
+                    return (
+                      <button
+                        key={preset.value}
+                        type="button"
+                        className={`toolbox-param-preset-btn ${isSelected ? 'active' : ''}`}
+                        onClick={() => onTargetDurationChange(preset.value)}
+                      >
+                        <span className="preset-btn-title">{preset.shortLabel}</span>
+                        <span className="preset-btn-val">{preset.value}s</span>
+                        <span className="preset-btn-sub">{preset.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="toolbox-param-section">
+                <div className="toolbox-param-section-head">
+                  <span className="daw-field-label">GRANULAR TARGET DURATION</span>
+                  <span className="toolbox-param-readout-val">
+                    {Math.round(targetDuration)}s (+{addedExtendSec}s)
+                  </span>
+                </div>
+                <div className="toolbox-param-slider-row">
+                  <button
+                    type="button"
+                    className="toolbox-param-step-btn"
+                    onClick={() => onTargetDurationChange(Math.max(minExtendDur, Math.round(targetDuration) - 5))}
+                  >
+                    -5s
+                  </button>
+                  <input
+                    type="range"
+                    min={minExtendDur}
+                    max={maxExtendDur}
+                    step="1"
+                    value={Math.max(minExtendDur, Math.round(targetDuration))}
+                    onChange={(e) => onTargetDurationChange(Number(e.target.value))}
+                    className="daw-ContextSlider toolbox-param-range"
+                  />
+                  <button
+                    type="button"
+                    className="toolbox-param-step-btn"
+                    onClick={() => onTargetDurationChange(Math.min(maxExtendDur, Math.round(targetDuration) + 5))}
+                  >
+                    +5s
+                  </button>
+                </div>
+                <div className="toolbox-param-scale-labels">
+                  <span>Min: {minExtendDur}s</span>
+                  <span>Source: {Math.round(duration || 30)}s</span>
+                  <span>Max: {maxExtendDur}s</span>
+                </div>
+              </div>
+
+              <div className="toolbox-param-section">
+                <div className="toolbox-param-section-head">
+                  <span className="daw-field-label">CONTINUATION SEAM CROSSFADE</span>
+                  <span className="toolbox-param-readout-val">
+                    {Number(parameters.repaintWavCrossfadeSec ?? 0).toFixed(2)}s
+                  </span>
+                </div>
+                <div className="toolbox-param-slider-row">
+                  <button
+                    type="button"
+                    className="toolbox-param-step-btn"
+                    onClick={() =>
+                      onParametersChange({
+                        ...parameters,
+                        repaintWavCrossfadeSec: Math.max(0, Number((Number(parameters.repaintWavCrossfadeSec ?? 0) - 0.05).toFixed(2))),
+                      })
+                    }
+                  >
+                    -0.05s
+                  </button>
+                  <input
+                    type="range"
+                    min="0"
+                    max="2"
+                    step="0.05"
+                    value={Number(parameters.repaintWavCrossfadeSec ?? 0)}
+                    onChange={(e) =>
+                      onParametersChange({
+                        ...parameters,
+                        repaintWavCrossfadeSec: Number(e.target.value),
+                      })
+                    }
+                    className="daw-ContextSlider toolbox-param-range"
+                  />
+                  <button
+                    type="button"
+                    className="toolbox-param-step-btn"
+                    onClick={() =>
+                      onParametersChange({
+                        ...parameters,
+                        repaintWavCrossfadeSec: Math.min(2, Number((Number(parameters.repaintWavCrossfadeSec ?? 0) + 0.05).toFixed(2))),
+                      })
+                    }
+                  >
+                    +0.05s
+                  </button>
                 </div>
               </div>
             </>
