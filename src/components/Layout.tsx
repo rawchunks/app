@@ -86,8 +86,8 @@ export const Layout: React.FC<Props> = ({ current, onNavigate, children }) => {
         {children}
       </main>
 
-      {/* Persistent Audio Transport Dock */}
-      <Player />
+      {/* Persistent Audio Transport Dock (Studio / My-Page / Market) */}
+      {current !== 'editor' && <Player />}
     </div>
   );
 };

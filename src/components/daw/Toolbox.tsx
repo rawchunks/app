@@ -10,7 +10,6 @@ import {
   Activity,
   Plus,
   History,
-  ArrowUp,
   X,
   Minimize2,
   Maximize2,
@@ -19,12 +18,18 @@ import {
   ArrowRightCircle,
   Shuffle,
   Split,
-  GripHorizontal,
   Trash2,
+  Play,
+  Pause,
+  Square,
+  RotateCcw,
+  Repeat,
+  Rows3,
+  Columns3,
 } from 'lucide-react';
 import type { Options } from '../../hooks/use-options';
-import { Parameters } from '../parameters';
 import { Task } from '../../lib/schema';
+import { Parameters } from '../parameters';
 import { DspRack } from './DspRack';
 import { PianoRoll } from './PianoRoll';
 import { StepSequencer } from './StepSequencer';
@@ -33,13 +38,13 @@ import { SampleImporter } from './SampleImporter';
 import { Mixer } from './mixer';
 import { Tooltip } from './Tooltip';
 import { Key } from './Key';
-import { Canvas } from './Canvas';
+import { toast } from 'sonner';
 
 export type ActiveTool = 'studio' | 'mixer' | 'keys' | 'drums' | 'strudel' | 'dsp' | 'sample' | 'history' | null;
 
 export interface ToolboxProps {
   options?: Options['editing'];
-  languages?: Array<{ id: string; label: string }>;
+  languages?: Options['generation']['languages'];
   optionsError?: string;
   parameters: Record<string, string | number>;
   onParametersChange: (values: Record<string, string | number>) => void;
@@ -49,10 +54,10 @@ export interface ToolboxProps {
   onSelectTask: (task: Task) => void;
   prompt: string;
   onPromptChange: (prompt: string) => void;
-  lyrics: string;
-  onLyricsChange: (lyrics: string) => void;
-  vocalLanguage: string;
-  onVocalLanguageChange: (language: string) => void;
+  lyrics?: string;
+  onLyricsChange?: (lyrics: string) => void;
+  vocalLanguage?: string;
+  onVocalLanguageChange?: (language: string) => void;
   hasExistingLyrics?: boolean;
   isTranscribingLyrics?: boolean;
   onExtractLyrics?: () => void;
@@ -83,11 +88,26 @@ export interface ToolboxProps {
   onOpenCommitModal: () => void;
 }
 
-const ACTION_ICONS = { repaint: Sparkles, lego: Layers, complete: Wand2, extend: ArrowRightCircle, cover: Shuffle, extract: Split };
+const ACTION_ICONS = {
+  repaint: Sparkles,
+  lego: Layers,
+  complete: Wand2,
+  extend: ArrowRightCircle,
+  cover: Shuffle,
+  extract: Split,
+};
+
+const DEFAULT_AI_TASKS = [
+  { id: 'repaint', label: 'Rework Section', description: 'Regenerate selected section with AI' },
+  { id: 'lego', label: 'Add Layer', description: 'Add instrumental or vocal stem layer' },
+  { id: 'extend', label: 'Extend Track', description: 'Extend track duration seamlessly' },
+  { id: 'complete', label: 'Accompany', description: 'Generate full backing accompaniment' },
+  { id: 'cover', label: 'Restyle / Cover', description: 'Transform musical style and timbre' },
+  { id: 'extract', label: 'Extract Stem', description: 'Isolate stem into separate lane' },
+];
 
 export const Toolbox: React.FC<ToolboxProps> = ({
   options,
-  languages,
   optionsError,
   parameters,
   onParametersChange,
@@ -97,16 +117,6 @@ export const Toolbox: React.FC<ToolboxProps> = ({
   onSelectTask,
   prompt,
   onPromptChange,
-  lyrics,
-  onLyricsChange,
-  vocalLanguage,
-  onVocalLanguageChange,
-  hasExistingLyrics = false,
-  isTranscribingLyrics = false,
-  onExtractLyrics,
-  lyricsAlignment = null,
-  isAligningLyrics = false,
-  onAlignLyrics,
   selectedQuality,
   onQualityChange,
   repaintMode,
@@ -130,9 +140,26 @@ export const Toolbox: React.FC<ToolboxProps> = ({
   onClearSelection,
   onOpenCommitModal,
 }) => {
-  const { tracks, selection, duration, takes, commits, toggleTake, deleteTake, isPlaying, setPlaying } = useDawStore();
-  const [isMinimized, setIsMinimized] = useState<boolean>(() => typeof window !== 'undefined' && window.innerWidth <= 768);
-  const [isLyricsPanelOpen, setIsLyricsPanelOpen] = useState<boolean>(false);
+  const {
+    tracks,
+    selection,
+    duration,
+    loop,
+    setLoop,
+    setPlayhead,
+    takes,
+    commits,
+    toggleTake,
+    deleteTake,
+    isPlaying,
+    setPlaying,
+  } = useDawStore();
+
+  // Default to unified self-contained 'compact' mode across all tabs (Item #5)
+  const [controllerMode, setControllerMode] = useState<'split' | 'compact'>('compact');
+  const [isMinimized, setIsMinimized] = useState<boolean>(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
   const prevRevealRef = useRef(reveal);
   useEffect(() => {
     if (reveal && reveal !== prevRevealRef.current) {
@@ -141,174 +168,67 @@ export const Toolbox: React.FC<ToolboxProps> = ({
     }
   }, [reveal]);
 
-  useEffect(() => {
-    if (window.innerWidth <= 768 && takes.some(take => take.id === selectedTrackId)) setIsMinimized(true);
-  }, [selectedTrackId]);
-  const [isDragging, setIsDragging] = useState(false);
-
-  // Position state with safe default boundaries
-  const [position, setPosition] = useState<{ x: number; y: number }>(() => {
-    const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768;
-    const defaultX = typeof window !== 'undefined' ? Math.max(16, (window.innerWidth - (isMobile ? 360 : 640)) / 2) : 100;
-    const defaultY = typeof window !== 'undefined' ? Math.max(70, window.innerHeight - (isMobile ? 140 : 500)) : 380;
-    return { x: defaultX, y: defaultY };
-  });
-
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-    const fit = () => setPosition(position => ({
-      x: Math.max(6, Math.min(position.x, window.innerWidth - container.offsetWidth - 6)),
-      y: Math.max(48, Math.min(position.y, window.innerHeight - container.offsetHeight - 6)),
-    }));
-    const observer = new ResizeObserver(fit);
-    observer.observe(container);
-    window.addEventListener('resize', fit);
-    fit();
-    return () => { observer.disconnect(); window.removeEventListener('resize', fit); };
-  }, [isMinimized]);
-
-  const dragOffsetRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-  const pointerDownRef = useRef<{ active: boolean; startX: number; startY: number; pointerId: number }>({
-    active: false,
-    startX: 0,
-    startY: 0,
-    pointerId: -1,
-  });
-  const didDragRef = useRef(false);
-  const containerRef = useRef<HTMLDivElement | null>(null);
-
-  // Resolve Context Chip Label
   const formatTime = (sec: number) => {
-    const m = Math.floor(sec / 60);
-    const s = Math.floor(sec % 60);
-    const ms = Math.floor((sec % 1) * 10);
+    const safe = Math.max(0, Number.isFinite(sec) ? sec : 0);
+    const m = Math.floor(safe / 60);
+    const s = Math.floor(safe % 60);
+    const ms = Math.floor((safe % 1) * 10);
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}.${ms}`;
+  };
+
+  const handleTogglePlay = async () => {
+    if (isPlaying) {
+      dawEngine.pauseTransport();
+      setPlaying(false);
+    } else {
+      try {
+        await dawEngine.startTransport();
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Could not play the arrangement');
+      }
+    }
+  };
+
+  const handleStop = () => {
+    dawEngine.stopTransport();
+    setPlaying(false);
+    setPlayhead(0);
+  };
+
+  const handleReturnToZero = () => {
+    dawEngine.seek(0);
+    setPlayhead(0);
+  };
+
+  const handleToggleLoop = () => {
+    const nextLoop = !loop;
+    setLoop(nextLoop);
+    if (selection) {
+      dawEngine.setLoop(nextLoop, selection.start, selection.end);
+    } else {
+      dawEngine.setLoop(nextLoop, 0, duration);
+    }
   };
 
   const selectedTake = takes.find((t) => t.id === selectedTrackId);
   const selectedTrack = tracks.find((t) => t.id === selectedTrackId) || tracks[0];
-  const isNonVocalStemSelected = Boolean(
-    selectedTrack?.stemType && selectedTrack.stemType !== 'vocals' && selectedTrack.stemType !== 'backing_vocals'
-  );
-  const showLyricsSection =
-    task !== 'extract' &&
-    (task === 'lego'
-      ? instrument === 'vocals' || instrument === 'backing_vocals'
-      : !isNonVocalStemSelected);
-  const showLyricsSidePanel = activeTool === 'studio' && !isMinimized && showLyricsSection && isLyricsPanelOpen;
 
   const trackName = selectedTake
-    ? `Take #${selectedTake.take_number} (${taskLabel(selectedTake.task)})`
+    ? `#${selectedTake.take_number} ${taskLabel(selectedTake.task)}`
     : selectedTrackId === 'master'
-      ? 'Main Mix'
-      : selectedTrack?.name || 'Selected Track';
+      ? 'MASTER'
+      : selectedTrack?.name || 'TRACK';
 
   let contextChipText = trackName;
   if (selection) {
-    contextChipText = `${trackName}: ${formatTime(selection.start)}–${formatTime(selection.end)}`;
+    contextChipText = `${trackName} ${formatTime(selection.start)}–${formatTime(selection.end)}`;
   }
 
-  // Pointer Drag Handlers (Boundary-clamped with drag threshold)
-  const handlePointerDown = (e: React.PointerEvent) => {
-    if (e.button !== 0) return;
-    const targetEl = e.target as HTMLElement;
-    if (
-      targetEl.tagName === 'INPUT' ||
-      targetEl.tagName === 'SELECT' ||
-      targetEl.tagName === 'BUTTON' ||
-      targetEl.tagName === 'TEXTAREA' ||
-      targetEl.closest('button') ||
-      targetEl.closest('input') ||
-      targetEl.closest('select') ||
-      targetEl.closest('textarea') ||
-      targetEl.closest('a') ||
-      targetEl.closest('label') ||
-      targetEl.closest('[role="button"]') ||
-      targetEl.closest('.toolbox-context-clear') ||
-      targetEl.closest('.toolbox-expanded-body')
-    ) {
-      return;
-    }
-    didDragRef.current = false;
-    pointerDownRef.current = {
-      active: true,
-      startX: e.clientX,
-      startY: e.clientY,
-      pointerId: e.pointerId,
-    };
-    dragOffsetRef.current = {
-      x: e.clientX - position.x,
-      y: e.clientY - position.y,
-    };
-  };
-
-  const handlePointerMove = (e: React.PointerEvent) => {
-    if (!pointerDownRef.current.active) return;
-
-    if (!didDragRef.current) {
-      const dx = e.clientX - pointerDownRef.current.startX;
-      const dy = e.clientY - pointerDownRef.current.startY;
-      if (Math.hypot(dx, dy) <= 4) return;
-      didDragRef.current = true;
-      setIsDragging(true);
-      try {
-        (containerRef.current || (e.target as HTMLElement)).setPointerCapture(e.pointerId);
-      } catch (_) { }
-    }
-
-    const nextX = e.clientX - dragOffsetRef.current.x;
-    const nextY = e.clientY - dragOffsetRef.current.y;
-
-    const boxW = containerRef.current?.offsetWidth || (isMinimized ? 160 : 340);
-    const boxH = containerRef.current?.offsetHeight || (isMinimized ? 38 : 300);
-
-    const clampedX = Math.max(6, Math.min(window.innerWidth - boxW - 6, nextX));
-    const clampedY = Math.max(48, Math.min(window.innerHeight - boxH - 6, nextY));
-
-    setPosition({ x: clampedX, y: clampedY });
-  };
-
-  const handlePointerUp = (e: React.PointerEvent) => {
-    if (!pointerDownRef.current.active) return;
-    pointerDownRef.current.active = false;
-    setIsDragging(false);
-    try {
-      (containerRef.current || (e.target as HTMLElement)).releasePointerCapture(e.pointerId);
-    } catch (_) { }
-  };
-
-  // Resize Corner Pointer Handlers
-  const handleResizeDown = (e: React.PointerEvent) => {
-    e.stopPropagation();
-    e.preventDefault();
-    const startX = e.clientX;
-    const startY = e.clientY;
-    const startW = containerRef.current?.offsetWidth || 560;
-    const startH = containerRef.current?.offsetHeight || 380;
-
-    const onMove = (moveEv: PointerEvent) => {
-      if (!containerRef.current) return;
-      const newW = Math.max(340, Math.min(window.innerWidth - 20, startW + (moveEv.clientX - startX)));
-      const newH = Math.max(280, Math.min(window.innerHeight - 100, startH + (moveEv.clientY - startY)));
-      containerRef.current.style.width = `${newW}px`;
-      containerRef.current.style.height = `${newH}px`;
-    };
-
-    const onUp = () => {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
-    };
-
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
-  };
-
   const tabs = [
-    { id: 'studio' as ActiveTool, label: 'STUDIO', desc: 'AI Generative Studio: rework, overdub, extend & isolate', icon: Wand2, className: 'tab-studio' },
+    { id: 'studio' as ActiveTool, label: 'AI STUDIO', desc: 'AI Generative Studio: rework, layer, extend & isolate', icon: Wand2, className: 'tab-studio' },
     { id: 'mixer' as ActiveTool, label: 'MIXER', desc: 'Multitrack faders, panning, mute & solo console', icon: Sliders, className: 'tab-mixer' },
-    { id: 'keys' as ActiveTool, label: 'KEYS', desc: 'Polyphonic piano roll MIDI composer & editor', icon: Key, className: 'tab-keys' },
-    { id: 'drums' as ActiveTool, label: 'DRUMS', desc: '16-step polyphonic drum pattern sequencer', icon: Drum, className: 'tab-drums' },
+    { id: 'keys' as ActiveTool, label: 'KEYS SYNTH', desc: 'Polyphonic piano roll MIDI composer & editor', icon: Key, className: 'tab-keys' },
+    { id: 'drums' as ActiveTool, label: 'DRUM SEQ', desc: '16-step polyphonic drum pattern sequencer', icon: Drum, className: 'tab-drums' },
     { id: 'strudel' as ActiveTool, label: 'LIVE CODE', desc: 'Strudel REPL for algorithmic pattern generation', icon: Terminal, className: 'tab-strudel' },
     { id: 'dsp' as ActiveTool, label: 'FX RACK', desc: 'Parametric EQ, compression, reverb & delay rack', icon: Activity, className: 'tab-dsp' },
     { id: 'sample' as ActiveTool, label: 'SAMPLER', desc: 'Import and slice audio samples to tracks', icon: Plus, className: 'tab-sample' },
@@ -316,184 +236,163 @@ export const Toolbox: React.FC<ToolboxProps> = ({
   ];
 
   return (
-    <div
+    <section
       ref={containerRef}
-      className={`floating-toolbox ${isDragging ? 'dragging' : ''} ${isMinimized ? 'minimized' : ''} ${showLyricsSidePanel ? 'with-lyrics-panel' : ''}`}
-      style={{
-        left: `${position.x}px`,
-        top: `${position.y}px`,
-      }}
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-      onPointerCancel={handlePointerUp}
-      onClickCapture={(e) => {
-        if (didDragRef.current) {
-          e.stopPropagation();
-          e.preventDefault();
-          didDragRef.current = false;
-        }
-      }}
+      aria-label="DAW Controller"
+      className={`floating-toolbox toolbox-controller mode-${controllerMode} tool-${activeTool || 'none'} ${isMinimized ? 'minimized' : ''}`}
     >
-      {isMinimized ? (
-        <div
-          className="toolbox-folded-pill"
-          onClick={() => {
-            if (!didDragRef.current) setIsMinimized(false);
-          }}
-          title="Click or drag toolbox dock"
-        >
-          <div className="toolbox-drag-grip" title="Drag toolbox anywhere">
-            <GripHorizontal size={13} />
-          </div>
-          <span className="toolbox-folded-icon">🛠</span>
-          <span className="toolbox-folded-label">TOOLS</span>
-          <span className="toolbox-folded-badge">{activeTool ? activeTool.toUpperCase() : 'STUDIO'}</span>
-          <button
-            type="button"
-            className="toolbox-folded-expand"
-            onClick={(e) => {
-              e.stopPropagation();
-              setIsMinimized(false);
-            }}
-            title="Open Toolbox"
-          >
-            <Maximize2 size={13} />
-          </button>
+      <select aria-label="Quality" value={selectedQuality} onChange={e => onQualityChange(e.target.value)}>{options?.modes.filter(mode => options.tasks.find(action => action.id === task)?.modes.includes(mode.id)).map(q => <option key={q.id} value={q.id}>{q.label}</option>)}</select>
+
+      {/* TIER 1: Unified Master Transport + 8-Tool Switcher + Mode/Collapse */}
+      <div className="toolbox-header-row">
+        {/* Left: Master Transport + Focus Chip (No duplicate time counter) */}
+        <div className="toolbox-transport-group toolbox-interactive-element">
+          <Tooltip title={isPlaying ? 'Pause' : 'Play'} description="Start or pause arrangement playback (Space)">
+            <button
+              type="button"
+              className={`toolbox-transport-btn ${isPlaying ? 'active' : ''}`}
+              onClick={handleTogglePlay}
+              aria-label={isPlaying ? 'Pause' : 'Play'}
+            >
+              {isPlaying ? <Pause size={12} /> : <Play size={12} />}
+            </button>
+          </Tooltip>
+          <Tooltip title="Stop" description="Stop transport and return playhead to zero">
+            <button
+              type="button"
+              className="toolbox-transport-btn"
+              onClick={handleStop}
+              aria-label="Stop"
+            >
+              <Square size={11} />
+            </button>
+          </Tooltip>
+          <Tooltip title="Return to Zero" description="Jump playhead to 00:00.0">
+            <button
+              type="button"
+              className="toolbox-transport-btn toolbox-rtz-btn"
+              onClick={handleReturnToZero}
+              aria-label="Return to zero"
+            >
+              <RotateCcw size={11} />
+            </button>
+          </Tooltip>
+          <Tooltip title="Loop" description="Loop selected time region or full arrangement">
+            <button
+              type="button"
+              className={`toolbox-transport-btn ${loop ? 'active' : ''}`}
+              onClick={handleToggleLoop}
+              aria-label="Loop"
+            >
+              <Repeat size={12} />
+            </button>
+          </Tooltip>
+
+          {/* Dynamic Context Chip (Single place for selected track / section) */}
+          <Tooltip title="Focus" description="Currently selected track or time region target">
+            <div className="toolbox-context-chip">
+              <span className="toolbox-context-label">{contextChipText}</span>
+              {(selection || selectedTrackId !== 'master') && (
+                <button
+                  type="button"
+                  className="toolbox-context-clear"
+                  onClick={() => {
+                    if (selection) onClearSelection();
+                    if (onSelectTrack) onSelectTrack('master');
+                    useDawStore.getState().setSelectedTrackId('master');
+                  }}
+                  title="Reset focus to Master"
+                >
+                  <X size={11} />
+                </button>
+              )}
+            </div>
+          </Tooltip>
         </div>
-      ) : (
-        <>
-          {/* Toolbox Drag Header & Quick Prompt */}
-          <div className="toolbox-header-row">
-            <div className="toolbox-drag-grip" title="Drag toolbox anywhere">
-              <GripHorizontal size={14} />
-            </div>
 
-            {/* Dynamic Context Chip */}
-            <Tooltip title="Active Board Focus" description="The currently selected track or time region target">
-              <div className="toolbox-context-chip toolbox-interactive-element">
-                <span className="toolbox-context-wave">〰</span>
-                <span className="toolbox-context-label">{contextChipText}</span>
-                {(selection || selectedTrackId !== 'master') && (
-                  <button
-                    type="button"
-                    className="toolbox-context-clear"
-                    onClick={() => {
-                      if (selection) onClearSelection();
-                      if (onSelectTrack) onSelectTrack('master');
-                      useDawStore.getState().setSelectedTrackId('master');
-                    }}
-                    title="Reset focus to Main Mix"
-                  >
-                    <X size={11} />
-                  </button>
-                )}
-              </div>
-            </Tooltip>
+        {/* Center: 8 Hardware Tool Tabs (Selected tab shows full label; unselected show icon only on mobile) */}
+        <div className="toolbox-tabs-bar toolbox-interactive-element" role="tablist">
+          {tabs.map((tabItem) => {
+            const Icon = tabItem.icon;
+            const isActive = activeTool === tabItem.id && !isMinimized;
 
-            {/* Natural Language Prompt Input Bar */}
-            <div className="toolbox-prompt-bar toolbox-interactive-element">
-              <input
-                type="text"
-                className="toolbox-prompt-input"
-                placeholder="Describe the music..."
-                value={prompt}
-                onChange={(e) => onPromptChange(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !processing) {
-                    onExecute();
-                  }
-                }}
-              />
-              <Tooltip title="Run Generation" description="Process the selected audio (Enter)">
+            return (
+              <Tooltip title={tabItem.label} description={tabItem.desc} key={tabItem.id}>
                 <button
                   type="button"
-                  className="toolbox-prompt-submit"
-                  onClick={onExecute}
-                  disabled={processing || !options}
+                  role="tab"
+                  aria-selected={isActive}
+                  className={`toolbox-tab-btn tab-${tabItem.id} ${isActive ? `active ${tabItem.className}` : ''}`}
+                  onClick={() => {
+                    if (isActive && controllerMode === 'split') {
+                      setIsMinimized(true);
+                    } else {
+                      onSelectTool(tabItem.id);
+                      setIsMinimized(false);
+                    }
+                  }}
                 >
-                  <ArrowUp size={13} />
+                  <Icon size={12} />
+                  <span className="tab-label-full">{tabItem.label}</span>
                 </button>
               </Tooltip>
-            </div>
+            );
+          })}
+        </div>
 
-            {activeTool === 'studio' && task !== 'extract' && <div className="toolbox-interactive-element">
-              <select className="toolbox-quality-select" value={selectedQuality} onChange={event => onQualityChange(event.target.value)} aria-label="Processing mode" disabled={!options}>
-                {options?.modes.filter(mode => options.tasks.find(action => action.id === task)?.modes.includes(mode.id)).map(mode => <option key={mode.id} value={mode.id}>{mode.label}</option>)}
-              </select>
-            </div>}
+        {/* Right: Mode Switch (Split vs Compact) + Minimize Toggle */}
+        <div className="toolbox-header-actions toolbox-interactive-element">
+          <Tooltip
+            title={controllerMode === 'split' ? 'Split Mode' : 'Compact Mode'}
+            description="Switch between fixed self-contained Compact strip mode and resizable Split mode"
+          >
+            <button
+              type="button"
+              className={`toolbox-mode-switch-btn ${controllerMode === 'compact' ? 'active' : ''}`}
+              onClick={() => {
+                setControllerMode((prev) => (prev === 'split' ? 'compact' : 'split'));
+                setIsMinimized(false);
+              }}
+              aria-label={controllerMode === 'split' ? 'Switch to Compact mode' : 'Switch to Split mode'}
+            >
+              {controllerMode === 'split' ? <Rows3 size={12} /> : <Columns3 size={12} />}
+              <span className="mode-btn-label">{controllerMode === 'split' ? 'SPLIT' : 'COMPACT'}</span>
+            </button>
+          </Tooltip>
 
-            {/* Minimize / Expand Toggle */}
-            <div className="toolbox-interactive-element">
-              <Tooltip title={isMinimized ? 'Expand Toolbox' : 'Collapse to Dock'} description="Toggle between full toolbox drawer and compact dock pill">
-                <button
-                  type="button"
-                  className="toolbox-minimize-btn"
-                  aria-label={isMinimized ? 'Expand Toolbox' : 'Collapse Toolbox'}
-                  onClick={() => setIsMinimized(!isMinimized)}
-                >
-                  {isMinimized ? <Maximize2 size={13} /> : <Minimize2 size={13} />}
-                </button>
-              </Tooltip>
-            </div>
-          </div>
+          <Tooltip
+            title={isMinimized ? 'Expand' : 'Collapse'}
+            description="Toggle Controller deck visibility"
+          >
+            <button
+              type="button"
+              className="toolbox-minimize-btn"
+              aria-label={isMinimized ? 'Expand Controller' : 'Collapse Controller'}
+              onClick={() => setIsMinimized(!isMinimized)}
+            >
+              {isMinimized ? <Maximize2 size={12} /> : <Minimize2 size={12} />}
+            </button>
+          </Tooltip>
+        </div>
+      </div>
 
-          {/* Brand Tabs Bar */}
-          <div className="toolbox-tabs-bar toolbox-interactive-element">
-            {tabs.map((tabItem) => {
-              const Icon = tabItem.icon;
-              const isActive = activeTool === tabItem.id && !isMinimized;
-
-              return (
-                <Tooltip title={tabItem.label} description={tabItem.desc} key={tabItem.id}>
-                  <button
-                    type="button"
-                    className={`toolbox-tab-btn tab-${tabItem.id} ${isActive ? `active ${tabItem.className}` : ''}`}
-                    onClick={() => {
-                      if (isActive) {
-                        onSelectTool(null);
-                      } else {
-                        onSelectTool(tabItem.id);
-                        setIsMinimized(false);
-                      }
-                    }}
-                  >
-                    <Icon size={13} />
-                    <span>{tabItem.label}</span>
-                  </button>
-                </Tooltip>
-              );
+      {activeTool === 'studio' && !isMinimized && (
+        <div className="toolbox-ai-subnav toolbox-interactive-element">
+          <div className="toolbox-tabs-bar toolbox-subnav-tabs" role="tablist" aria-label="AI Studio Operations">
+            {(options?.tasks ?? DEFAULT_AI_TASKS).filter(action => action.id in ACTION_ICONS).map(action => {
+              const ActionIcon = ACTION_ICONS[action.id as keyof typeof ACTION_ICONS];
+              return <button type="button" role="tab" aria-selected={task === action.id} key={action.id}
+                className={`toolbox-tab-btn toolbox-subnav-btn ${task === action.id ? 'active tab-studio' : ''}`}
+                onClick={() => onSelectTask(action.id as Task)}><ActionIcon size={13} /><span>{taskLabel(action.id)}</span></button>;
             })}
           </div>
+        </div>
+      )}
 
-          {/* Expanded Tool Body */}
-          {activeTool && !isMinimized && (
-            <div className="toolbox-expanded-body toolbox-interactive-element">
-              {/* 1. Studio */}
-              {activeTool === 'studio' && (
-                <div className={`toolbox-studio-split ${showLyricsSidePanel ? 'panel-open' : ''}`}>
-                  <div className="toolbox-studio-content">
-                    {/* Macro Actions Bar */}
-                    <div className="toolbox-macro-actions">
-                      {options?.tasks.filter(action => action.id in ACTION_ICONS).map((action) => {
-                        const ActionIcon = ACTION_ICONS[action.id as keyof typeof ACTION_ICONS];
-                        const isCurrent = task === action.id;
-
-                        return (
-                          <Tooltip title={action.label} description={action.description} key={action.id}>
-                            <button
-                              type="button"
-                              className={`toolbox-action-pill ${isCurrent ? 'active' : ''}`}
-                              onClick={() => onSelectTask(action.id as Task)}
-                            >
-                              <ActionIcon size={13} />
-                              <span>{action.label}</span>
-                            </button>
-                          </Tooltip>
-                        );
-                      })}
-                    </div>
-
+      {/* TIER 2: Expanded Hardware Tool Deck Body */}
+      {activeTool && !isMinimized && (
+        <div className="toolbox-expanded-body toolbox-interactive-element">
+          {activeTool === 'studio' && <div className="toolbox-studio-content">
                     {optionsError && <p role="alert">{optionsError}</p>}
                     {options && <Parameters parameters={Object.fromEntries(Object.entries(options.parameters).filter(([key, parameter]) => parameter.tasks?.includes(task) && !['trackName', 'coverStrength'].includes(key)))} values={parameters} onChange={onParametersChange} />}
                     {/* Action Parameter Sliders */}
@@ -642,9 +541,6 @@ export const Toolbox: React.FC<ToolboxProps> = ({
                           value={prompt}
                           onChange={(e) => onPromptChange(e.target.value)}
                         />
-                        {showLyricsSection && (
-                          <button type="button" className="toolbox-lyrics-toggle-btn" onClick={() => setIsLyricsPanelOpen(v => !v)}>CANVAS</button>
-                        )}
                       </div>
 
                       {/* Progress bar during generation */}
@@ -670,42 +566,26 @@ export const Toolbox: React.FC<ToolboxProps> = ({
                         {processing ? 'PROCESSING AUDIO...' : options?.tasks.find(action => action.id === task)?.label.toUpperCase()}
                       </button>
                     </div>
-                  </div>
+          </div>}
 
-                  {/* Clean Responsive Lyrics Side-Panel */}
-                  {showLyricsSidePanel && (
-                      <Canvas
-                        lyrics={lyrics} onLyricsChange={onLyricsChange}
-                        vocalLanguage={vocalLanguage} onVocalLanguageChange={onVocalLanguageChange}
-                        languages={languages} hasExistingLyrics={hasExistingLyrics}
-                        isTranscribingLyrics={isTranscribingLyrics} onExtractLyrics={onExtractLyrics}
-                        lyricsAlignment={lyricsAlignment} isAligningLyrics={isAligningLyrics}
-                        onAlignLyrics={onAlignLyrics} processing={processing}
-                        onClose={() => setIsLyricsPanelOpen(false)}
-                      />
-                  )}
-                </div>
-              )}
+          {/* 2. MIXER */}
+          {activeTool === 'mixer' && <Mixer />}
 
-              {/* 2. MIXER */}
-              {activeTool === 'mixer' && <Mixer />}
+          {/* 3. KEYS SYNTH (Piano Roll) */}
+          {activeTool === 'keys' && <PianoRoll track={selectedTrack} />}
 
-              {/* 3. KEYS (Piano Roll) */}
-              {activeTool === 'keys' && <PianoRoll track={selectedTrack} />}
+          {/* 4. DRUM SEQ (Step Sequencer) */}
+          {activeTool === 'drums' && <StepSequencer track={selectedTrack} />}
 
-              {/* 4. DRUMS (Step Sequencer) */}
-              {activeTool === 'drums' && <StepSequencer track={selectedTrack} />}
+          {/* 5. LIVE CODE (Strudel) */}
+          {activeTool === 'strudel' && <StrudelEditor track={selectedTrack} />}
 
-              {/* 5. LIVE CODE (Strudel) */}
-              {activeTool === 'strudel' && <StrudelEditor track={selectedTrack} />}
+          {/* 6. FX RACK (DSP Rack) */}
+          {activeTool === 'dsp' && <DspRack track={selectedTrack} />}
 
-              {/* 6. FX RACK (DSP) */}
-              {activeTool === 'dsp' && <DspRack track={selectedTrack} />}
+          {/* 7. SAMPLER */}
+          {activeTool === 'sample' && <SampleImporter onImportComplete={() => onSelectTool('studio')} />}
 
-              {/* 7. SAMPLER */}
-              {activeTool === 'sample' && <SampleImporter onImportComplete={() => onSelectTool('studio')} />}
-
-              {/* 8. HISTORY (Takes & Commits) */}
               {activeTool === 'history' && (
                 <div className="toolbox-history-panel">
                   <div className="toolbox-history-header">
@@ -812,17 +692,11 @@ export const Toolbox: React.FC<ToolboxProps> = ({
                   </div>
                 </div>
               )}
-            </div>
-          )}
 
-          {/* Resize Grip (Bottom-Right Corner) */}
-          <div
-            className="toolbox-resize-handle"
-            onPointerDown={handleResizeDown}
-            title="Drag to resize toolbox"
-          />
-        </>
+        </div>
       )}
-    </div>
+
+    </section>
   );
 };
+

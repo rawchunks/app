@@ -1,168 +1,206 @@
-/* RAWCHUNKS DRAGGABLE & RESIZABLE FLOATING TOOLBOX STYLES */
+/* RAWCHUNKS NATIVE BOTTOM CONTROLLER DECK & TOOLBOX STYLES */
 
 .floating-toolbox {
-  position: fixed;
-  z-index: 40;
+  position: relative;
+  z-index: 30;
   display: flex;
   flex-direction: column;
-  background: rgba(10, 10, 10, 0.95);
+  background: rgba(9, 11, 15, 0.98);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border: 1px solid var(--border-bright);
-  border-radius: 6px;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.85), 0 0 1px rgba(255, 255, 255, 0.15);
+  border-radius: 6px 6px 0 0;
+  box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.75);
   box-sizing: border-box;
-  width: clamp(340px, 52vw, 780px);
-  height: clamp(420px, 60vh, 700px);
-  min-width: 300px;
-  max-width: calc(100vw - 24px);
-  min-height: 320px;
-  max-height: calc(100vh - 60px);
+  width: 100%;
+  max-width: 100%;
+  min-height: 0;
   overflow: hidden;
   user-select: none;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition: border-color 0.15s ease;
 }
 
 .floating-toolbox:hover,
 .floating-toolbox:focus-within {
-  border-color: rgba(0, 255, 65, 0.4);
-  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.9), 0 0 12px rgba(0, 255, 65, 0.12);
-}
-
-.floating-toolbox.dragging {
-  opacity: 0.94;
-  cursor: grabbing !important;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.95), var(--glow-primary);
-  border-color: var(--primary);
-}
-
-.floating-toolbox.minimized {
-  height: auto !important;
-  min-height: unset !important;
-  width: auto !important;
-  min-width: unset !important;
-  max-width: max-content !important;
-  max-height: unset !important;
-  border-radius: 20px;
-  background: rgba(10, 10, 10, 0.95);
-  border: 1px solid var(--border-bright);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.85), 0 0 10px rgba(0, 255, 65, 0.2);
-  touch-action: none;
-  cursor: grab;
-  padding: 0;
-  overflow: visible;
-}
-
-.toolbox-folded-pill {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  user-select: none;
-  cursor: grab;
-  white-space: nowrap;
-}
-
-.toolbox-folded-icon {
-  font-size: 13px;
-  line-height: 1;
-}
-
-.toolbox-folded-label {
-  font-family: var(--font-family);
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.1em;
-  color: var(--primary);
-}
-
-.toolbox-folded-badge {
-  font-size: 9px;
-  font-weight: 700;
-  padding: 2px 6px;
-  border-radius: 3px;
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--text-secondary);
-  border: 1px solid var(--border);
-  letter-spacing: 0.06em;
-}
-
-.toolbox-folded-expand {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  padding: 3px;
-  border-radius: 3px;
-  transition: all 0.15s ease;
-}
-
-.toolbox-folded-expand:hover {
-  color: var(--primary);
-  background: rgba(0, 255, 65, 0.1);
+  border-color: rgba(0, 255, 65, 0.38);
 }
 
 /* ==========================================================================
-   HEADER ROW: DRAG GRIP, CONTEXT CHIP, PROMPT BAR, QUALITY, MINIMIZE
+   DOCKED BOTTOM CONTROLLER (Split & Compact Modes)
+   ========================================================================== */
+.floating-toolbox.toolbox-controller {
+  position: relative;
+  left: auto;
+  top: auto;
+  width: 100%;
+  max-width: 100%;
+  min-height: 0;
+  border-radius: 6px 6px 0 0;
+  border-bottom: none;
+  flex-shrink: 0;
+  z-index: 30;
+}
+
+.floating-toolbox.toolbox-controller.mode-split {
+  height: var(--controller-h, clamp(195px, 29dvh, 265px));
+  min-height: 132px;
+  max-height: 62dvh;
+  container-type: inline-size;
+  container-name: toolbox-deck;
+}
+
+.floating-toolbox.toolbox-controller.mode-split.tool-studio {
+  height: var(--controller-h, clamp(172px, 24.5dvh, 194px));
+}
+
+.floating-toolbox.toolbox-controller.mode-compact {
+  height: var(--toolbox-compact-h, clamp(172px, 24.5dvh, 194px));
+  min-height: 168px;
+  max-height: 206px;
+  container-type: inline-size;
+  container-name: toolbox-deck;
+}
+
+.floating-toolbox.toolbox-controller.minimized {
+  width: 100% !important;
+  max-width: 100% !important;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  border-radius: 6px 6px 0 0;
+}
+
+/* Top Split Drag Resizer Handle */
+.toolbox-split-resizer {
+  position: relative;
+  height: 9px;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: ns-resize;
+  background: rgba(255, 255, 255, 0.025);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  touch-action: none;
+  flex-shrink: 0;
+  transition: background 0.15s ease;
+}
+
+.toolbox-split-resizer:hover,
+.toolbox-split-resizer:active {
+  background: rgba(0, 255, 65, 0.1);
+}
+
+.toolbox-split-resizer-pill {
+  width: 40px;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.25);
+  transition: all 0.15s ease;
+}
+
+.toolbox-split-resizer:hover .toolbox-split-resizer-pill,
+.toolbox-split-resizer:active .toolbox-split-resizer-pill {
+  background: var(--primary);
+  box-shadow: 0 0 8px var(--primary);
+  width: 56px;
+}
+
+.toolbox-split-resizer-grip {
+  display: none;
+}
+
+/* ==========================================================================
+   TIER 1: UNIFIED MASTER TRANSPORT + 8-TOOL SWITCHER + MODE/COLLAPSE
    ========================================================================== */
 .toolbox-header-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: clamp(6px, 0.8vw, 10px);
-  padding: 8px 12px;
+  gap: clamp(6px, 0.7vw, 10px);
+  padding: 4px 10px;
   background: var(--surface-elevated);
   border-bottom: 1px solid var(--border);
-  min-height: 48px;
+  min-height: 34px;
   box-sizing: border-box;
   flex-shrink: 0;
-  cursor: grab;
 }
 
-.toolbox-drag-grip {
+.toolbox-transport-group {
   display: flex;
   align-items: center;
-  color: var(--text-muted);
-  cursor: grab;
-  padding: 2px;
+  gap: 4px;
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.toolbox-transport-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  transition: all 0.14s ease;
+}
+
+.toolbox-transport-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: rgba(0, 255, 65, 0.08);
+}
+
+.toolbox-transport-btn.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #000;
+  box-shadow: 0 0 8px rgba(0, 255, 65, 0.35);
+}
+
+.toolbox-transport-time {
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--primary);
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 2px 6px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
   flex-shrink: 0;
 }
 
-.toolbox-drag-grip:hover {
-  color: var(--primary);
+.toolbox-transport-sep {
+  color: var(--text-dim);
+  margin: 0 2px;
 }
 
 /* Active Context Pill */
 .toolbox-context-chip {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   background: rgba(0, 255, 65, 0.08);
   border: 1px solid rgba(0, 255, 65, 0.3);
   color: var(--primary);
-  padding: 3px 8px;
-  border-radius: 12px;
+  padding: 2px 7px;
+  border-radius: 3px;
   font-family: var(--font-family);
-  font-size: var(--font-xs);
-  font-weight: 700;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
   white-space: nowrap;
-  max-width: 180px;
+  max-width: 155px;
   overflow: hidden;
   text-overflow: ellipsis;
-  flex-shrink: 0;
-}
-
-.toolbox-context-wave {
-  color: var(--primary);
-  animation: pulse-wave 2s infinite ease-in-out;
-}
-
-@keyframes pulse-wave {
-  0%, 100% { opacity: 0.5; }
-  50% { opacity: 1; }
+  flex-shrink: 1;
 }
 
 .toolbox-context-label {
@@ -176,9 +214,10 @@
   color: var(--primary);
   cursor: pointer;
   padding: 0;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  opacity: 0.7;
+  opacity: 0.75;
+  flex-shrink: 0;
 }
 
 .toolbox-context-clear:hover {
@@ -285,22 +324,20 @@
   background: rgba(255, 255, 255, 0.08);
 }
 
-/* ==========================================================================
-   BRAND TABS BAR (Fully Responsive & Proportional)
-   ========================================================================== */
+/* Center: 8 Hardware Tool Tabs */
 .toolbox-tabs-bar {
   display: flex;
   align-items: center;
-  gap: clamp(2px, 0.4vw, 5px);
-  padding: clamp(3px, 0.5vh, 6px) clamp(6px, 0.8vw, 10px);
-  background: rgba(0, 0, 0, 0.55);
-  border-bottom: 1px solid var(--border);
+  justify-content: center;
+  gap: 3px;
+  padding: 2px;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  flex: 0 1 auto;
+  min-width: 0;
   overflow-x: auto;
-  overflow-y: hidden;
   scrollbar-width: none;
-  -webkit-overflow-scrolling: touch;
-  flex-shrink: 0;
-  flex-wrap: nowrap;
 }
 
 .toolbox-tabs-bar::-webkit-scrollbar {
@@ -311,32 +348,37 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
+  gap: 4px;
   background: transparent;
   border: 1px solid transparent;
   color: var(--text-secondary);
-  border-radius: 4px;
-  padding: clamp(3px, 0.5vh, 5px) clamp(8px, 0.9vw, 12px);
+  border-radius: 3px;
+  height: 22px;
+  padding: 0 8px;
   font-family: var(--font-family);
-  font-size: clamp(9px, 0.85vw, 11px);
-  font-weight: 700;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
   cursor: pointer;
   white-space: nowrap;
-  transition: all 0.15s ease;
+  transition: all 0.14s ease;
   flex: 0 0 auto;
+}
+
+.tab-label-short {
+  display: none;
 }
 
 .toolbox-tab-btn:hover {
   color: var(--text);
-  background: rgba(255, 255, 255, 0.05);
-  border-color: var(--border);
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .toolbox-tab-btn.active {
   color: #000;
   background: var(--primary);
   border-color: var(--primary);
-  box-shadow: var(--glow-primary);
+  box-shadow: 0 0 8px rgba(0, 255, 65, 0.25);
 }
 
 .toolbox-tab-btn.active.tab-mixer {
@@ -352,7 +394,6 @@
 .toolbox-tab-btn.active.tab-drums {
   background: var(--secondary);
   border-color: var(--secondary);
-  box-shadow: var(--glow-secondary);
 }
 
 .toolbox-tab-btn.active.tab-strudel {
@@ -375,8 +416,247 @@
   border-color: var(--accent);
 }
 
+/* Right Header Actions: Quality, Mode Switch, Minimize */
+.toolbox-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.toolbox-quality-select {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  border-radius: 3px;
+  height: 24px;
+  padding: 0 6px;
+  font-family: var(--font-family);
+  font-size: 9.5px;
+  font-weight: 700;
+  outline: none;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.toolbox-quality-select:hover {
+  border-color: var(--border-bright);
+  color: var(--text);
+}
+
+.toolbox-mode-switch-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 7px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+  font-family: var(--font-family);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: all 0.14s ease;
+}
+
+.toolbox-mode-switch-btn.active,
+.toolbox-mode-switch-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(0, 240, 255, 0.1);
+}
+
+.toolbox-minimize-btn {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  width: 24px;
+  height: 24px;
+  border-radius: 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.14s ease;
+  flex-shrink: 0;
+}
+
+.toolbox-minimize-btn:hover {
+  color: var(--text);
+  border-color: var(--border-bright);
+  background: rgba(255, 255, 255, 0.08);
+}
+
 /* ==========================================================================
-   EXPANDED TOOL BODY (Consistent Proportional Layout)
+   AI STUDIO SUB-MENU BAR (Runs directly below main header when AI tab active)
+   ========================================================================== */
+.toolbox-ai-subnav {
+  display: flex;
+  align-items: center;
+  justify-content: stretch;
+  width: 100%;
+  padding: clamp(0.18rem, 0.45dvh, 0.28rem) clamp(0.4rem, 0.9vw, 0.6rem);
+  background: rgba(6, 8, 12, 0.88);
+  border-bottom: 1px solid var(--border);
+  box-sizing: border-box;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.toolbox-subnav-tabs {
+  flex: 1 1 100%;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: nowrap !important;
+  background: transparent;
+  border: none;
+  padding: 0;
+  gap: clamp(0.18rem, 0.45vw, 0.34rem);
+  min-width: 0;
+  overflow: hidden !important;
+}
+
+/* Neighbor-aware sub-menu items:
+   - Desktop: all items show icon + name; active item + param trigger fills remaining width cleanly
+   - Mobile/compact container: unselected items collapse to icon-only so 100% fits on 1 row */
+.toolbox-subnav-item-group {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.22rem;
+  border-radius: 4px;
+  padding: 0.08rem 0.14rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  flex: 0 1 auto;
+  min-width: clamp(24px, 3.4vw, 34px);
+  max-width: none;
+  height: calc(var(--daw-badge-h) + 4px);
+  box-sizing: border-box;
+  overflow: hidden;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.toolbox-subnav-item-group:hover:not(.active) {
+  border-color: rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.toolbox-subnav-item-group.active {
+  flex: 1 1 0;
+  max-width: none;
+  min-width: 0;
+  justify-content: space-between;
+  gap: clamp(0.24rem, 0.55vw, 0.42rem);
+  background: rgba(0, 255, 65, 0.09);
+  border-color: rgba(0, 255, 65, 0.5);
+  padding: 0.08rem 0.14rem;
+  box-shadow: 0 0 10px rgba(0, 255, 65, 0.14);
+}
+
+.toolbox-subnav-item-group > .daw-tooltip-wrapper,
+.toolbox-subnav-item-group > .toolbox-subnav-btn-tooltip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  flex: 1 1 0;
+}
+
+.toolbox-subnav-item-group.active > .toolbox-subnav-btn-tooltip {
+  width: auto;
+  flex: 0 0 auto;
+}
+
+.toolbox-subnav-item-group.active > .toolbox-subnav-param-tooltip {
+  display: flex;
+  align-items: center;
+  justify-content: stretch;
+  flex: 1 1 0 !important;
+  min-width: 0 !important;
+  width: 100% !important;
+  max-width: none !important;
+  height: 100%;
+  overflow: hidden;
+}
+
+.toolbox-subnav-btn {
+  height: var(--daw-badge-h);
+  width: 100%;
+  min-width: clamp(22px, 3vw, 28px);
+  padding: 0 clamp(5px, 0.7vw, 9px);
+  font-size: var(--daw-badge-font);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  color: #e4e4e7;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+.toolbox-subnav-item-group.active .toolbox-subnav-btn {
+  width: auto;
+  padding: 0 clamp(6px, 0.8vw, 9px);
+}
+
+.toolbox-subnav-btn svg,
+.toolbox-subnav-icon {
+  display: inline-block !important;
+  flex-shrink: 0;
+  width: 13px;
+  height: 13px;
+  color: currentColor;
+  opacity: 0.95;
+}
+
+.toolbox-subnav-btn.active svg,
+.toolbox-subnav-btn.active .toolbox-subnav-icon {
+  color: #000000 !important;
+  opacity: 1;
+}
+
+.toolbox-subnav-label {
+  white-space: nowrap;
+  font-weight: 800;
+}
+
+/* Standardized Parameter Modal Trigger inside Active Sub-Menu Item:
+   Expands to fill 100% of remaining space in the active item (never shortened) */
+.toolbox-subnav-param-trigger {
+  flex: 1 1 0;
+  min-width: 0;
+  width: 100%;
+  max-width: none !important;
+  height: var(--daw-badge-h);
+  padding: 0 clamp(5px, 0.65vw, 9px);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: clamp(4px, 0.5vw, 8px);
+  background: rgba(8, 14, 12, 0.94);
+  border: 1px solid rgba(0, 255, 65, 0.45);
+  border-radius: 3px;
+  color: var(--text);
+  font-family: var(--font-mono, monospace);
+  font-size: var(--daw-badge-font);
+  cursor: pointer;
+  overflow: hidden;
+  box-sizing: border-box;
+  transition: all 0.14s ease;
+}
+
+/* ==========================================================================
+   TIER 2: EXPANDED HARDWARE TOOL DECK BODY
    ========================================================================== */
 .toolbox-expanded-body {
   flex: 1 1 0;
@@ -387,7 +667,13 @@
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  padding: 8px 10px;
+  padding: clamp(4px, 0.6dvh, 7px) clamp(6px, 1vw, 10px);
+}
+
+.floating-toolbox.toolbox-controller.mode-compact .toolbox-expanded-body {
+  overflow-y: hidden;
+  overflow-x: hidden;
+  justify-content: center;
 }
 
 .toolbox-expanded-body:has(.mixer-console-container) {
@@ -484,34 +770,206 @@
   gap: 4px;
 }
 
+.toolbox-expanded-body:has(.toolbox-studio-strip) {
+  overflow: hidden;
+  justify-content: center;
+}
+
+/* High-Contrast Internal Toolbox Buttons (Fixes Item #4 white-on-white / gray-on-gray) */
+.toolbox-expanded-body .btn-variant-ghost,
+.transport-btn,
+.dsp-filter-btn,
 .toolbox-mode-btn {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--border);
-  color: var(--text-dim);
-  border-radius: 2px;
-  padding: 3px 6px;
-  font-size: 9px;
+  appearance: none;
+  -webkit-appearance: none;
+  background: rgba(20, 24, 34, 0.92) !important;
+  color: #e4e4e7 !important;
+  border: 1px solid rgba(255, 255, 255, 0.22) !important;
+  border-radius: 3px;
   font-family: var(--font-family);
+  font-size: var(--daw-badge-font);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  min-height: var(--daw-badge-h);
+  padding: 0 7px;
   cursor: pointer;
+  transition: all 0.14s ease;
+}
+
+.toolbox-expanded-body .btn-variant-ghost:hover,
+.transport-btn:hover,
+.dsp-filter-btn:hover,
+.toolbox-mode-btn:hover {
+  background: rgba(255, 255, 255, 0.12) !important;
+  border-color: rgba(255, 255, 255, 0.42) !important;
+  color: #ffffff !important;
+}
+
+.transport-btn-active,
+.dsp-filter-btn.transport-btn-active {
+  background: rgba(0, 240, 255, 0.2) !important;
+  border-color: var(--accent) !important;
+  color: var(--accent) !important;
+  box-shadow: 0 0 8px rgba(0, 240, 255, 0.28);
 }
 
 .toolbox-mode-btn.active {
-  background: var(--primary);
-  color: #000;
+  background: var(--primary) !important;
+  border-color: var(--primary) !important;
+  color: #000000 !important;
+  box-shadow: 0 0 8px rgba(0, 255, 65, 0.3);
+}
+
+/* 1. AI STUDIO — ZERO-DUPLICATION COMMAND DECK (All Task Params Live in Sub-Menu + Modal) */
+.toolbox-studio-strip {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  width: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
+  box-sizing: border-box;
+}
+
+.studio-deck-grid {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: clamp(5px, 0.75dvh, 8px);
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+}
+
+/* Row 1: Responsive Full-Width Prompt Box + Edit Lyrics Button on Same Row */
+.studio-row-top,
+.studio-row-main {
+  display: flex;
+  flex-direction: row !important;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: nowrap !important;
+  gap: clamp(6px, 0.8vw, 10px);
+  width: 100%;
+  min-width: 0;
+}
+
+.studio-row-prompt {
+  flex: 1 1 0 !important;
+  min-width: 0 !important;
+  width: 100%;
+  display: flex;
+  align-items: center;
+}
+
+.studio-edit-lyrics-tooltip {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* Row 2: Larger Full-Width Confirm AI Operation CTA Button */
+.studio-row-cta {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  flex-shrink: 0;
+}
+
+.studio-row-cta > .daw-tooltip-wrapper,
+.studio-cta-tooltip {
+  flex: 1 1 100% !important;
+  width: 100% !important;
+  display: flex;
+}
+
+.prompt-expand-label {
+  font-family: var(--font-mono, monospace);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  margin-left: 3px;
+}
+
+.studio-extract-banner.is-interactive {
+  cursor: pointer;
+  justify-content: space-between;
+  gap: 8px;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.studio-extract-banner.is-interactive:hover {
   border-color: var(--primary);
-  font-weight: 700;
+  background: rgba(0, 255, 65, 0.07);
+}
+
+.studio-extract-config-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono, monospace);
+  font-size: var(--daw-badge-font);
+  font-weight: 800;
+  color: var(--primary);
+  background: rgba(0, 255, 65, 0.12);
+  border: 1px solid rgba(0, 255, 65, 0.4);
+  padding: 2px 7px;
+  border-radius: 3px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Narrow/Mobile Container: Row 1 keeps Prompt + Icon-Only Edit Lyrics on same row; Row 2 is Full-Width CTA */
+@container toolbox-deck (max-width: 560px) {
+  .studio-row-top,
+  .studio-row-main {
+    flex-direction: row !important;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .edit-lyrics-btn-label {
+    display: none !important;
+  }
+
+  .toolbox-edit-lyrics-btn {
+    width: var(--daw-ctrl-h);
+    min-width: var(--daw-ctrl-h);
+    padding: 0 !important;
+    justify-content: center;
+    flex: 0 0 auto !important;
+  }
+
+  .prompt-expand-label {
+    display: none;
+  }
+
+  .toolbox-prompt-input {
+    padding-right: 26px !important;
+  }
+}
+
+.studio-command-row {
+  display: flex;
+  align-items: center;
+  gap: clamp(4px, 0.7vw, 8px);
+  width: 100%;
+  flex-wrap: nowrap;
+  min-width: 0;
 }
 
 .toolbox-text-input {
-  flex: 1 1 0;
-  background: rgba(0, 0, 0, 0.5);
-  border: 1px solid var(--border);
+  background: rgba(10, 14, 22, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.22);
   color: var(--text);
-  border-radius: 3px;
-  padding: 4px 8px;
+  border-radius: 4px;
+  padding: 3px 8px;
   font-family: var(--font-family);
-  font-size: 10px;
+  font-size: var(--daw-ctrl-font);
   outline: none;
+  box-sizing: border-box;
 }
 
 .toolbox-text-input:focus {
@@ -545,6 +1003,61 @@
   box-shadow: 0 0 8px rgba(0, 255, 65, 0.25);
 }
 
+/* Proportional, High-Contrast Select Dropdowns across Keys, AI Studio & Toolbox (Fixes Item #3) */
+.toolbox-select-compact,
+.toolbox-compact-select {
+  appearance: none;
+  -webkit-appearance: none;
+  width: auto !important;
+  min-width: 48px !important;
+  max-width: clamp(78px, 24vw, 145px);
+  padding: 2px 18px 2px 7px !important;
+  background-color: rgba(14, 18, 28, 0.94) !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%2300f0ff' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 5px center !important;
+  background-size: 10px !important;
+  border: 1px solid rgba(255, 255, 255, 0.25) !important;
+  border-radius: 4px !important;
+  color: #f4f4f5 !important;
+  font-family: var(--font-mono, monospace);
+  font-size: var(--daw-badge-font) !important;
+  font-weight: 700;
+  line-height: 1.2;
+  min-height: 0 !important;
+  height: var(--daw-ctrl-h) !important;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: border-color 0.14s ease, box-shadow 0.14s ease;
+}
+
+.toolbox-select-compact:hover,
+.toolbox-compact-select:hover,
+.toolbox-select-compact:focus,
+.toolbox-compact-select:focus {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 6px rgba(0, 240, 255, 0.2);
+}
+
+.studio-command-row .btn-base,
+.pianoroll-toolbar .btn-base,
+.sequencer-toolbar .btn-base,
+.strudel-toolbar .btn-base,
+.sample-toolbar-row .btn-base,
+.toolbox-history-toolbar .btn-base {
+  min-height: 0 !important;
+  height: var(--daw-ctrl-h) !important;
+  padding: 0 clamp(6px, 0.9vw, 10px) !important;
+  font-size: var(--daw-badge-font) !important;
+  line-height: 1.2;
+}
+
+/* Pocket Popover Trigger & Floating Panel */
+.toolbox-pocket-anchor {
+  position: relative;
+  flex-shrink: 0;
+}
+
 .toolbox-execute-btn {
   width: 100%;
   margin-top: 4px;
@@ -553,10 +1066,7 @@
 }
 
 .toolbox-progress-box {
-  background: rgba(0, 0, 0, 0.6);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 6px 10px;
+  width: 100%;
 }
 
 .toolbox-progress-header {
@@ -570,24 +1080,33 @@
 
 .toolbox-progress-track {
   width: 100%;
-  height: 5px;
+  height: 4px;
   background: rgba(255, 255, 255, 0.1);
   border-radius: 2px;
   overflow: hidden;
 }
 
 .toolbox-progress-bar {
+  width: var(--progress-pct, 0%);
   height: 100%;
   background: var(--primary);
   box-shadow: var(--glow-primary);
   transition: width 0.2s ease;
 }
 
+.toolbox-error-alert {
+  font-size: 9.5px;
+  color: #ef4444;
+  margin: 0;
+}
+
 /* History Panel Inside Toolbox */
 .toolbox-history-panel {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 0.35rem;
+  height: 100%;
+  min-height: 0;
 }
 
 .toolbox-history-header {
@@ -705,74 +1224,166 @@
   font-size: 9px;
 }
 
-/* Resize Corner Grip */
-.toolbox-resize-handle {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  width: 14px;
-  height: 14px;
-  cursor: se-resize;
-  background: linear-gradient(135deg, transparent 50%, var(--border-bright) 50%, var(--border-bright) 70%, transparent 70%, transparent 80%, var(--border-bright) 80%);
-  opacity: 0.6;
-}
-
-.toolbox-resize-handle:hover {
-  opacity: 1;
-}
-
 /* ==========================================================================
-   TOOLBOX RESPONSIVE RULES (Mobile & Tablet)
+   TOOLBOX RESPONSIVE RULES (Tablet & Mobile <= 960px / <= 768px)
    ========================================================================== */
-@media (max-width: 768px) {
-  .floating-toolbox {
-    width: clamp(280px, calc(100vw - 20px), 480px);
-    max-width: calc(100vw - 16px);
-    max-height: 70vh;
-    touch-action: none;
-    z-index: 40;
-    border-radius: 8px;
-  }
-
-  .floating-toolbox.minimized {
-    width: auto !important;
-    max-width: max-content !important;
-    height: auto !important;
-    border-radius: 20px;
+@media (max-width: 960px) {
+  .floating-toolbox.toolbox-controller.mode-compact {
+    height: var(--toolbox-compact-h, clamp(192px, 28dvh, 212px));
+    min-height: 188px;
+    max-height: 214px;
   }
 
   .toolbox-header-row {
     flex-wrap: wrap;
-    gap: 6px;
-    padding: 6px 8px;
+    padding: 0.22rem 0.45rem;
+    gap: 0.22rem;
   }
 
-  .toolbox-prompt-bar {
+  /* Main 8-tab bar: active tab shows icon + full name; unselected tabs show icon only */
+  .toolbox-header-row > .toolbox-tabs-bar {
     order: 3;
     width: 100%;
-    min-width: 100%;
+    flex: 1 1 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.16rem;
+    padding: 0.12rem;
   }
 
-  .toolbox-quality-select {
+  .toolbox-header-row > .toolbox-tabs-bar > .daw-tooltip-wrapper {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+  }
+
+  .toolbox-header-row > .toolbox-tabs-bar > .daw-tooltip-wrapper:has(.toolbox-tab-btn.active) {
+    flex: 2.6 1 auto;
+  }
+
+  .toolbox-header-row > .toolbox-tabs-bar .toolbox-tab-btn {
+    width: 100%;
+    padding: 0 0.3rem;
+    justify-content: center;
+  }
+
+  .toolbox-header-row > .toolbox-tabs-bar .toolbox-tab-btn:not(.active) .tab-label-full {
     display: none;
   }
 
-  .toolbox-tabs-bar {
-    overflow-x: auto;
-    scrollbar-width: none;
-    -webkit-overflow-scrolling: touch;
-    padding: 4px 6px;
-    gap: 4px;
+  .toolbox-header-row > .toolbox-tabs-bar .toolbox-tab-btn.active .tab-label-full {
+    display: inline;
+    font-size: var(--daw-badge-font, clamp(0.64rem, 1.8vw, 0.72rem));
+    letter-spacing: 0.03em;
   }
 
-  .toolbox-tabs-bar::-webkit-scrollbar {
+  /* AI Studio Sub-Menu Tabs on Mobile/Tablet: Neighbor-aware single row, zero empty space */
+  .toolbox-ai-subnav {
+    padding: 0.15rem 0.35rem;
+    gap: 0.2rem;
+  }
+
+  .toolbox-subnav-tabs {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: nowrap !important;
+    overflow: hidden !important;
+    width: 100%;
+    gap: 0.16rem;
+  }
+
+  .toolbox-subnav-item-group:not(.active) {
+    flex: 1 1 0;
+    min-width: 24px;
+    max-width: 44px;
+    padding: 0.08rem;
+  }
+
+  .toolbox-subnav-item-group:not(.active) .toolbox-subnav-label {
+    display: none !important;
+  }
+
+  .toolbox-subnav-item-group.active {
+    flex: 6 1 0;
+    min-width: 0;
+    max-width: none;
+    justify-content: space-between;
+  }
+
+  .toolbox-subnav-btn {
+    padding: 0 0.28rem;
+    font-size: var(--daw-badge-font, clamp(0.62rem, 1.8vw, 0.7rem));
+    justify-content: center;
+  }
+
+  .toolbox-subnav-btn svg {
+    display: inline-block !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .floating-toolbox.toolbox-controller.mode-split {
+    height: var(--controller-h, clamp(192px, 28dvh, 212px));
+    min-height: 188px;
+    max-height: 52dvh;
+  }
+
+  .floating-toolbox.toolbox-controller.mode-split.tool-studio {
+    height: var(--controller-h, clamp(192px, 28dvh, 212px));
+  }
+
+  .floating-toolbox.toolbox-controller.mode-compact {
+    height: var(--toolbox-compact-h, clamp(192px, 28dvh, 212px));
+    min-height: 188px;
+    max-height: 214px;
+  }
+
+  .toolbox-rtz-btn,
+  .toolbox-transport-sep {
     display: none;
   }
 
-  .toolbox-tab-btn {
-    padding: 4px 7px;
-    font-size: 9px;
-    flex-shrink: 0;
+  .toolbox-transport-group {
+    gap: 0.22rem;
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .toolbox-context-chip {
+    max-width: 46vw;
+    font-size: var(--daw-badge-font, clamp(0.62rem, 1.7vw, 0.7rem));
+    padding: 0.14rem 0.42rem;
+  }
+
+  .mode-btn-label,
+  .pocket-btn-label {
+    display: none;
+  }
+
+  .edit-lyrics-btn-label {
+    display: none !important;
+  }
+
+  .toolbox-edit-lyrics-btn {
+    width: var(--daw-ctrl-h);
+    min-width: var(--daw-ctrl-h);
+    padding: 0 !important;
+    justify-content: center;
+    flex: 0 0 auto !important;
+  }
+
+  .prompt-expand-label {
+    display: none;
+  }
+
+  .toolbox-prompt-input {
+    padding-right: 26px !important;
+  }
+
+  .toolbox-expanded-body {
+    padding: 0.22rem 0.42rem;
   }
 }
 
@@ -782,11 +1393,13 @@
 .dsp-rack-wrap {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  justify-content: center;
+  gap: 0.32rem;
   width: 100%;
   height: 100%;
   overflow-y: auto;
-  padding: 4px;
+  padding: 0.1rem;
+  box-sizing: border-box;
 }
 
 .dsp-empty-state {

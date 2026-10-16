@@ -8,7 +8,6 @@ import { Tooltip } from './Tooltip';
 import { Canvas } from './Canvas';
 import {
   Play,
-  Pause,
   Square,
   RotateCcw,
   Repeat,
@@ -89,18 +88,11 @@ export const Board: React.FC<BoardProps> = ({
     playhead,
     duration,
     isPlaying,
-    loop,
     bpm,
-    snapToGrid,
-    gridSnap,
     selection,
     legoContextTrackIds,
     takes,
     setPlayhead,
-    setPlaying,
-    setLoop,
-    setBpm,
-    setSnapToGrid,
     setSelection,
     extractCurrentSection,
     toggleLegoContext,
@@ -290,37 +282,6 @@ export const Board: React.FC<BoardProps> = ({
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}.${ms}`;
   };
 
-  // Coordinated Transport actions
-  const handleTogglePlay = async () => {
-    if (isPlaying) {
-      dawEngine.pauseTransport();
-      setPlaying(false);
-    } else {
-      try { await dawEngine.startTransport(); } catch (error) { toast.error(error instanceof Error ? error.message : 'Could not play the arrangement'); }
-    }
-  };
-
-  const handleStop = () => {
-    dawEngine.stopTransport();
-    setPlaying(false);
-    setPlayhead(0);
-  };
-
-  const handleReturnToZero = () => {
-    dawEngine.seek(0);
-    setPlayhead(0);
-  };
-
-  const handleToggleLoop = () => {
-    const nextLoop = !loop;
-    setLoop(nextLoop);
-    if (selection) {
-      dawEngine.setLoop(nextLoop, selection.start, selection.end);
-    } else {
-      dawEngine.setLoop(nextLoop, 0, totalDuration);
-    }
-  };
-
   // Helper to clear any soloed non-master tracks so Master plays all instruments together
   const clearNonMasterSolos = () => {
     const currentTracks = useDawStore.getState().tracks;
@@ -397,50 +358,6 @@ export const Board: React.FC<BoardProps> = ({
       {/* Master Transport & Status Bar */}
       <div className="board-transport">
         <div className="board-transport-cluster">
-          <Tooltip title={isPlaying ? 'Pause' : 'Play'} description="Toggle studio transport playback (Space)">
-            <button
-              type="button"
-              className={`board-transport-btn ${isPlaying ? 'active' : ''}`}
-              onClick={handleTogglePlay}
-            >
-              {isPlaying ? <Pause size={13} /> : <Play size={13} />}
-              <span>{isPlaying ? 'PAUSE' : 'PLAY'}</span>
-            </button>
-          </Tooltip>
-
-          <Tooltip title="Stop" description="Stop playback and return playhead to start (0)">
-            <button
-              type="button"
-              className="board-transport-btn"
-              onClick={handleStop}
-            >
-              <Square size={13} />
-              <span>STOP</span>
-            </button>
-          </Tooltip>
-
-          <Tooltip title="Return to Zero" description="Reset playhead to zero (Home)">
-            <button
-              type="button"
-              className="board-transport-btn"
-              onClick={handleReturnToZero}
-            >
-              <RotateCcw size={13} />
-              <span>RTZ</span>
-            </button>
-          </Tooltip>
-
-          <Tooltip title="Loop" description="Toggle region looping (L)">
-            <button
-              type="button"
-              className={`board-transport-btn ${loop ? 'active' : ''}`}
-              onClick={handleToggleLoop}
-            >
-              <Repeat size={13} />
-              <span>LOOP</span>
-            </button>
-          </Tooltip>
-
           {selection && (
             <>
               <Tooltip title="Audition Section" description="Play only the selected time range once">
@@ -525,44 +442,6 @@ export const Board: React.FC<BoardProps> = ({
               </button>
             </Tooltip>
           )}
-          <div className="board-time-display">
-            <span className="board-time-label">TIME:</span>
-            <span className="board-time-value">
-              {formatTime(playhead)} / {formatTime(totalDuration)}
-            </span>
-          </div>
-
-          {selection && (
-            <div className="board-time-display">
-              <span className="board-time-label">RANGE:</span>
-              <span className="board-section-value">
-                [{formatTime(selection.start)} ➔ {formatTime(selection.end)}] (
-                {(selection.end - selection.start).toFixed(1)}s)
-              </span>
-            </div>
-          )}
-
-          <div className="board-time-display">
-            <span className="board-time-label">BPM:</span>
-            <input
-              type="number"
-              min="40"
-              max="240"
-              value={bpm}
-              onChange={(e) => setBpm(parseInt(e.target.value) || 120)}
-              className="board-bpm-input"
-            />
-          </div>
-
-          <Tooltip title="Grid Snap" description="Quantize section selections to musical grid">
-            <button
-              type="button"
-              className={`board-transport-btn ${snapToGrid ? 'active' : ''}`}
-              onClick={() => setSnapToGrid(!snapToGrid)}
-            >
-              <span>SNAP: {gridSnap}</span>
-            </button>
-          </Tooltip>
         </div>
       </div>
 

@@ -1216,7 +1216,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
         />
       </div>
 
-      {/* Floating, Draggable & Resizable AI Studio Toolbox */}
+      {/* Unified Bottom Controller (Option A: Split & Compact Modes) */}
       <Toolbox
         options={editing}
         optionsError={options.error?.message}
