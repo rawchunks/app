@@ -1,4 +1,4 @@
-
+/* RAWCHUNKS UNIFIED DAW BOARD STYLES */
 
 /* ==========================================================================
    UNIFIED BOARD CONTAINER
@@ -11,53 +11,110 @@
   flex-direction: column;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   overflow: hidden;
   position: relative;
   box-sizing: border-box;
 }
 
-/* Master Transport Header */
+/* Board Utility & Track Creation Bar */
 .board-transport {
   display: flex;
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: clamp(8px, 1vw, 14px);
-  padding: clamp(6px, 0.8vh, 10px) clamp(10px, 1.2vw, 16px);
+  gap: 6px;
+  padding: 3px 8px;
+  min-height: 28px;
   background: var(--surface-elevated);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
-  z-index: 10;
+  position: relative;
+  z-index: 30;
+  overflow: visible;
 }
 
 .board-transport-cluster {
   display: flex;
   align-items: center;
-  gap: clamp(4px, 0.5vw, 8px);
+  gap: 4px;
   flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+.board-add-dropdown {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.board-add-trigger {
+  padding: 0 0.45rem;
+}
+
+.board-add-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  background: rgba(12, 13, 19, 0.98);
+  border: 1px solid var(--border-bright, rgba(255, 255, 255, 0.18));
+  border-radius: var(--radius-sm);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.75);
+  min-width: max-content;
+}
+
+.board-add-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-family);
+  font-size: var(--font-2xs, 10px);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  white-space: nowrap;
+  text-align: left;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.board-add-menu-item:hover {
+  background: rgba(0, 255, 65, 0.14);
+  color: var(--primary);
 }
 
 .board-transport-btn {
-  background: transparent;
+  background: rgba(255, 255, 255, 0.03);
   color: var(--text-dim);
   border: 1px solid var(--border);
-  padding: clamp(4px, 0.6vh, 6px) clamp(8px, 0.8vw, 12px);
-  border-radius: 3px;
+  min-height: 1.375rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--radius-sm);
   font-family: var(--font-family);
-  font-size: var(--font-xs);
+  font-size: 9.5px;
+  font-weight: 700;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   transition: all 0.15s ease;
   user-select: none;
+  white-space: nowrap;
 }
 
 .board-transport-btn:hover {
   color: var(--text);
   border-color: var(--border-bright);
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .board-transport-btn.active {
@@ -71,26 +128,30 @@
 .board-transport-time {
   display: flex;
   align-items: center;
-  gap: clamp(8px, 1.2vw, 16px);
+  gap: 6px;
   font-family: var(--font-family);
-  font-size: var(--font-xs);
+  font-size: 9.5px;
   color: var(--text-dim);
+  flex-wrap: nowrap;
+  flex-shrink: 0;
 }
 
 .board-time-display {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   background: rgba(0, 0, 0, 0.5);
-  padding: 4px 10px;
-  border-radius: 3px;
+  min-height: 1.375rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border);
+  box-sizing: border-box;
 }
 
 .board-time-label {
   color: var(--text-secondary);
-  font-size: var(--font-xs);
-  letter-spacing: 0.5px;
+  font-size: 9px;
+  letter-spacing: 0.03em;
 }
 
 .board-time-value {
@@ -136,8 +197,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 10px;
-  font-size: var(--font-xs);
+  padding: 0 8px;
+  font-size: 9.5px;
   color: var(--text-secondary);
   background: var(--surface);
   box-sizing: border-box;
@@ -150,6 +211,9 @@
   overflow: hidden;
   display: flex;
   align-items: center;
+  cursor: ew-resize;
+  touch-action: none;
+  user-select: none;
 }
 
 .board-ruler-ticks {
@@ -164,14 +228,15 @@
   position: absolute;
   top: 0;
   bottom: 0;
+  left: var(--pos-pct, 0%);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  font-size: 9px;
+  font-size: clamp(0.5rem, 0.7vw, 0.5625rem);
   font-family: var(--font-family);
   color: var(--text-muted);
   border-left: 1px solid rgba(255, 255, 255, 0.08);
-  padding-left: 3px;
+  padding-left: 0.2rem;
   pointer-events: none;
 }
 
@@ -716,6 +781,23 @@
   }
 }
 
+@media (max-width: 480px) {
+  .board-track-header {
+    padding: 0.16rem 0.2rem;
+    gap: 0.14rem;
+  }
+
+  .board-track-controls {
+    gap: 1.5px;
+  }
+
+  .board-btn-mini,
+  .board-row.master .board-btn-mini {
+    min-width: 16px;
+    padding: 0 2px;
+  }
+}
+
 /* ==========================================================================
    WAVEFORM BOX & FLOATING HUD OVERLAY
    ========================================================================== */
@@ -842,10 +924,6 @@
   flex-wrap: wrap;
   overflow: visible;
   max-width: 100%;
-}
-
-.board-category-badges-list::-webkit-scrollbar {
-  display: none;
 }
 
 .board-take-badge-pill {

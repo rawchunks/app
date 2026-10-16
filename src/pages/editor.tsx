@@ -246,7 +246,6 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
     setSelection,
     setSelectedTrackId,
     addTrack,
-    addClip,
     setTakes,
     setCommits,
     syncStems,
@@ -584,25 +583,15 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isPlaying, loop, selection, selectedTrackId, takes, setSelection]);
 
-  // Track Creation
+  // Track Creation via '+' Tool Selector
   const handleAddTrack = (type: TrackType) => {
     const newTrack = addTrack(type);
-
-    if (type === 'sample' && song.url) {
-      addClip(newTrack.id, {
-        id: `clip-${Date.now()}`,
-        name: `${song.title} (Track Clip)`,
-        url: song.url,
-        startTime: 0,
-        duration: duration > 0 ? duration : 60,
-        offset: 0,
-      });
-    }
-
     setSelectedTrackId(newTrack.id);
+    if (type === 'sample') setActiveTool('sample');
     if (type === 'pianoroll') setActiveTool('keys');
     if (type === 'sequencer') setActiveTool('drums');
     if (type === 'strudel') setActiveTool('strudel');
+    setToolboxRevision((v) => v + 1);
   };
 
   // Commit Snapshot
@@ -1194,6 +1183,11 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
           selectedTrackId={selectedTrackId}
           onSelectTrack={handleSelectTrack}
           onAddTrack={handleAddTrack}
+          onOpenTool={(tool, studioTask) => {
+            setActiveTool(tool);
+            if (studioTask) setTask(studioTask);
+            setToolboxRevision((v) => v + 1);
+          }}
           onSeparateStems={handleSeparateStems}
           isSeparating={processing}
           onReworkSection={handleReworkSection}
@@ -1212,7 +1206,6 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
           instrument={instrument}
           processing={processing}
           reveal={toolboxRevision}
-
         />
       </div>
 
@@ -1243,10 +1236,10 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
         onQualityChange={setSelectedQuality}
         repaintMode={repaintMode}
         onRepaintModeChange={setRepaintMode}
-          repaintStrength={repaintStrength}
-          onRepaintStrengthChange={setRepaintStrength}
-          instrument={instrument}
-          onInstrumentChange={setInstrument}
+        repaintStrength={repaintStrength}
+        onRepaintStrengthChange={setRepaintStrength}
+        instrument={instrument}
+        onInstrumentChange={setInstrument}
         coverStrength={coverStrength}
         onCoverStrengthChange={setCoverStrength}
         targetDuration={targetDuration}

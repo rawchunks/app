@@ -4,9 +4,12 @@
    MEDIUM / TABLET BREAKPOINT (<= 900px)
    ========================================================================== */
 @media (max-width: 900px) {
+  :root {
+    --board-header-w: clamp(172px, 28vw, 212px);
+  }
   .editor-header-bar {
-    gap: 8px;
-    padding-bottom: 4px;
+    gap: 0.5rem;
+    padding-bottom: 0.25rem;
   }
 }
 
@@ -14,6 +17,15 @@
    MOBILE & SMALL SCREENS (<= 768px)
    ========================================================================== */
 @media (max-width: 768px) {
+  :root {
+    --board-row-h: clamp(56px, 7.6dvh, 68px);
+    --board-master-row-h: clamp(72px, 9.5dvh, 88px);
+    --board-header-w: clamp(134px, 38vw, 168px);
+    --toolbox-compact-h: clamp(192px, 28dvh, 212px);
+    --badge-mst-h: clamp(20px, 2.5dvh, 22px);
+    --badge-mst-font: clamp(10px, 2.5vw, 11px);
+  }
+
   /* Studio: Enable Pocket Switcher Bar */
   .studio-container {
     display: flex;
@@ -238,6 +250,12 @@
    EXTRA SMALL / PHONES (<= 480px)
    ========================================================================== */
 @media (max-width: 480px) {
+  :root {
+    --board-header-w: clamp(126px, 38vw, 152px);
+    --badge-mst-h: clamp(19px, 2.4dvh, 21px);
+    --badge-mst-font: clamp(9.5px, 2.5vw, 10.5px);
+  }
+
   .app-header {
     gap: 4px;
     padding: 0 6px;

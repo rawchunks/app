@@ -1,4 +1,4 @@
-import React, { useState, useRef, useLayoutEffect } from 'react';
+import React, { useState, useRef, useLayoutEffect, useEffect } from 'react';
 import { useDawStore, type LyricsAlignment } from '../../lib/daw/store';
 import { dawEngine } from '../../lib/daw/engine';
 import { Waveform } from '../waveform';
@@ -10,7 +10,6 @@ import {
   Play,
   Square,
   RotateCcw,
-  Repeat,
   Volume2,
   ChevronDown,
   ChevronUp,
@@ -22,21 +21,24 @@ import {
   Trash2,
   Minimize2,
   Drum,
+  Key as KeyIcon,
   Layers,
   FilePenLine,
+  Music,
+  Code,
 } from 'lucide-react';
 import { Song, Task } from '../../lib/schema';
 import { toast } from 'sonner';
 import { TrackType } from '../../lib/daw/store';
 import { getStemColor } from '../../lib/daw/palette';
 import { isBase, mounted, preview, interval, pending, masterArrangement, taskLabel, isLayerTake, layerTrackName, isFullSongRestyleTake } from '../../lib/daw/takes';
-import { Key } from './Key';
 
 export interface BoardProps {
   song: Song;
   selectedTrackId: string;
   onSelectTrack: (trackId: string) => void;
   onAddTrack: (type: TrackType) => void;
+  onOpenTool?: (tool: 'studio' | 'mixer' | 'keys' | 'drums' | 'strudel' | 'dsp' | 'sample' | 'history', studioTask?: Task) => void;
   onSeparateStems: () => void;
   isSeparating: boolean;
   onReworkSection?: () => void;
@@ -55,7 +57,6 @@ export interface BoardProps {
   instrument?: string;
   processing?: boolean;
   reveal?: number;
-
 }
 
 export const Board: React.FC<BoardProps> = ({
@@ -63,6 +64,7 @@ export const Board: React.FC<BoardProps> = ({
   selectedTrackId,
   onSelectTrack,
   onAddTrack,
+  onOpenTool,
   onSeparateStems,
   isSeparating,
   onReworkSection,
@@ -81,7 +83,6 @@ export const Board: React.FC<BoardProps> = ({
   instrument,
   processing = false,
   reveal: _reveal,
-
 }) => {
   const {
     tracks,
@@ -112,6 +113,20 @@ export const Board: React.FC<BoardProps> = ({
   const [lanesExpanded, setLanesExpanded] = useState<boolean>(true);
   const [extractedExpanded, setExtractedExpanded] = useState<boolean>(true);
   const [isCanvasOpen, setIsCanvasOpen] = useState<boolean>(false);
+  const [isAddMenuOpen, setIsAddMenuOpen] = useState<boolean>(false);
+  const addMenuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!isAddMenuOpen) return;
+    const handlePointerDownOutside = (e: PointerEvent) => {
+      if (addMenuRef.current && !addMenuRef.current.contains(e.target as Node)) {
+        setIsAddMenuOpen(false);
+      }
+    };
+    window.addEventListener('pointerdown', handlePointerDownOutside);
+    return () => window.removeEventListener('pointerdown', handlePointerDownOutside);
+  }, [isAddMenuOpen]);
+
   const hasVocalStem = tracks.some(
     (t) =>
       ['vocals', 'backing_vocals'].includes((t.stemType || t.name || '').toLowerCase()) &&
@@ -130,7 +145,6 @@ export const Board: React.FC<BoardProps> = ({
       hasVocalStem ||
       isVocalMacro,
   );
-
   const playingTakeId = isPlaying ? auditionId : null;
   const overlays = tracks.filter(
     track =>
@@ -355,30 +369,116 @@ export const Board: React.FC<BoardProps> = ({
 
   return (
     <div className="board-container">
-      {/* Master Transport & Status Bar */}
+      {/* Board Timeline Utility & Track Creation Bar (Master Transport lives in Bottom Controller Deck) */}
       <div className="board-transport">
         <div className="board-transport-cluster">
-          {selection && (
+          <div className="board-add-dropdown" ref={addMenuRef}>
+            <Tooltip title="Add Lane / Tool" description="Add an instrument lane or open a generator tool in the Controller below">
+              <button
+                type="button"
+                className={`board-transport-btn board-add-trigger ${isAddMenuOpen ? 'active' : ''}`}
+                onClick={() => setIsAddMenuOpen((prev) => !prev)}
+                aria-expanded={isAddMenuOpen}
+                aria-haspopup="menu"
+                aria-label="Add track or tool"
+              >
+                <Plus size={12} />
+              </button>
+            </Tooltip>
+
+            {isAddMenuOpen && (
+              <div className="board-add-menu" role="menu" aria-label="Add lane or tool">
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="board-add-menu-item"
+                  onClick={() => {
+                    setIsAddMenuOpen(false);
+                    onOpenTool?.('studio', 'lego');
+                  }}
+                >
+                  <Sparkles size={12} />
+                  <span>AI LAYER</span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="board-add-menu-item"
+                  onClick={() => {
+                    setIsAddMenuOpen(false);
+                    onAddTrack('pianoroll');
+                  }}
+                >
+                  <KeyIcon size={12} />
+                  <span>KEYS SYNTH</span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="board-add-menu-item"
+                  onClick={() => {
+                    setIsAddMenuOpen(false);
+                    onAddTrack('sequencer');
+                  }}
+                >
+                  <Drum size={12} />
+                  <span>DRUM SEQ</span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="board-add-menu-item"
+                  onClick={() => {
+                    setIsAddMenuOpen(false);
+                    onAddTrack('sample');
+                  }}
+                >
+                  <Music size={12} />
+                  <span>SAMPLER</span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="board-add-menu-item"
+                  onClick={() => {
+                    setIsAddMenuOpen(false);
+                    onAddTrack('strudel');
+                  }}
+                >
+                  <Code size={12} />
+                  <span>LIVE CODE</span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {!selection ? (
+            <Tooltip title="Select Section" description="Enable section selector on Master timeline">
+              <button
+                type="button"
+                className="board-transport-btn"
+                aria-label="Select Section"
+                onClick={() => {
+                  const start = Math.max(0, Math.min(playhead, Math.max(0, totalDuration - 5)));
+                  const end = Math.min(totalDuration, Math.max(start + 5, start + 15));
+                  useDawStore.getState().setSelection({ start, end });
+                }}
+              >
+                <Scissors size={11} />
+                <span className="board-btn-label">SECTION</span>
+              </button>
+            </Tooltip>
+          ) : (
             <>
               <Tooltip title="Audition Section" description="Play only the selected time range once">
                 <button
                   type="button"
                   className="board-transport-btn active"
+                  aria-label="Audition Section"
                   onClick={() => dawEngine.auditionSection(selection.start, selection.end, false)}
                 >
-                  <Play size={12} />
-                  <span>AUDITION</span>
-                </button>
-              </Tooltip>
-
-              <Tooltip title="Loop Section" description="Continuously loop the selected time range">
-                <button
-                  type="button"
-                  className="board-transport-btn"
-                  onClick={() => dawEngine.auditionSection(selection.start, selection.end, true)}
-                >
-                  <Repeat size={12} />
-                  <span>LOOP REGION</span>
+                  <Play size={11} />
+                  <span className="board-btn-label">AUDITION</span>
                 </button>
               </Tooltip>
 
@@ -386,24 +486,26 @@ export const Board: React.FC<BoardProps> = ({
                 <button
                   type="button"
                   className="board-transport-btn"
+                  aria-label="Extract Section"
                   onClick={() => {
                     void extractCurrentSection();
                   }}
                 >
-                  <Scissors size={12} />
-                  <span>EXTRACT</span>
+                  <Scissors size={11} />
+                  <span className="board-btn-label">EXTRACT</span>
                 </button>
               </Tooltip>
 
               {onReworkSection && (
-                <Tooltip title="Rework Section" description="Open studio generator pre-configured for this section">
+                <Tooltip title="Rework Section" description="Focus studio generator on this time section">
                   <button
                     type="button"
                     className="board-transport-btn board-transport-btn-accent"
+                    aria-label="Rework Section"
                     onClick={onReworkSection}
                   >
-                    <Sparkles size={12} />
-                    <span>REWORK</span>
+                    <Sparkles size={11} />
+                    <span className="board-btn-label">REWORK</span>
                   </button>
                 </Tooltip>
               )}
@@ -415,16 +517,17 @@ export const Board: React.FC<BoardProps> = ({
               <button
                 type="button"
                 className="board-transport-btn board-transport-btn-warning"
+                aria-label="Restore Original Mix"
                 onClick={() => revertToOriginalMaster()}
               >
-                <RotateCcw size={12} />
-                <span>RESTORE MIX</span>
+                <RotateCcw size={11} />
+                <span className="board-btn-label">RESTORE</span>
               </button>
             </Tooltip>
           )}
         </div>
 
-        {/* Time Elapsed & Region Readout */}
+        {/* Song Lyrics Document Icon Toggle */}
         <div className="board-transport-time">
           {canShowCanvas && (
             <Tooltip
@@ -445,15 +548,18 @@ export const Board: React.FC<BoardProps> = ({
         </div>
       </div>
 
-      {/* Unified DAW Board Viewport */}
-      <div className={`board-main-split ${canShowCanvas && isCanvasOpen ? 'with-canvas' : ''}`}>
-      <div ref={viewportRef} className="board-viewport">
-        {/* Sticky Time Ruler Header Row */}
-        <div className="board-ruler-row">
-          <div className="board-ruler-corner">
-            <span>TRACK / CHANNEL</span>
-            <span>I/O</span>
-          </div>
+      {/* Unified DAW Board Viewport + Foldable Right Canvas */}
+      <div
+        className={`board-main-split ${canShowCanvas && isCanvasOpen ? 'with-canvas' : ''}`}
+        data-pocket={canShowCanvas && isCanvasOpen ? 'canvas' : 'tracks'}
+      >
+        <div ref={viewportRef} className="board-viewport">
+          {/* Sticky Time Ruler Header Row */}
+          <div className="board-ruler-row">
+            <div className="board-ruler-corner">
+              <span>TRACK</span>
+              <span>I/O</span>
+            </div>
 
           <div
             className="board-ruler-timeline"
@@ -1494,43 +1600,8 @@ export const Board: React.FC<BoardProps> = ({
               </React.Fragment>
             );
           })}
-
-        {/* Add Track Action Row */}
-        <div className="board-add-track-row">
-          <button
-            type="button"
-            className="board-add-btn"
-            onClick={() => onAddTrack('sample')}
-            title="Add audio track"
-          >
-            <Plus size={12} /> AUDIO
-          </button>
-          <button
-            type="button"
-            className="board-add-btn"
-            onClick={() => onAddTrack('sequencer')}
-            title="Add drum sequencer track"
-          >
-            <Drum size={12} /> DRUMS
-          </button>
-          <button
-            type="button"
-            className="board-add-btn"
-            onClick={() => onAddTrack('pianoroll')}
-            title="Add keyboard synth track"
-          >
-            <Key size={12} /> KEYS
-          </button>
-          <button
-            type="button"
-            className="board-add-btn"
-            onClick={() => onAddTrack('strudel')}
-            title="Add live code track"
-          >
-            <Plus size={12} /> CODE
-          </button>
         </div>
-      </div>
+
         {canShowCanvas && isCanvasOpen && (
           <Canvas
             lyrics={lyrics}
