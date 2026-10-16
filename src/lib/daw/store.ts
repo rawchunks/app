@@ -1042,11 +1042,12 @@ export const useDawStore = create<DAWState>((set, get) => ({
         if (t.id !== trackId) return t;
         if (typeof fxKeyOrConfig === 'string') {
           const fxKey = fxKeyOrConfig;
-          const currentFxObj = (t.fx as any)[fxKey] || {};
+          const baseFx = t.fx || JSON.parse(JSON.stringify(DEFAULT_FX));
+          const currentFxObj = (baseFx as any)[fxKey] || {};
           return {
             ...t,
             fx: {
-              ...t.fx,
+              ...baseFx,
               [fxKey]: {
                 ...currentFxObj,
                 ...partial,

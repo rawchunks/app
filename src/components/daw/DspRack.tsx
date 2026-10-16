@@ -7,12 +7,31 @@ interface DspRackProps {
   track?: DAWTrack;
 }
 
+const DEFAULT_FX_FALLBACK: DSPFxConfig = {
+  eq: { enabled: false, low: 0, mid: 0, high: 0 },
+  filter: { enabled: false, type: 'lowpass', cutoff: 2000, resonance: 1 },
+  distortion: { enabled: false, drive: 0.2, wet: 0.5 },
+  chorus: { enabled: false, rate: 1.5, depth: 0.5, wet: 0.4 },
+  delay: { enabled: false, delayTime: 0.25, feedback: 0.35, wet: 0.3 },
+  reverb: { enabled: false, decay: 2.0, wet: 0.3 },
+  compressor: { enabled: false, threshold: -18, ratio: 4, attack: 0.01, release: 0.15 },
+};
+
 export const DspRack: React.FC<DspRackProps> = ({ track }) => {
   const { tracks, selectedTrackId, updateTrackFx } = useDawStore();
   const currentTrack = track ?? tracks.find((t) => t.id === selectedTrackId);
   if (!currentTrack) return <div className="dsp-rack-wrap">Select a lane to edit its effects.</div>;
 
-  const fx = currentTrack.fx;
+  const rawFx = currentTrack.fx || ({} as Partial<DSPFxConfig>);
+  const fx: DSPFxConfig = {
+    eq: { ...DEFAULT_FX_FALLBACK.eq, ...(rawFx.eq || {}) },
+    filter: { ...DEFAULT_FX_FALLBACK.filter, ...(rawFx.filter || {}) },
+    distortion: { ...DEFAULT_FX_FALLBACK.distortion, ...(rawFx.distortion || {}) },
+    chorus: { ...DEFAULT_FX_FALLBACK.chorus, ...(rawFx.chorus || {}) },
+    delay: { ...DEFAULT_FX_FALLBACK.delay, ...(rawFx.delay || {}) },
+    reverb: { ...DEFAULT_FX_FALLBACK.reverb, ...(rawFx.reverb || {}) },
+    compressor: { ...DEFAULT_FX_FALLBACK.compressor, ...(rawFx.compressor || {}) },
+  };
 
   const handleFxChange = <K extends keyof DSPFxConfig>(fxKey: K, partial: Partial<DSPFxConfig[K]>) => {
     updateTrackFx(currentTrack.id, fxKey, partial);
