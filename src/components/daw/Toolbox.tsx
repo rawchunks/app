@@ -13,6 +13,7 @@ import {
   X,
   Minimize2,
   Maximize2,
+  GripHorizontal,
   Sparkles,
   Layers,
   ArrowRightCircle,
@@ -158,6 +159,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
   // Default to unified self-contained 'compact' mode across all tabs (Item #5)
   const [controllerMode, setControllerMode] = useState<'split' | 'compact'>('compact');
   const [isMinimized, setIsMinimized] = useState<boolean>(false);
+  const [splitHeight, setSplitHeight] = useState<number | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   const prevRevealRef = useRef(reveal);
@@ -224,6 +226,37 @@ export const Toolbox: React.FC<ToolboxProps> = ({
     contextChipText = `${trackName} ${formatTime(selection.start)}–${formatTime(selection.end)}`;
   }
 
+  // Pointer-captured vertical resize handler for 'split' mode
+  const handleSplitResizeDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (controllerMode !== 'split' || isMinimized) return;
+    e.stopPropagation();
+    e.preventDefault();
+    const target = e.currentTarget;
+    target.setPointerCapture(e.pointerId);
+    const startY = e.clientY;
+    const startH = containerRef.current?.getBoundingClientRect().height || 180;
+
+    const onMove = (moveEv: PointerEvent) => {
+      if (!containerRef.current) return;
+      const deltaY = startY - moveEv.clientY;
+      const minH = 128;
+      const maxH = Math.round(window.innerHeight * 0.62);
+      const nextH = Math.round(Math.max(minH, Math.min(maxH, startH + deltaY)));
+      containerRef.current.style.setProperty('--controller-h', `${nextH}px`);
+      setSplitHeight(nextH);
+    };
+
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+    };
+
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+  };
+
   const tabs = [
     { id: 'studio' as ActiveTool, label: 'AI STUDIO', desc: 'AI Generative Studio: rework, layer, extend & isolate', icon: Wand2, className: 'tab-studio' },
     { id: 'mixer' as ActiveTool, label: 'MIXER', desc: 'Multitrack faders, panning, mute & solo console', icon: Sliders, className: 'tab-mixer' },
@@ -235,12 +268,30 @@ export const Toolbox: React.FC<ToolboxProps> = ({
     { id: 'history' as ActiveTool, label: 'HISTORY', desc: `Session takes (${takes.length}) and commit milestones (${commits.length})`, icon: History, className: 'tab-history' },
   ];
 
+  const controllerStyle: React.CSSProperties | undefined =
+    controllerMode === 'split' && splitHeight !== null
+      ? ({ '--controller-h': `${splitHeight}px` } as React.CSSProperties)
+      : undefined;
+
   return (
     <section
       ref={containerRef}
+      style={controllerStyle}
       aria-label="DAW Controller"
       className={`floating-toolbox toolbox-controller mode-${controllerMode} tool-${activeTool || 'none'} ${isMinimized ? 'minimized' : ''}`}
     >
+      {/* Top Split Resizer Bar */}
+      {controllerMode === 'split' && !isMinimized && (
+        <div
+          className="toolbox-split-resizer"
+          onPointerDown={handleSplitResizeDown}
+          title="Drag vertically to resize Controller and Board split"
+        >
+          <span className="toolbox-split-resizer-pill" />
+          <GripHorizontal size={11} className="toolbox-split-resizer-grip" />
+        </div>
+      )}
+
       <select aria-label="Quality" value={selectedQuality} onChange={e => onQualityChange(e.target.value)}>{options?.modes.filter(mode => options.tasks.find(action => action.id === task)?.modes.includes(mode.id)).map(q => <option key={q.id} value={q.id}>{q.label}</option>)}</select>
 
       {/* TIER 1: Unified Master Transport + 8-Tool Switcher + Mode/Collapse */}
