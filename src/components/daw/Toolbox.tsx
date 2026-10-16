@@ -118,6 +118,14 @@ const DEFAULT_STEMS = [
   { id: 'synths', label: 'Synths' },
 ];
 
+const REWORK_INTENSITY_PRESETS = [
+  { id: 'subtle', mode: 'conservative' as const, strength: 0, label: 'Subtle (0%)', shortLabel: 'Subtle', desc: 'Preserves original melody, timing & structure closely' },
+  { id: 'light', mode: 'balanced' as const, strength: 0.25, label: 'Light (25%)', shortLabel: 'Light', desc: 'Gentle timbral & phrasing variation while locking groove' },
+  { id: 'balanced', mode: 'balanced' as const, strength: 0.5, label: 'Balanced (50%)', shortLabel: 'Balanced', desc: 'Blends original musical phrasing with fresh AI variation' },
+  { id: 'strong', mode: 'balanced' as const, strength: 0.75, label: 'Strong (75%)', shortLabel: 'Strong', desc: 'Major creative rework with loose structural anchoring' },
+  { id: 'bold', mode: 'aggressive' as const, strength: 1.0, label: 'Bold (100%)', shortLabel: 'Bold', desc: 'Reimagines the selected region freely from your prompt' },
+];
+
 const PROMPT_QUICK_TAGS = [
   'Punchy 808 Bass',
   'Warm Analog Synth',
@@ -183,7 +191,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
   const [isMinimized, setIsMinimized] = useState<boolean>(false);
   const [splitHeight, setSplitHeight] = useState<number | null>(null);
   const [isPromptModalOpen, setIsPromptModalOpen] = useState<boolean>(false);
-  const [, setIsParamModalOpen] = useState<boolean>(false);
+  const [isParamModalOpen, setIsParamModalOpen] = useState<boolean>(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   const prevRevealRef = useRef(reveal);
@@ -297,15 +305,48 @@ export const Toolbox: React.FC<ToolboxProps> = ({
     { id: 'history' as ActiveTool, label: 'HISTORY', desc: `Session takes (${takes.length}) and commit milestones (${commits.length})`, icon: History, className: 'tab-history' },
   ];
 
+  const effectiveRepaintVal =
+    repaintMode === 'conservative' ? 0 : repaintMode === 'aggressive' ? 1 : repaintStrength;
+  const effectiveRepaintPct = Math.round(effectiveRepaintVal * 100);
+  const closestReworkPreset = REWORK_INTENSITY_PRESETS.reduce((prev, curr) =>
+    Math.abs(curr.strength - effectiveRepaintVal) < Math.abs(prev.strength - effectiveRepaintVal)
+      ? curr
+      : prev,
+  );
+
+  const handleReworkIntensityChange = (val0to1: number) => {
+    const clamped = Math.max(0, Math.min(1, Number(val0to1.toFixed(2))));
+    if (clamped <= 0.02) {
+      onRepaintModeChange('conservative');
+      onRepaintStrengthChange(0);
+    } else if (clamped >= 0.98) {
+      onRepaintModeChange('aggressive');
+      onRepaintStrengthChange(1);
+    } else {
+      onRepaintModeChange('balanced');
+      onRepaintStrengthChange(clamped);
+    }
+  };
+
   const stemList = options?.stems ?? DEFAULT_STEMS;
   const activeStemLabel = stemList.find((s) => s.id === stemType)?.label ?? stemType;
   const getActiveSubnavParamSummary = (
-    _actionId: string,
+    actionId: string,
   ): { tag: string; value: string; title: string } => {
+    if (actionId === 'repaint') {
+      return {
+        tag: 'INTENSITY',
+        value: `${closestReworkPreset.shortLabel} · ${effectiveRepaintPct}%`,
+        title: 'Rework Intensity & Crossfade',
+      };
+    }
     return { tag: 'PARAM', value: 'Configure', title: 'Configure Parameters' };
   };
 
-  const getActiveFilterDescription = (_actionId: string): string => {
+  const getActiveFilterDescription = (actionId: string): string => {
+    if (actionId === 'repaint') {
+      return closestReworkPreset.desc;
+    }
     return '';
   };
 
@@ -508,7 +549,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
                         aria-selected={isCurrent}
                         className={`toolbox-tab-btn toolbox-subnav-btn ${isCurrent ? 'active tab-studio' : ''}`}
                         onClick={() => {
-                          if (isCurrent && ([] as string[]).includes(task)) {
+                          if (isCurrent && (['repaint'] as string[]).includes(task)) {
                             setIsParamModalOpen(true);
                           } else {
                             onSelectTask(action.id as Task);
@@ -521,7 +562,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
                     </Tooltip>
 
                     {/* Standardized Expandable Modal Trigger Inside Active Sub-Menu Item (Neighbor-Aware, Full Fill) */}
-                    {isCurrent && ([] as string[]).includes(task) && (
+                    {isCurrent && (['repaint'] as string[]).includes(task) && (
                       <Tooltip
                         title={paramSummary.title}
                         description={`${filterDesc} — Click to open ${shortName} parameters modal (Preselects + Granular Slider)`}
@@ -563,40 +604,6 @@ export const Toolbox: React.FC<ToolboxProps> = ({
 
               {options && <Parameters parameters={Object.fromEntries(Object.entries(options.parameters).filter(([key, parameter]) => parameter.tasks?.includes(task) && !['trackName', 'coverStrength'].includes(key)))} values={parameters} onChange={onParametersChange} />}
               <div className="toolbox-params-grid">
-                      {task === 'repaint' && (
-                        <div className="toolbox-param-box">
-                          <div className="toolbox-param-title">REWORK INTENSITY & MODE</div>
-                          <div className="toolbox-param-row">
-                            <label>MODE:</label>
-                            <div className="toolbox-radio-group">
-                              {options?.repaintModes.map(({ id: m, label }) => (
-                                <button
-                                  key={m}
-                                  type="button"
-                                  className={`toolbox-mode-btn ${repaintMode === m ? 'active' : ''}`}
-                                  onClick={() => onRepaintModeChange(m as 'conservative' | 'balanced' | 'aggressive')}
-                                >
-                                  {label}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                          <div className="toolbox-param-row">
-                            <label>STRENGTH:</label>
-                            <input
-                              type="range"
-                              min="0"
-                              max="1.0"
-                              step="0.05"
-                              disabled={repaintMode !== 'balanced'}
-                              value={repaintMode === 'conservative' ? 0 : repaintMode === 'aggressive' ? 1 : repaintStrength}
-                              onChange={(e) => onRepaintStrengthChange(parseFloat(e.target.value))}
-                            />
-                            <span>{Math.round((repaintMode === 'conservative' ? 0 : repaintMode === 'aggressive' ? 1 : repaintStrength) * 100)}%</span>
-                          </div>
-                        </div>
-                      )}
-
                       {task === 'lego' && (
                         <div className="toolbox-param-box">
                           <div className="toolbox-param-title">ADD AN INSTRUMENT</div>
@@ -1055,6 +1062,163 @@ export const Toolbox: React.FC<ToolboxProps> = ({
           })()}
         </div>
       )}
+
+      {/* Standardized AI Studio Parameter Modal (Presets + Granular Dragging Bar) */}
+      <Modal
+        isOpen={isParamModalOpen && (['repaint'] as string[]).includes(task)}
+        onClose={() => setIsParamModalOpen(false)}
+        title={`AI STUDIO PARAMETERS // ${taskLabel(task).toUpperCase()}`}
+        size="md"
+      >
+        <div className="toolbox-param-modal">
+          <div className="toolbox-param-modal-header">
+            <div className="toolbox-param-modal-badges">
+              <span className="toolbox-prompt-modal-badge">{contextChipText}</span>
+              <span className="toolbox-param-modal-current">
+                {getActiveSubnavParamSummary(task).tag}: {getActiveSubnavParamSummary(task).value}
+              </span>
+            </div>
+            <p className="toolbox-param-modal-desc">{getActiveFilterDescription(task)}</p>
+          </div>
+
+          {/* 1. REWORK (repaint): Unified Intensity Presets + Granular Strength Slider + Seam Crossfade */}
+          {task === 'repaint' && (
+            <>
+              <div className="toolbox-param-section">
+                <div className="toolbox-param-section-head">
+                  <span className="daw-field-label">PRESELECT INTENSITY PROFILES</span>
+                  <span className="toolbox-param-readout-tag">{closestReworkPreset.label.toUpperCase()}</span>
+                </div>
+                <div className="toolbox-param-presets-grid cols-5">
+                  {REWORK_INTENSITY_PRESETS.map((preset) => {
+                    const isSelected = closestReworkPreset.id === preset.id;
+                    return (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        className={`toolbox-param-preset-btn ${isSelected ? 'active' : ''}`}
+                        onClick={() => handleReworkIntensityChange(preset.strength)}
+                      >
+                        <span className="preset-btn-title">{preset.shortLabel}</span>
+                        <span className="preset-btn-val">{Math.round(preset.strength * 100)}%</span>
+                        <span className="preset-btn-sub">{preset.desc}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="toolbox-param-section">
+                <div className="toolbox-param-section-head">
+                  <span className="daw-field-label">GRANULAR REWORK INTENSITY</span>
+                  <span className="toolbox-param-readout-val">{effectiveRepaintPct}%</span>
+                </div>
+                <div className="toolbox-param-slider-row">
+                  <button
+                    type="button"
+                    className="toolbox-param-step-btn"
+                    onClick={() => handleReworkIntensityChange(effectiveRepaintVal - 0.05)}
+                  >
+                    -5%
+                  </button>
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    value={effectiveRepaintVal}
+                    onChange={(e) => handleReworkIntensityChange(Number(e.target.value))}
+                    className="daw-ContextSlider toolbox-param-range"
+                  />
+                  <button
+                    type="button"
+                    className="toolbox-param-step-btn"
+                    onClick={() => handleReworkIntensityChange(effectiveRepaintVal + 0.05)}
+                  >
+                    +5%
+                  </button>
+                </div>
+                <div className="toolbox-param-scale-labels">
+                  <span>0% (Preserve Source Audio)</span>
+                  <span>50% (Balanced Re-synthesis)</span>
+                  <span>100% (Fresh Generation)</span>
+                </div>
+              </div>
+
+              <div className="toolbox-param-section">
+                <div className="toolbox-param-section-head">
+                  <span className="daw-field-label">BOUNDARY SEAM CROSSFADE</span>
+                  <span className="toolbox-param-readout-val">
+                    {Number(parameters.repaintWavCrossfadeSec ?? 0).toFixed(2)}s
+                  </span>
+                </div>
+                <div className="toolbox-param-slider-row">
+                  <button
+                    type="button"
+                    className="toolbox-param-step-btn"
+                    onClick={() =>
+                      onParametersChange({
+                        ...parameters,
+                        repaintWavCrossfadeSec: Math.max(0, Number((Number(parameters.repaintWavCrossfadeSec ?? 0) - 0.05).toFixed(2))),
+                      })
+                    }
+                  >
+                    -0.05s
+                  </button>
+                  <input
+                    type="range"
+                    min="0"
+                    max="2"
+                    step="0.05"
+                    value={Number(parameters.repaintWavCrossfadeSec ?? 0)}
+                    onChange={(e) =>
+                      onParametersChange({
+                        ...parameters,
+                        repaintWavCrossfadeSec: Number(e.target.value),
+                      })
+                    }
+                    className="daw-ContextSlider toolbox-param-range"
+                  />
+                  <button
+                    type="button"
+                    className="toolbox-param-step-btn"
+                    onClick={() =>
+                      onParametersChange({
+                        ...parameters,
+                        repaintWavCrossfadeSec: Math.min(2, Number((Number(parameters.repaintWavCrossfadeSec ?? 0) + 0.05).toFixed(2))),
+                      })
+                    }
+                  >
+                    +0.05s
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+
+          <div className="toolbox-param-modal-footer">
+            <button
+              type="button"
+              className="btn-base btn-variant-ghost btn-size-sm"
+              onClick={() => setIsParamModalOpen(false)}
+            >
+              DONE
+            </button>
+            <button
+              type="button"
+              className="btn-base btn-variant-primary btn-size-sm"
+              disabled={processing || !options}
+              onClick={() => {
+                setIsParamModalOpen(false);
+                onExecute();
+              }}
+            >
+              <ArrowUp size={12} />
+              <span>{taskLabel(task).toUpperCase()}</span>
+            </button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Expandable Brand-Aligned Prompt-Box Modal (Item #6) */}
       <Modal
