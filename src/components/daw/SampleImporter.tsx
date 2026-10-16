@@ -4,7 +4,8 @@ import { useDawStore, DAWClip } from '../../lib/daw/store';
 import { dawEngine } from '../../lib/daw/engine';
 import { sdk } from '../../lib/sdk';
 import { Button } from '../button';
-import { Upload, Play, Pause, Scissors, Plus, Music, Mic, Square } from 'lucide-react';
+import { Tooltip } from './Tooltip';
+import { Upload, Play, Pause, Plus, Mic, Square, RefreshCw } from 'lucide-react';
 
 interface SampleImporterProps {
   onImportComplete?: (trackId: string) => void;
@@ -166,26 +167,80 @@ export const SampleImporter: React.FC<SampleImporterProps> = ({ onImportComplete
 
   return (
     <div className="sample-importer-wrap">
-      <div className="stem-lane-header">
-        <div className="stem-lane-info">
-          <Music size={18} color="#00ffff" />
-          <h3 className="sample-header-title">SAMPLE IMPORTER &amp; VOICE SAMPLER</h3>
-        </div>
+      {/* Single-Row Command Bar */}
+      <div className="sample-toolbar-row">
+        {audioBuffer && (
+          <div className="sample-file-meta">
+            <span className="sample-file-name">
+              {fileName} ({audioBuffer.duration.toFixed(1)}s)
+            </span>
+          </div>
+        )}
 
         <div className="sample-header-actions">
-          <Button
-            size="sm"
-            variant={isRecording ? 'destructive' : 'outline'}
-            onClick={handleToggleVoiceRecord}
-          >
-            {isRecording ? <Square size={13} /> : <Mic size={13} color="#ff0055" />}
-            {isRecording ? 'STOP' : 'RECORD VOICE'}
-          </Button>
+          {audioBuffer && (
+            <>
+              <select
+                className="toolbox-text-input toolbox-select-compact"
+                aria-label="Slice count"
+                value={numSlices}
+                onChange={(e) => {
+                  setNumSlices(parseInt(e.target.value, 10));
+                  setActiveSlice(null);
+                }}
+              >
+                {[2, 4, 8, 16].map((count) => (
+                  <option key={count} value={count}>
+                    {count} SLICES
+                  </option>
+                ))}
+              </select>
+
+              <Tooltip title={previewing && isPlaying ? 'Stop Preview' : 'Preview Sample'}>
+                <Button size="sm" variant="outline" onClick={() => handlePreviewSample()}>
+                  {previewing && isPlaying ? <Pause size={12} /> : <Play size={12} />}
+                  <span className="daw-btn-label">PREVIEW</span>
+                </Button>
+              </Tooltip>
+
+              <Tooltip title="Select a Different Audio File">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => {
+                    dawEngine.stopAuditionTake();
+                    setPreviewing(false);
+                    setActiveSlice(null);
+                    setAudioBuffer(null);
+                    setPeaks([]);
+                    setFileUrl('');
+                  }}
+                >
+                  <RefreshCw size={12} />
+                  <span className="daw-btn-label">REPLACE</span>
+                </Button>
+              </Tooltip>
+            </>
+          )}
+
+          <Tooltip title={isRecording ? 'Stop Voice Recording' : 'Record Microphone Voice Sample'}>
+            <Button
+              size="sm"
+              variant={isRecording ? 'destructive' : 'outline'}
+              onClick={handleToggleVoiceRecord}
+            >
+              {isRecording ? <Square size={12} /> : <Mic size={12} color="#ff0055" />}
+              <span className="daw-btn-label">{isRecording ? 'STOP' : 'RECORD'}</span>
+            </Button>
+          </Tooltip>
 
           {audioBuffer && (
-            <Button size="sm" variant="default" onClick={handleImportToDaw} disabled={importing}>
-              <Plus size={13} /> ADD TO WORKSTATION
-            </Button>
+            <Tooltip title="Import Sample into DAW Workstation">
+              <Button size="sm" variant="default" onClick={handleImportToDaw} disabled={importing}>
+                <Plus size={12} />
+                <span className="daw-btn-label">IMPORT</span>
+              </Button>
+            </Tooltip>
           )}
         </div>
       </div>
@@ -198,12 +253,12 @@ export const SampleImporter: React.FC<SampleImporterProps> = ({ onImportComplete
           onClick={() => fileInputRef.current?.click()}
           className={`sample-dropzone ${isDragging ? 'active' : ''}`}
         >
-          <Upload size={32} color={isDragging ? '#00ffff' : '#71717a'} className="sample-dropzone-icon" />
+          <Upload size={28} color={isDragging ? '#00ffff' : '#71717a'} className="sample-dropzone-icon" />
           <p className="sample-dropzone-title">
             Drag &amp; drop audio loops or samples here, or click to browse
           </p>
           <p className="sample-dropzone-sub">
-            Supports WAV, MP3, FLAC, OGG audio files • Or record microphone voice samples directly
+            Supports WAV, MP3, FLAC, OGG • Or record microphone voice samples directly
           </p>
           <input
             ref={fileInputRef}
@@ -219,18 +274,13 @@ export const SampleImporter: React.FC<SampleImporterProps> = ({ onImportComplete
         </div>
       ) : (
         <div className="sample-active-container">
-          <div className="sample-file-meta">
-            <span className="sample-file-name">FILE: {fileName}</span>
-            <span>DURATION: {audioBuffer.duration.toFixed(2)}s | CHANNELS: {audioBuffer.numberOfChannels}</span>
-          </div>
-
           <div className="sample-waveform-box">
             <div className="sample-waveform-inner">
               {peaks.map((peak, idx) => (
                 <div
                   key={idx}
                   className="sample-peak-bar"
-                  style={{ height: `${Math.max(10, peak * 100)}%` }}
+                  style={{ '--peak-h': `${Math.max(10, peak * 100)}%` } as React.CSSProperties}
                 />
               ))}
             </div>
@@ -239,40 +289,9 @@ export const SampleImporter: React.FC<SampleImporterProps> = ({ onImportComplete
               <div
                 key={i}
                 className="sample-slice-marker"
-                style={{ left: `${((i + 1) / numSlices) * 100}%` }}
+                style={{ '--slice-left': `${((i + 1) / numSlices) * 100}%` } as React.CSSProperties}
               />
             ))}
-          </div>
-
-          <div className="sample-controls-row">
-            <div className="sample-slices-selector">
-              <Scissors size={14} color="#ff0055" />
-              <span>SLICES:</span>
-              {[2, 4, 8, 16].map((count) => (
-                <Button
-                  key={count}
-                  size="sm"
-                  variant={numSlices === count ? 'default' : 'outline'}
-                  onClick={() => {
-                    setNumSlices(count);
-                    setActiveSlice(null);
-                  }}
-                >
-                  {count}
-                </Button>
-              ))}
-            </div>
-
-            <div className="sample-action-buttons">
-              <Button size="sm" variant="outline" onClick={() => handlePreviewSample()}>
-                {previewing && isPlaying ? <Pause size={13} /> : <Play size={13} />}
-                PREVIEW
-              </Button>
-
-              <Button size="sm" variant="secondary" onClick={() => { dawEngine.stopAuditionTake(); setPreviewing(false); setActiveSlice(null); setAudioBuffer(null); setPeaks([]); setFileUrl(''); }}>
-                CHANGE FILE
-              </Button>
-            </div>
           </div>
 
           <div className="sample-slices-grid">

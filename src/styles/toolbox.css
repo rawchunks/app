@@ -224,64 +224,6 @@
   opacity: 1;
 }
 
-.toolbox-prompt-input {
-  width: 100%;
-  background: rgba(0, 0, 0, 0.5);
-  border: 1px solid var(--border);
-  color: var(--text);
-  border-radius: 16px;
-  padding: 5px 32px 5px 10px;
-  font-family: var(--font-family);
-  font-size: var(--font-xs);
-  outline: none;
-  box-sizing: border-box;
-  transition: border-color 0.15s ease;
-}
-
-.toolbox-prompt-input::placeholder {
-  color: var(--text-muted);
-}
-
-/* Quality Profile Selector */
-.toolbox-quality-select {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--border);
-  color: var(--text-dim);
-  border-radius: 12px;
-  padding: 4px 8px;
-  font-family: var(--font-family);
-  font-size: 10px;
-  outline: none;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.toolbox-quality-select:hover {
-  border-color: var(--border-bright);
-  color: var(--text);
-}
-
-/* Minimize / Expand Button */
-.toolbox-minimize-btn {
-  background: transparent;
-  border: 1px solid transparent;
-  color: var(--text-muted);
-  width: 24px;
-  height: 24px;
-  border-radius: 3px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  flex-shrink: 0;
-}
-
-.toolbox-minimize-btn:hover {
-  color: var(--text);
-  background: rgba(255, 255, 255, 0.08);
-}
-
 /* Center: 8 Hardware Tool Tabs */
 .toolbox-tabs-bar {
   display: flex;
@@ -744,95 +686,6 @@
   overflow: hidden;
 }
 
-/* 1. STUDIO CONTENT */
-.toolbox-studio-content {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  width: 100%;
-}
-
-.toolbox-macro-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  width: 100%;
-}
-
-.toolbox-action-pill {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  background: rgba(0, 0, 0, 0.4);
-  border: 1px solid var(--border);
-  color: var(--text-dim);
-  border-radius: 4px;
-  padding: clamp(4px, 0.6vh, 6px) clamp(8px, 1vw, 12px);
-  font-family: var(--font-family);
-  font-size: clamp(9px, 0.85vw, 11px);
-  font-weight: 700;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  flex: 1 1 calc(33.333% - 6px);
-  min-width: 95px;
-  white-space: nowrap;
-}
-
-.toolbox-action-pill:hover {
-  border-color: var(--border-bright);
-  color: var(--text);
-}
-
-.toolbox-action-pill.active {
-  border-color: var(--primary);
-  color: var(--primary);
-  background: rgba(0, 255, 65, 0.08);
-  box-shadow: 0 0 8px rgba(0, 255, 65, 0.2);
-}
-
-.toolbox-params-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.toolbox-param-box {
-  background: rgba(0, 0, 0, 0.4);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 8px 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.toolbox-param-title {
-  font-size: 9px;
-  font-weight: 800;
-  color: var(--text-secondary);
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
-
-.toolbox-param-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 10px;
-  color: var(--text-dim);
-}
-
-.toolbox-param-row label {
-  min-width: 90px;
-  font-weight: 700;
-}
-
-.toolbox-radio-group {
-  display: flex;
-  gap: 4px;
-}
-
 .toolbox-expanded-body:has(.toolbox-studio-strip) {
   overflow: hidden;
   justify-content: center;
@@ -1037,13 +890,6 @@
 
 .toolbox-text-input:focus {
   border-color: var(--primary);
-}
-
-.toolbox-param-hint {
-  font-size: 10px;
-  color: var(--text-muted);
-  line-height: 1.35;
-  margin: 0;
 }
 
 /* Proportional, High-Contrast Select Dropdowns across Keys, AI Studio & Toolbox (Fixes Item #3) */
@@ -3349,6 +3195,212 @@
   overflow-y: auto;
 }
 
+.sample-toolbar-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  flex-wrap: nowrap;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.sample-file-name {
+  font-size: var(--daw-badge-font, clamp(0.64rem, 0.58rem + 0.25vw, 0.74rem));
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.sample-header-actions {
+  display: flex;
+  gap: 0.28rem;
+  align-items: center;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
+}
+
+.floating-toolbox.toolbox-controller.mode-compact .sample-importer-wrap {
+  padding: 0.1rem;
+  gap: 0.3rem;
+  overflow: hidden;
+  justify-content: center;
+}
+
+.sample-dropzone {
+  border: 1.5px dashed var(--border);
+  border-radius: 5px;
+  padding: clamp(0.45rem, 1.2dvh, 0.9rem) clamp(0.6rem, 2vw, 1.2rem);
+  text-align: center;
+  cursor: pointer;
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--text-dim);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  flex: 1 1 0;
+  min-height: 0;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.floating-toolbox.toolbox-controller.mode-compact .sample-dropzone {
+  flex-direction: row;
+  padding: 0.25rem 0.65rem;
+  gap: 0.5rem;
+  text-align: left;
+}
+
+.floating-toolbox.toolbox-controller.mode-compact .sample-dropzone-icon {
+  width: 1.15rem !important;
+  height: 1.15rem !important;
+  flex-shrink: 0;
+}
+
+.sample-dropzone-title {
+  margin: 0;
+  font-size: var(--daw-badge-font, clamp(0.64rem, 0.58rem + 0.25vw, 0.74rem));
+  font-weight: 700;
+  color: var(--text);
+}
+
+.sample-dropzone-sub {
+  margin: 0;
+  font-size: clamp(0.58rem, 0.54rem + 0.2vw, 0.66rem);
+  color: var(--text-muted);
+}
+
+.floating-toolbox.toolbox-controller.mode-compact .sample-dropzone-sub {
+  display: none;
+}
+
+.sample-dropzone:hover {
+  border-color: var(--primary);
+  background: rgba(0, 255, 65, 0.04);
+}
+
+.sample-file-input {
+  display: none;
+}
+
+.sample-active-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+.floating-toolbox.toolbox-controller.mode-compact .sample-active-container {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.sample-file-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--daw-badge-font, clamp(0.64rem, 0.58rem + 0.25vw, 0.74rem));
+  color: var(--text-dim);
+}
+
+.sample-waveform-box {
+  position: relative;
+  height: clamp(2.1rem, 4.5dvh, 3.2rem);
+  flex: 1 1 0;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  padding: 0 0.25rem;
+  overflow: hidden;
+}
+
+.sample-waveform-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: 75%;
+  gap: 1px;
+}
+
+.sample-peak-bar {
+  flex: 1;
+  height: var(--peak-h, 10%);
+  background: var(--primary);
+  opacity: 0.75;
+  border-radius: 1px;
+}
+
+.sample-slice-marker {
+  position: absolute;
+  left: var(--slice-left, 0%);
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--warning);
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.sample-controls-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.sample-slices-selector {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: var(--font-xs);
+}
+
+.sample-action-buttons {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.sample-slices-grid {
+  display: flex;
+  align-items: center;
+  gap: 0.28rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.sample-slice-btn {
+  height: var(--daw-badge-h, clamp(1.38rem, 2.75dvh, 1.58rem));
+  font-size: var(--daw-badge-font, clamp(0.64rem, 0.58rem + 0.25vw, 0.74rem));
+  font-weight: 800;
+  padding: 0 0.5rem;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(20, 24, 34, 0.9);
+  color: #e4e4e7;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.sample-slice-btn.active {
+  border-color: var(--primary);
+  background: rgba(0, 255, 65, 0.16);
+  color: var(--primary);
+}
+
 /* ==========================================================================
    SHARED 2-ROW COMPACT INSTRUMENT DECK & EXPANDABLE MODAL (Keys, Drums, Strudel)
    ========================================================================== */
@@ -3606,4 +3658,28 @@
   gap: 0.25rem;
   box-sizing: border-box;
   margin-bottom: 0.35rem;
+}
+
+.toolbox-pocket-tab {
+  flex: 1 1 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  height: 1.75rem;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-dim);
+  font-family: var(--font-family);
+  font-size: var(--font-xs);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.toolbox-pocket-tab.active {
+  background: var(--primary);
+  color: #000;
 }
