@@ -28,6 +28,7 @@ import {
   Repeat,
   Rows3,
   Columns3,
+  FilePenLine,
 } from 'lucide-react';
 import type { Options } from '../../hooks/use-options';
 import { Modal } from '../modal';
@@ -38,6 +39,7 @@ import { StepSequencer } from './StepSequencer';
 import { StrudelEditor } from './StrudelEditor';
 import { SampleImporter } from './SampleImporter';
 import { Mixer } from './mixer';
+import { Canvas } from './Canvas';
 import { Tooltip } from './Tooltip';
 import { Key } from './Key';
 import { toast } from 'sonner';
@@ -164,6 +166,7 @@ const PROMPT_QUICK_TAGS = [
 
 export const Toolbox: React.FC<ToolboxProps> = ({
   options,
+  languages,
   optionsError,
   parameters,
   onParametersChange,
@@ -173,6 +176,16 @@ export const Toolbox: React.FC<ToolboxProps> = ({
   onSelectTask,
   prompt,
   onPromptChange,
+  lyrics = '',
+  onLyricsChange,
+  vocalLanguage = 'en',
+  onVocalLanguageChange,
+  hasExistingLyrics = false,
+  isTranscribingLyrics = false,
+  onExtractLyrics,
+  lyricsAlignment = null,
+  isAligningLyrics = false,
+  onAlignLyrics,
   selectedQuality: _selectedQuality,
   onQualityChange: _onQualityChange,
   repaintMode,
@@ -217,6 +230,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
   const [splitHeight, setSplitHeight] = useState<number | null>(null);
   const [isPromptModalOpen, setIsPromptModalOpen] = useState<boolean>(false);
   const [isParamModalOpen, setIsParamModalOpen] = useState<boolean>(false);
+  const [isLyricsModalOpen, setIsLyricsModalOpen] = useState<boolean>(false);
   const [completePreset, setCompletePreset] = useState<string>('full_band');
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -334,7 +348,9 @@ export const Toolbox: React.FC<ToolboxProps> = ({
   // Selecting 'vocals' or 'backing_vocals' in 'lego' (Add Layer) opens the Lyrics Canvas overlay modal directly
   const handleSelectLayerInstrument = (nextInst: string) => {
     onInstrumentChange(nextInst);
-
+    if (nextInst === 'vocals' || nextInst === 'backing_vocals') {
+      setIsLyricsModalOpen(true);
+    }
   };
 
   const baseDur = Math.max(5, Math.ceil(duration || 30));
@@ -658,7 +674,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
                         aria-selected={isCurrent}
                         className={`toolbox-tab-btn toolbox-subnav-btn ${isCurrent ? 'active tab-studio' : ''}`}
                         onClick={() => {
-                          if (isCurrent && (['repaint','lego','extend','complete','cover','extract'] as string[]).includes(task)) {
+                          if (isCurrent) {
                             setIsParamModalOpen(true);
                           } else {
                             onSelectTask(action.id as Task);
@@ -671,7 +687,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
                     </Tooltip>
 
                     {/* Standardized Expandable Modal Trigger Inside Active Sub-Menu Item (Neighbor-Aware, Full Fill) */}
-                    {isCurrent && (['repaint','lego','extend','complete','cover','extract'] as string[]).includes(task) && (
+                    {isCurrent && (
                       <Tooltip
                         title={paramSummary.title}
                         description={`${filterDesc} — Click to open ${shortName} parameters modal (Preselects + Granular Slider)`}
@@ -762,7 +778,27 @@ export const Toolbox: React.FC<ToolboxProps> = ({
                     )}
                   </div>
 
-
+                  {task !== 'extract' && (
+                    <Tooltip
+                      title="Edit Lyrics"
+                      description="Open the Lyrics Canvas modal to write, edit, or sync lyrics for this AI operation"
+                      className="studio-edit-lyrics-tooltip"
+                    >
+                      <button
+                        type="button"
+                        aria-label="Edit Lyrics"
+                        className={`daw-ui-btn toolbox-edit-lyrics-btn ${(task === 'lego' && (instrument === 'vocals' || instrument === 'backing_vocals')) ||
+                          lyrics.trim().length > 0
+                          ? 'active'
+                          : ''
+                          }`}
+                        onClick={() => setIsLyricsModalOpen(true)}
+                      >
+                        <FilePenLine size={13} />
+                        <span className="edit-lyrics-btn-label">EDIT LYRICS</span>
+                      </button>
+                    </Tooltip>
+                  )}
                 </div>
 
                 {/* Row 2: Larger Full-Width Confirm AI Operation CTA Button */}
@@ -1081,7 +1117,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
 
       {/* Standardized AI Studio Parameter Modal (Presets + Granular Dragging Bar) */}
       <Modal
-        isOpen={isParamModalOpen && (['repaint','lego','extend','complete','cover','extract'] as string[]).includes(task)}
+        isOpen={isParamModalOpen}
         onClose={() => setIsParamModalOpen(false)}
         title={`AI STUDIO PARAMETERS // ${taskLabel(task).toUpperCase()}`}
         size="md"
@@ -1790,6 +1826,19 @@ export const Toolbox: React.FC<ToolboxProps> = ({
           </div>
 
           <div className="toolbox-prompt-modal-footer">
+            {task !== 'extract' && (
+              <button
+                type="button"
+                className="btn-base btn-variant-secondary btn-size-sm"
+                onClick={() => {
+                  setIsPromptModalOpen(false);
+                  setIsLyricsModalOpen(true);
+                }}
+              >
+                <FilePenLine size={12} />
+                <span>EDIT LYRICS OVERLAY</span>
+              </button>
+            )}
             <div className="toolbox-prompt-modal-actions">
               <button
                 type="button"
@@ -1816,6 +1865,31 @@ export const Toolbox: React.FC<ToolboxProps> = ({
       </Modal>
 
       {/* Lyrics Canvas Overlay Modal (Item #10) */}
+      <Modal
+        isOpen={isLyricsModalOpen}
+        onClose={() => setIsLyricsModalOpen(false)}
+        title={`LYRICS CANVAS // ${taskLabel(task).toUpperCase()}`}
+        size="lg"
+      >
+        <div className="toolbox-lyrics-overlay-modal">
+          <Canvas
+            mode="overlay"
+            autoEdit={true}
+            lyrics={lyrics}
+            onLyricsChange={onLyricsChange || (() => { })}
+            vocalLanguage={vocalLanguage}
+            onVocalLanguageChange={onVocalLanguageChange || (() => { })}
+            hasExistingLyrics={hasExistingLyrics}
+            isTranscribingLyrics={isTranscribingLyrics}
+            onExtractLyrics={onExtractLyrics || (() => { })}
+            lyricsAlignment={lyricsAlignment}
+            isAligningLyrics={isAligningLyrics}
+            onAlignLyrics={onAlignLyrics || (() => { })}
+            languages={languages}
+            onClose={() => setIsLyricsModalOpen(false)}
+          />
+        </div>
+      </Modal>
     </section>
   );
 };

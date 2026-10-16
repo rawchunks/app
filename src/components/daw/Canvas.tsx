@@ -976,6 +976,35 @@ export const Canvas: React.FC<CanvasProps> = ({
         />
       )}
 
+      {mode === 'overlay' && (
+        <div className="toolbox-lyrics-overlay-footer">
+          <span className="toolbox-lyrics-overlay-hint">
+            Tip: Use section tags like [Verse] or [Chorus] to guide vocal phrasing for your selected region.
+          </span>
+          <div className="toolbox-lyrics-overlay-actions">
+            {isLyricsDirty && onAlignLyrics && lyrics.trim().length > 0 && (
+              <button
+                type="button"
+                className="btn-base btn-variant-secondary btn-size-sm"
+                onClick={() => onAlignLyrics(lyrics)}
+              >
+                SYNC TIMELINE
+              </button>
+            )}
+            <button
+              type="button"
+              className="btn-base btn-variant-primary btn-size-sm"
+              onClick={() => {
+                finishEditingLyrics();
+                if (onClose) onClose();
+              }}
+            >
+              SAVE & DONE
+            </button>
+          </div>
+        </div>
+      )}
+
       <Languages
         isOpen={isLanguageModalOpen}
         onClose={() => setIsLanguageModalOpen(false)}

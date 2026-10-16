@@ -627,3 +627,27 @@
   }
 }
 
+/* ==========================================================================
+   LYRICS OVERLAY MODAL OVERRIDES (WHEN RENDERED IN <Modal> FROM AI STUDIO)
+   ========================================================================== */
+.toolbox-lyrics-overlay-modal {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-height: clamp(17rem, 48dvh, 26rem);
+  gap: 0.5rem;
+}
+
+.toolbox-lyrics-overlay-modal .toolbox-lyrics-sidepanel {
+  flex: 1 1 auto !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  min-height: clamp(15rem, 42dvh, 23rem);
+  border-left: 1px solid var(--border-bright);
+}
+
+.toolbox-lyrics-overlay-modal .canvas-dock-resizer {
+  display: none !important;
+}
+
