@@ -2873,19 +2873,22 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  flex-wrap: wrap;
+  gap: 6px;
+  flex-wrap: nowrap;
   background: rgba(0, 0, 0, 0.45);
   border: 1px solid var(--border);
   border-radius: 4px;
-  padding: 6px 10px;
+  padding: 4px 8px;
   flex-shrink: 0;
+  min-width: 0;
 }
 
 .sequencer-meta {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .sequencer-meta-icon {
@@ -2893,15 +2896,20 @@
 }
 
 .sequencer-track-name {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
   color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .sequencer-controls-cluster {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
 }
 
 .sequencer-action-btn {
@@ -2945,9 +2953,9 @@
 }
 
 .sequencer-scale-spacer {
-  width: 80px;
+  width: 92px;
   flex-shrink: 0;
-  font-size: 9px;
+  font-size: var(--daw-badge-font, clamp(0.62rem, 0.56rem + 0.2vw, 0.7rem));
   font-weight: 700;
   color: var(--text-muted);
   padding-left: 8px;
@@ -2967,15 +2975,22 @@
   align-items: center;
   justify-content: center;
   font-family: monospace;
-  font-size: 9px;
+  font-size: var(--daw-badge-font, clamp(0.62rem, 0.56rem + 0.2vw, 0.7rem));
   color: var(--text-muted);
   border-right: 1px solid rgba(255, 255, 255, 0.04);
+  cursor: pointer;
 }
 
 .sequencer-step-num.bar-beat {
   color: var(--text-secondary);
   font-weight: 700;
   border-left: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.sequencer-step-num.cursor-step {
+  background: rgba(0, 240, 255, 0.16);
+  color: var(--accent);
+  font-weight: 800;
 }
 
 .sequencer-step-num.current {
@@ -2999,13 +3014,14 @@
 }
 
 .sequencer-voice-strip {
-  width: 80px;
+  width: 92px;
   flex-shrink: 0;
   height: 100%;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 8px;
+  gap: 4px;
+  padding: 0 6px;
   background: #0e0f13;
   border-right: 1px solid var(--border);
   cursor: pointer;
@@ -3018,10 +3034,10 @@
 }
 
 .sequencer-voice-badge {
-  font-size: 9px;
+  font-size: var(--daw-badge-font, clamp(0.62rem, 0.56rem + 0.2vw, 0.7rem));
   font-weight: 700;
   color: #fff;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
 }
 
 .sequencer-voice-icon {
