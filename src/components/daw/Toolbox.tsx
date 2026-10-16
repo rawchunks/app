@@ -109,6 +109,17 @@ const DEFAULT_AI_TASKS = [
   { id: 'extract', label: 'Extract Stem', description: 'Isolate stem into separate lane' },
 ];
 
+const DEFAULT_INSTRUMENTS = [
+  { id: 'vocals', label: 'Vocals' },
+  { id: 'backing_vocals', label: 'Backing Vocals' },
+  { id: 'drums', label: 'Drums' },
+  { id: 'bass', label: 'Bass' },
+  { id: 'guitar', label: 'Guitar' },
+  { id: 'keyboard', label: 'Keyboard' },
+  { id: 'synths', label: 'Synths' },
+  { id: 'strings', label: 'Strings' },
+];
+
 const DEFAULT_STEMS = [
   { id: 'vocals', label: 'Vocals' },
   { id: 'drums', label: 'Drums' },
@@ -305,6 +316,12 @@ export const Toolbox: React.FC<ToolboxProps> = ({
     { id: 'history' as ActiveTool, label: 'HISTORY', desc: `Session takes (${takes.length}) and commit milestones (${commits.length})`, icon: History, className: 'tab-history' },
   ];
 
+  // Selecting 'vocals' or 'backing_vocals' in 'lego' (Add Layer) opens the Lyrics Canvas overlay modal directly
+  const handleSelectLayerInstrument = (nextInst: string) => {
+    onInstrumentChange(nextInst);
+
+  };
+
   const effectiveRepaintVal =
     repaintMode === 'conservative' ? 0 : repaintMode === 'aggressive' ? 1 : repaintStrength;
   const effectiveRepaintPct = Math.round(effectiveRepaintVal * 100);
@@ -328,6 +345,8 @@ export const Toolbox: React.FC<ToolboxProps> = ({
     }
   };
 
+  const instrumentList = options?.parameters.trackName?.options ?? DEFAULT_INSTRUMENTS;
+  const activeInstrumentLabel = instrumentList.find((i) => i.id === instrument)?.label ?? instrument;
   const stemList = options?.stems ?? DEFAULT_STEMS;
   const activeStemLabel = stemList.find((s) => s.id === stemType)?.label ?? stemType;
   const getActiveSubnavParamSummary = (
@@ -340,12 +359,24 @@ export const Toolbox: React.FC<ToolboxProps> = ({
         title: 'Rework Intensity & Crossfade',
       };
     }
+    if (actionId === 'lego') {
+      return {
+        tag: 'STEM',
+        value: `${activeInstrumentLabel} · ${Math.round(repaintStrength * 100)}%`,
+        title: 'Layer Stem & Expression',
+      };
+    }
     return { tag: 'PARAM', value: 'Configure', title: 'Configure Parameters' };
   };
 
   const getActiveFilterDescription = (actionId: string): string => {
     if (actionId === 'repaint') {
       return closestReworkPreset.desc;
+    }
+    if (actionId === 'lego') {
+      return instrument === 'vocals' || instrument === 'backing_vocals'
+        ? `Adds ${activeInstrumentLabel} stem — opens Lyrics Canvas to write or sync lines`
+        : `Layers new ${activeInstrumentLabel} stem locked to your arrangement`;
     }
     return '';
   };
@@ -549,7 +580,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
                         aria-selected={isCurrent}
                         className={`toolbox-tab-btn toolbox-subnav-btn ${isCurrent ? 'active tab-studio' : ''}`}
                         onClick={() => {
-                          if (isCurrent && (['repaint'] as string[]).includes(task)) {
+                          if (isCurrent && (['repaint','lego'] as string[]).includes(task)) {
                             setIsParamModalOpen(true);
                           } else {
                             onSelectTask(action.id as Task);
@@ -562,7 +593,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
                     </Tooltip>
 
                     {/* Standardized Expandable Modal Trigger Inside Active Sub-Menu Item (Neighbor-Aware, Full Fill) */}
-                    {isCurrent && (['repaint'] as string[]).includes(task) && (
+                    {isCurrent && (['repaint','lego'] as string[]).includes(task) && (
                       <Tooltip
                         title={paramSummary.title}
                         description={`${filterDesc} — Click to open ${shortName} parameters modal (Preselects + Granular Slider)`}
@@ -604,39 +635,6 @@ export const Toolbox: React.FC<ToolboxProps> = ({
 
               {options && <Parameters parameters={Object.fromEntries(Object.entries(options.parameters).filter(([key, parameter]) => parameter.tasks?.includes(task) && !['trackName', 'coverStrength'].includes(key)))} values={parameters} onChange={onParametersChange} />}
               <div className="toolbox-params-grid">
-                      {task === 'lego' && (
-                        <div className="toolbox-param-box">
-                          <div className="toolbox-param-title">ADD AN INSTRUMENT</div>
-                          <label className="toolbox-param-row">INSTRUMENT:
-                            <select
-                              className="toolbox-text-input"
-                              value={instrument}
-                              onChange={event => onInstrumentChange(event.target.value)}
-                            >
-                              {(options?.parameters.trackName?.options ?? [
-                                { id: 'guitar', label: 'Guitar' },
-                                { id: 'synth', label: 'Synth' },
-                                { id: 'drums', label: 'Drums' },
-                                { id: 'bass', label: 'Bass' },
-                                { id: 'keyboard', label: 'Keyboard / Piano' },
-                                { id: 'strings', label: 'Strings' },
-                                { id: 'percussion', label: 'Percussion' },
-                                { id: 'brass', label: 'Brass' },
-                                { id: 'woodwinds', label: 'Woodwinds' },
-                                { id: 'vocals', label: 'Lead Vocals' },
-                                { id: 'backing_vocals', label: 'Backing Vocals' },
-                                { id: 'fx', label: 'FX / Textures' },
-                              ]).map(opt => (
-                                <option key={opt.id} value={opt.id}>{opt.label}</option>
-                              ))}
-                            </select>
-                          </label>
-                          <p className="toolbox-param-hint">
-                            Choose reference lanes with L. The new part follows their timing, mix and effects.
-                          </p>
-                        </div>
-                      )}
-
                       {task === 'extend' && (
                         <div className="toolbox-param-box">
                           <div className="toolbox-param-title">EXTEND ARRANGEMENT</div>
@@ -1065,7 +1063,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
 
       {/* Standardized AI Studio Parameter Modal (Presets + Granular Dragging Bar) */}
       <Modal
-        isOpen={isParamModalOpen && (['repaint'] as string[]).includes(task)}
+        isOpen={isParamModalOpen && (['repaint','lego'] as string[]).includes(task)}
         onClose={() => setIsParamModalOpen(false)}
         title={`AI STUDIO PARAMETERS // ${taskLabel(task).toUpperCase()}`}
         size="md"
@@ -1191,6 +1189,81 @@ export const Toolbox: React.FC<ToolboxProps> = ({
                   >
                     +0.05s
                   </button>
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* 2. LAYER (lego): Preselect Instrument Stems + Custom Stem + Granular Layer Presence Slider */}
+          {task === 'lego' && (
+            <>
+              <div className="toolbox-param-section">
+                <div className="toolbox-param-section-head">
+                  <span className="daw-field-label">PRESELECT INSTRUMENT LAYER</span>
+                  <span className="toolbox-param-readout-tag">{activeInstrumentLabel.toUpperCase()}</span>
+                </div>
+                <div className="toolbox-param-presets-grid cols-4">
+                  {instrumentList.map((inst) => {
+                    const isSelected = instrument === inst.id;
+                    return (
+                      <button
+                        key={inst.id}
+                        type="button"
+                        className={`toolbox-param-preset-btn compact ${isSelected ? 'active' : ''}`}
+                        onClick={() => handleSelectLayerInstrument(inst.id)}
+                      >
+                        <span className="preset-btn-title">{inst.label}</span>
+                        <span className="preset-btn-sub">{inst.id}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="toolbox-param-custom-row">
+                  <span className="daw-field-label">CUSTOM INSTRUMENT TARGET</span>
+                  <input
+                    type="text"
+                    className="toolbox-param-text-input"
+                    value={instrument}
+                    onChange={(e) => onInstrumentChange(e.target.value)}
+                    placeholder="e.g., cello, sax, 808 sub, choir..."
+                  />
+                </div>
+              </div>
+
+              <div className="toolbox-param-section">
+                <div className="toolbox-param-section-head">
+                  <span className="daw-field-label">GRANULAR LAYER INTENSITY & PRESENCE</span>
+                  <span className="toolbox-param-readout-val">{Math.round(repaintStrength * 100)}%</span>
+                </div>
+                <div className="toolbox-param-slider-row">
+                  <button
+                    type="button"
+                    className="toolbox-param-step-btn"
+                    onClick={() => onRepaintStrengthChange(Math.max(0.05, Number((repaintStrength - 0.05).toFixed(2))))}
+                  >
+                    -5%
+                  </button>
+                  <input
+                    type="range"
+                    min="0.05"
+                    max="1"
+                    step="0.01"
+                    value={repaintStrength}
+                    onChange={(e) => onRepaintStrengthChange(Number(e.target.value))}
+                    className="daw-ContextSlider toolbox-param-range"
+                  />
+                  <button
+                    type="button"
+                    className="toolbox-param-step-btn"
+                    onClick={() => onRepaintStrengthChange(Math.min(1, Number((repaintStrength + 0.05).toFixed(2))))}
+                  >
+                    +5%
+                  </button>
+                </div>
+                <div className="toolbox-param-scale-labels">
+                  <span>Subtle Backing</span>
+                  <span>Balanced Mix</span>
+                  <span>Lead Foreground</span>
                 </div>
               </div>
             </>
