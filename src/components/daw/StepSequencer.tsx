@@ -2,11 +2,15 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useDawStore, DAWTrack } from '../../lib/daw/store';
 import { dawEngine } from '../../lib/daw/engine';
 import { DRUM_STEPS } from '../../lib/daw/notes';
+import {
+  useDrumMusicalTyping,
+  getDrumKeycap,
+} from '../../lib/daw/useMusicalTyping';
 import { Button } from '../button';
 import { Badge } from '../badge';
 import { Modal } from '../modal';
 import { Tooltip } from './Tooltip';
-import { Drum, Plus, Volume2, Trash2, Shuffle, Maximize2 } from 'lucide-react';
+import { Drum, Plus, Volume2, Trash2, Shuffle, Maximize2, Disc } from 'lucide-react';
 
 interface StepSequencerProps {
   track?: DAWTrack;
@@ -28,6 +32,8 @@ export const StepSequencer: React.FC<StepSequencerProps> = ({ track }) => {
 
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [previewVoiceIdx, setPreviewVoiceIdx] = useState<number>(0);
+  const [isKeyRecEnabled, setIsKeyRecEnabled] = useState<boolean>(true);
+  const [stepCursor, setStepCursor] = useState<number>(0);
 
   const sequencerTrack =
     (track && track.type === 'sequencer' ? track : null) ||
@@ -67,6 +73,7 @@ export const StepSequencer: React.FC<StepSequencerProps> = ({ track }) => {
       const voice = voices[voiceIdx];
       if (!voice) return;
 
+      setStepCursor(stepIdx);
       toggleSequencerStep(sequencerTrack.id, voiceIdx, stepIdx);
 
       const willBeActive = !voice.steps[stepIdx];
@@ -77,6 +84,31 @@ export const StepSequencer: React.FC<StepSequencerProps> = ({ track }) => {
     },
     [sequencerTrack, voices, toggleSequencerStep]
   );
+
+  const handleDrumTypingTrigger = useCallback(
+    (voiceIdx: number, shouldRecord: boolean) => {
+      if (!sequencerTrack || voiceIdx >= voices.length) return;
+      setPreviewVoiceIdx(voiceIdx);
+      handleVoiceAudition(voiceIdx);
+      if (shouldRecord) {
+        const targetStep = isPlaying ? activeStep : stepCursor;
+        toggleSequencerStep(sequencerTrack.id, voiceIdx, targetStep);
+        if (!isPlaying) {
+          setStepCursor((prev) => (prev + 1) % DRUM_STEPS);
+        }
+      }
+    },
+    [sequencerTrack, voices.length, handleVoiceAudition, isPlaying, activeStep, stepCursor, toggleSequencerStep]
+  );
+
+  const { heldVoices } = useDrumMusicalTyping({
+    enabled: isModalOpen && Boolean(sequencerTrack),
+    stepCursor,
+    setStepCursor,
+    maxSteps: DRUM_STEPS,
+    recordEnabled: isKeyRecEnabled,
+    onTriggerVoice: handleDrumTypingTrigger,
+  });
 
   if (!sequencerTrack) {
     return (
@@ -128,6 +160,22 @@ export const StepSequencer: React.FC<StepSequencerProps> = ({ track }) => {
       </div>
 
       <div className="sequencer-controls-cluster">
+        {!showVoiceSelect && (
+          <Tooltip
+            title="Computer Keyboard Pad Recording"
+            description="When active, pressing laptop keys [1–5] or [Q–T] triggers and toggles drum steps at the cursor/playhead"
+          >
+            <button
+              type="button"
+              className={`daw-ui-btn daw-keyrec-btn ${isKeyRecEnabled ? 'active' : ''}`}
+              onClick={() => setIsKeyRecEnabled((v) => !v)}
+            >
+              <Disc size={11} />
+              <span>PAD REC {isKeyRecEnabled ? `• S${(isPlaying ? activeStep : stepCursor) + 1}` : 'OFF'}</span>
+            </button>
+          </Tooltip>
+        )}
+
         {/* Randomize generator */}
         <Tooltip title="Randomize Drum Pattern">
           <Button
@@ -229,11 +277,12 @@ export const StepSequencer: React.FC<StepSequencerProps> = ({ track }) => {
               <div className="sequencer-steps-scale">
                 {Array.from({ length: DRUM_STEPS }).map((_, stepIdx) => {
                   const isBarBeat = stepIdx % 4 === 0;
-                  const isCurrent = (isPlaying && activeStep === stepIdx);
+                  const isCurrent = (isPlaying && activeStep === stepIdx) || (!isPlaying && isKeyRecEnabled && stepCursor === stepIdx);
                   return (
                     <div
                       key={stepIdx}
                       className={`sequencer-step-num ${isBarBeat ? 'bar-beat' : ''} ${isCurrent ? 'current' : ''}`}
+                      onClick={() => setStepCursor(stepIdx)}
                       title={`Set step cursor to step ${stepIdx + 1}`}
                     >
                       {stepIdx + 1}
@@ -246,14 +295,17 @@ export const StepSequencer: React.FC<StepSequencerProps> = ({ track }) => {
             {/* Drum Voice Rows */}
             <div className="sequencer-lanes-list">
               {voices.map((voice, voiceIdx) => {
+                const keycap = getDrumKeycap(voiceIdx);
+                const isHeld = heldVoices.has(voiceIdx);
                 return (
                   <div key={voice.name} className="sequencer-voice-row">
                     <div
-                      className="sequencer-voice-strip"
+                      className={`sequencer-voice-strip ${isHeld ? 'active' : ''}`}
                       onClick={() => handleVoiceAudition(voiceIdx)}
-                      title={`Audition ${voice.name}`}
+                      title={keycap ? `Audition ${voice.name} (Keys: [${keycap}])` : `Audition ${voice.name}`}
                     >
                       <div className="sequencer-voice-badge-wrap">
+                        {keycap && <kbd className="daw-keycap-badge">{keycap}</kbd>}
                         <span className="sequencer-voice-badge">{voice.name}</span>
                       </div>
                       <Volume2 size={11} className="sequencer-voice-icon" />
@@ -263,6 +315,7 @@ export const StepSequencer: React.FC<StepSequencerProps> = ({ track }) => {
                       {voice.steps.map((isActive, stepIdx) => {
                         const isMeasureStart = stepIdx % 4 === 0;
                         const isCurrent = isPlaying && activeStep === stepIdx;
+                        const isCursor = !isPlaying && isKeyRecEnabled && stepCursor === stepIdx;
                         const measureIdx = Math.floor(stepIdx / 4);
                         const isAlternatingMeasure = measureIdx % 2 === 1;
 
@@ -270,7 +323,7 @@ export const StepSequencer: React.FC<StepSequencerProps> = ({ track }) => {
                           <button
                             key={stepIdx}
                             type="button"
-                            className={`sequencer-step-pad ${isActive ? 'active' : ''} ${isMeasureStart ? 'measure-start' : ''} ${isAlternatingMeasure ? 'alt-measure' : ''} ${isCurrent ? 'playhead-active' : ''}`}
+                            className={`sequencer-step-pad ${isActive ? 'active' : ''} ${isMeasureStart ? 'measure-start' : ''} ${isAlternatingMeasure ? 'alt-measure' : ''} ${isCurrent || isCursor ? 'playhead-active' : ''}`}
                             onClick={() => handleStepClick(voiceIdx, stepIdx)}
                             aria-pressed={isActive}
                             aria-label={`${voice.name} step ${stepIdx + 1}`}
@@ -287,6 +340,14 @@ export const StepSequencer: React.FC<StepSequencerProps> = ({ track }) => {
             </div>
           </div>
 
+          <div className="sequencer-footer">
+            <span className="sequencer-hint">
+              <strong>QWERTY PADS:</strong> Keys <kbd>1</kbd>–<kbd>5</kbd> or <kbd>Q</kbd> <kbd>W</kbd> <kbd>E</kbd> <kbd>R</kbd> <kbd>T</kbd> Trigger &amp; Record Voices
+            </span>
+            <span className="sequencer-hint">
+              <kbd>←</kbd>/<kbd>→</kbd> Move Step Cursor ({stepCursor + 1}/{DRUM_STEPS})
+            </span>
+          </div>
         </div>
       </Modal>
     </div>

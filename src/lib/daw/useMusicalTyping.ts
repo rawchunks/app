@@ -187,3 +187,80 @@ export function usePianoMusicalTyping({
   return { heldPitches };
 }
 
+interface UseDrumMusicalTypingOptions {
+  enabled: boolean;
+  stepCursor: number;
+  setStepCursor: React.Dispatch<React.SetStateAction<number>>;
+  maxSteps: number;
+  recordEnabled: boolean;
+  onTriggerVoice: (voiceIdx: number, recordStep: boolean) => void;
+}
+
+export function useDrumMusicalTyping({
+  enabled,
+  setStepCursor,
+  maxSteps,
+  recordEnabled,
+  onTriggerVoice,
+}: UseDrumMusicalTypingOptions) {
+  const [heldVoices, setHeldVoices] = useState<Set<number>>(new Set());
+
+  useEffect(() => {
+    if (!enabled) {
+      setHeldVoices(new Set());
+      return;
+    }
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (isEditableElement(e.target)) return;
+
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        setStepCursor((s) => (s - 1 + maxSteps) % maxSteps);
+        return;
+      }
+      if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        setStepCursor((s) => (s + 1) % maxSteps);
+        return;
+      }
+
+      if (e.repeat) return;
+
+      const lower = e.key.toLowerCase();
+      const mapping = QWERTY_DRUM_KEYMAP.find((m) => m.keys.includes(lower));
+      if (mapping) {
+        e.preventDefault();
+        setHeldVoices((prev) => {
+          const next = new Set(prev);
+          next.add(mapping.voiceIdx);
+          return next;
+        });
+        onTriggerVoice(mapping.voiceIdx, recordEnabled);
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      const lower = e.key.toLowerCase();
+      const mapping = QWERTY_DRUM_KEYMAP.find((m) => m.keys.includes(lower));
+      if (mapping) {
+        setHeldVoices((prev) => {
+          if (!prev.has(mapping.voiceIdx)) return prev;
+          const next = new Set(prev);
+          next.delete(mapping.voiceIdx);
+          return next;
+        });
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [enabled, setStepCursor, maxSteps, recordEnabled, onTriggerVoice]);
+
+  return { heldVoices };
+}
