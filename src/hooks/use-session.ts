@@ -1,8 +1,10 @@
 import { createContext, useContext } from "react";
 import type { KeyCreateResponse } from "@compose-market/sdk";
 import type { NetworkId } from "@compose-market/sdk/chains";
+import type { CreditBalance } from "../lib/credits";
 
 export interface SessionState {
+  fundingSource: 'wallet' | 'prepaid';
   active: boolean;
   userAddress: string | null;
   network: NetworkId | null;
@@ -23,11 +25,20 @@ export interface SessionContextValue {
   refreshSession: () => Promise<void>;
   clearSession: () => void;
   endSession: () => Promise<void>;
+  credits: CreditBalance;
+  creditsLoading: boolean;
+  creditsError: string | null;
+  creditsEnabled: boolean;
+  creditOwner: string | null;
+  refreshCredits: () => Promise<void>;
+  createCreditSession: (budgetAtomics: string, durationHours: number) => Promise<void>;
+  completeCreditPurchase: (operationId: string) => Promise<void>;
 }
 
 export const SessionContext = createContext<SessionContextValue | null>(null);
 
 export const emptySession: SessionState = {
+  fundingSource: 'wallet',
   active: false,
   userAddress: null,
   network: null,
