@@ -201,8 +201,22 @@ interface WalletConnectorProps {
 }
 
 export function WalletConnector({ className, compact = true }: WalletConnectorProps) {
+  const { credits, creditsEnabled, creditsLoading, creditsError } = useSession();
+  const [buyCredits, setBuyCredits] = useState(false);
+  const [checkoutIntent, setCheckoutIntent] = useState<CheckoutIntent>({ kind: 'balance' });
+  const [checkoutVersion, setCheckoutVersion] = useState(0);
+  useEffect(() => {
+    const open = (event: Event) => {
+      setCheckoutIntent((event as CustomEvent<CheckoutIntent>).detail);
+      setCheckoutVersion(value => value + 1);
+      setBuyCredits(true);
+    };
+    window.addEventListener('rawchunks:card-checkout', open);
+    return () => window.removeEventListener('rawchunks:card-checkout', open);
+  }, []);
   const account = useActiveAccount();
   const wallet = useActiveWallet();
+  const { connect: openConnectModal, isConnecting: isModalConnecting } = useConnectModal();
   const { paymentNetwork, getChainByNetworkId, chains, defaultNetwork } = useChain();
   const {
     userAddress,
@@ -301,38 +315,27 @@ export function WalletConnector({ className, compact = true }: WalletConnectorPr
     }
 
     return (
-      <ConnectButton
-        client={thirdwebClient}
-        wallets={wallets}
-        chain={connectChain}
-        accountAbstraction={accountAbstraction}
-        autoConnect={false}
-        connectButton={{
-          label: (
-            <>
-              <Wallet className="icon" aria-hidden="true" />
-              <span className="connect-address">CONNECT</span>
-            </>
-          ),
-          className: cn("btn btn-solid connect", className),
+      <button
+        type="button"
+        disabled={isModalConnecting}
+        onClick={() => {
+          void openConnectModal({
+            client: thirdwebClient,
+            wallets,
+            chain: connectChain,
+            accountAbstraction,
+            size: compact ? "compact" : "wide",
+            title: "RAWCHUNKS",
+            titleIcon: "/branding/icon.svg",
+            showThirdwebBranding: false,
+            theme: thirdwebCustomTheme,
+          }).catch(() => {});
         }}
-        connectModal={{
-          size: compact ? "compact" : "wide",
-          title: "RAWCHUNKS",
-          titleIcon: "/branding/icon.svg",
-          showThirdwebBranding: false,
-        }}
-        detailsButton={{
-          displayBalanceToken: {
-            [thirdwebChainIdValue!]: selectedPaymentToken.address,
-          },
-          className: cn("btn btn-ghost connect", className),
-        }}
-        supportedTokens={{
-          [thirdwebChainIdValue!]: [selectedPaymentToken],
-        }}
-        theme={thirdwebCustomTheme}
-      />
+        className={cn("btn btn-solid connect", className)}
+      >
+        <Wallet className="icon" aria-hidden="true" />
+        <span className="connect-address">CONNECT</span>
+      </button>
     );
   }
 
@@ -371,6 +374,9 @@ export function WalletConnector({ className, compact = true }: WalletConnectorPr
 
   return (
     <>
+      <Modal isOpen={buyCredits} onClose={() => setBuyCredits(false)} title="BUY WITH CARD" size="md" keepMounted={Boolean(account && creditsEnabled)}>
+        <CardCheckout intent={checkoutIntent} version={checkoutVersion} onComplete={() => setBuyCredits(false)} onCancel={() => setBuyCredits(false)} />
+      </Modal>
       <DisclaimerModal
         forceOpen={showDisclaimer}
         onOpenChange={setShowDisclaimer}
@@ -407,6 +413,12 @@ export function WalletConnector({ className, compact = true }: WalletConnectorPr
         </Tooltip>
 
         <DropdownMenuContent align="end">
+          <div className="menu-head">
+            <span className="label">CREDITS</span>
+            <span className="menu-total">{creditsLoading ? '...' : creditLabel(credits.availableAtomics)}</span>
+          </div>
+          {creditsEnabled && !creditsError && <DropdownMenuItem onClick={() => { setCheckoutIntent({ kind: 'balance' }); setCheckoutVersion(value => value + 1); setBuyCredits(true); }}>BUY WITH CARD</DropdownMenuItem>}
+          {creditsError && <div className="menu-head" role="alert">{creditsError}</div>}
           <div className="menu-head">
             <span className="menu-chain">
               <NetworkGlyph network={paymentNetwork} name={chainInfo?.name || "Unknown network"} />
@@ -481,6 +493,7 @@ export function WalletConnector({ className, compact = true }: WalletConnectorPr
     </>
   );
 }
+
 function formatPayPalError(error: unknown, fallback = 'Card payment failed'): string {
   if (error instanceof Error && error.message) return error.message;
   if (typeof error === 'string' && error.trim()) return error;
@@ -815,6 +828,109 @@ export function PayPalCardFields({
         </div>
       )}
     </>
+  );
+}
+
+export function CardCheckout({ intent, version = 0, onComplete, onCancel }: { intent: CheckoutIntent; version?: number; onComplete: () => void; onCancel: () => void }) {
+  const { credits, creditsLoading, creditOwner, completeCreditPurchase } = useSession();
+  const packs = credits.packs.length > 0 ? credits.packs : DEFAULT_CREDIT_PACKS;
+  const [packId, setPackId] = useState(packs[0]?.id ?? 'usd-10');
+  const pack = packs.find(value => value.id === packId) ?? packs[0];
+  const [error, setError] = useState<string | null>(null);
+  const operation = useRef<{ operationId: string; orderId: string } | null>(null);
+  const requestKey = useRef(crypto.randomUUID());
+  const orderParamsRef = useRef({ packId: pack?.id ?? 'usd-10', intent, creditOwner });
+  orderParamsRef.current = { packId: pack?.id ?? 'usd-10', intent, creditOwner };
+
+  useEffect(() => {
+    operation.current = null;
+    requestKey.current = crypto.randomUUID();
+    setError(null);
+  }, [version]);
+
+  return (
+    <div className="session-modal-content">
+      <div className="session-info-strip">
+        <CreditCard className="session-info-icon" size={18} />
+        <div className="session-info-text">
+          <span className="session-info-title">INSTANT CREDIT TOP-UP</span>
+          <span className="session-info-desc">
+            Prepaid Credits fund AI studio generation, stem separation, and track streaming across any network without wallet popups.
+          </span>
+        </div>
+      </div>
+      <div className="session-balance-strip">
+        <span className="session-balance-chain">AVAILABLE CREDITS</span>
+        <span className="session-balance-val">
+          {creditsLoading ? 'CHECKING...' : creditLabel(credits.availableAtomics)}
+        </span>
+      </div>
+      <div className="session-section">
+        <div className="session-section-head">
+          <span className="session-section-label">SELECT CREDIT PACK</span>
+          {pack && <span className="session-section-val">${Number(pack.usd)} USD • {creditLabel(pack.amountAtomics)}</span>}
+        </div>
+        <div className="session-pills-row">
+          {packs.map(value => (
+            <button
+              type="button"
+              key={value.id}
+              className={cn('session-pill-btn', pack?.id === value.id && 'active')}
+              disabled={Boolean(operation.current)}
+              onClick={() => {
+                if (pack?.id === value.id) return;
+                setPackId(value.id);
+                operation.current = null;
+                requestKey.current = crypto.randomUUID();
+                setError(null);
+              }}
+            >
+              {creditLabel(value.amountAtomics)}
+            </button>
+          ))}
+        </div>
+      </div>
+      {pack && creditOwner ? (
+        <PayPalCardFields
+          createOrder={async () => {
+            setError(null);
+            const current = orderParamsRef.current;
+            if (!current.creditOwner) throw new Error('Connect your account first');
+            const result = await creditsApi<{ operationId: string; orderId: string }>(
+              'paypal/create-order',
+              { packId: current.packId, checkout: current.intent },
+              requestKey.current,
+            );
+            operation.current = result;
+            localStorage.setItem(purchaseCacheKey(current.creditOwner), result.operationId);
+            return result.orderId;
+          }}
+          onApprove={async data => {
+            if (!operation.current || data.orderID !== operation.current.orderId) {
+              throw new Error('Checkout order mismatch');
+            }
+            await creditsApi('paypal/capture-order', operation.current);
+            await completeCreditPurchase(operation.current.operationId);
+            onComplete();
+          }}
+          onError={setError}
+          onCancel={onCancel}
+          submitLabel={`PAY $${Number(pack.usd)}`}
+          error={error}
+        />
+      ) : (
+        <>
+          {error ? (
+            <div className="session-error-strip" role="alert">{error}</div>
+          ) : (
+            <div className="connector-card-status" role="status">CONNECT WALLET TO PURCHASE CREDITS...</div>
+          )}
+          <div className="session-actions-footer">
+            <Button variant="ghost" size="sm" onClick={onCancel}>CANCEL</Button>
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 
