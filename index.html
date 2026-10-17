@@ -10,6 +10,19 @@
     <title>RAWCHUNKS STUDIO // AI MUSIC PRODUCTION WORKSTATION</title>
     <meta name="description" content="Rawchunks Studio - Professional AI music production workstation, surgical multi-track arrangement, and stem separation studio." />
     <meta name="theme-color" content="#000000" />
+    <script>
+      window.TONE_SILENCE_LOGGING = true;
+      try {
+        const liftMaxListeners = (provider) => {
+          if (!provider || typeof provider !== 'object') return;
+          if (typeof provider.setMaxListeners === 'function') provider.setMaxListeners(100);
+          if (provider._events && typeof provider._maxListeners === 'number') provider._maxListeners = 100;
+          if (Array.isArray(provider.providers)) provider.providers.forEach(liftMaxListeners);
+        };
+        liftMaxListeners(window.ethereum);
+        window.addEventListener('ethereum#initialized', () => liftMaxListeners(window.ethereum), { once: true });
+      } catch {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

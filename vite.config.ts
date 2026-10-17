@@ -9,9 +9,10 @@ export default defineConfig(({ mode }) => {
     envPrefix: ['VITE_', 'NETWORK_MODE'],
     plugins: [react()],
     resolve: {
-      alias: {
-        '@': path.resolve(__dirname, './src'),
-      },
+      alias: [
+        { find: '@', replacement: path.resolve(__dirname, './src') },
+        { find: /^tone$/, replacement: path.resolve(__dirname, './src/lib/daw/tone.ts') },
+      ],
     },
     server: {
       port: 3001,
