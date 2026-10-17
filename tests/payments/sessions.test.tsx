@@ -16,14 +16,14 @@ vi.mock("@/components/connector", () => ({ approveTempoSession: mock.tempoApprov
 vi.mock("@/lib/chains", () => ({ isEvmNetwork: (network: string) => network.startsWith("eip155:"),
   isSolanaNetwork: (network: string) => network.startsWith("solana:"), evmChainId: (network: string) => Number(network.slice(7)),
   getChainObject: (id: number) => ({ id, rpc: "https://rpc.test" }), thirdwebClient: {} }));
-vi.mock("thirdweb/react", () => ({ useActiveAccount: () => mock.connected ? { address: mock.smart, signMessage: mock.visibleSign } : undefined,
+vi.mock("thirdweb/react", () => ({ useActiveWallet: () => undefined, useActiveAccount: () => mock.connected ? { address: mock.smart, signMessage: mock.visibleSign } : undefined,
   useAdminWallet: () => ({ getAccount: () => ({ address: mock.admin, signMessage: mock.sign }) }) }));
 vi.mock("@/contexts/Network", () => ({ NetworkGlyph: () => null, useChain: () => ({ selectedNetwork: mock.network,
   chains: [{ network: mock.network, rpcUrl: "https://rpc.test", assetAddress: "mint", asset: mock.network === "eip155:42431" ? "OUSD" : "USDC" }], setSelectedNetwork: mock.select }) }));
 vi.mock("@/hooks/use-address", () => ({ useSelectedUserAddress: () => ({ userAddress: mock.connected ? (mock.network.startsWith("eip155:") ? mock.smart : mock.svm) : null,
   readAddress: mock.svm, evmSignerAddress: mock.connected ? mock.admin : null, activate: mock.activate }) }));
 vi.mock("@/lib/svm/swig", () => ({ createSolanaRpcFromNetwork: vi.fn(() => ({})), readSvmTokenBalance: mock.balance, buildSwigApproveTransaction: mock.approve }));
-vi.mock("@/lib/sdk", () => ({ sdk: {
+vi.mock("@/lib/sdk", () => ({ setCreditRequestContext: vi.fn(), sdk: {
   fetch: mock.fetch, x402: { facilitator: { supported: mock.support } }, svm: { relay: mock.relay },
   wallets: { attach: input => { mock.currentWallet = input; mock.token = null; mock.attached(input); }, current: () => mock.currentWallet ?? { address: null, network: null },
     clear: () => { mock.currentWallet = null; mock.token = null; mock.clearWallet(); } },
