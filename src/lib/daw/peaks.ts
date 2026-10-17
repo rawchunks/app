@@ -1,3 +1,111 @@
+export interface PersistedPeakRecord {
+  mins: number[];
+  maxs: number[];
+  duration: number;
+  updatedAt: number;
+}
+
+const IDB_NAME = 'rawchunks-peaks-v1';
+const IDB_STORE = 'peaks';
+const AUDIO_CACHE_NAME = 'rawchunks-audio-v1';
+
+let idbPromise: Promise<IDBDatabase | null> | null = null;
+
+function openPeakDb(): Promise<IDBDatabase | null> {
+  if (typeof indexedDB === 'undefined') return Promise.resolve(null);
+  if (idbPromise) return idbPromise;
+  idbPromise = new Promise<IDBDatabase | null>((resolve) => {
+    try {
+      const req = indexedDB.open(IDB_NAME, 1);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(IDB_STORE)) {
+          db.createObjectStore(IDB_STORE);
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => resolve(null);
+    } catch {
+      resolve(null);
+    }
+  });
+  return idbPromise;
+}
+
+export async function readPersistedPeaks(url: string): Promise<PersistedPeakRecord | null> {
+  if (!url) return null;
+  const db = await openPeakDb();
+  if (!db) return null;
+  return new Promise<PersistedPeakRecord | null>((resolve) => {
+    try {
+      const tx = db.transaction(IDB_STORE, 'readonly');
+      const store = tx.objectStore(IDB_STORE);
+      const req = store.get(url);
+      req.onsuccess = () => {
+        const val = req.result as PersistedPeakRecord | undefined;
+        if (val && Array.isArray(val.mins) && Array.isArray(val.maxs) && val.mins.length > 0) {
+          resolve(val);
+        } else {
+          resolve(null);
+        }
+      };
+      req.onerror = () => resolve(null);
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+export async function writePersistedPeaks(url: string, record: PersistedPeakRecord): Promise<void> {
+  if (!url || !record.mins.length) return;
+  const db = await openPeakDb();
+  if (!db) return;
+  return new Promise<void>((resolve) => {
+    try {
+      const tx = db.transaction(IDB_STORE, 'readwrite');
+      const store = tx.objectStore(IDB_STORE);
+      store.put(record, url);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    } catch {
+      resolve();
+    }
+  });
+}
+
+function isCacheableAudioUrl(url: string): boolean {
+  return Boolean(url) && !url.startsWith('blob:') && !url.startsWith('data:');
+}
+
+export async function readCachedAudioBuffer(url: string): Promise<ArrayBuffer | null> {
+  if (typeof caches === 'undefined' || !isCacheableAudioUrl(url)) return null;
+  try {
+    const cache = await caches.open(AUDIO_CACHE_NAME);
+    const match = await cache.match(url);
+    if (!match || !match.ok) return null;
+    return await match.arrayBuffer();
+  } catch {
+    return null;
+  }
+}
+
+export async function writeCachedAudioBuffer(url: string, buffer: ArrayBuffer, contentType = 'audio/wav'): Promise<void> {
+  if (typeof caches === 'undefined' || !isCacheableAudioUrl(url) || buffer.byteLength === 0) return;
+  try {
+    const cache = await caches.open(AUDIO_CACHE_NAME);
+    const response = new Response(buffer.slice(0), {
+      headers: {
+        'Content-Type': contentType,
+        'Content-Length': String(buffer.byteLength),
+        'Cache-Control': 'public, max-age=604800, immutable',
+      },
+    });
+    await cache.put(url, response);
+  } catch {
+    // Ignore quota errors on restricted devices
+  }
+}
+
 export interface BipolarPeaks {
   mins: Float32Array;
   maxs: Float32Array;
@@ -68,29 +176,39 @@ export function extractBipolarPeaksFromWav(buffer: ArrayBuffer, bins = 512, offs
   return envelope(bytes / align, channels, rate, read, bins, offset, duration);
 }
 
-let sharedAudioCtx: AudioContext | null = null;
+let sharedDecodeContext: BaseAudioContext | null = null;
 
-function getSharedAudioContext(): AudioContext {
+function getDecodeContext(): BaseAudioContext {
   if (typeof window === 'undefined') {
     throw new Error('Web Audio not available in SSR');
+  }
+  if (sharedDecodeContext) {
+    return sharedDecodeContext;
+  }
+  const OfflineCtx = window.OfflineAudioContext || (window as any).webkitOfflineAudioContext;
+  if (OfflineCtx) {
+    sharedDecodeContext = new OfflineCtx(1, 1, 44100);
+    return sharedDecodeContext;
   }
   const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
   if (!AudioCtx) {
     throw new Error('Web Audio API not supported in this environment');
   }
-  if (!sharedAudioCtx || sharedAudioCtx.state === 'closed') {
-    sharedAudioCtx = new AudioCtx();
-  }
-  return sharedAudioCtx;
+  sharedDecodeContext = new AudioCtx();
+  return sharedDecodeContext;
 }
 
 /**
- * Decodes audio data from an ArrayBuffer using native AudioContext.
+ * Decodes audio data from an ArrayBuffer using a singleton OfflineAudioContext so it never
+ * leaks hardware audio contexts or triggers browser autoplay warnings.
  */
 export async function decodeAudioBuffer(arrayBuffer: ArrayBuffer): Promise<AudioBuffer> {
-  const audioCtx = getSharedAudioContext();
+  // Yield one microtask tick so any synchronous DataView peak readers on the shared ArrayBuffer
+  // complete before decodeAudioData detaches the buffer.
+  await Promise.resolve();
+  const decodeCtx = getDecodeContext();
   return new Promise<AudioBuffer>((resolve, reject) => {
-    audioCtx.decodeAudioData(
+    decodeCtx.decodeAudioData(
       arrayBuffer,
       (decoded) => resolve(decoded),
       (err) => reject(err)
@@ -100,8 +218,9 @@ export async function decodeAudioBuffer(arrayBuffer: ArrayBuffer): Promise<Audio
 
 export type AudioLoadPriority = 'high' | 'normal';
 
-const MAX_BACKGROUND_CONCURRENCY = 1;
-const MAX_DECODED_BUFFERS = 4;
+const MAX_BACKGROUND_CONCURRENCY = 3;
+const MAX_PEAK_CACHE_ENTRIES = 64;
+const MAX_DECODED_BUFFER_CACHE_ENTRIES = 5;
 let activeBackgroundFetches = 0;
 
 interface QueuedFetch {
@@ -118,8 +237,100 @@ interface InFlightFetch {
 
 const backgroundQueue: QueuedFetch[] = [];
 const inFlightFetches = new Map<string, InFlightFetch>();
+const canonicalPeakCache = new Map<string, Promise<BipolarPeaks>>();
+const resolvedCanonicalPeaks = new Map<string, BipolarPeaks>();
 const decodedBufferCache = new Map<string, Promise<AudioBuffer>>();
-const cache = new Map<string, Promise<BipolarPeaks>>();
+
+export function clearMemoryAudioCaches() {
+  decodedBufferCache.clear();
+  canonicalPeakCache.clear();
+}
+
+function canonicalCacheKey(url: string, offset = 0, duration?: number): string {
+  if (offset === 0 && duration === undefined) return url;
+  return `${url}|${offset}|${duration ?? ''}`;
+}
+
+function peakStorageKey(url: string, bins = 512, offset = 0, duration?: number): string {
+  return `waveform:${JSON.stringify([url, bins, offset, duration])}`;
+}
+
+function persistPeakToLocalStorage(
+  url: string,
+  bins: number,
+  offset: number,
+  duration: number | undefined,
+  peaks: BipolarPeaks
+): void {
+  if (typeof localStorage === 'undefined' || typeof localStorage.setItem !== 'function') return;
+  try {
+    const payload = JSON.stringify({
+      mins: Array.from(peaks.mins),
+      maxs: Array.from(peaks.maxs),
+      rms: Array.from(peaks.rms),
+      bins: peaks.bins,
+      duration: peaks.duration,
+    });
+    localStorage.setItem(peakStorageKey(url, bins, offset, duration), payload);
+  } catch {
+    // Ignore storage quota errors
+  }
+}
+
+function hydratePeakRecord(raw: {
+  mins: number[];
+  maxs: number[];
+  rms?: number[];
+  low?: number[];
+  mid?: number[];
+  high?: number[];
+  bins?: number;
+  duration?: number;
+}): BipolarPeaks | null {
+  if (!raw || !Array.isArray(raw.mins) || !Array.isArray(raw.maxs) || raw.mins.length === 0) {
+    return null;
+  }
+  const count = raw.mins.length;
+  const mins = Float32Array.from(raw.mins);
+  const maxs = Float32Array.from(raw.maxs);
+  const rms = Array.isArray(raw.rms) && raw.rms.length === count
+    ? Float32Array.from(raw.rms)
+    : Float32Array.from({ length: count }, (_, i) => Math.max(Math.abs(mins[i]), Math.abs(maxs[i])) * 0.7071);
+  return {
+    mins,
+    maxs,
+    rms,
+    low: Array.isArray(raw.low) ? Float32Array.from(raw.low) : undefined,
+    mid: Array.isArray(raw.mid) ? Float32Array.from(raw.mid) : undefined,
+    high: Array.isArray(raw.high) ? Float32Array.from(raw.high) : undefined,
+    bins: count,
+    duration: typeof raw.duration === 'number' && Number.isFinite(raw.duration) ? raw.duration : 0,
+  };
+}
+
+function readPeakFromLocalStorage(
+  url: string,
+  bins: number,
+  offset: number,
+  duration: number | undefined
+): BipolarPeaks | null {
+  if (typeof localStorage === 'undefined' || typeof localStorage.getItem !== 'function') return null;
+  try {
+    const rawStr = localStorage.getItem(peakStorageKey(url, bins, offset, duration));
+    if (!rawStr) return null;
+    return hydratePeakRecord(JSON.parse(rawStr));
+  } catch {
+    return null;
+  }
+}
+
+function storeResolvedPeak(key: string, peaks: BipolarPeaks) {
+  if (resolvedCanonicalPeaks.size >= MAX_PEAK_CACHE_ENTRIES) {
+    const oldest = resolvedCanonicalPeaks.keys().next().value;
+    if (oldest !== undefined) resolvedCanonicalPeaks.delete(oldest);
+  }
+  resolvedCanonicalPeaks.set(key, peaks);
+}
 
 function pumpBackgroundQueue() {
   while (activeBackgroundFetches < MAX_BACKGROUND_CONCURRENCY && backgroundQueue.length > 0) {
@@ -129,21 +340,39 @@ function pumpBackgroundQueue() {
   }
 }
 
-export function abortBackgroundAudioFetches() {
-  while (backgroundQueue.length > 0) {
-    const queued = backgroundQueue.shift()!;
-    queued.abort();
+let pendingAbortTimer: ReturnType<typeof setTimeout> | null = null;
+
+export function cancelPendingAudioFetchAbort() {
+  if (pendingAbortTimer !== null) {
+    clearTimeout(pendingAbortTimer);
+    pendingAbortTimer = null;
   }
-  for (const [, entry] of inFlightFetches) {
-    entry.controller.abort();
+}
+
+export function abortBackgroundAudioFetches(immediate = false) {
+  cancelPendingAudioFetchAbort();
+  const executeAbort = () => {
+    pendingAbortTimer = null;
+    while (backgroundQueue.length > 0) {
+      const queued = backgroundQueue.shift()!;
+      queued.abort();
+    }
+    for (const [, entry] of inFlightFetches) {
+      entry.controller.abort(new DOMException('Aborted background audio fetch', 'AbortError'));
+    }
+    inFlightFetches.clear();
+    activeBackgroundFetches = 0;
+  };
+  if (immediate) {
+    executeAbort();
+  } else {
+    pendingAbortTimer = setTimeout(executeAbort, 0);
   }
-  inFlightFetches.clear();
-  activeBackgroundFetches = 0;
-  decodedBufferCache.clear();
 }
 
 export function fetchAudioArrayBuffer(url: string, priority: AudioLoadPriority = 'normal'): Promise<ArrayBuffer> {
   if (!url) return Promise.reject(new Error('Audio source is required'));
+  cancelPendingAudioFetchAbort();
 
   if (priority === 'high') {
     const queuedIdx = backgroundQueue.findIndex((item) => item.url === url);
@@ -160,7 +389,9 @@ export function fetchAudioArrayBuffer(url: string, priority: AudioLoadPriority =
   }
 
   const existing = inFlightFetches.get(url);
-  if (existing) return existing.promise;
+  if (existing) {
+    return existing.promise;
+  }
 
   const controller = new AbortController();
   const entryState: InFlightFetch = {
@@ -169,11 +400,17 @@ export function fetchAudioArrayBuffer(url: string, priority: AudioLoadPriority =
     isHigh: priority === 'high',
   };
 
-  const doFetch = () =>
-    fetch(url, { signal: controller.signal }).then((response) => {
-      if (!response.ok) throw new Error(`Failed to load waveform (${response.status})`);
-      return response.arrayBuffer();
-    });
+  const doFetch = async (): Promise<ArrayBuffer> => {
+    const cachedBuf = await readCachedAudioBuffer(url);
+    if (cachedBuf && cachedBuf.byteLength > 0) {
+      return cachedBuf;
+    }
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) throw new Error(`Failed to load waveform (${response.status})`);
+    const buf = await response.arrayBuffer();
+    void writeCachedAudioBuffer(url, buf, response.headers.get('content-type') || 'audio/wav');
+    return buf;
+  };
 
   let raw: Promise<ArrayBuffer>;
   if (priority === 'high' || activeBackgroundFetches < MAX_BACKGROUND_CONCURRENCY) {
@@ -205,7 +442,7 @@ export function fetchAudioArrayBuffer(url: string, priority: AudioLoadPriority =
         },
         abort: () => {
           inFlightFetches.delete(url);
-          controller.abort();
+          controller.abort(new DOMException('Aborted background audio fetch', 'AbortError'));
           reject(new DOMException('Aborted background audio fetch', 'AbortError'));
         },
       };
@@ -214,6 +451,7 @@ export function fetchAudioArrayBuffer(url: string, priority: AudioLoadPriority =
     });
   }
 
+  raw.catch(() => {});
   entryState.promise = raw;
   inFlightFetches.set(url, entryState);
   return raw;
@@ -221,20 +459,48 @@ export function fetchAudioArrayBuffer(url: string, priority: AudioLoadPriority =
 
 export function getDecodedAudioBuffer(url: string, priority: AudioLoadPriority = 'normal'): Promise<AudioBuffer> {
   if (!url) return Promise.reject(new Error('Audio source is required'));
-  if (priority === 'high') {
-    void fetchAudioArrayBuffer(url, 'high').catch(() => {});
+  cancelPendingAudioFetchAbort();
+  const cached = decodedBufferCache.get(url);
+  if (cached) {
+    if (priority === 'high') {
+      void fetchAudioArrayBuffer(url, 'high').catch(() => {});
+    }
+    return cached;
   }
-  const existing = decodedBufferCache.get(url);
-  if (existing) {
-    decodedBufferCache.delete(url);
-    decodedBufferCache.set(url, existing);
-    return existing;
-  }
-
-  const pending = fetchAudioArrayBuffer(url, priority).then((raw) => decodeAudioBuffer(raw.slice(0)));
-  if (decodedBufferCache.size >= MAX_DECODED_BUFFERS) {
-    const oldestKey = decodedBufferCache.keys().next().value;
-    if (oldestKey !== undefined) decodedBufferCache.delete(oldestKey);
+  const pending = fetchAudioArrayBuffer(url, priority).then(async (raw) => {
+    const key = canonicalCacheKey(url, 0, undefined);
+    if (!resolvedCanonicalPeaks.has(key)) {
+      const wavPeaks = extractBipolarPeaksFromWav(raw, 512, 0, undefined);
+      if (wavPeaks) {
+        storeResolvedPeak(key, wavPeaks);
+        persistPeakToLocalStorage(url, 512, 0, undefined, wavPeaks);
+        void writePersistedPeaks(key, {
+          mins: Array.from(wavPeaks.mins),
+          maxs: Array.from(wavPeaks.maxs),
+          duration: wavPeaks.duration,
+          updatedAt: Date.now(),
+        });
+        canonicalPeakCache.set(key, Promise.resolve(wavPeaks));
+      }
+    }
+    const decoded = await decodeAudioBuffer(raw);
+    if (!resolvedCanonicalPeaks.has(key)) {
+      const bufPeaks = extractBipolarPeaksFromBuffer(decoded, 512, 0, undefined);
+      storeResolvedPeak(key, bufPeaks);
+      persistPeakToLocalStorage(url, 512, 0, undefined, bufPeaks);
+      void writePersistedPeaks(key, {
+        mins: Array.from(bufPeaks.mins),
+        maxs: Array.from(bufPeaks.maxs),
+        duration: bufPeaks.duration,
+        updatedAt: Date.now(),
+      });
+      canonicalPeakCache.set(key, Promise.resolve(bufPeaks));
+    }
+    return decoded;
+  });
+  if (decodedBufferCache.size >= MAX_DECODED_BUFFER_CACHE_ENTRIES) {
+    const oldest = decodedBufferCache.keys().next().value;
+    if (oldest !== undefined) decodedBufferCache.delete(oldest);
   }
   decodedBufferCache.set(url, pending);
   pending.catch(() => decodedBufferCache.delete(url));
@@ -246,10 +512,6 @@ export function getDecodedAudioBuffer(url: string, priority: AudioLoadPriority =
  */
 export async function extractPeaksFromUrl(url: string, bins = 256, priority: AudioLoadPriority = 'normal'): Promise<number[]> {
   return magnitudes(await extractBipolarPeaksFromUrl(url, bins, 0, undefined, priority));
-}
-
-function peakKey(url: string, bins: number, offset: number, duration?: number) {
-  return `waveform:${JSON.stringify([url, bins, offset, duration])}`;
 }
 
 function resampleBipolarPeaks(source: BipolarPeaks, targetBins: number): BipolarPeaks {
@@ -288,12 +550,26 @@ function readExactPeaks(url: string, bins: number, offset: number, duration?: nu
 }
 
 export function readPeaks(url: string, bins = 512, offset = 0, duration?: number): BipolarPeaks | null {
-  const exact = readExactPeaks(url, bins, offset, duration);
-  if (exact) return exact;
+  if (!url) return null;
+  const key = canonicalCacheKey(url, offset, duration);
+  const direct = resolvedCanonicalPeaks.get(key);
+  if (direct) return resampleBipolarPeaks(direct, bins);
+
+  const exactLs = readPeakFromLocalStorage(url, bins, offset, duration);
+  if (exactLs) {
+    storeResolvedPeak(key, exactLs);
+    return resampleBipolarPeaks(exactLs, bins);
+  }
+
   if (offset === 0) {
-    const full512 = readExactPeaks(url, 512, 0, undefined);
-    if (full512 && (duration === undefined || Math.abs(duration - full512.duration) <= 1.5)) {
-      return resampleBipolarPeaks(full512, bins);
+    const fullKey = canonicalCacheKey(url, 0, undefined);
+    let full = resolvedCanonicalPeaks.get(fullKey) ?? null;
+    if (!full) {
+      full = readPeakFromLocalStorage(url, 512, 0, undefined);
+      if (full) storeResolvedPeak(fullKey, full);
+    }
+    if (full && (duration === undefined || duration >= 30 || Math.abs(duration - full.duration) <= 1.5)) {
+      return resampleBipolarPeaks(full, bins);
     }
   }
   return null;
@@ -307,37 +583,116 @@ export async function extractBipolarPeaksFromUrl(
   priority: AudioLoadPriority = 'normal'
 ): Promise<BipolarPeaks> {
   if (!url) throw new Error('Audio source is required');
-  const key = JSON.stringify([url, bins, offset, duration]);
-  if (!cache.has(key)) {
+  if (
+    !Number.isFinite(bins) ||
+    bins < 1 ||
+    !Number.isFinite(offset) ||
+    offset < 0 ||
+    (duration !== undefined && (!Number.isFinite(duration) || duration < 0))
+  ) {
+    throw new Error('Invalid waveform range');
+  }
+  const syncCached = readPeaks(url, bins, offset, duration);
+  if (syncCached) return syncCached;
+
+  const isFullTrack = offset === 0 && (duration === undefined || duration >= 30);
+  const effectiveOffset = isFullTrack ? 0 : offset;
+  const effectiveDuration = isFullTrack ? undefined : duration;
+  const key = canonicalCacheKey(url, effectiveOffset, effectiveDuration);
+
+  if (offset === 0 && canonicalPeakCache.has(canonicalCacheKey(url, 0, undefined))) {
+    const fullPeaks = await canonicalPeakCache.get(canonicalCacheKey(url, 0, undefined))!;
+    if (duration === undefined || duration >= 30 || Math.abs(duration - fullPeaks.duration) <= 1.5) {
+      const resampled = resampleBipolarPeaks(fullPeaks, bins);
+      persistPeakToLocalStorage(url, bins, offset, duration, resampled);
+      return resampled;
+    }
+  }
+
+  if (!canonicalPeakCache.has(key)) {
+    const canonicalBins = Math.max(512, Math.min(1024, bins));
     const pending = (async () => {
-      const stored = readPeaks(url, bins, offset, duration);
-      if (stored) return stored;
-      const raw = await fetchAudioArrayBuffer(url, priority);
-      if (offset === 0 && bins <= 512) {
-        const fullWav = extractBipolarPeaksFromWav(raw, 512, 0, undefined);
-        if (fullWav && (duration === undefined || Math.abs(duration - fullWav.duration) <= 1.5)) {
+      if (isFullTrack) {
+        const persisted = await readPersistedPeaks(key);
+        if (persisted) {
+          const hydrated = hydratePeakRecord(persisted);
+          if (hydrated) {
+            storeResolvedPeak(key, hydrated);
+            persistPeakToLocalStorage(url, 512, 0, undefined, resampleBipolarPeaks(hydrated, 512));
+            return hydrated;
+          }
+        }
+        // In browser environment, query lightweight backend precomputed peaks (~3 KB) before downloading 40 MB WAV
+        if (
+          typeof window !== 'undefined' &&
+          (url.includes('.r2.dev') || url.includes('r2.cloudflarestorage.com'))
+        ) {
           try {
-            localStorage.setItem(peakKey(url, 512, 0, undefined), JSON.stringify({
-              mins: [...fullWav.mins], maxs: [...fullWav.maxs], rms: [...fullWav.rms], duration: fullWav.duration,
-            }));
-          } catch { /* Storage may be unavailable or full. */ }
-          return resampleBipolarPeaks(fullWav, bins);
+            const resp = await fetch(`/api/editing/peaks?url=${encodeURIComponent(url)}&bins=${canonicalBins}`);
+            if (resp.ok) {
+              const data = await resp.json();
+              const remotePeaks = hydratePeakRecord(data);
+              if (remotePeaks) {
+                storeResolvedPeak(key, remotePeaks);
+                persistPeakToLocalStorage(url, 512, 0, undefined, resampleBipolarPeaks(remotePeaks, 512));
+                void writePersistedPeaks(key, {
+                  mins: Array.from(remotePeaks.mins),
+                  maxs: Array.from(remotePeaks.maxs),
+                  duration: remotePeaks.duration,
+                  updatedAt: Date.now(),
+                });
+                return remotePeaks;
+              }
+            }
+          } catch {
+            // Fall back to direct audio fetch if peak endpoint is unreachable
+          }
         }
       }
-      const wav = extractBipolarPeaksFromWav(raw, bins, offset, duration);
-      const result = wav ?? extractBipolarPeaksFromBuffer(await decodeAudioBuffer(raw.slice(0)), bins, offset, duration);
-      try {
-        localStorage.setItem(peakKey(url, bins, offset, duration), JSON.stringify({
-          mins: [...result.mins], maxs: [...result.maxs], rms: [...result.rms], duration: result.duration,
-        }));
-      } catch { /* Storage may be unavailable or full. */ }
+
+      const raw = await fetchAudioArrayBuffer(url, priority);
+      const wav = extractBipolarPeaksFromWav(raw, canonicalBins, effectiveOffset, effectiveDuration);
+      if (wav) {
+        storeResolvedPeak(key, wav);
+        if (isFullTrack) {
+          persistPeakToLocalStorage(url, 512, 0, undefined, resampleBipolarPeaks(wav, 512));
+          void writePersistedPeaks(key, {
+            mins: Array.from(wav.mins),
+            maxs: Array.from(wav.maxs),
+            duration: wav.duration,
+            updatedAt: Date.now(),
+          });
+        }
+        return wav;
+      }
+      const decoded = await decodeAudioBuffer(raw);
+      const result = extractBipolarPeaksFromBuffer(decoded, canonicalBins, effectiveOffset, effectiveDuration);
+      storeResolvedPeak(key, result);
+      if (isFullTrack) {
+        persistPeakToLocalStorage(url, 512, 0, undefined, resampleBipolarPeaks(result, 512));
+        void writePersistedPeaks(key, {
+          mins: Array.from(result.mins),
+          maxs: Array.from(result.maxs),
+          duration: result.duration,
+          updatedAt: Date.now(),
+        });
+      }
       return result;
     })();
-    cache.set(key, pending); pending.catch(() => cache.delete(key));
+    if (canonicalPeakCache.size >= MAX_PEAK_CACHE_ENTRIES) {
+      const oldestKey = canonicalPeakCache.keys().next().value;
+      if (oldestKey !== undefined) canonicalPeakCache.delete(oldestKey);
+    }
+    canonicalPeakCache.set(key, pending);
+    pending.catch(() => canonicalPeakCache.delete(key));
   } else if (priority === 'high') {
     void fetchAudioArrayBuffer(url, 'high').catch(() => {});
   }
-  return cache.get(key)!;
+
+  const canonical = await canonicalPeakCache.get(key)!;
+  const resampled = resampleBipolarPeaks(canonical, bins);
+  persistPeakToLocalStorage(url, bins, offset, duration, resampled);
+  return resampled;
 }
 
 
