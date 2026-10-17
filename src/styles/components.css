@@ -450,6 +450,11 @@ textarea.cyber-input-field {
   padding: clamp(12px, 3vw, 24px);
 }
 
+.modal-overlay[aria-hidden="true"] {
+  visibility: hidden;
+  pointer-events: none;
+}
+
 .modal-container {
   width: 100%;
   max-width: min(580px, calc(100vw - 24px));

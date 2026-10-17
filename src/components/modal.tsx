@@ -11,6 +11,7 @@ export interface Props {
   children: React.ReactNode;
   size?: 'sm' | 'md' | 'lg' | 'xl';
   className?: string;
+  keepMounted?: boolean;
 }
 
 export const Modal: React.FC<Props> = ({
@@ -20,6 +21,7 @@ export const Modal: React.FC<Props> = ({
   children,
   size = 'md',
   className = '',
+  keepMounted = false,
 }) => {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -31,11 +33,13 @@ export const Modal: React.FC<Props> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
-  if (!isOpen) return null;
+  if (!isOpen && !keepMounted) return null;
 
   return createPortal(
     <div
       className="modal-overlay"
+      aria-hidden={!isOpen || undefined}
+      inert={!isOpen}
       onClick={onClose}
     >
       <div
