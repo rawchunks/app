@@ -1,4 +1,14 @@
-import { getContract, type ThirdwebClient, type Chain } from "thirdweb";
+import {
+  getContract,
+  readContract,
+  prepareContractCall,
+  simulateTransaction,
+  sendAndConfirmTransaction,
+  type ThirdwebClient,
+  type Chain,
+  type PreparedTransaction,
+} from "thirdweb";
+import type { Account } from "thirdweb/wallets";
 import { createPublicClient, http } from "viem";
 import { getContractAddress } from "./performance/chains-data";
 import type { ContractName } from "./performance/chains-data";
@@ -221,3 +231,83 @@ export function getRoyaltiesContract(client: ThirdwebClient, chain: Chain) {
     abi: ROYALTIES_ABI,
   });
 }
+
+export function prepareBuyLicenseTransaction(
+  client: ThirdwebClient,
+  chain: Chain,
+  songId: bigint,
+) {
+  const remix = getRemixContract(client, chain);
+  return prepareContractCall({
+    contract: remix,
+    method: "buyLicense",
+    params: [songId],
+  });
+}
+
+export async function buyLicense({
+  client,
+  chain,
+  account,
+  songId,
+  price,
+  execute,
+  assertCurrent,
+}: {
+  client: ThirdwebClient;
+  chain: Chain;
+  account: Account;
+  songId: bigint;
+  price?: bigint;
+  execute?: (transaction: PreparedTransaction<any>) => Promise<{ status: string; transactionHash?: string }>;
+  assertCurrent?: () => void;
+}) {
+  const check = () => assertCurrent?.();
+  const remix = getRemixContract(client, chain);
+  const royalties = getRoyaltiesContract(client, chain);
+  const licensePrice =
+    price !== undefined
+      ? price
+      : (
+          await readContract({
+            contract: getFactoryContract(client, chain),
+            method: "getSong",
+            params: [songId],
+          })
+        ).licensePrice;
+  check();
+  const tokenAddress = await readContract({ contract: royalties, method: "usdc" });
+  check();
+  const token = getContract({ client, chain, address: tokenAddress });
+  const run =
+    execute ??
+    (async (transaction: PreparedTransaction<any>) => {
+      check();
+      const prepared = { account, transaction };
+      await simulateTransaction(prepared);
+      check();
+      const receipt = await sendAndConfirmTransaction(prepared);
+      check();
+      return receipt;
+    });
+  const allowance = await readContract({
+    contract: token,
+    method: "function allowance(address owner, address spender) view returns (uint256)",
+    params: [account.address, remix.address],
+  });
+  check();
+  if (allowance < licensePrice) {
+    const approval = prepareContractCall({
+      contract: token,
+      method: "function approve(address spender, uint256 amount) returns (bool)",
+      params: [remix.address, licensePrice],
+    });
+    const receipt = await run(approval);
+    if (receipt.status !== "success") throw new Error("Token approval failed");
+  }
+  const purchase = prepareBuyLicenseTransaction(client, chain, songId);
+  const receipt = await run(purchase);
+  if (receipt.status !== "success") throw new Error("License purchase failed");
+  return receipt;
+}
+
