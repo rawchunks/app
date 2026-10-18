@@ -997,3 +997,242 @@ export function composeWaveSculpts(
   };
 }
 
+export interface GranularFieldSample {
+  upperGainLinear: number;
+  lowerGainLinear: number;
+  meanGainDb: number;
+  timeShift: number;
+  bend: number;
+  smash: number;
+  smooth: number;
+  sharpen: number;
+}
+
+export function evaluateGranularField(sculpt: WaveSculptState, t: number): GranularFieldSample {
+  const anchors = sculpt.anchors && sculpt.anchors.length > 0 ? sculpt.anchors : sculpt.granularAnchors;
+  if (!anchors || anchors.length === 0) {
+    return {
+      upperGainLinear: 1,
+      lowerGainLinear: 1,
+      meanGainDb: 0,
+      timeShift: 0,
+      bend: 0,
+      smash: 0,
+      smooth: 0,
+      sharpen: 0,
+    };
+  }
+  let upperDb = 0;
+  let lowerDb = 0;
+  let timeShift = 0;
+  let bend = 0;
+  let smash = 0;
+  let smooth = 0;
+  let sharpen = 0;
+
+  for (let i = 0; i < anchors.length; i++) {
+    const a = anchors[i];
+    const r = Math.max(0.015, Math.min(0.35, a.radius || 0.075));
+    const center = Math.max(0.002, Math.min(0.998, (a.position || 0) + (a.timeShift || 0) * 0.35));
+    const rawDelta = t - center;
+    const skew = Math.max(-0.68, Math.min(0.68, (a.bend || 0) * 0.65));
+    const sideRadius = rawDelta < 0 ? r * (1 + skew) : r * (1 - skew);
+    const dist = Math.abs(rawDelta);
+    if (dist >= sideRadius) continue;
+    // C2-continuous raised-cosine window for ultra-smooth organic peak sculpting
+    const u = dist / Math.max(1e-5, sideRadius);
+    const w = Math.pow(0.5 * (1 + Math.cos(Math.PI * u)), 1.35);
+    const pol = a.polarity ?? 'both';
+    const gainDb = a.gainDb || 0;
+    if (pol === 'both' || pol === 'upper') {
+      upperDb += gainDb * w;
+    }
+    if (pol === 'both' || pol === 'lower') {
+      lowerDb += gainDb * w;
+    }
+    timeShift += (a.timeShift || 0) * w;
+    bend += (a.bend || 0) * w;
+    smash = Math.max(smash, (a.smash || 0) * w);
+    smooth = Math.max(smooth, (a.smooth || 0) * w);
+    sharpen = Math.max(sharpen, (a.sharpen || 0) * w);
+  }
+
+  upperDb = Math.max(-28, Math.min(16, upperDb));
+  lowerDb = Math.max(-28, Math.min(16, lowerDb));
+  const meanGainDb = 0.5 * (upperDb + lowerDb);
+
+  return {
+    upperGainLinear: Math.pow(10, upperDb / 20),
+    lowerGainLinear: Math.pow(10, lowerDb / 20),
+    meanGainDb,
+    timeShift: Math.max(-0.12, Math.min(0.12, timeShift)),
+    bend: Math.max(-1, Math.min(1, bend)),
+    smash: Math.max(0, Math.min(1, smash)),
+    smooth: Math.max(0, Math.min(1, smooth)),
+    sharpen: Math.max(0, Math.min(1, sharpen)),
+  };
+}
+
+function catmullRom(p0: number, p1: number, p2: number, p3: number, u: number): number {
+  const u2 = u * u;
+  const u3 = u2 * u;
+  return (
+    0.5 *
+    (2 * p1 +
+      (-p0 + p2) * u +
+      (2 * p0 - 5 * p1 + 4 * p2 - p3) * u2 +
+      (-p0 + 3 * p1 - 3 * p2 + p3) * u3)
+  );
+}
+
+/**
+ * Evaluates the vertical Peak-Sculpting gain envelope g(t), the horizontal
+ * Wave-Design monotone progression bijection phi(t), and the local Granular
+ * acoustic parameters at normalized coordinate t in [0, 1].
+ */
+export function evaluateSculptField(sculpt: WaveSculptState, t: number): {
+  gainLinear: number;
+  upperGainLinear: number;
+  lowerGainLinear: number;
+  gainDb: number;
+  warpedTime: number;
+  fadeMultiplier: number;
+  bend: number;
+  smash: number;
+  smooth: number;
+  sharpen: number;
+} {
+  const clampedT = Math.max(0, Math.min(1, t));
+  const sorted = [...(sculpt.nodes || [])].sort((a, b) => a.position - b.position);
+
+  const anchors: Array<{ x: number; db: number; srcT: number }> = [
+    { x: 0, db: sorted[0]?.gainDb || 0, srcT: 0 },
+  ];
+  let prevX = 0.01;
+  for (let i = 0; i < sorted.length; i++) {
+    const node = sorted[i];
+    const maxAllowed = 1 - (sorted.length - i) * 0.02;
+    const warpedX = Math.max(prevX, Math.min(maxAllowed, (node.position || 0) + (node.warpOffset || 0)));
+    anchors.push({
+      x: warpedX,
+      db: Math.max(-24, Math.min(12, node.gainDb || 0)),
+      srcT: Math.max(0.01, Math.min(0.99, node.position || 0)),
+    });
+    prevX = warpedX + 0.02;
+  }
+  anchors.push({ x: 1, db: sorted[sorted.length - 1]?.gainDb || 0, srcT: 1 });
+
+  let segIdx = 0;
+  for (let i = 0; i < anchors.length - 1; i++) {
+    if (clampedT >= anchors[i].x && clampedT <= anchors[i + 1].x) {
+      segIdx = i;
+      break;
+    }
+  }
+  const aPrev = anchors[Math.max(0, segIdx - 1)];
+  const a0 = anchors[segIdx];
+  const a1 = anchors[segIdx + 1] ?? a0;
+  const aNext = anchors[Math.min(anchors.length - 1, segIdx + 2)];
+  const span = Math.max(1e-6, a1.x - a0.x);
+  const localAlpha = Math.max(0, Math.min(1, (clampedT - a0.x) / span));
+
+  // Catmull-Rom cubic spline interpolation for smooth Bezier-grade macro curve
+  const curveGainDb = Math.max(
+    -24,
+    Math.min(12, catmullRom(aPrev.db, a0.db, a1.db, aNext.db, localAlpha))
+  );
+  const curveGainLinear = Math.pow(10, curveGainDb / 20);
+
+  // Strictly monotone piecewise progression for horizontal Speed / Wave-Design
+  const baseWarpedTime = Math.max(0, Math.min(1, a0.srcT + (a1.srcT - a0.srcT) * localAlpha));
+
+  // Evaluate local granular peak-sculpting field at t
+  const gran = evaluateGranularField(sculpt, clampedT);
+  // Zero-crossing-safe local time shift pulls from opposite direction in source buffer
+  const warpedTime = Math.max(0, Math.min(1, baseWarpedTime - gran.timeShift));
+
+  let fadeMultiplier = 1;
+  const fadeIn = sculpt.fadeIn || 0;
+  const fadeOut = sculpt.fadeOut || 0;
+  if (fadeIn > 0.001 && clampedT < fadeIn) {
+    const u = clampedT / fadeIn;
+    fadeMultiplier *= Math.sin(u * (Math.PI / 2));
+  }
+  if (fadeOut > 0.001 && clampedT > 1 - fadeOut) {
+    const u = (1 - clampedT) / fadeOut;
+    fadeMultiplier *= Math.sin(Math.max(0, u) * (Math.PI / 2));
+  }
+
+  const gainDb = curveGainDb + gran.meanGainDb;
+  const gainLinear = curveGainLinear * Math.pow(10, gran.meanGainDb / 20);
+  const upperGainLinear = curveGainLinear * gran.upperGainLinear;
+  const lowerGainLinear = curveGainLinear * gran.lowerGainLinear;
+
+  return {
+    gainLinear,
+    upperGainLinear,
+    lowerGainLinear,
+    gainDb,
+    warpedTime,
+    fadeMultiplier,
+    bend: gran.bend,
+    smash: gran.smash,
+    smooth: gran.smooth,
+    sharpen: gran.sharpen,
+  };
+}
+
+/**
+ * Bi-directional time-warp transfer helpers so lyrics highlighting and click-to-seek
+ * stay 100% locked in real time when wave/speed/granular time-shifts are applied.
+ */
+export function mapPlayheadTimeToSourceTime(
+  playheadSec: number,
+  arg2: number,
+  arg3?: number | WaveSculptState | null,
+  arg4?: WaveSculptState | null
+): number {
+  const clipStartSec = typeof arg3 === 'number' ? arg2 : 0;
+  const durationSec = typeof arg3 === 'number' ? arg3 : arg2;
+  const sculpt = typeof arg3 === 'number' ? arg4 : arg3;
+  if (!durationSec || durationSec <= 0 || !sculpt || isIdentityWaveSculpt(sculpt)) {
+    return playheadSec;
+  }
+  const localPlayhead = playheadSec - clipStartSec;
+  const normPlayhead = Math.max(0, Math.min(1, localPlayhead / durationSec));
+  const { warpedTime } = evaluateSculptField(sculpt, normPlayhead);
+  return clipStartSec + warpedTime * durationSec;
+}
+
+export function mapSourceTimeToPlayheadTime(
+  sourceSec: number,
+  arg2: number,
+  arg3?: number | WaveSculptState | null,
+  arg4?: WaveSculptState | null
+): number {
+  const clipStartSec = typeof arg3 === 'number' ? arg2 : 0;
+  const durationSec = typeof arg3 === 'number' ? arg3 : arg2;
+  const sculpt = typeof arg3 === 'number' ? arg4 : arg3;
+  if (!durationSec || durationSec <= 0 || !sculpt || isIdentityWaveSculpt(sculpt)) {
+    return sourceSec;
+  }
+  const localSource = sourceSec - clipStartSec;
+  const targetNorm = Math.max(0, Math.min(1, localSource / durationSec));
+  let lo = 0;
+  let hi = 1;
+  for (let iter = 0; iter < 14; iter++) {
+    const mid = 0.5 * (lo + hi);
+    const { warpedTime } = evaluateSculptField(sculpt, mid);
+    if (warpedTime < targetNorm) {
+      lo = mid;
+    } else {
+      hi = mid;
+    }
+  }
+  return clipStartSec + 0.5 * (lo + hi) * durationSec;
+}
+
+/**
+ * 1st-order Antiderivative Anti-Aliasing (ADAA) helper for f(u) = tanh(u):
+ * F^(1)(u) = ln(cosh(u)) = |u| + ln(1 + exp(-2|u|)) - ln(2)
+ */
