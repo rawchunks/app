@@ -1394,3 +1394,261 @@ export function sculptBipolarPeaks(source: BipolarPeaks, sculpt?: WaveSculptStat
  * Accepts an optional reusable `targetBuffer` and `dirtyRange` [startNorm, endNorm]
  * so real-time dragging mutates in-place with zero AudioBuffer allocations.
  */
+export function applyWaveSculptToAudioBuffer(
+  source: AudioBuffer,
+  sculpt?: WaveSculptState | null,
+  targetBuffer?: AudioBuffer | null,
+  dirtyRange?: [number, number]
+): AudioBuffer {
+  if (!source || typeof source.getChannelData !== 'function') return source;
+  if (!sculpt || isIdentityWaveSculpt(sculpt)) {
+    if (targetBuffer && targetBuffer !== source && targetBuffer.length === source.length) {
+      for (let ch = 0; ch < source.numberOfChannels; ch++) {
+        targetBuffer.getChannelData(ch).set(source.getChannelData(ch));
+      }
+      return targetBuffer;
+    }
+    return source;
+  }
+
+  const numChannels = source.numberOfChannels;
+  const length = source.length;
+  const sampleRate = source.sampleRate;
+  const out =
+    targetBuffer &&
+    targetBuffer !== source &&
+    targetBuffer.numberOfChannels === numChannels &&
+    targetBuffer.length === length &&
+    targetBuffer.sampleRate === sampleRate
+      ? targetBuffer
+      : typeof AudioBuffer === 'function'
+      ? new AudioBuffer({ numberOfChannels: numChannels, length, sampleRate })
+      : getDecodeContext().createBuffer(numChannels, length, sampleRate);
+
+  const driveAmount = Math.max(0, Math.min(1, sculpt.drive || 0));
+  const crestAmount = Math.max(-1, Math.min(1, sculpt.crest || 0));
+  const textureAmount = Math.max(-1, Math.min(1, sculpt.texture || 0));
+
+  // Precompute envelope, granular parameters & time-warp lookup table across 4096 control slices
+  const LUT_SIZE = 4096;
+  const upperGainLut = new Float32Array(LUT_SIZE);
+  const lowerGainLut = new Float32Array(LUT_SIZE);
+  const warpLut = new Float32Array(LUT_SIZE);
+  const bendLut = new Float32Array(LUT_SIZE);
+  const gammaLut = new Float32Array(LUT_SIZE);
+  const smashLut = new Float32Array(LUT_SIZE);
+  const smoothLut = new Float32Array(LUT_SIZE);
+  const sharpenLut = new Float32Array(LUT_SIZE);
+
+  const lutStart = dirtyRange
+    ? Math.max(0, Math.floor(Math.min(dirtyRange[0], dirtyRange[1]) * (LUT_SIZE - 1)) - 2)
+    : 0;
+  const lutEnd = dirtyRange
+    ? Math.min(LUT_SIZE - 1, Math.ceil(Math.max(dirtyRange[0], dirtyRange[1]) * (LUT_SIZE - 1)) + 2)
+    : LUT_SIZE - 1;
+
+  let hasWarp = false;
+  let hasGainBoost = false;
+  let hasGainCut = false;
+  let hasBend = false;
+  let hasSmash = false;
+  let hasSmooth = false;
+  let hasSharpen = false;
+
+  for (let i = lutStart; i <= lutEnd; i++) {
+    const t = i / (LUT_SIZE - 1);
+    const field = evaluateSculptField(sculpt, t);
+    const uGain = field.upperGainLinear * field.fadeMultiplier;
+    const lGain = field.lowerGainLinear * field.fadeMultiplier;
+    upperGainLut[i] = uGain;
+    lowerGainLut[i] = lGain;
+    warpLut[i] = field.warpedTime;
+    bendLut[i] = field.bend;
+    gammaLut[i] = Math.abs(field.bend) > 0.005 ? Math.pow(2, -field.bend * 1.25) : 1;
+    smashLut[i] = field.smash;
+    smoothLut[i] = field.smooth;
+    sharpenLut[i] = field.sharpen;
+    if (Math.abs(field.warpedTime - t) > 1e-6) hasWarp = true;
+    if (uGain > 1.005 || lGain > 1.005) hasGainBoost = true;
+    if (uGain < 0.995 || lGain < 0.995) hasGainCut = true;
+    if (Math.abs(field.bend) > 0.005) hasBend = true;
+    if (field.smash > 0.005) hasSmash = true;
+    if (field.smooth > 0.005) hasSmooth = true;
+    if (field.sharpen > 0.005) hasSharpen = true;
+  }
+
+  const hasDrive = driveAmount > 0.002;
+  const hasCrestOrTexture = Math.abs(crestAmount) > 0.002 || Math.abs(textureAmount) > 0.002;
+  const needsEnvelopeAndCrossover = hasCrestOrTexture || hasGainBoost || hasSharpen;
+
+  // 2.2 kHz detail-preserving crossover coefficient (Newfangled Elevate style)
+  const alphaCrossover = 1 - Math.exp((-2 * Math.PI * 2200) / Math.max(8000, sampleRate));
+  // Smooth LPF coefficient (1.1 kHz)
+  const alphaSmoothLp = 1 - Math.exp((-2 * Math.PI * 1100) / Math.max(8000, sampleRate));
+  // Cut-ducking LPF coefficient (780 Hz)
+  const alphaCutLp = 1 - Math.exp((-2 * Math.PI * 780) / Math.max(8000, sampleRate));
+
+  const startSample = dirtyRange
+    ? Math.max(0, Math.floor(Math.min(dirtyRange[0], dirtyRange[1]) * (length - 1)))
+    : 0;
+  const endSample = dirtyRange
+    ? Math.min(length, Math.ceil(Math.max(dirtyRange[0], dirtyRange[1]) * (length - 1)) + 1)
+    : length;
+
+  for (let ch = 0; ch < numChannels; ch++) {
+    const srcData = source.getChannelData(ch);
+    const dstData = out.getChannelData(ch);
+
+    let fastEnv = 0;
+    let slowEnv = 0;
+    let crossoverLp = startSample > 0 ? srcData[startSample - 1] : 0;
+    let smoothLp = crossoverLp;
+    let cutLp = crossoverLp;
+    let prevOut = startSample > 0 ? dstData[startSample - 1] : 0;
+    let prevDriveU = crossoverLp;
+    let prevDriveF1 = hasDrive ? adaaTanhAntideriv(prevDriveU) : 0;
+    let prevFoldU = 0;
+    let prevFoldF1 = -1;
+
+    for (let i = startSample; i < endSample; i++) {
+      const normT = length > 1 ? i / (length - 1) : 0;
+      const lutPos = normT * (LUT_SIZE - 1);
+      const lutIdx = Math.min(LUT_SIZE - 2, Math.floor(lutPos));
+      const lutFrac = lutPos - lutIdx;
+
+      const uGain = upperGainLut[lutIdx] * (1 - lutFrac) + upperGainLut[lutIdx + 1] * lutFrac;
+      const lGain = lowerGainLut[lutIdx] * (1 - lutFrac) + lowerGainLut[lutIdx + 1] * lutFrac;
+
+      // Fast-path direct read when time-warp is identity; otherwise 4-point Cubic Hermite interpolation
+      let rawSample: number;
+      if (!hasWarp) {
+        rawSample = srcData[i];
+      } else {
+        const warpedNorm = warpLut[lutIdx] * (1 - lutFrac) + warpLut[lutIdx + 1] * lutFrac;
+        if (Math.abs(warpedNorm - normT) < 1e-6) {
+          rawSample = srcData[i];
+        } else {
+          const srcFrame = warpedNorm * (length - 1);
+          const f1 = Math.max(0, Math.min(length - 1, Math.floor(srcFrame)));
+          const f0 = Math.max(0, f1 - 1);
+          const f2 = Math.min(length - 1, f1 + 1);
+          const f3 = Math.min(length - 1, f1 + 2);
+          const frac = srcFrame - f1;
+          const y0 = srcData[f0];
+          const y1 = srcData[f1];
+          const y2 = srcData[f2];
+          const y3 = srcData[f3];
+          const c0 = y1;
+          const c1 = 0.5 * (y2 - y0);
+          const c2 = y0 - 2.5 * y1 + 2 * y2 - 0.5 * y3;
+          const c3 = 0.5 * (y3 - y0) + 1.5 * (y1 - y2);
+          rawSample = ((c3 * frac + c2) * frac + c1) * frac + c0;
+        }
+      }
+
+      const polarityGain = rawSample >= 0 ? uGain : lGain;
+      let sample: number;
+
+      if (needsEnvelopeAndCrossover) {
+        const sharpen = hasSharpen ? sharpenLut[lutIdx] * (1 - lutFrac) + sharpenLut[lutIdx + 1] * lutFrac : 0;
+        const smooth = hasSmooth ? smoothLut[lutIdx] * (1 - lutFrac) + smoothLut[lutIdx + 1] * lutFrac : 0;
+        const absSample = Math.abs(rawSample);
+        fastEnv = absSample > fastEnv ? fastEnv * 0.6 + absSample * 0.4 : fastEnv * 0.985 + absSample * 0.015;
+        slowEnv = slowEnv * 0.9965 + absSample * 0.0035;
+        const transientDiff = Math.max(0, fastEnv - slowEnv);
+        const transientRatio = fastEnv > 1e-5 ? transientDiff / fastEnv : 0;
+
+        crossoverLp += alphaCrossover * (rawSample - crossoverLp);
+        const highBand = rawSample - crossoverLp;
+
+        const effectiveCrest = crestAmount + sharpen * 1.45 - smooth * 0.75;
+        const crestFactor = Math.max(0.15, 1 + effectiveCrest * (transientRatio * 1.1 + 0.25));
+        const bodyFactor = 1 + textureAmount * (1 - transientRatio) * 0.55;
+
+        sample = rawSample * polarityGain * crestFactor * bodyFactor;
+
+        if (polarityGain > 1.005) {
+          const boostAmount = polarityGain - 1;
+          sample += highBand * boostAmount * (0.55 + transientRatio * 0.85);
+        }
+        if (sharpen > 0.005) {
+          sample += highBand * polarityGain * sharpen * (1.35 + transientRatio * 1.65);
+        }
+      } else {
+        sample = rawSample * polarityGain;
+      }
+
+      if (hasGainCut) {
+        cutLp += alphaCutLp * (sample - cutLp);
+        if (polarityGain < 0.995) {
+          const cutDepth = Math.min(1, (1 - polarityGain) * 0.85);
+          sample = sample * (1 - cutDepth * 0.55) + cutLp * (cutDepth * 0.55);
+        }
+      }
+
+      if (hasBend) {
+        const bend = bendLut[lutIdx] * (1 - lutFrac) + bendLut[lutIdx + 1] * lutFrac;
+        if (Math.abs(bend) > 0.005) {
+          const gamma = gammaLut[lutIdx] * (1 - lutFrac) + gammaLut[lutIdx + 1] * lutFrac;
+          const mag = Math.abs(sample);
+          if (mag > 1e-6) {
+            sample = (sample >= 0 ? 1 : -1) * Math.pow(mag, gamma);
+          }
+        }
+      }
+
+      if (hasSmash) {
+        const smash = smashLut[lutIdx] * (1 - lutFrac) + smashLut[lutIdx + 1] * lutFrac;
+        if (smash > 0.005) {
+          const omega = 1.35 + smash * 5.8;
+          const foldU = sample * omega;
+          const foldF1 = -Math.cos(foldU);
+          const du = foldU - prevFoldU;
+          const folded = Math.abs(du) > 1e-5 ? (foldF1 - prevFoldF1) / du : Math.sin(0.5 * (foldU + prevFoldU));
+          prevFoldU = foldU;
+          prevFoldF1 = foldF1;
+          sample = sample * (1 - smash * 0.82) + folded * (smash * 0.82);
+        } else {
+          prevFoldU = sample;
+          prevFoldF1 = -Math.cos(sample);
+        }
+      }
+
+      if (hasSmooth) {
+        smoothLp += alphaSmoothLp * (sample - smoothLp);
+        const smooth = smoothLut[lutIdx] * (1 - lutFrac) + smoothLut[lutIdx + 1] * lutFrac;
+        if (smooth > 0.005) {
+          const maxSlew = Math.max(0.012, 0.32 * (1 - smooth * 0.9));
+          const delta = sample - prevOut;
+          const slewLimited =
+            Math.abs(delta) > maxSlew ? prevOut + (delta > 0 ? maxSlew : -maxSlew) : sample;
+          sample = slewLimited * (1 - smooth * 0.72) + smoothLp * (smooth * 0.72);
+        }
+      }
+
+      if (hasDrive) {
+        const k = 1 + driveAmount * 5.5;
+        const u = sample * k;
+        const f1Val = adaaTanhAntideriv(u);
+        const du = u - prevDriveU;
+        const sat =
+          Math.abs(du) > 1e-5 ? (f1Val - prevDriveF1) / du : Math.tanh(0.5 * (u + prevDriveU));
+        prevDriveU = u;
+        prevDriveF1 = f1Val;
+        sample = (sat / Math.tanh(k)) * (1 + driveAmount * 0.35);
+      }
+
+      const absOut = Math.abs(sample);
+      const ceilingOut =
+        absOut > 1.6
+          ? (sample >= 0 ? 1 : -1) * (1.6 + 0.9 * Math.tanh((absOut - 1.6) / 0.9))
+          : sample;
+      dstData[i] = ceilingOut;
+      prevOut = ceilingOut;
+    }
+  }
+
+  return out;
+}
+
+
