@@ -110,6 +110,9 @@ export interface BipolarPeaks {
   mins: Float32Array;
   maxs: Float32Array;
   rms: Float32Array;
+  low?: Float32Array;
+  mid?: Float32Array;
+  high?: Float32Array;
   bins: number;
   duration: number;
 }
@@ -122,17 +125,47 @@ function envelope(length: number, channels: number, rate: number, read: (frame: 
   const last = duration === undefined ? length : Math.min(length, Math.ceil((offset + duration) * rate));
   const frames = Math.max(0, last - first);
   const mins = new Float32Array(count), maxs = new Float32Array(count), rms = new Float32Array(count);
+  const low = new Float32Array(count), mid = new Float32Array(count), high = new Float32Array(count);
+  const alphaLow = 1 - Math.exp((-2 * Math.PI * 250) / Math.max(8000, rate));
+  const alphaMid = 1 - Math.exp((-2 * Math.PI * 4000) / Math.max(8000, rate));
+  let lpLow = 0;
+  let lpMid = 0;
   for (let bin = 0; bin < count; bin++) {
     const start = first + Math.floor(bin * frames / count), end = first + Math.floor((bin + 1) * frames / count);
-    let energy = 0;
-    for (let frame = start; frame < end; frame++) for (let channel = 0; channel < channels; channel++) {
-      const value = read(frame, channel);
-      if (!Number.isFinite(value)) throw new Error('Audio contains non-finite samples');
-      mins[bin] = Math.min(mins[bin], value); maxs[bin] = Math.max(maxs[bin], value); energy += value * value;
+    const span = end - start;
+    const step = Math.max(1, Math.floor(span / 64));
+    let energy = 0, eLow = 0, eMid = 0, eHigh = 0, sampled = 0;
+    for (let frame = start; frame < end; frame += step) {
+      sampled++;
+      for (let channel = 0; channel < channels; channel++) {
+        const value = read(frame, channel);
+        if (!Number.isFinite(value)) throw new Error('Audio contains non-finite samples');
+        mins[bin] = Math.min(mins[bin], value); maxs[bin] = Math.max(maxs[bin], value); energy += value * value;
+        lpLow += alphaLow * (value - lpLow);
+        lpMid += alphaMid * (value - lpMid);
+        const bLow = lpLow;
+        const bMid = lpMid - lpLow;
+        const bHigh = value - lpMid;
+        eLow += bLow * bLow;
+        eMid += bMid * bMid;
+        eHigh += bHigh * bHigh;
+      }
     }
-    if (end > start) rms[bin] = Math.sqrt(energy / ((end - start) * channels));
+    if (sampled > 0) {
+      rms[bin] = Math.sqrt(energy / (sampled * channels));
+      const bandSum = eLow + eMid + eHigh;
+      if (bandSum > 1e-12) {
+        low[bin] = eLow / bandSum;
+        mid[bin] = eMid / bandSum;
+        high[bin] = eHigh / bandSum;
+      } else {
+        low[bin] = 0.34;
+        mid[bin] = 0.33;
+        high[bin] = 0.33;
+      }
+    }
   }
-  return { mins, maxs, rms, bins: count, duration: length / rate };
+  return { mins, maxs, rms, low, mid, high, bins: count, duration: length / rate };
 }
 
 export function extractBipolarPeaksFromBuffer(buffer: AudioBuffer, bins = 512, offset = 0, duration?: number): BipolarPeaks {
@@ -515,38 +548,61 @@ export async function extractPeaksFromUrl(url: string, bins = 256, priority: Aud
 }
 
 function resampleBipolarPeaks(source: BipolarPeaks, targetBins: number): BipolarPeaks {
-  const count = Math.min(2048, Math.floor(targetBins));
+  const count = Math.max(1, Math.min(2048, Math.floor(targetBins)));
   if (source.bins === count) return source;
   const mins = new Float32Array(count);
   const maxs = new Float32Array(count);
   const rms = new Float32Array(count);
+  const hasBands = Boolean(source.low && source.mid && source.high);
+  const low = hasBands ? new Float32Array(count) : undefined;
+  const mid = hasBands ? new Float32Array(count) : undefined;
+  const high = hasBands ? new Float32Array(count) : undefined;
+
   for (let bin = 0; bin < count; bin++) {
+    const pos = count > 1 ? (bin / (count - 1)) * (source.bins - 1) : 0;
     const start = Math.floor((bin * source.bins) / count);
     const end = Math.max(start + 1, Math.min(source.bins, Math.floor(((bin + 1) * source.bins) / count)));
-    let minVal = Infinity;
-    let maxVal = -Infinity;
-    let energy = 0;
-    for (let i = start; i < end; i++) {
-      if (source.mins[i] < minVal) minVal = source.mins[i];
-      if (source.maxs[i] > maxVal) maxVal = source.maxs[i];
-      energy += source.rms[i] * source.rms[i];
+    if (count <= source.bins) {
+      let minVal = Infinity;
+      let maxVal = -Infinity;
+      let energy = 0;
+      let lowSum = 0;
+      let midSum = 0;
+      let highSum = 0;
+      const span = end - start;
+      for (let i = start; i < end; i++) {
+        if (source.mins[i] < minVal) minVal = source.mins[i];
+        if (source.maxs[i] > maxVal) maxVal = source.maxs[i];
+        energy += source.rms[i] * source.rms[i];
+        if (hasBands) {
+          lowSum += source.low![i];
+          midSum += source.mid![i];
+          highSum += source.high![i];
+        }
+      }
+      mins[bin] = Number.isFinite(minVal) ? minVal : 0;
+      maxs[bin] = Number.isFinite(maxVal) ? maxVal : 0;
+      rms[bin] = Math.sqrt(energy / span);
+      if (hasBands) {
+        low![bin] = lowSum / span;
+        mid![bin] = midSum / span;
+        high![bin] = highSum / span;
+      }
+    } else {
+      const idx0 = Math.min(source.bins - 1, Math.floor(pos));
+      const idx1 = Math.min(source.bins - 1, idx0 + 1);
+      const frac = pos - idx0;
+      mins[bin] = source.mins[idx0] * (1 - frac) + source.mins[idx1] * frac;
+      maxs[bin] = source.maxs[idx0] * (1 - frac) + source.maxs[idx1] * frac;
+      rms[bin] = source.rms[idx0] * (1 - frac) + source.rms[idx1] * frac;
+      if (hasBands) {
+        low![bin] = source.low![idx0] * (1 - frac) + source.low![idx1] * frac;
+        mid![bin] = source.mid![idx0] * (1 - frac) + source.mid![idx1] * frac;
+        high![bin] = source.high![idx0] * (1 - frac) + source.high![idx1] * frac;
+      }
     }
-    mins[bin] = Number.isFinite(minVal) ? minVal : 0;
-    maxs[bin] = Number.isFinite(maxVal) ? maxVal : 0;
-    rms[bin] = Math.sqrt(energy / (end - start));
   }
-  return { mins, maxs, rms, bins: count, duration: source.duration };
-}
-
-function readExactPeaks(url: string, bins: number, offset: number, duration?: number): BipolarPeaks | null {
-  try {
-    const raw = localStorage.getItem(peakKey(url, bins, offset, duration));
-    if (!raw) return null;
-    const saved = JSON.parse(raw);
-    const count = Math.min(2048, Math.floor(bins));
-    if (![saved.mins, saved.maxs, saved.rms].every(values => Array.isArray(values) && values.length === count && values.every(Number.isFinite)) || !Number.isFinite(saved.duration)) return null;
-    return { mins: Float32Array.from(saved.mins), maxs: Float32Array.from(saved.maxs), rms: Float32Array.from(saved.rms), bins: count, duration: saved.duration };
-  } catch { return null; }
+  return { mins, maxs, rms, low, mid, high, bins: count, duration: source.duration };
 }
 
 export function readPeaks(url: string, bins = 512, offset = 0, duration?: number): BipolarPeaks | null {
