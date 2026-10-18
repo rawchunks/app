@@ -1,4 +1,5 @@
 import type { DAWTrack } from './store';
+import { parseStrudelPattern } from './strudel';
 
 export const BEAT_STEPS = 4;
 export const DRUM_STEPS = 16;
@@ -14,7 +15,10 @@ export interface Note {
   muted: boolean;
 }
 
-export function sequence(track: Pick<DAWTrack, 'type' | 'pianoRollNotes' | 'sequencerVoices'>, bpm: number) {
+export function sequence(
+  track: Pick<DAWTrack, 'type' | 'pianoRollNotes' | 'sequencerVoices' | 'strudelCode'>,
+  bpm: number
+) {
   const step = 60 / bpm / BEAT_STEPS;
   if (track.type === 'pianoroll') {
     const notes = track.pianoRollNotes ?? [];
@@ -30,6 +34,25 @@ export function sequence(track: Pick<DAWTrack, 'type' | 'pianoRollNotes' | 'sequ
       })),
     };
   }
+  if (track.type === 'strudel') {
+    const parsed = parseStrudelPattern(track.strudelCode || '');
+    const rate = Math.max(0.125, parsed.rateModifier || 1.0);
+    const cycleDuration = (DRUM_STEPS * step) / rate;
+    const uniqueLabels = Array.from(new Set(parsed.events.map(ev => ev.value)));
+    return {
+      duration: cycleDuration,
+      rows: Math.max(1, uniqueLabels.length),
+      notes: parsed.events.map((ev, index) => ({
+        id: `strudel-${index}-${ev.value}`,
+        label: ev.value.toUpperCase(),
+        row: Math.max(0, uniqueLabels.indexOf(ev.value)),
+        start: ev.time * cycleDuration,
+        duration: Math.max(step * 0.25, ev.duration * cycleDuration),
+        velocity: Math.min(1, Math.max(0.1, ev.gain ?? 0.85)),
+        muted: false,
+      })),
+    };
+  }
   const voices = track.sequencerVoices ?? [];
   return {
     duration: DRUM_STEPS * step,
@@ -41,3 +64,4 @@ export function sequence(track: Pick<DAWTrack, 'type' | 'pianoRollNotes' | 'sequ
     }] : [])),
   };
 }
+
