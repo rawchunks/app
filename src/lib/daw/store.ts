@@ -6,6 +6,7 @@ import { dawEngine } from './engine';
 import { isBase, preview, interval, source, clips, sourceInterval, retained, masterArrangement, pending, isLayerTake, layerTrackName, isFullSongRestyleTake, isMasterTargetTake } from './takes';
 import type { Project } from '../cache';
 import { DRUM_STEPS } from './notes';
+import { type WaveSculptState, createDefaultWaveSculpt } from './peaks';
 
 export type TrackType = 'stem' | 'sample' | 'sequencer' | 'pianoroll' | 'strudel';
 
@@ -21,6 +22,7 @@ export interface DAWClip {
   buffer?: AudioBuffer;
   fadeIn?: number;      // Fade in time in seconds
   fadeOut?: number;     // Fade out time in seconds
+  sculpt?: WaveSculptState;
 }
 
 export function snapTime(time: number, bpm: number, grid: string, triplet?: boolean): number {
@@ -92,6 +94,22 @@ export interface DSPFxConfig {
     resonance: number;  // 0.1 to 20
     type: 'lowpass' | 'highpass' | 'bandpass';
   };
+  spatial: {
+    enabled: boolean;
+    azimuth: number;    // -180 to 180 deg
+    elevation: number;  // -90 to 90 deg
+    distance: number;   // 0.1 to 10 m
+  };
+}
+
+export interface SynthTrackVersion {
+  id: string;
+  versionNumber: number;
+  number: number;
+  createdAt: string;
+  sequencerVoices?: SequencerVoice[];
+  pianoRollNotes?: PianoRollNote[];
+  strudelCode?: string;
 }
 
 export interface DAWTrack {
@@ -108,10 +126,15 @@ export interface DAWTrack {
   solo: boolean;
   mixer?: { volume: number; pan: number; muted: boolean; solo: boolean };
   fx: DSPFxConfig;
+  sculpt?: WaveSculptState;
   clips: DAWClip[];
   sequencerVoices?: SequencerVoice[];
   pianoRollNotes?: PianoRollNote[];
   strudelCode?: string;
+  versions?: SynthTrackVersion[];
+  activeVersionId?: string;
+  mounted?: boolean;
+  isWip?: boolean;
   activeTakeId?: string;
   hasOriginalStem?: boolean;
   originalUrl?: string;
@@ -176,6 +199,7 @@ export interface DAWState {
   tracks: DAWTrack[];
   selectedTrackId: string;
   activeView: DAWView;
+  sculptMode: 'granular' | 'curve';
 
   // Transport
   isPlaying: boolean;
@@ -224,6 +248,7 @@ export interface DAWState {
   revertToOriginalMaster: () => void;
   setSelectedTrackId: (trackId: string) => void;
   setActiveView: (view: DAWView) => void;
+  setSculptMode: (mode: 'granular' | 'curve') => void;
 
   // Track actions
   setTracks: (tracks: DAWTrack[]) => void;
@@ -232,11 +257,21 @@ export interface DAWState {
   selectLaneVersion: (trackId: string, versionId: string | null) => Promise<void>;
   selectMasterVersion: (versionId: string | null) => Promise<void>;
   addTrack: (type: TrackType, name?: string) => DAWTrack;
+  addSynthVersion: (trackId: string) => SynthTrackVersion | null;
+  selectSynthVersion: (trackId: string, versionId: string) => void;
+  deleteSynthVersion: (trackId: string, versionId: string) => void;
+  toggleTrackMounted: (trackId: string, mounted?: boolean) => void;
+  hydrateWipSnapshot: (wip: Record<string, any>) => void;
+  buildWipSnapshot: () => Record<string, any>;
+  discardWipEdits: () => Promise<void>;
   pendingModalTrackId: string | null;
   clearPendingModalTrackId: () => void;
   removeTrack: (trackId: string) => void;
   updateTrackMixer: (trackId: string, partial: Partial<Pick<DAWTrack, 'volume' | 'pan' | 'muted' | 'solo'>> | { volume?: number; pan?: number; muted?: boolean; solo?: boolean }) => void;
   updateTrackFx: <K extends keyof DSPFxConfig>(trackId: string, fxKeyOrConfig: K | DSPFxConfig, partial?: Partial<DSPFxConfig[K]>) => void;
+  updateTrackSculpt: (trackId: string, updater: Partial<WaveSculptState> | ((prev: WaveSculptState) => WaveSculptState)) => void;
+  updateClipSculpt: (trackId: string, clipId: string, updater: Partial<WaveSculptState> | ((prev: WaveSculptState) => WaveSculptState)) => void;
+  resetTrackSculpt: (trackId: string, clipId?: string) => void;
 
   // Clip actions
   addClip: (trackId: string, clip: DAWClip) => void;
@@ -309,7 +344,7 @@ function formatLayerDisplayName(layerName: string): string {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-const DEFAULT_FX: DSPFxConfig = {
+export const DEFAULT_FX: DSPFxConfig = {
   eq: { enabled: true, low: 0, mid: 0, high: 0 },
   compressor: { enabled: false, threshold: -20, ratio: 4, attack: 0.005, release: 0.2 },
   reverb: { enabled: false, decay: 2.5, wet: 0.3 },
@@ -317,7 +352,55 @@ const DEFAULT_FX: DSPFxConfig = {
   distortion: { enabled: false, drive: 0.4, wet: 0.3 },
   chorus: { enabled: false, rate: 1.5, depth: 0.7, wet: 0.3 },
   filter: { enabled: false, cutoff: 8000, resonance: 1.0, type: 'lowpass' },
+  spatial: { enabled: false, azimuth: 0, elevation: 0, distance: 1 },
 };
+
+export function isTrackMixerModified(track?: DAWTrack | null): boolean {
+  if (!track) return false;
+  const defaultVol = track.id === 'master' || track.hasOriginalStem ? 1.0 : 0.9;
+  const vol = track.mixer?.volume ?? track.volume ?? defaultVol;
+  const pan = track.mixer?.pan ?? track.pan ?? 0;
+  const muted = Boolean(track.mixer?.muted ?? track.muted);
+  const solo = Boolean(track.mixer?.solo ?? track.solo);
+  return (
+    Math.abs(vol - defaultVol) > 0.015 ||
+    Math.abs(pan) > 0.015 ||
+    (muted && track.mounted !== false) ||
+    solo
+  );
+}
+
+export function isTrackFxModified(track?: DAWTrack | null): boolean {
+  if (!track || !track.fx) return false;
+  const fx = track.fx;
+  const eqModified =
+    fx.eq.enabled &&
+    (Math.abs(fx.eq.low) > 0.05 || Math.abs(fx.eq.mid) > 0.05 || Math.abs(fx.eq.high) > 0.05);
+  return Boolean(
+    eqModified ||
+      fx.compressor?.enabled ||
+      fx.reverb?.enabled ||
+      fx.delay?.enabled ||
+      fx.distortion?.enabled ||
+      fx.chorus?.enabled ||
+      fx.filter?.enabled ||
+      fx.spatial?.enabled
+  );
+}
+
+export function isTrackSynthModified(track?: DAWTrack | null): boolean {
+  if (!track) return false;
+  if (track.type === 'pianoroll') {
+    return (track.pianoRollNotes?.length ?? 0) > 0 || (track.versions?.length ?? 0) > 1;
+  }
+  if (track.type === 'sequencer' || Boolean(track.versions?.length)) {
+    return Boolean(track.sequencerVoices?.some((v) => v.steps.some(Boolean))) || (track.versions?.length ?? 0) > 0;
+  }
+  if (track.type === 'strudel') {
+    return Boolean(track.strudelCode && track.strudelCode.trim().length > 0) || (track.versions?.length ?? 0) > 1;
+  }
+  return false;
+}
 
 const DEFAULT_SEQUENCER_VOICES: SequencerVoice[] = [
   { name: 'KICK', steps: new Array(DRUM_STEPS).fill(false), velocity: new Array(DRUM_STEPS).fill(0.9), muted: false },
@@ -327,12 +410,197 @@ const DEFAULT_SEQUENCER_VOICES: SequencerVoice[] = [
   { name: 'PERC', steps: new Array(DRUM_STEPS).fill(false), velocity: new Array(DRUM_STEPS).fill(0.75), muted: false },
 ];
 
+function syncActiveSynthVersion(track: DAWTrack): DAWTrack {
+  if (!track.versions || track.versions.length === 0) return track;
+  const activeId = track.activeVersionId || track.versions[track.versions.length - 1].id;
+  return {
+    ...track,
+    activeVersionId: activeId,
+    versions: track.versions.map((v) =>
+      v.id === activeId
+        ? {
+            ...v,
+            sequencerVoices: track.sequencerVoices ? JSON.parse(JSON.stringify(track.sequencerVoices)) : v.sequencerVoices,
+            pianoRollNotes: track.pianoRollNotes ? JSON.parse(JSON.stringify(track.pianoRollNotes)) : v.pianoRollNotes,
+            strudelCode: track.strudelCode ?? v.strudelCode,
+          }
+        : v
+    ),
+  };
+}
+
+function consolidateCanonicalTracks(tracks: DAWTrack[], resetSynthMount = false): DAWTrack[] {
+  const result: DAWTrack[] = [];
+  const drumStemIdx = tracks.findIndex(
+    (t) =>
+      t.type === 'stem' &&
+      (t.layerName || t.stemType || t.name).toLowerCase().includes('drum')
+  );
+  const seqTracks = tracks.filter((t) => t.type === 'sequencer');
+
+  const mergeVersionLists = (
+    a: SynthTrackVersion[] | undefined,
+    b: SynthTrackVersion[] | undefined
+  ): SynthTrackVersion[] => {
+    const map = new Map<string, SynthTrackVersion>();
+    for (const v of a ?? []) map.set(v.id, v);
+    for (const v of b ?? []) {
+      if (!map.has(v.id)) map.set(v.id, v);
+    }
+    return Array.from(map.values()).map((v, idx) => ({
+      ...v,
+      versionNumber: idx + 1,
+      number: idx + 1,
+    }));
+  };
+
+  let mergedSeqVersions: SynthTrackVersion[] = [];
+  let mergedSeqVoices: SequencerVoice[] | undefined;
+  let mergedSeqActiveVerId: string | undefined;
+
+  if (drumStemIdx >= 0 && seqTracks.length > 0) {
+    for (const st of seqTracks) {
+      const stVers =
+        st.versions && st.versions.length > 0
+          ? st.versions
+          : st.sequencerVoices
+            ? [
+                {
+                  id: `ver-sequencer-1`,
+                  versionNumber: 1,
+                  number: 1,
+                  createdAt: new Date().toISOString(),
+                  sequencerVoices: st.sequencerVoices,
+                },
+              ]
+            : [];
+      mergedSeqVersions = mergeVersionLists(mergedSeqVersions, stVers);
+      if (st.sequencerVoices) mergedSeqVoices = st.sequencerVoices;
+      if (st.activeVersionId) mergedSeqActiveVerId = st.activeVersionId;
+      dawEngine.disposeTrack(st.id);
+    }
+  }
+
+  const seenSynthType = new Map<string, number>();
+  const seenStemCategory = new Map<string, number>();
+  const canonicalStemCategories = new Set(['vocals', 'drums', 'bass', 'other', 'instrumental']);
+
+  for (let i = 0; i < tracks.length; i++) {
+    const t = tracks[i];
+    if (drumStemIdx >= 0 && t.type === 'sequencer') {
+      continue;
+    }
+    if (i === drumStemIdx && seqTracks.length > 0) {
+      const combinedVersions = mergeVersionLists(t.versions, mergedSeqVersions);
+      const keepOnOrg = resetSynthMount || !t.activeVersionId;
+      seenStemCategory.set('drums', result.length);
+      result.push({
+        ...t,
+        versions: combinedVersions.length > 0 ? combinedVersions : t.versions,
+        sequencerVoices: t.sequencerVoices ?? mergedSeqVoices,
+        activeVersionId: keepOnOrg ? undefined : (t.activeVersionId ?? mergedSeqActiveVerId),
+        activeVersionTakeId: keepOnOrg
+          ? (t.activeVersionTakeId && !t.activeVersionTakeId.startsWith('ver-') ? t.activeVersionTakeId : (combinedVersions.length > 0 ? 'ORG' : null))
+          : (t.activeVersionTakeId ?? mergedSeqActiveVerId ?? null),
+      });
+      continue;
+    }
+
+    if (
+      t.id !== 'master' &&
+      t.id !== t.activeTakeId &&
+      (t.type === 'stem' || t.type === 'sample')
+    ) {
+      const cat = (t.stemType || t.layerName || t.name || '').toLowerCase().trim();
+      const normCat = cat.includes('drum') ? 'drums' : cat;
+      if (canonicalStemCategories.has(normCat)) {
+        const prevStemIdx = seenStemCategory.get(normCat);
+        if (prevStemIdx !== undefined) {
+          const prev = result[prevStemIdx];
+          if (t.versions?.length) {
+            const combined = mergeVersionLists(prev.versions, t.versions);
+            result[prevStemIdx] = {
+              ...prev,
+              versions: combined,
+              sequencerVoices: prev.sequencerVoices ?? t.sequencerVoices,
+            };
+          }
+          if (prev.id !== t.id) dawEngine.disposeTrack(t.id);
+          continue;
+        }
+        seenStemCategory.set(normCat, result.length);
+      }
+    }
+
+    if (t.type === 'pianoroll' || t.type === 'sequencer' || t.type === 'strudel') {
+      const baseVersions: SynthTrackVersion[] =
+        t.versions && t.versions.length > 0
+          ? t.versions
+          : [
+              {
+                id: `ver-${t.type}-1`,
+                versionNumber: 1,
+                number: 1,
+                createdAt: new Date().toISOString(),
+                sequencerVoices: t.sequencerVoices,
+                pianoRollNotes: t.pianoRollNotes,
+                strudelCode: t.strudelCode,
+              },
+            ];
+
+      const prevIdx = seenSynthType.get(t.type);
+      if (prevIdx !== undefined) {
+        const prev = result[prevIdx];
+        const combined = mergeVersionLists(prev.versions, baseVersions);
+        if (prev.id !== t.id) dawEngine.disposeTrack(t.id);
+        result[prevIdx] = {
+          ...prev,
+          versions: combined,
+          activeVersionId: prev.activeVersionId || combined[combined.length - 1]?.id,
+        };
+        continue;
+      }
+
+      const normalized: DAWTrack = {
+        ...t,
+        id: t.id.startsWith('synth-') ? t.id : `synth-${t.type}`,
+        name: t.type === 'pianoroll' ? 'Keys' : t.type === 'sequencer' ? 'Drums' : 'Code',
+        versions: baseVersions,
+        activeVersionId: t.activeVersionId || baseVersions[baseVersions.length - 1].id,
+        ...(resetSynthMount
+          ? {
+              mounted: false,
+              isWip: true,
+              muted: true,
+              solo: false,
+              mixer: {
+                volume: t.mixer?.volume ?? t.volume ?? 0.9,
+                pan: t.mixer?.pan ?? t.pan ?? 0,
+                muted: true,
+                solo: false,
+              },
+            }
+          : {}),
+      };
+      seenSynthType.set(t.type, result.length);
+      result.push(normalized);
+      continue;
+    }
+
+    result.push(t);
+  }
+
+  return result;
+}
+
 export const useDawStore = create<DAWState>((set, get) => ({
   songId: '',
   songTitle: '',
   tracks: [],
   selectedTrackId: 'master',
   activeView: 'timeline',
+  sculptMode: 'granular',
+  setSculptMode: (sculptMode) => set({ sculptMode }),
 
   isPlaying: false,
   playhead: 0,
