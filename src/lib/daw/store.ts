@@ -686,23 +686,25 @@ export const useDawStore = create<DAWState>((set, get) => ({
     if (project) get().restoreSession(project.commits);
     if (project?.stems.length) get().syncStems(project.stems);
     if (project?.session) {
-      const saved = retained(project.session.tracks, project.takes);
+      const saved = consolidateCanonicalTracks(retained(project.session.tracks, project.takes), true);
       set({
         ...project.session,
         tracks: saved,
+        selectedTrackId: 'master',
         selection: get().selection ?? { start: 0, end: Math.min(15, dur) },
         operations: project.session.operations.filter(operation => operation.status !== 'submitting'),
       });
-      for (const track of saved) {
-        const shouldLoadEagerly =
-          track.id === 'master' ||
-          Boolean(track.activeTakeId) ||
-          track.type === 'sample' ||
-          Boolean(track.activeVersionTakeId && track.activeVersionTakeId !== 'ORG') ||
-          Boolean(track.mixer?.solo ?? track.solo);
-        if (!shouldLoadEagerly) continue;
+      if (project.stems.length) get().syncStems(project.stems);
+      const finalTracks = consolidateCanonicalTracks(get().tracks, true);
+      set({ tracks: finalTracks });
+      for (const track of finalTracks) {
+        if (track.fx) dawEngine.updateTrackFx(track.id, track.fx);
+        if (track.mixer) dawEngine.updateTrackMixer(track.id, track.mixer as any);
         for (const clip of track.clips) {
           if (clip.url) void dawEngine.loadClip(track.id, clip.id, clip.url, clip.startTime, clip.offset, clip.duration);
+        }
+        if (track.sculpt || track.clips.some((c) => Boolean(c.sculpt))) {
+          dawEngine.applyTrackSculpt(track.id);
         }
       }
     }
@@ -822,9 +824,16 @@ export const useDawStore = create<DAWState>((set, get) => ({
       nonMasterStems.map((s) => String(s.name || 'stem').toLowerCase().trim().replace(/\s+/g, '_'))
     );
 
+    const standaloneDrumSynth = currentTracks.find((t) => t.type === 'sequencer');
+
     const newStemTracks: DAWTrack[] = nonMasterStems.map((stem) => {
       const normName = String(stem.name || 'stem').toLowerCase().trim().replace(/\s+/g, '_');
+      const isDrumLane = normName.includes('drum');
       const existing = currentTracks.find((t) => t.id === stem.id || t.id === `layer-${normName}`);
+      const inheritedVersions = existing?.versions || (isDrumLane ? standaloneDrumSynth?.versions : undefined);
+      const inheritedActiveVerId = existing?.activeVersionId || (isDrumLane ? standaloneDrumSynth?.activeVersionId : undefined);
+      const inheritedVoices = existing?.sequencerVoices || (isDrumLane ? standaloneDrumSynth?.sequencerVoices : undefined);
+
       if (existing && existing.id === stem.id) {
         const updatedBase: DAWTrack = {
           ...existing,
@@ -832,11 +841,22 @@ export const useDawStore = create<DAWState>((set, get) => ({
           stemType: normName,
           hasOriginalStem: true,
           originalUrl: stem.url,
+          ...(inheritedVersions ? { versions: inheritedVersions } : {}),
+          ...(inheritedActiveVerId ? { activeVersionId: inheritedActiveVerId } : {}),
+          ...(inheritedVoices ? { sequencerVoices: inheritedVoices } : {}),
         };
-        if (existing.activeVersionTakeId && existing.activeVersionTakeId !== 'ORG') {
+        if ((existing.activeVersionTakeId && existing.activeVersionTakeId !== 'ORG') || existing.activeVersionId) {
           return updatedBase;
         }
-        if (existing.clips[0]?.url === stem.url) return updatedBase;
+        if (existing.clips[0]?.url === stem.url) {
+          const syncedClips = existing.clips.map((c, idx) =>
+            idx === 0 && c.offset === 0 && Math.abs(c.duration - dur) > 0.5 ? { ...c, duration: dur } : c
+          );
+          for (const clip of syncedClips) {
+            if (clip.url) void dawEngine.loadClip(stem.id, clip.id, clip.url, clip.startTime, clip.offset, clip.duration);
+          }
+          return { ...updatedBase, clips: syncedClips };
+        }
         const nextClips = [
           {
             id: `clip-${stem.id}`,
@@ -847,13 +867,14 @@ export const useDawStore = create<DAWState>((set, get) => ({
             offset: 0,
           },
         ];
-        if (Boolean(existing.mixer?.solo ?? existing.solo)) {
-          for (const clip of nextClips) void dawEngine.loadClip(stem.id, clip.id, clip.url, clip.startTime, clip.offset, clip.duration);
-        }
+        for (const clip of nextClips) void dawEngine.loadClip(stem.id, clip.id, clip.url, clip.startTime, clip.offset, clip.duration);
         return { ...updatedBase, clips: nextClips };
       }
       if (existing && existing.id === `layer-${normName}`) {
         dawEngine.disposeTrack(existing.id);
+      }
+      if (isDrumLane && standaloneDrumSynth) {
+        dawEngine.disposeTrack(standaloneDrumSynth.id);
       }
       const color = getStemTrackColor(normName);
       const displayName = formatLayerDisplayName(normName);
@@ -877,7 +898,10 @@ export const useDawStore = create<DAWState>((set, get) => ({
         fx: JSON.parse(JSON.stringify(DEFAULT_FX)),
         hasOriginalStem: true,
         originalUrl: stem.url,
-        activeVersionTakeId: null,
+        activeVersionTakeId: inheritedActiveVerId || null,
+        ...(inheritedVersions ? { versions: inheritedVersions } : {}),
+        ...(inheritedActiveVerId ? { activeVersionId: inheritedActiveVerId } : {}),
+        ...(inheritedVoices ? { sequencerVoices: inheritedVoices } : {}),
         clips: [
           {
             id: `clip-${stem.id}`,
@@ -890,16 +914,19 @@ export const useDawStore = create<DAWState>((set, get) => ({
         ],
       };
 
-      if (stem.url && Boolean(stem.is_solo)) {
+      if (stem.url && !inheritedActiveVerId) {
         dawEngine.loadClip(stem.id, `clip-${stem.id}`, stem.url, 0, 0, dur);
       }
 
       return stemTrack;
     });
 
+    const hasDrumStem = newStemTracks.some((t) => (t.layerName || '').includes('drum'));
+
     const nonStemCustomTracks = currentTracks.filter(
       (t) =>
         t.id !== 'master' &&
+        !(hasDrumStem && t.type === 'sequencer') &&
         !stems.some((s) => s.id === t.id) &&
         !(t.id.startsWith('layer-') && realStemLayerNames.has(t.id.slice('layer-'.length)))
     );
@@ -932,7 +959,7 @@ export const useDawStore = create<DAWState>((set, get) => ({
 
     // 1. Clean up virtual layer tracks (`layer-*` with `hasOriginalStem === false`) that no longer have pending takes
     nextTracks = nextTracks.filter((t) => {
-      if (t.id.startsWith('layer-') && t.hasOriginalStem === false) {
+      if (t.id.startsWith('layer-') && t.hasOriginalStem === false && (!t.versions || t.versions.length === 0)) {
         const lName = t.layerName || t.id.slice('layer-'.length);
         if (!layerGroups.has(lName)) {
           dawEngine.disposeTrack(t.id);
@@ -946,7 +973,7 @@ export const useDawStore = create<DAWState>((set, get) => ({
     nextTracks = nextTracks.map((t) => {
       if (t.id === 'master' || t.id === t.activeTakeId || t.type !== 'stem') return t;
       const lName = t.layerName || t.name.toLowerCase().trim().replace(/\s+/g, '_');
-      if (!layerGroups.has(lName) && t.activeVersionTakeId) {
+      if (!layerGroups.has(lName) && t.activeVersionTakeId && !t.activeVersionId) {
         const baseUrl = t.originalUrl || t.clips[0]?.url;
         const baseClip: DAWClip = {
           id: `clip-${t.id}`,
@@ -982,6 +1009,9 @@ export const useDawStore = create<DAWState>((set, get) => ({
 
       if (matchIdx >= 0) {
         const existing = nextTracks[matchIdx];
+        if (existing.activeVersionId && !preferred) {
+          continue;
+        }
         const hasOrg = existing.hasOriginalStem !== false && !existing.id.startsWith('layer-');
         const originalUrl = existing.originalUrl || (hasOrg ? existing.clips[0]?.url : undefined);
         let nextVersionId = existing.activeVersionTakeId;
@@ -1009,6 +1039,7 @@ export const useDawStore = create<DAWState>((set, get) => ({
             stemType: lName,
             hasOriginalStem: hasOrg,
             originalUrl,
+            activeVersionId: undefined,
             activeVersionTakeId: 'ORG',
             clips: urlChanged ? [orgClip] : existing.clips,
           };
@@ -1027,6 +1058,7 @@ export const useDawStore = create<DAWState>((set, get) => ({
             stemType: lName,
             hasOriginalStem: hasOrg,
             originalUrl,
+            activeVersionId: undefined,
             activeVersionTakeId: activeTake.id,
             muted: nextMuted,
             mixer: nextMixer,
@@ -1127,12 +1159,16 @@ export const useDawStore = create<DAWState>((set, get) => ({
     set({ tracks: nextTracks });
     for (const item of clipsToLoad) {
       if (item.disposeFirst && item.trackId !== 'master') {
-        dawEngine.disposeTrack(item.trackId);
+        dawEngine.clearTrackSources(item.trackId);
       }
       for (const clip of item.clips) {
         if (clip.url) {
           void dawEngine.loadClip(item.trackId, clip.id, clip.url, clip.startTime, clip.offset, clip.duration);
         }
+      }
+      const currentTrack = get().tracks.find((t) => t.id === item.trackId);
+      if (currentTrack?.fx) {
+        dawEngine.updateTrackFx(item.trackId, currentTrack.fx);
       }
       if (item.mixer) {
         dawEngine.updateTrackMixer(item.trackId, item.mixer as any);
@@ -1142,11 +1178,12 @@ export const useDawStore = create<DAWState>((set, get) => ({
 
   selectLaneVersion: async (trackId, versionId) => {
     const state = get();
-    const track = state.tracks.find((t) => t.id === trackId);
-    if (!track) return;
+    const rawTrack = state.tracks.find((t) => t.id === trackId);
+    if (!rawTrack) return;
+    const track = syncActiveSynthVersion(rawTrack);
     const dur = state.duration > 0 ? state.duration : 60;
     if (versionId === 'ORG' || versionId === null) {
-      const baseUrl = track.originalUrl;
+      const baseUrl = track.originalUrl || track.clips[0]?.url;
       if (!baseUrl) return;
       const orgClip: DAWClip = {
         id: `clip-${track.id}`,
@@ -1156,31 +1193,37 @@ export const useDawStore = create<DAWState>((set, get) => ({
         duration: dur,
         offset: 0,
       };
-      dawEngine.disposeTrack(track.id);
+      dawEngine.clearTrackSources(track.id);
       set((s) => ({
         selectedTrackId: track.id,
-        tracks: s.tracks.map((t) => (t.id === track.id ? { ...t, activeVersionTakeId: 'ORG', clips: [orgClip] } : t)),
+        tracks: s.tracks.map((t) =>
+          t.id === track.id
+            ? { ...track, activeVersionId: undefined, activeVersionTakeId: 'ORG', clips: [orgClip] }
+            : t
+        ),
       }));
       await dawEngine.loadClip(track.id, orgClip.id, orgClip.url, orgClip.startTime, orgClip.offset, orgClip.duration);
+      if (track.fx) dawEngine.updateTrackFx(track.id, track.fx);
       if (track.mixer) dawEngine.updateTrackMixer(track.id, track.mixer as any);
       return;
     }
     const take = state.takes.find((tk) => tk.id === versionId);
     if (!take) return;
     const targetClips = clips(take, dur);
-    dawEngine.disposeTrack(track.id);
+    dawEngine.clearTrackSources(track.id);
     const nextMixer = track.mixer ? { ...track.mixer, muted: false } : { volume: track.volume, pan: track.pan, muted: false, solo: track.solo };
     set((s) => ({
       selectedTrackId: track.id,
       tracks: s.tracks.map((t) =>
         t.id === track.id
-          ? { ...t, activeVersionTakeId: take.id, muted: false, mixer: nextMixer, clips: targetClips }
+          ? { ...track, activeVersionId: undefined, activeVersionTakeId: take.id, muted: false, mixer: nextMixer, clips: targetClips }
           : t
       ),
     }));
     for (const part of targetClips) {
       await dawEngine.loadClip(track.id, part.id, part.url, part.startTime, part.offset, part.duration);
     }
+    if (track.fx) dawEngine.updateTrackFx(track.id, track.fx);
     dawEngine.updateTrackMixer(track.id, nextMixer as any);
   },
 
@@ -1200,11 +1243,14 @@ export const useDawStore = create<DAWState>((set, get) => ({
         duration: dur,
         offset: 0,
       };
+      dawEngine.clearTrackSources('master');
       set((s) => ({
         selectedTrackId: 'master',
         tracks: s.tracks.map((t) => (t.id === 'master' ? { ...t, activeVersionTakeId: 'MST', clips: [masterClip] } : t)),
       }));
       await dawEngine.loadClip('master', 'clip-master', baseUrl, 0, 0, dur);
+      if (masterTrack.fx) dawEngine.updateTrackFx('master', masterTrack.fx);
+      if (masterTrack.mixer) dawEngine.updateTrackMixer('master', masterTrack.mixer as any);
       return;
     }
     const take = state.takes.find((tk) => tk.id === versionId);
@@ -1217,24 +1263,83 @@ export const useDawStore = create<DAWState>((set, get) => ({
       duration: dur,
       offset: 0,
     };
+    dawEngine.clearTrackSources('master');
     set((s) => ({
       selectedTrackId: 'master',
       tracks: s.tracks.map((t) => (t.id === 'master' ? { ...t, activeVersionTakeId: take.id, clips: [masterClip] } : t)),
     }));
     await dawEngine.loadClip('master', 'clip-master', take.url, 0, 0, dur);
+    if (masterTrack.fx) dawEngine.updateTrackFx('master', masterTrack.fx);
+    if (masterTrack.mixer) dawEngine.updateTrackMixer('master', masterTrack.mixer as any);
   },
 
   pendingModalTrackId: null,
   clearPendingModalTrackId: () => set({ pendingModalTrackId: null }),
 
   addTrack: (type, name) => {
-    const id = `track-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const isInstrumentModalTrack = type === 'sequencer' || type === 'pianoroll' || type === 'strudel';
+    if (isInstrumentModalTrack) {
+      const existing = type === 'sequencer'
+        ? get().tracks.find(
+            (t) =>
+              t.type === 'sequencer' ||
+              (t.type === 'stem' && (t.layerName || t.stemType || t.name).toLowerCase().includes('drum'))
+          )
+        : get().tracks.find((t) => t.type === type);
+      if (existing) {
+        get().addSynthVersion(existing.id);
+        set({
+          selectedTrackId: existing.id,
+          activeView: type,
+          pendingModalTrackId: existing.id,
+        });
+        return get().tracks.find((t) => t.id === existing.id) || existing;
+      }
+    }
+
+    const canonicalName =
+      name ||
+      (type === 'pianoroll'
+        ? 'Keys'
+        : type === 'sequencer'
+          ? 'Drums'
+          : type === 'strudel'
+            ? 'Code'
+            : `${type.toUpperCase()} ${get().tracks.length + 1}`);
+
+    const id = isInstrumentModalTrack
+      ? `synth-${type}`
+      : `track-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+
+    const synthColors: Record<string, string> = {
+      pianoroll: '#a855f7',
+      sequencer: '#ff0055',
+      strudel: '#00ff66',
+    };
     const colors = ['#00ffff', '#ff0055', '#00ff66', '#ffaa00', '#9933ff', '#0099ff'];
-    const trackColor = colors[get().tracks.length % colors.length];
+    const trackColor = synthColors[type] || colors[get().tracks.length % colors.length];
+
+    const initialVoices = type === 'sequencer' ? JSON.parse(JSON.stringify(DEFAULT_SEQUENCER_VOICES)) : undefined;
+    const initialNotes = type === 'pianoroll' ? [] : undefined;
+    const initialCode = type === 'strudel' ? '' : undefined;
+    const initialVersionId = `ver-${type}-1`;
+    const initialVersions: SynthTrackVersion[] | undefined = isInstrumentModalTrack
+      ? [
+          {
+            id: initialVersionId,
+            versionNumber: 1,
+            number: 1,
+            createdAt: new Date().toISOString(),
+            sequencerVoices: initialVoices ? JSON.parse(JSON.stringify(initialVoices)) : undefined,
+            pianoRollNotes: initialNotes ? [] : undefined,
+            strudelCode: initialCode,
+          },
+        ]
+      : undefined;
 
     const newTrack: DAWTrack = {
       id,
-      name: name || `${type.toUpperCase()} ${get().tracks.length + 1}`,
+      name: canonicalName,
       type,
       color: trackColor,
       volume: 0.9,
@@ -1244,13 +1349,15 @@ export const useDawStore = create<DAWState>((set, get) => ({
       mixer: { volume: 0.9, pan: 0, muted: false, solo: false },
       fx: JSON.parse(JSON.stringify(DEFAULT_FX)),
       hasOriginalStem: false,
+      mounted: true,
+      isWip: isInstrumentModalTrack,
       clips: [],
-      sequencerVoices: type === 'sequencer' ? JSON.parse(JSON.stringify(DEFAULT_SEQUENCER_VOICES)) : undefined,
-      pianoRollNotes: type === 'pianoroll' ? [] : undefined,
-      strudelCode: type === 'strudel' ? '' : undefined,
+      sequencerVoices: initialVoices,
+      pianoRollNotes: initialNotes,
+      strudelCode: initialCode,
+      versions: initialVersions,
+      activeVersionId: isInstrumentModalTrack ? initialVersionId : undefined,
     };
-
-    const isInstrumentModalTrack = type === 'sequencer' || type === 'pianoroll' || type === 'strudel';
 
     set((state) => ({
       tracks: [...state.tracks, newTrack],
@@ -1260,6 +1367,219 @@ export const useDawStore = create<DAWState>((set, get) => ({
     }));
 
     return newTrack;
+  },
+
+  addSynthVersion: (trackId) => {
+    const track = get().tracks.find((t) => t.id === trackId);
+    const isDrumStem = Boolean(
+      track &&
+      track.type === 'stem' &&
+      (track.layerName || track.stemType || track.name).toLowerCase().includes('drum')
+    );
+    if (!track || (track.type !== 'pianoroll' && track.type !== 'sequencer' && track.type !== 'strudel' && !isDrumStem)) {
+      return null;
+    }
+    const effectiveSynthType = isDrumStem ? 'sequencer' : track.type;
+    const syncedTrack = syncActiveSynthVersion(track);
+    const existingVersions = syncedTrack.versions && syncedTrack.versions.length > 0
+      ? syncedTrack.versions
+      : isDrumStem
+        ? []
+        : [
+            {
+              id: `ver-${effectiveSynthType}-1`,
+              versionNumber: 1,
+              number: 1,
+              createdAt: new Date().toISOString(),
+              sequencerVoices: track.sequencerVoices ? JSON.parse(JSON.stringify(track.sequencerVoices)) : undefined,
+              pianoRollNotes: track.pianoRollNotes ? JSON.parse(JSON.stringify(track.pianoRollNotes)) : undefined,
+              strudelCode: track.strudelCode,
+            },
+          ];
+
+    const nextVerNum = Math.max(0, ...existingVersions.map((v) => v.versionNumber)) + 1;
+    const newVersion: SynthTrackVersion = {
+      id: `ver-${effectiveSynthType}-${nextVerNum}-${Date.now().toString(36)}`,
+      versionNumber: nextVerNum,
+      number: nextVerNum,
+      createdAt: new Date().toISOString(),
+      sequencerVoices: effectiveSynthType === 'sequencer' ? JSON.parse(JSON.stringify(DEFAULT_SEQUENCER_VOICES)) : undefined,
+      pianoRollNotes: effectiveSynthType === 'pianoroll' ? [] : undefined,
+      strudelCode: effectiveSynthType === 'strudel' ? '' : undefined,
+    };
+
+    const nextMounted = true;
+    const nextMuted = false;
+    const nextMixer = {
+      volume: track.mixer?.volume ?? track.volume ?? 0.9,
+      pan: track.mixer?.pan ?? track.pan ?? 0,
+      muted: nextMuted,
+      solo: track.mixer?.solo ?? track.solo ?? false,
+    };
+
+    if (effectiveSynthType === 'sequencer') {
+      dawEngine.clearTrackSources(trackId);
+    }
+
+    set((state) => ({
+      selectedTrackId: trackId,
+      tracks: state.tracks.map((t) =>
+        t.id === trackId
+          ? {
+              ...syncedTrack,
+              mounted: nextMounted,
+              isWip: true,
+              muted: nextMuted,
+              mixer: nextMixer,
+              versions: [...existingVersions, newVersion],
+              activeVersionId: newVersion.id,
+              activeVersionTakeId: isDrumStem ? newVersion.id : syncedTrack.activeVersionTakeId,
+              sequencerVoices: newVersion.sequencerVoices
+                ? JSON.parse(JSON.stringify(newVersion.sequencerVoices))
+                : t.sequencerVoices,
+              pianoRollNotes: newVersion.pianoRollNotes
+                ? JSON.parse(JSON.stringify(newVersion.pianoRollNotes))
+                : t.pianoRollNotes,
+              strudelCode: newVersion.strudelCode ?? t.strudelCode,
+            }
+          : t
+      ),
+    }));
+
+    const updated = get().tracks.find((t) => t.id === trackId);
+    if (updated) {
+      if ((updated.type === 'sequencer' || isDrumStem) && updated.sequencerVoices) {
+        dawEngine.scheduleSequencer(updated);
+      } else if (updated.type === 'pianoroll' && updated.pianoRollNotes) {
+        dawEngine.schedulePiano(updated);
+      } else if (updated.type === 'strudel') {
+        dawEngine.scheduleStrudel(trackId, updated.strudelCode || '');
+      }
+      dawEngine.updateTrackMixer(trackId, nextMixer);
+    }
+
+    return newVersion;
+  },
+
+  selectSynthVersion: (trackId, versionId) => {
+    const track = get().tracks.find((t) => t.id === trackId);
+    if (!track || !track.versions) return;
+    const isDrumStem = Boolean(
+      track.type === 'stem' &&
+      (track.layerName || track.stemType || track.name).toLowerCase().includes('drum')
+    );
+    const syncedTrack = syncActiveSynthVersion(track);
+    const targetVer = syncedTrack.versions?.find((v) => v.id === versionId);
+    if (!targetVer) return;
+
+    const nextMounted = true;
+    const nextMuted = false;
+    const nextMixer = {
+      volume: track.mixer?.volume ?? track.volume ?? 0.9,
+      pan: track.mixer?.pan ?? track.pan ?? 0,
+      muted: nextMuted,
+      solo: track.mixer?.solo ?? track.solo ?? false,
+    };
+
+    if (track.type === 'sequencer' || isDrumStem) {
+      dawEngine.clearTrackSources(trackId);
+    }
+
+    set((state) => ({
+      selectedTrackId: trackId,
+      tracks: state.tracks.map((t) =>
+        t.id === trackId
+          ? {
+              ...syncedTrack,
+              mounted: nextMounted,
+              muted: nextMuted,
+              mixer: nextMixer,
+              activeVersionId: targetVer.id,
+              activeVersionTakeId: isDrumStem ? targetVer.id : syncedTrack.activeVersionTakeId,
+              sequencerVoices: targetVer.sequencerVoices
+                ? JSON.parse(JSON.stringify(targetVer.sequencerVoices))
+                : t.sequencerVoices,
+              pianoRollNotes: targetVer.pianoRollNotes
+                ? JSON.parse(JSON.stringify(targetVer.pianoRollNotes))
+                : t.pianoRollNotes,
+              strudelCode: targetVer.strudelCode ?? t.strudelCode,
+            }
+          : t
+      ),
+    }));
+
+    const updated = get().tracks.find((t) => t.id === trackId);
+    if (updated) {
+      if ((updated.type === 'sequencer' || isDrumStem) && updated.sequencerVoices) {
+        dawEngine.scheduleSequencer(updated);
+      } else if (updated.type === 'pianoroll' && updated.pianoRollNotes) {
+        dawEngine.schedulePiano(updated);
+      } else if (updated.type === 'strudel') {
+        dawEngine.scheduleStrudel(trackId, updated.strudelCode || '');
+      }
+      if (updated.fx) dawEngine.updateTrackFx(trackId, updated.fx);
+      dawEngine.updateTrackMixer(trackId, nextMixer);
+    }
+  },
+
+  deleteSynthVersion: (trackId, versionId) => {
+    const track = get().tracks.find((t) => t.id === trackId);
+    if (!track || !track.versions) return;
+    const isDrumStem = Boolean(
+      track.type === 'stem' &&
+      (track.layerName || track.stemType || track.name).toLowerCase().includes('drum')
+    );
+    const remaining = track.versions.filter((v) => v.id !== versionId);
+    if (remaining.length === 0) {
+      if (track.hasOriginalStem || isDrumStem) {
+        set((state) => ({
+          tracks: state.tracks.map((t) =>
+            t.id === trackId
+              ? {
+                  ...t,
+                  versions: [],
+                  activeVersionId: undefined,
+                  sequencerVoices: undefined,
+                }
+              : t
+          ),
+        }));
+        void get().selectLaneVersion(trackId, 'ORG');
+        return;
+      }
+      get().removeTrack(trackId);
+      return;
+    }
+    const nextActive = remaining.find((v) => v.id === track.activeVersionId) || remaining[remaining.length - 1];
+    set((state) => ({
+      tracks: state.tracks.map((t) =>
+        t.id === trackId
+          ? {
+              ...t,
+              versions: remaining,
+              activeVersionId: nextActive.id,
+              activeVersionTakeId: isDrumStem ? nextActive.id : t.activeVersionTakeId,
+              sequencerVoices: nextActive.sequencerVoices
+                ? JSON.parse(JSON.stringify(nextActive.sequencerVoices))
+                : t.sequencerVoices,
+              pianoRollNotes: nextActive.pianoRollNotes
+                ? JSON.parse(JSON.stringify(nextActive.pianoRollNotes))
+                : t.pianoRollNotes,
+              strudelCode: nextActive.strudelCode ?? t.strudelCode,
+            }
+          : t
+      ),
+    }));
+    const updated = get().tracks.find((t) => t.id === trackId);
+    if (updated && updated.mounted !== false) {
+      if ((updated.type === 'sequencer' || isDrumStem) && updated.sequencerVoices) {
+        dawEngine.scheduleSequencer(updated);
+      } else if (updated.type === 'pianoroll' && updated.pianoRollNotes) {
+        dawEngine.schedulePiano(updated);
+      } else if (updated.type === 'strudel') {
+        dawEngine.scheduleStrudel(trackId, updated.strudelCode || '');
+      }
+    }
   },
 
   removeTrack: (trackId) => {
