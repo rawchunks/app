@@ -1,10 +1,34 @@
+if (typeof window !== 'undefined') {
+  (window as any).TONE_SILENCE_LOGGING = true;
+}
+
 import * as Tone from 'tone';
-import { DAWTrack, DSPFxConfig, useDawStore } from './store';
+import { type DAWTrack, type DSPFxConfig, useDawStore } from './store';
 import { masterArrangement } from './takes';
-import { parseStrudelPattern } from './strudelEvaluator';
+
+const ENGINE_DEFAULT_FX: DSPFxConfig = {
+  eq: { low: 0, mid: 0, high: 0, enabled: false },
+  reverb: { decay: 2.5, wet: 0.25, enabled: false },
+  delay: { delayTime: 0.25, feedback: 0.35, wet: 0.2, enabled: false },
+  filter: { type: 'lowpass', cutoff: 20000, resonance: 1, enabled: false },
+  distortion: { drive: 0.2, wet: 0.3, enabled: false },
+  chorus: { rate: 1.5, depth: 0.5, wet: 0.25, enabled: false },
+  compressor: { threshold: -18, ratio: 4, attack: 0.01, release: 0.15, enabled: false },
+  spatial: { azimuth: 0, elevation: 0, distance: 1, enabled: false },
+};
+import { parseStrudelPattern } from './strudel';
 import { bus } from '../bus';
 import { BEAT_STEPS, DRUM_STEPS } from './notes';
-import { abortBackgroundAudioFetches, fetchAudioArrayBuffer, getDecodedAudioBuffer } from './peaks';
+import {
+  applyWaveSculptToAudioBuffer,
+  clearMemoryAudioCaches,
+  composeWaveSculpts,
+  fetchAudioArrayBuffer,
+  getDecodedAudioBuffer,
+  getTrackOwnSculpt,
+  isIdentityWaveSculpt,
+  type WaveSculptState,
+} from './peaks';
 
 export interface TrackAudioNodes {
   input: Tone.Gain;
@@ -12,11 +36,14 @@ export interface TrackAudioNodes {
   eq: Tone.EQ3;
   filter: Tone.Filter;
   sectionGain?: Tone.Gain;
-  distortion: Tone.Distortion;
-  chorus: Tone.Chorus;
-  delay: Tone.FeedbackDelay;
-  reverb: Tone.Reverb;
-  compressor: Tone.Compressor;
+  distortion?: Tone.Distortion;
+  chorus?: Tone.Chorus;
+  delay?: Tone.FeedbackDelay;
+  reverb?: Tone.Reverb;
+  compressor?: Tone.Compressor;
+  panner3d?: Tone.Panner3D;
+  fxChainSignature?: string;
+  spatialState?: DSPFxConfig['spatial'];
   panner: Tone.Panner;
   volume: Tone.Volume;
   meter: Tone.Meter;
@@ -33,6 +60,19 @@ export interface TrackAudioNodes {
   };
 }
 
+interface ClipLoadEntry {
+  trackId: string;
+  clipId: string;
+  url: string;
+  startTime: number;
+  offset: number;
+  duration?: number;
+  signature: string;
+  buffer?: AudioBuffer;
+  sculpt?: WaveSculptState;
+  promise: Promise<void>;
+}
+
 class DAWEngine {
   private isInitialized = false;
   private trackNodes = new Map<string, TrackAudioNodes>();
@@ -46,6 +86,7 @@ class DAWEngine {
   private onTimeCallback: ((seconds: number) => void) | null = null;
   private timeUpdateTimer: number | null = null;
   private auditionTakeAudio: HTMLAudioElement | null = null;
+  private auditionMediaSource: MediaElementAudioSourceNode | null = null;
   private auditionReadyHandler: (() => void) | null = null;
   private auditionOffset = 0;
   private auditionTrackId: string | null = null;
@@ -53,17 +94,34 @@ class DAWEngine {
   private isAuditionLooping = false;
   private auditionStart: number | null = null;
   private auditionEnd: number | null = null;
+  private loopEnabled = false;
+  private loopStart = 0;
+  private loopEnd = 30;
+  private pendingSeekSeconds = 0;
+  private pendingBpm = 120;
   private currentSectionGainLinear = 1.0;
   private originalScheduleIds: number[] = [];
   private lastMasterSegmentsKey = '';
   private loading = new Map<string, Promise<void>>();
-  private clipLoads = new Map<string, { trackId: string; url: string; signature: string; promise: Promise<void> }>();
+  private clipLoads = new Map<string, ClipLoadEntry>();
+  private sculptWorkingBuffers = new Map<string, AudioBuffer>();
+  private sculptTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private sculptDirtyRanges = new Map<string, [number, number] | null>();
+  private reverbTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private transportStartId = 0;
   private project = 0;
 
   constructor(private offline = false) {
     if (!offline) bus.registerDaw(() => {
       this.pauseTransport();
     });
+  }
+
+  private get isToneReady(): boolean {
+    if (typeof window === 'undefined' && typeof globalThis.AudioContext === 'undefined') {
+      return false;
+    }
+    return this.isInitialized || this.offline || typeof OfflineAudioContext === 'undefined';
   }
 
   private ensureMasterBus(): Tone.Compressor {
@@ -81,12 +139,31 @@ class DAWEngine {
     return this.masterCompressor;
   }
 
+  private safeDisposePlayer(player?: Tone.Player) {
+    if (!player) return;
+    try {
+      const activeSources: Set<any> | undefined = (player as any)._activeSources;
+      if (activeSources && typeof activeSources.forEach === 'function') {
+        for (const src of [...activeSources]) {
+          if (src && src._startTime === -1) {
+            try {
+              src.dispose?.();
+            } catch {}
+            activeSources.delete(src);
+          }
+        }
+      }
+      player.dispose();
+    } catch {}
+  }
+
   public async resumeAudioContext() {
     if (typeof window === 'undefined') return;
     try {
-      if (Tone.context.state !== 'running') {
+      const ctx = Tone.getContext();
+      if (ctx.state !== 'running') {
         await Tone.start();
-        await Tone.context.resume();
+        await ctx.resume();
       }
     } catch (err) {
       console.warn('AudioContext resume error:', err);
@@ -101,6 +178,30 @@ class DAWEngine {
     await this.resumeAudioContext();
     this.ensureMasterBus();
     this.isInitialized = true;
+
+    const transport = Tone.getTransport();
+    if (this.pendingBpm > 0 && transport.bpm) {
+      transport.bpm.value = this.pendingBpm;
+    }
+    transport.loop = this.loopEnabled;
+    transport.loopStart = this.loopStart;
+    transport.loopEnd = this.loopEnd;
+    if (this.pendingSeekSeconds > 0) {
+      transport.seconds = this.pendingSeekSeconds;
+    }
+
+    for (const t of useDawStore.getState().tracks) {
+      if (t.fx) {
+        this.updateTrackFx(t.id, t.fx);
+      }
+    }
+    this.updateTrackMixer('master');
+
+    for (const [, entry] of this.clipLoads.entries()) {
+      if (entry.buffer && !this.trackNodes.get(entry.trackId)?.players.get(entry.clipId)?.loaded) {
+        this.attachClipPlayer(entry.trackId, entry.clipId, entry.buffer, entry.startTime, entry.offset, entry.duration);
+      }
+    }
   }
 
   public setStepCallback(cb: (step: number) => void) {
@@ -188,22 +289,27 @@ class DAWEngine {
 
   public async startTransport(preserveAudition = false) {
     const project = this.project;
+    const startId = ++this.transportStartId;
     this.stopAuditionTake(!preserveAudition);
+    this.isAuditionLooping = this.loopEnabled;
+    this.auditionStart = this.loopEnabled ? this.loopStart : null;
+    this.auditionEnd = this.loopEnabled ? this.loopEnd : null;
+    this.targetTransportState = 'started';
+    await this.resumeAudioContext();
+    await this.init();
+    if (project !== this.project || startId !== this.transportStartId || this.targetTransportState !== 'started') return;
+
     const transport = Tone.getTransport();
     this.isAuditionLooping = transport.loop;
     this.auditionStart = transport.loop ? Tone.Time(transport.loopStart).toSeconds() : null;
     this.auditionEnd = transport.loop ? Tone.Time(transport.loopEnd).toSeconds() : null;
-    this.targetTransportState = 'started';
-    await this.resumeAudioContext();
-    await this.init();
-    if (project !== this.project || this.targetTransportState !== 'started') return;
 
     const waited = new Set<Promise<void>>();
     let pending = this.getAudibleLoadingPromises();
     while (pending.length) {
       pending.forEach(load => waited.add(load));
       await Promise.all(pending);
-      if (project !== this.project || this.targetTransportState !== 'started') return;
+      if (project !== this.project || startId !== this.transportStartId || this.targetTransportState !== 'started') return;
       pending = this.getAudibleLoadingPromises().filter(load => !waited.has(load));
     }
     bus.request('daw');
@@ -276,7 +382,7 @@ class DAWEngine {
   public pauseTransport() {
     this.cancelAuditionReady();
     this.targetTransportState = 'paused';
-    if (Tone.getTransport().state === 'started') {
+    if (this.isToneReady && Tone.getTransport().state === 'started') {
       Tone.getTransport().pause();
     }
     if (this.auditionTakeAudio) {
@@ -290,8 +396,11 @@ class DAWEngine {
   public stopTransport() {
     this.cancelAuditionReady();
     this.targetTransportState = 'stopped';
-    Tone.getTransport().stop();
-    Tone.getTransport().seconds = 0;
+    this.pendingSeekSeconds = 0;
+    if (this.isToneReady) {
+      Tone.getTransport().stop();
+      Tone.getTransport().seconds = 0;
+    }
     if (this.auditionTakeAudio) {
       this.auditionTakeAudio.pause();
       this.auditionTakeAudio.currentTime = 0;
@@ -305,8 +414,11 @@ class DAWEngine {
   public seek(seconds: number) {
     if (isNaN(seconds)) return;
     const target = Math.max(0, seconds);
-    Tone.getTransport().seconds = target;
-    this.syncOriginals();
+    this.pendingSeekSeconds = target;
+    if (this.isToneReady) {
+      Tone.getTransport().seconds = target;
+      this.syncOriginals();
+    }
 
     if (this.auditionTakeAudio && this.auditionTakeAudio.readyState >= 1) {
       try {
@@ -398,6 +510,8 @@ class DAWEngine {
   }
 
   public setBpm(bpm: number) {
+    this.pendingBpm = bpm;
+    if (!this.isToneReady) return;
     if (Tone.getTransport()?.bpm?.rampTo) {
       Tone.getTransport().bpm.rampTo(bpm, 0.05);
     } else if (Tone.getTransport()?.bpm) {
@@ -406,9 +520,14 @@ class DAWEngine {
   }
 
   public setLoop(loop: boolean, start = 0, end = 30) {
-    Tone.getTransport().loop = loop;
-    Tone.getTransport().loopStart = start;
-    Tone.getTransport().loopEnd = end;
+    this.loopEnabled = loop;
+    this.loopStart = start;
+    this.loopEnd = end;
+    if (this.isToneReady) {
+      Tone.getTransport().loop = loop;
+      Tone.getTransport().loopStart = start;
+      Tone.getTransport().loopEnd = end;
+    }
     this.isAuditionLooping = loop;
     if (loop) {
       this.auditionStart = start;
@@ -447,13 +566,13 @@ class DAWEngine {
     const trackerStartTime = Date.now();
 
     this.timeUpdateTimer = window.setInterval(() => {
-      const isToneRunning = Tone.getTransport().state === 'started';
+      const isToneRunning = this.isToneReady && Tone.getTransport().state === 'started';
       const isTakeRunning = this.auditionTakeAudio && !this.auditionTakeAudio.paused;
 
       if (isToneRunning || isTakeRunning) {
         const sec = isTakeRunning && this.auditionTakeAudio
           ? this.auditionTakeAudio.currentTime + this.auditionOffset
-          : Tone.getTransport().seconds;
+          : (this.isToneReady ? Tone.getTransport().seconds : this.pendingSeekSeconds);
 
         if (this.onTimeCallback) {
           this.onTimeCallback(sec);
@@ -464,7 +583,8 @@ class DAWEngine {
           .flatMap(track => track.clips.map(clip => ({ startTime: clip.startTime, duration: clip.duration })));
         const masterEnd = masterArrangement(state.duration, extendClips).duration;
         const end = Math.max(masterEnd, ...state.tracks.filter(track => track.activeTakeId && !track.muted).flatMap(track => track.clips.map(clip => clip.startTime + clip.duration)));
-        if (!isTakeRunning && !Tone.getTransport().loop && sec >= end) { this.stopTransport(); return; }
+        const isLooping = this.isToneReady ? Tone.getTransport().loop : this.loopEnabled;
+        if (!isTakeRunning && !isLooping && sec >= end) { this.stopTransport(); return; }
 
         // Real-time Section Gain Automation across selection bounds
         const selection = useDawStore.getState().selection;
@@ -724,6 +844,7 @@ class DAWEngine {
     if (this.auditionTakeAudio && !this.auditionTakeAudio.paused) {
       return this.auditionTakeAudio.currentTime + this.auditionOffset;
     }
+    if (!this.isToneReady) return this.pendingSeekSeconds;
     return Tone.getTransport().seconds;
   }
 
