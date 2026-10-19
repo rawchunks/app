@@ -1630,6 +1630,284 @@ export const useDawStore = create<DAWState>((set, get) => ({
     dawEngine.updateTrackMixer(trackId, nextMixer);
   },
 
+  buildWipSnapshot: () => {
+    const state = get();
+    const synthTracks = state.tracks
+      .filter(
+        (t) =>
+          t.type === 'pianoroll' ||
+          t.type === 'sequencer' ||
+          t.type === 'strudel' ||
+          Boolean(t.versions && t.versions.length > 0)
+      )
+      .map((t) => {
+        const synced = syncActiveSynthVersion(t);
+        const effectiveType =
+          synced.type === 'stem' && (synced.layerName || synced.stemType || synced.name).toLowerCase().includes('drum')
+            ? 'sequencer'
+            : synced.type;
+        return {
+          id: synced.id,
+          name: synced.name,
+          type: effectiveType,
+          color: synced.color,
+          volume: synced.volume,
+          pan: synced.pan,
+          fx: synced.fx,
+          sequencerVoices: synced.sequencerVoices,
+          pianoRollNotes: synced.pianoRollNotes,
+          strudelCode: synced.strudelCode,
+          versions: synced.versions,
+          activeVersionId: synced.activeVersionId,
+        };
+      });
+
+    const trackEdits: Record<string, any> = {};
+    for (const t of state.tracks) {
+      const key = t.id === 'master' ? 'master' : (t.layerName || t.id);
+      const clipSculpts: Record<string, WaveSculptState> = {};
+      for (const c of t.clips) {
+        if (c.sculpt) clipSculpts[c.id] = c.sculpt;
+      }
+      trackEdits[key] = {
+        trackId: t.id,
+        volume: t.mixer?.volume ?? t.volume,
+        pan: t.mixer?.pan ?? t.pan,
+        muted: t.mounted === false ? false : Boolean(t.mixer?.muted ?? t.muted),
+        solo: Boolean(t.mixer?.solo ?? t.solo),
+        fx: t.fx,
+        sculpt: t.sculpt,
+        clipSculpts,
+      };
+    }
+
+    return {
+      songId: state.songId,
+      bpm: state.bpm,
+      sectionGain: state.sectionGain,
+      sectionLow: state.sectionLow,
+      sectionMid: state.sectionMid,
+      sectionHigh: state.sectionHigh,
+      originals: state.originals,
+      synthTracks,
+      synthLanes: synthTracks,
+      trackEdits,
+    };
+  },
+
+  hydrateWipSnapshot: (wip) => {
+    if (!wip || typeof wip !== 'object') return;
+    const state = get();
+    let nextTracks = [...state.tracks];
+
+    // 1. Apply persisted Mixer, FX, and WaveSculpt edits onto existing tracks (Master, Stems, Lanes)
+    const trackEdits = wip.trackEdits && typeof wip.trackEdits === 'object' ? wip.trackEdits : {};
+    nextTracks = nextTracks.map((t) => {
+      const key = t.id === 'master' ? 'master' : (t.layerName || t.id);
+      const edit = trackEdits[key] || trackEdits[t.id];
+      if (!edit) return t;
+      const vol = typeof edit.volume === 'number' ? edit.volume : t.volume;
+      const pan = typeof edit.pan === 'number' ? edit.pan : t.pan;
+      const muted = typeof edit.muted === 'boolean' ? edit.muted : t.muted;
+      const solo = typeof edit.solo === 'boolean' ? edit.solo : t.solo;
+      const fx = edit.fx ? { ...DEFAULT_FX, ...edit.fx } : t.fx;
+      const sculpt = edit.sculpt || t.sculpt;
+      const clipSculpts = edit.clipSculpts && typeof edit.clipSculpts === 'object' ? edit.clipSculpts : {};
+      return {
+        ...t,
+        volume: vol,
+        pan,
+        muted,
+        solo,
+        mixer: { volume: vol, pan, muted, solo },
+        fx,
+        sculpt,
+        clips: t.clips.map((c) => (clipSculpts[c.id] ? { ...c, sculpt: clipSculpts[c.id] } : c)),
+      };
+    });
+
+    // 2. Hydrate uncommitted Keys, Drums, and Code into LANES unselected & unmounted (not part of Master)
+    nextTracks = consolidateCanonicalTracks(nextTracks, true);
+    const savedSynthetics = Array.isArray(wip.synthTracks)
+      ? wip.synthTracks
+      : (Array.isArray(wip.synthLanes) ? wip.synthLanes : []);
+    for (const rawSynth of savedSynthetics) {
+      if (!rawSynth || !rawSynth.type) continue;
+      const drumStemTargetIdx =
+        rawSynth.type === 'sequencer'
+          ? nextTracks.findIndex(
+              (t) =>
+                t.type === 'stem' &&
+                (t.layerName || t.stemType || t.name).toLowerCase().includes('drum')
+            )
+          : -1;
+      const existingIdx =
+        drumStemTargetIdx >= 0
+          ? drumStemTargetIdx
+          : nextTracks.findIndex((t) => t.id === rawSynth.id || t.type === rawSynth.type);
+      const versions: SynthTrackVersion[] = Array.isArray(rawSynth.versions) && rawSynth.versions.length > 0
+        ? rawSynth.versions.map((v: any, idx: number) => ({
+            ...v,
+            versionNumber: v.versionNumber ?? v.number ?? idx + 1,
+            number: v.number ?? v.versionNumber ?? idx + 1,
+          }))
+        : [
+            {
+              id: `ver-${rawSynth.type}-1`,
+              versionNumber: 1,
+              number: 1,
+              createdAt: new Date().toISOString(),
+              sequencerVoices: rawSynth.sequencerVoices,
+              pianoRollNotes: rawSynth.pianoRollNotes,
+              strudelCode: rawSynth.strudelCode,
+            },
+          ];
+      const activeVersionId = rawSynth.activeVersionId || versions[versions.length - 1].id;
+      const activeVer = versions.find((v) => v.id === activeVersionId) || versions[versions.length - 1];
+      const vol = typeof rawSynth.volume === 'number' ? rawSynth.volume : 0.9;
+      const pan = typeof rawSynth.pan === 'number' ? rawSynth.pan : 0;
+
+      if (existingIdx >= 0 && nextTracks[existingIdx].type === 'stem') {
+        const stemTarget = nextTracks[existingIdx];
+        nextTracks[existingIdx] = {
+          ...stemTarget,
+          versions,
+          sequencerVoices: activeVer.sequencerVoices ?? rawSynth.sequencerVoices ?? stemTarget.sequencerVoices,
+          activeVersionId: undefined,
+          activeVersionTakeId: stemTarget.activeVersionTakeId || 'ORG',
+        };
+        continue;
+      }
+
+      // On reload/reopen: unselected & unmounted (muted from Master playback until mounted by user)
+      const hydratedSynth: DAWTrack = {
+        id: rawSynth.id || `synth-${rawSynth.type}`,
+        name: rawSynth.name || (rawSynth.type === 'pianoroll' ? 'Keys' : rawSynth.type === 'sequencer' ? 'Drums' : 'Code'),
+        type: rawSynth.type,
+        color: rawSynth.color || (rawSynth.type === 'pianoroll' ? '#a855f7' : rawSynth.type === 'sequencer' ? '#ff0055' : '#00ff66'),
+        volume: vol,
+        pan,
+        muted: true,
+        solo: false,
+        mixer: { volume: vol, pan, muted: true, solo: false },
+        fx: rawSynth.fx ? { ...DEFAULT_FX, ...rawSynth.fx } : JSON.parse(JSON.stringify(DEFAULT_FX)),
+        hasOriginalStem: false,
+        mounted: false,
+        isWip: true,
+        clips: [],
+        sequencerVoices: activeVer.sequencerVoices ?? rawSynth.sequencerVoices,
+        pianoRollNotes: activeVer.pianoRollNotes ?? rawSynth.pianoRollNotes,
+        strudelCode: activeVer.strudelCode ?? rawSynth.strudelCode,
+        versions,
+        activeVersionId,
+      };
+
+      if (existingIdx >= 0) {
+        nextTracks[existingIdx] = hydratedSynth;
+      } else {
+        nextTracks.push(hydratedSynth);
+      }
+    }
+
+    nextTracks = consolidateCanonicalTracks(nextTracks, true);
+
+    set({
+      tracks: nextTracks,
+      selectedTrackId: 'master',
+      ...(typeof wip.bpm === 'number' && wip.bpm > 0 ? { bpm: wip.bpm } : {}),
+      ...(typeof wip.sectionGain === 'number' ? { sectionGain: wip.sectionGain } : {}),
+      ...(typeof wip.sectionLow === 'number' ? { sectionLow: wip.sectionLow } : {}),
+      ...(typeof wip.sectionMid === 'number' ? { sectionMid: wip.sectionMid } : {}),
+      ...(typeof wip.sectionHigh === 'number' ? { sectionHigh: wip.sectionHigh } : {}),
+    });
+
+    // Apply live FX, Mixer, and WaveSculpt states to DAWEngine immediately
+    for (const track of nextTracks) {
+      if (track.type === 'sequencer' && track.sequencerVoices) {
+        dawEngine.scheduleSequencer(track);
+      } else if (track.type === 'pianoroll' && track.pianoRollNotes) {
+        dawEngine.schedulePiano(track);
+      } else if (track.type === 'strudel' && track.strudelCode) {
+        dawEngine.scheduleStrudel(track.id, track.strudelCode);
+      }
+      if (track.fx) {
+        dawEngine.updateTrackFx(track.id, track.fx);
+      }
+      if (track.mixer) {
+        dawEngine.updateTrackMixer(track.id, track.mixer as any);
+      }
+      if (track.sculpt || track.clips.some((c) => Boolean(c.sculpt))) {
+        dawEngine.applyTrackSculpt(track.id);
+      }
+    }
+  },
+
+  discardWipEdits: async () => {
+    const state = get();
+    const songId = state.songId;
+    if (!songId) return;
+    try {
+      localStorage.removeItem(`rawchunks:wip:v1:${songId}`);
+    } catch {}
+    try {
+      await sdk.fetch(`/api/editing/wip/${encodeURIComponent(songId)}`, {
+        method: 'DELETE',
+      });
+    } catch {}
+    try {
+      await sdk.fetch('/api/editing/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ songId }),
+      });
+    } catch {}
+
+    for (const t of state.tracks) {
+      if (t.type === 'pianoroll' || t.type === 'sequencer' || t.type === 'strudel') {
+        dawEngine.disposeTrack(t.id);
+      }
+    }
+
+    const cleanTracks = state.tracks
+      .filter((t) => t.type !== 'pianoroll' && t.type !== 'sequencer' && t.type !== 'strudel')
+      .map((t) => {
+        const defaultVol = t.id === 'master' || t.hasOriginalStem ? 1.0 : 0.9;
+        const resetMixer = { volume: defaultVol, pan: 0, muted: false, solo: false };
+        const resetFx = JSON.parse(JSON.stringify(DEFAULT_FX));
+        return {
+          ...t,
+          volume: defaultVol,
+          pan: 0,
+          muted: false,
+          solo: false,
+          mixer: resetMixer,
+          fx: resetFx,
+          versions: undefined,
+          activeVersionId: undefined,
+          sequencerVoices: undefined,
+          activeVersionTakeId: t.hasOriginalStem ? (t.id === 'master' ? 'MST' : 'ORG') : null,
+          sculpt: createDefaultWaveSculpt(),
+          clips: t.clips.map((c) => ({ ...c, sculpt: undefined })),
+        };
+      });
+
+    set({
+      tracks: cleanTracks,
+      selectedTrackId: 'master',
+      sectionGain: 0,
+      sectionLow: 0,
+      sectionMid: 0,
+      sectionHigh: 0,
+    });
+
+    for (const t of cleanTracks) {
+      dawEngine.updateTrackFx(t.id, t.fx);
+      dawEngine.updateTrackMixer(t.id, t.mixer as any);
+      dawEngine.applyTrackSculpt(t.id);
+    }
+    toast.success('All uncommitted WIP layers, mixer, FX, and wave sculpts discarded');
+  },
+
   removeTrack: (trackId) => {
     if (trackId === 'master') return; // Cannot delete master
     const removed = get().tracks.find((t) => t.id === trackId);
@@ -2247,20 +2525,15 @@ export const useDawStore = create<DAWState>((set, get) => ({
     if (!snapshot) return;
     const saved = retained(snapshot.tracks as DAWTrack[], get().takes);
     const current = get().tracks;
-    const tracks = current.map(track => {
+    const merged = current.map(track => {
       const restored = saved.find(item => item.id === track.id);
       return restored ? { ...restored, clips: track.clips } : track;
     });
-    tracks.push(...saved.filter(track => !current.some(item => item.id === track.id)));
+    merged.push(...saved.filter(track => !current.some(item => item.id === track.id)));
+    const tracks = consolidateCanonicalTracks(merged, true);
     set({ tracks, originals: Array.isArray(snapshot.originals) ? snapshot.originals as { start:number; end:number }[] : [], ...(typeof snapshot.bpm === 'number' && snapshot.bpm > 0 ? { bpm: snapshot.bpm } : {}) });
     for (const track of tracks) {
       if (track.id === 'master') continue;
-      const shouldLoadEagerly =
-        Boolean(track.activeTakeId) ||
-        track.type === 'sample' ||
-        Boolean(track.activeVersionTakeId && track.activeVersionTakeId !== 'ORG') ||
-        Boolean(track.mixer?.solo ?? track.solo);
-      if (!shouldLoadEagerly) continue;
       for (const clip of track.clips) if (clip.url) void dawEngine.loadClip(track.id, clip.id, clip.url, clip.startTime, clip.offset, clip.duration);
     }
   },
