@@ -1582,6 +1582,54 @@ export const useDawStore = create<DAWState>((set, get) => ({
     }
   },
 
+  toggleTrackMounted: (trackId, explicitMounted) => {
+    const track = get().tracks.find((t) => t.id === trackId);
+    if (!track) return;
+    const nextMounted = explicitMounted !== undefined ? explicitMounted : track.mounted === false;
+    const nextMuted = !nextMounted;
+    const nextMixer = {
+      volume: track.mixer?.volume ?? track.volume ?? 0.9,
+      pan: track.mixer?.pan ?? track.pan ?? 0,
+      muted: nextMuted,
+      solo: nextMounted ? (track.mixer?.solo ?? track.solo ?? false) : false,
+    };
+
+    set((state) => ({
+      tracks: state.tracks.map((t) =>
+        t.id === trackId
+          ? {
+              ...t,
+              mounted: nextMounted,
+              muted: nextMuted,
+              solo: nextMixer.solo,
+              mixer: nextMixer,
+            }
+          : t
+      ),
+    }));
+
+    const updated = get().tracks.find((t) => t.id === trackId);
+    if (!updated) return;
+
+    if (nextMounted) {
+      if ((updated.type === 'sequencer' || Boolean(updated.activeVersionId)) && updated.sequencerVoices) {
+        dawEngine.scheduleSequencer(updated);
+      } else if (updated.type === 'pianoroll' && updated.pianoRollNotes) {
+        dawEngine.schedulePiano(updated);
+      } else if (updated.type === 'strudel') {
+        dawEngine.scheduleStrudel(trackId, updated.strudelCode || '');
+      } else {
+        for (const clip of updated.clips) {
+          if (clip.url) {
+            void dawEngine.loadClip(trackId, clip.id, clip.url, clip.startTime, clip.offset, clip.duration);
+          }
+        }
+      }
+      if (updated.fx) dawEngine.updateTrackFx(trackId, updated.fx);
+    }
+    dawEngine.updateTrackMixer(trackId, nextMixer);
+  },
+
   removeTrack: (trackId) => {
     if (trackId === 'master') return; // Cannot delete master
     const removed = get().tracks.find((t) => t.id === trackId);
@@ -1615,10 +1663,15 @@ export const useDawStore = create<DAWState>((set, get) => ({
   },
 
   updateTrackMixer: (trackId, partial) => {
+    let wasJustMounted = false;
     set((state) => ({
       tracks: state.tracks.map((t) => {
         if (t.id !== trackId) return t;
         const updated = { ...t, ...partial };
+        if (partial.muted === false && t.mounted === false) {
+          updated.mounted = true;
+          wasJustMounted = true;
+        }
         updated.mixer = {
           volume: updated.volume,
           pan: updated.pan,
@@ -1629,6 +1682,15 @@ export const useDawStore = create<DAWState>((set, get) => ({
       }),
     }));
     const targetTrack = get().tracks.find((t) => t.id === trackId);
+    if (wasJustMounted && targetTrack) {
+      if ((targetTrack.type === 'sequencer' || Boolean(targetTrack.activeVersionId)) && targetTrack.sequencerVoices) {
+        dawEngine.scheduleSequencer(targetTrack);
+      } else if (targetTrack.type === 'pianoroll' && targetTrack.pianoRollNotes) {
+        dawEngine.schedulePiano(targetTrack);
+      } else if (targetTrack.type === 'strudel' && targetTrack.strudelCode) {
+        dawEngine.scheduleStrudel(trackId, targetTrack.strudelCode);
+      }
+    }
     const mixer = targetTrack?.mixer || (targetTrack ? { volume: targetTrack.volume, pan: targetTrack.pan, muted: targetTrack.muted, solo: targetTrack.solo } : partial);
     dawEngine.updateTrackMixer(trackId, mixer as any);
   },
@@ -1713,9 +1775,14 @@ export const useDawStore = create<DAWState>((set, get) => ({
         newSteps[stepIdx] = !newSteps[stepIdx];
         v.steps = newSteps;
         newVoices[voiceIdx] = v;
-        return { ...t, sequencerVoices: newVoices };
+        return syncActiveSynthVersion({ ...t, isWip: true, mounted: true, muted: false, mixer: t.mixer ? { ...t.mixer, muted: false } : undefined, sequencerVoices: newVoices });
       }),
     }));
+    const updated = get().tracks.find((t) => t.id === trackId);
+    if (updated?.sequencerVoices) {
+      dawEngine.scheduleSequencer(updated);
+      dawEngine.updateTrackMixer(trackId, updated.mixer as any);
+    }
   },
 
   setSequencerVoiceVolume: (trackId, voiceIdx, stepIdx, velocity) => {
@@ -1728,9 +1795,13 @@ export const useDawStore = create<DAWState>((set, get) => ({
         newVel[stepIdx] = velocity;
         v.velocity = newVel;
         newVoices[voiceIdx] = v;
-        return { ...t, sequencerVoices: newVoices };
+        return syncActiveSynthVersion({ ...t, isWip: true, sequencerVoices: newVoices });
       }),
     }));
+    const updated = get().tracks.find((t) => t.id === trackId);
+    if (updated?.sequencerVoices && updated.mounted !== false) {
+      dawEngine.scheduleSequencer(updated);
+    }
   },
 
   clearSequencerSteps: (trackId) => {
@@ -1741,9 +1812,13 @@ export const useDawStore = create<DAWState>((set, get) => ({
           ...v,
           steps: new Array(v.steps.length).fill(false),
         }));
-        return { ...t, sequencerVoices: newVoices };
+        return syncActiveSynthVersion({ ...t, isWip: true, sequencerVoices: newVoices });
       }),
     }));
+    const updated = get().tracks.find((t) => t.id === trackId);
+    if (updated?.sequencerVoices) {
+      dawEngine.scheduleSequencer(updated);
+    }
   },
 
   randomizeSequencerSteps: (trackId, density = 0.3) => {
@@ -1754,9 +1829,14 @@ export const useDawStore = create<DAWState>((set, get) => ({
           ...v,
           steps: v.steps.map(() => Math.random() < density),
         }));
-        return { ...t, sequencerVoices: newVoices };
+        return syncActiveSynthVersion({ ...t, isWip: true, mounted: true, muted: false, mixer: t.mixer ? { ...t.mixer, muted: false } : undefined, sequencerVoices: newVoices });
       }),
     }));
+    const updated = get().tracks.find((t) => t.id === trackId);
+    if (updated?.sequencerVoices) {
+      dawEngine.scheduleSequencer(updated);
+      dawEngine.updateTrackMixer(trackId, updated.mixer as any);
+    }
   },
 
   addPianoRollNote: (trackId, note) => {
@@ -1765,58 +1845,98 @@ export const useDawStore = create<DAWState>((set, get) => ({
       tracks: state.tracks.map((t) => {
         if (t.id !== trackId) return t;
         const notes = t.pianoRollNotes || [];
-        return {
+        return syncActiveSynthVersion({
           ...t,
+          isWip: true,
+          mounted: true,
+          muted: false,
+          mixer: t.mixer ? { ...t.mixer, muted: false } : undefined,
           pianoRollNotes: [...notes, { ...note, id }],
-        };
+        });
       }),
     }));
+    const updated = get().tracks.find((t) => t.id === trackId);
+    if (updated?.pianoRollNotes) {
+      dawEngine.schedulePiano(updated);
+      dawEngine.updateTrackMixer(trackId, updated.mixer as any);
+    }
   },
 
   removePianoRollNote: (trackId, noteId) => {
     set((state) => ({
       tracks: state.tracks.map((t) => {
         if (t.id !== trackId || !t.pianoRollNotes) return t;
-        return {
+        return syncActiveSynthVersion({
           ...t,
+          isWip: true,
           pianoRollNotes: t.pianoRollNotes.filter((n) => n.id !== noteId),
-        };
+        });
       }),
     }));
+    const updated = get().tracks.find((t) => t.id === trackId);
+    if (updated?.pianoRollNotes && updated.mounted !== false) {
+      dawEngine.schedulePiano(updated);
+    }
   },
 
   clearPianoRollNotes: (trackId) => {
     set((state) => ({
       tracks: state.tracks.map((t) => {
         if (t.id !== trackId) return t;
-        return {
+        return syncActiveSynthVersion({
           ...t,
+          isWip: true,
           pianoRollNotes: [],
-        };
+        });
       }),
     }));
+    const updated = get().tracks.find((t) => t.id === trackId);
+    if (updated?.pianoRollNotes) {
+      dawEngine.schedulePiano(updated);
+    }
   },
 
   quantizePianoRoll: (trackId, gridDivision) => {
     set((state) => ({
       tracks: state.tracks.map((t) => {
         if (t.id !== trackId || !t.pianoRollNotes) return t;
-        return {
+        return syncActiveSynthVersion({
           ...t,
+          isWip: true,
           pianoRollNotes: t.pianoRollNotes.map((n) => ({
             ...n,
             startTime: Math.round(n.startTime / gridDivision) * gridDivision,
             duration: Math.max(gridDivision, Math.round(n.duration / gridDivision) * gridDivision),
           })),
-        };
+        });
       }),
     }));
+    const updated = get().tracks.find((t) => t.id === trackId);
+    if (updated?.pianoRollNotes && updated.mounted !== false) {
+      dawEngine.schedulePiano(updated);
+    }
   },
 
   updateStrudelCode: (trackId, strudelCode) => {
     set((state) => ({
-      tracks: state.tracks.map((t) => (t.id === trackId ? { ...t, strudelCode } : t)),
+      tracks: state.tracks.map((t) =>
+        t.id === trackId
+          ? syncActiveSynthVersion({
+              ...t,
+              isWip: true,
+              mounted: true,
+              muted: false,
+              mixer: t.mixer ? { ...t.mixer, muted: false } : undefined,
+              strudelCode,
+            })
+          : t
+      ),
     }));
+    const updated = get().tracks.find((t) => t.id === trackId);
+    if (updated) {
+      dawEngine.scheduleStrudel(trackId, strudelCode);
+      dawEngine.updateTrackMixer(trackId, updated.mixer as any);
+    }
   },
 
   toggleLegoContext: (trackId) => {
