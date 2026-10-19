@@ -651,7 +651,7 @@ class DAWEngine {
     if (this.onTimeCallback) this.onTimeCallback(target);
   }
 
-  public auditionTake(url: string, startSec = 0, endSec?: number, timelineStart = startSec) {
+  public auditionTake(url: string, startSec = 0, endSec?: number, timelineStart = startSec, targetTrackId?: string) {
     if (typeof window === 'undefined' || !url) return;
     if (this.auditionTrackId || this.auditionLayerIds) {
       this.auditionTrackId = null;
@@ -667,6 +667,33 @@ class DAWEngine {
         this.stopTimeTracker();
         useDawStore.getState().setPlaying(false);
       });
+    }
+
+    // Route HTMLAudioElement through the target track's (or Master's) Tone DSP chain so Mixer & FX apply live
+    try {
+      void this.resumeAudioContext();
+      const rawCtx = Tone.getContext().rawContext as AudioContext | undefined;
+      if (rawCtx && typeof rawCtx.createMediaElementSource === 'function') {
+        if (!this.auditionMediaSource) {
+          this.auditionMediaSource = rawCtx.createMediaElementSource(this.auditionTakeAudio);
+        }
+        const state = useDawStore.getState();
+        const destId = targetTrackId || state.selectedTrackId || 'master';
+        const nodes = this.getOrCreateTrackNodes(destId);
+        const destTrack = state.tracks.find((t) => t.id === destId);
+        if (destTrack) {
+          this.updateTrackFx(destId, destTrack.fx);
+        }
+        this.auditionMediaSource.disconnect();
+        Tone.connect(this.auditionMediaSource, nodes.input);
+        nodes.volume.mute = false;
+        const masterNodes = this.trackNodes.get('master');
+        if (masterNodes) {
+          masterNodes.volume.mute = false;
+        }
+      }
+    } catch {
+      // Fallback gracefully if MediaElementAudioSourceNode is unsupported in test env
     }
 
     const safeStart = Math.max(0, startSec);
@@ -868,15 +895,18 @@ class DAWEngine {
     }
 
     if (nodes) {
-      const currentType = track?.type || useDawStore.getState().tracks.find((t: DAWTrack) => t.id === trackId)?.type;
-      if ((currentType === 'pianoroll' || currentType === 'strudel') && !nodes.polySynth) {
+      const storeTrack = track || useDawStore.getState().tracks.find((t: DAWTrack) => t.id === trackId);
+      const currentType = storeTrack?.type;
+      const hasPianoNotes = Boolean(storeTrack?.pianoRollNotes?.length);
+      const hasDrumVoices = Boolean(storeTrack?.sequencerVoices?.length);
+      if ((currentType === 'pianoroll' || currentType === 'strudel' || hasPianoNotes) && !nodes.polySynth) {
         nodes.polySynth = new Tone.PolySynth(Tone.Synth, {
           oscillator: { type: 'triangle' },
           envelope: { attack: 0.02, decay: 0.1, sustain: 0.3, release: 0.8 },
         });
         nodes.polySynth.connect(nodes.input);
       }
-      if ((currentType === 'sequencer' || currentType === 'strudel') && !nodes.drumSynths) {
+      if ((currentType === 'sequencer' || currentType === 'strudel' || hasDrumVoices) && !nodes.drumSynths) {
         const kick = new Tone.MembraneSynth({
           pitchDecay: 0.05, octaves: 8, oscillator: { type: 'sine' }, envelope: { attack: 0.001, decay: 0.4, sustain: 0.01, release: 0.4 },
         });
@@ -913,21 +943,15 @@ class DAWEngine {
     }
 
     const trackType = track?.type || 'stem';
+    const hasPianoNotes = Boolean(track?.pianoRollNotes?.length);
+    const hasDrumVoices = Boolean(track?.sequencerVoices?.length);
     const volumeVal = track?.volume ?? 0.9;
     const panVal = track?.pan ?? 0;
     const mutedVal = track?.muted ?? false;
-    const fxConfig = track?.fx || {
-      eq: { enabled: true, low: 0, mid: 0, high: 0 },
-      compressor: { enabled: false, threshold: -20, ratio: 4, attack: 0.005, release: 0.2 },
-      reverb: { enabled: false, decay: 2.5, wet: 0.3 },
-      delay: { enabled: false, delayTime: 0.35, feedback: 0.4, wet: 0.25 },
-      distortion: { enabled: false, drive: 0.4, wet: 0.3 },
-      chorus: { enabled: false, rate: 1.5, depth: 0.7, wet: 0.3 },
-      filter: { enabled: false, cutoff: 8000, resonance: 1.0, type: 'lowpass' },
-    };
+    const fxConfig = track?.fx || ENGINE_DEFAULT_FX;
 
     const input = new Tone.Gain(1.0);
-    const source = track?.id === 'master' ? new Tone.Gain(1).connect(input) : undefined;
+    const source = trackId === 'master' ? new Tone.Gain(1).connect(input) : undefined;
     const eq = new Tone.EQ3({
       low: fxConfig.eq.enabled ? fxConfig.eq.low : 0,
       mid: fxConfig.eq.enabled ? fxConfig.eq.mid : 0,
@@ -938,59 +962,24 @@ class DAWEngine {
       type: fxConfig.filter.type,
       Q: fxConfig.filter.resonance,
     });
-    const distortion = new Tone.Distortion({
-      distortion: fxConfig.distortion.drive,
-      wet: fxConfig.distortion.enabled ? fxConfig.distortion.wet : 0,
-    });
-    const chorus = new Tone.Chorus({
-      frequency: fxConfig.chorus.rate,
-      depth: fxConfig.chorus.depth,
-      wet: fxConfig.chorus.enabled ? fxConfig.chorus.wet : 0,
-    });
-    const delay = new Tone.FeedbackDelay({
-      delayTime: fxConfig.delay.delayTime,
-      feedback: fxConfig.delay.feedback,
-      wet: fxConfig.delay.enabled ? fxConfig.delay.wet : 0,
-    });
-    const reverb = new Tone.Reverb({
-      decay: fxConfig.reverb.decay,
-      wet: fxConfig.reverb.enabled ? fxConfig.reverb.wet : 0,
-    });
-    const compressor = new Tone.Compressor({
-      threshold: fxConfig.compressor.threshold,
-      ratio: fxConfig.compressor.enabled ? fxConfig.compressor.ratio : 1,
-      attack: fxConfig.compressor.attack,
-      release: fxConfig.compressor.release,
-    });
     const panner = new Tone.Panner(panVal);
-    const volume = new Tone.Volume(Tone.gainToDb(Math.max(0.0001, volumeVal)))
+    const volume = new Tone.Volume(Tone.gainToDb(Math.max(0.0001, volumeVal)));
     volume.mute = mutedVal;
 
     const sectionGain = new Tone.Gain(1.0);
     const meter = new Tone.Meter({ smoothing: 0.8 });
     volume.connect(meter);
 
-    // Connect DSP Serial Chain:
-    // Input -> EQ -> Filter -> SectionGain -> Distortion -> Chorus -> Delay -> Reverb -> Compressor -> Panner -> Volume -> MasterCompressor
-    input.chain(
-      eq,
-      filter,
-      sectionGain,
-      distortion,
-      chorus,
-      delay,
-      reverb,
-      compressor,
-      panner,
-      volume,
-      track && track.id === track.activeTakeId ? this.getOrCreateTrackNodes('master').input : this.ensureMasterBus()
-    );
+    // Connect lightweight core chain immediately; heavy FX nodes are lazily instantiated on demand
+    const busDest = trackId === 'master' ? this.ensureMasterBus() : this.getOrCreateTrackNodes('master').input;
+    input.chain(eq, filter, sectionGain);
+    panner.chain(volume, busDest);
 
     const players = new Map<string, Tone.Player>();
     let polySynth: Tone.PolySynth | undefined;
     let drumSynths: TrackAudioNodes['drumSynths'] | undefined;
 
-    if (trackType === 'pianoroll' || trackType === 'strudel') {
+    if (trackType === 'pianoroll' || trackType === 'strudel' || hasPianoNotes) {
       polySynth = new Tone.PolySynth(Tone.Synth, {
         oscillator: { type: 'triangle' },
         envelope: { attack: 0.02, decay: 0.1, sustain: 0.3, release: 0.8 },
@@ -998,7 +987,7 @@ class DAWEngine {
       polySynth.connect(input);
     }
 
-    if (trackType === 'sequencer' || trackType === 'strudel') {
+    if (trackType === 'sequencer' || trackType === 'strudel' || hasDrumVoices) {
       const kick = new Tone.MembraneSynth({
         pitchDecay: 0.05, octaves: 8, oscillator: { type: 'sine' }, envelope: { attack: 0.001, decay: 0.4, sustain: 0.01, release: 0.4 },
       });
@@ -1032,17 +1021,17 @@ class DAWEngine {
       drumSynths = { kick, snare, hihat, clap, tom, perc, crash };
     }
 
+    const spatialState = fxConfig.spatial
+      ? { ...fxConfig.spatial }
+      : { ...ENGINE_DEFAULT_FX.spatial };
+
     nodes = {
       input,
       source,
       eq,
       filter,
       sectionGain,
-      distortion,
-      chorus,
-      delay,
-      reverb,
-      compressor,
+      spatialState,
       panner,
       volume,
       meter,
@@ -1051,8 +1040,107 @@ class DAWEngine {
       drumSynths,
     };
 
+    this.syncTrackFxChain(nodes, fxConfig);
+
+    if (spatialState.enabled) {
+      this.applySpatialParams(nodes, spatialState);
+    }
+
     this.trackNodes.set(trackId, nodes);
     return nodes;
+  }
+
+  private syncTrackFxChain(
+    nodes: TrackAudioNodes,
+    fxConfig: DSPFxConfig,
+    forceEffects?: { reverb?: boolean; delay?: boolean }
+  ) {
+    if (fxConfig.distortion.enabled && !nodes.distortion) {
+      nodes.distortion = new Tone.Distortion({
+        distortion: fxConfig.distortion.drive,
+        wet: fxConfig.distortion.wet,
+      });
+    }
+    if (fxConfig.chorus.enabled && !nodes.chorus) {
+      nodes.chorus = new Tone.Chorus({
+        frequency: fxConfig.chorus.rate,
+        depth: fxConfig.chorus.depth,
+        wet: fxConfig.chorus.wet,
+      });
+      try {
+        nodes.chorus.start();
+      } catch {}
+    }
+    if ((fxConfig.delay.enabled || forceEffects?.delay) && !nodes.delay) {
+      nodes.delay = new Tone.FeedbackDelay({
+        delayTime: fxConfig.delay.delayTime,
+        feedback: fxConfig.delay.feedback,
+        wet: fxConfig.delay.enabled ? fxConfig.delay.wet : 0,
+      });
+    }
+    if ((fxConfig.reverb.enabled || forceEffects?.reverb) && !nodes.reverb) {
+      nodes.reverb = new Tone.Reverb({
+        decay: Math.max(0.01, fxConfig.reverb.decay),
+        wet: fxConfig.reverb.enabled ? fxConfig.reverb.wet : 0,
+      });
+    }
+    if (fxConfig.compressor.enabled && !nodes.compressor) {
+      nodes.compressor = new Tone.Compressor({
+        threshold: fxConfig.compressor.threshold,
+        ratio: fxConfig.compressor.ratio,
+        attack: fxConfig.compressor.attack,
+        release: fxConfig.compressor.release,
+      });
+    }
+    if (fxConfig.spatial?.enabled && !nodes.panner3d) {
+      try {
+        const rawCtx = Tone.getContext().rawContext as AudioContext | undefined;
+        const probe = rawCtx?.createPanner?.();
+        if (probe && 'positionX' in probe) {
+          nodes.panner3d = new Tone.Panner3D({
+            panningModel: 'HRTF',
+            distanceModel: 'inverse',
+            refDistance: 1,
+            rolloffFactor: 1,
+          });
+        }
+      } catch {}
+    }
+
+    const sig = [
+      Boolean(nodes.distortion),
+      Boolean(nodes.chorus),
+      Boolean(nodes.delay),
+      Boolean(nodes.reverb),
+      Boolean(nodes.compressor),
+      Boolean(nodes.panner3d),
+    ].join(':');
+
+    if (nodes.fxChainSignature !== sig && nodes.sectionGain) {
+      nodes.fxChainSignature = sig;
+      for (const node of [
+        nodes.sectionGain,
+        nodes.distortion,
+        nodes.chorus,
+        nodes.delay,
+        nodes.reverb,
+        nodes.compressor,
+        nodes.panner3d,
+      ]) {
+        try {
+          node?.disconnect();
+        } catch {}
+      }
+      const activeFxNodes = [
+        nodes.distortion,
+        nodes.chorus,
+        nodes.delay,
+        nodes.reverb,
+        nodes.compressor,
+        nodes.panner3d,
+      ].filter(Boolean) as any[];
+      nodes.sectionGain.chain(...activeFxNodes, nodes.panner);
+    }
   }
 
   public level(trackId: string): number {
@@ -1071,6 +1159,7 @@ class DAWEngine {
   public setSectionGain(gainDb: number, trackId = 'master') {
     const linear = gainDb <= -24 ? 0 : Tone.dbToGain(gainDb);
     this.currentSectionGainLinear = Math.max(0, Math.min(2.0, linear));
+    if (!this.isToneReady) return;
     const nodes = this.getOrCreateTrackNodes(trackId);
     if (nodes?.sectionGain) {
       const sec = this.getCurrentTime();
@@ -1082,6 +1171,7 @@ class DAWEngine {
   }
 
   public setSectionTone(lowDb: number, midDb: number, highDb: number, trackId = 'master') {
+    if (!this.isToneReady) return;
     const nodes = this.getOrCreateTrackNodes(trackId);
     if (nodes?.eq) {
       nodes.eq.low.rampTo(Math.max(-24, Math.min(12, lowDb)), 0.05);
@@ -1569,6 +1659,7 @@ class DAWEngine {
     mutedArg?: boolean,
     soloArg?: boolean
   ) {
+    if (!this.isToneReady) return;
     this.getOrCreateTrackNodes(trackId);
 
     let volumeVal: number | undefined;
@@ -1604,6 +1695,11 @@ class DAWEngine {
       return Boolean(isTrackSolo);
     });
 
+    const masterTrackObj = tracksToEval.find((t: any) => t.id === 'master') as any;
+    const masterMuted = 'master' === trackId && mutedVal !== undefined
+      ? mutedVal
+      : Boolean(masterTrackObj?.mixer?.muted ?? masterTrackObj?.muted ?? false);
+
     const allTrackIds = new Set([
       ...tracksToEval.map((t: any) => t.id),
       ...Array.from(this.trackNodes.keys()),
@@ -1611,18 +1707,44 @@ class DAWEngine {
 
     for (const id of allTrackIds) {
       const trackObj = tracksToEval.find((t: any) => t.id === id) as any;
-      const isMuted = id === trackId && mutedVal !== undefined
+      const isUnmounted = trackObj?.mounted === false;
+      const isMuted = (id === trackId && mutedVal !== undefined
         ? mutedVal
-        : Boolean(trackObj?.mixer?.muted ?? trackObj?.muted ?? false);
+        : Boolean(trackObj?.mixer?.muted ?? trackObj?.muted ?? false)) || isUnmounted;
       const isSoloed = id === trackId && soloVal !== undefined
         ? soloVal
         : Boolean(trackObj?.mixer?.solo ?? trackObj?.solo ?? false);
 
+      const isSculpted = !isIdentityWaveSculpt(trackObj?.sculpt) || Boolean(trackObj?.clips?.some((c: any) => !isIdentityWaveSculpt(c.sculpt)));
+      const isUnmodifiedOrgStem =
+        trackObj?.type === 'stem' &&
+        !trackObj?.activeTakeId &&
+        !trackObj?.activeVersionId &&
+        (!trackObj?.activeVersionTakeId || trackObj?.activeVersionTakeId === 'ORG') &&
+        !isSculpted;
+
+      const shouldBeMuted = this.auditionLayerIds
+        ? isMuted || !this.auditionLayerIds.includes(id)
+        : this.auditionTrackId
+        ? id !== this.auditionTrackId
+        : (isMuted && !isSoloed) ||
+          (hasSolo && !isSoloed) ||
+          (!hasSolo && !masterMuted && isUnmodifiedOrgStem);
+
       let nodes = this.trackNodes.get(id);
-      if (!nodes && isSoloed && Array.isArray(trackObj?.clips)) {
+      if (Array.isArray(trackObj?.clips) && !shouldBeMuted) {
         for (const clip of trackObj.clips) {
-          if (clip.url) {
+          if (!clip.url) continue;
+          const key = `${id}:${clip.id}`;
+          const loaded = nodes?.players.get(clip.id)?.loaded;
+          if (!loaded && !this.loading.has(key)) {
             void this.loadClip(id, clip.id, clip.url, clip.startTime, clip.offset, clip.duration);
+          } else {
+            const entry = this.clipLoads.get(key);
+            const expectedSculpt = this.getEffectiveClipSculpt(id, clip.id);
+            if (entry?.buffer && entry.sculpt !== expectedSculpt) {
+              this.attachClipPlayer(id, clip.id, entry.buffer, entry.startTime, entry.offset, entry.duration);
+            }
           }
         }
         nodes = this.trackNodes.get(id);
@@ -1641,12 +1763,11 @@ class DAWEngine {
       nodes.volume.volume.rampTo(targetDb, 0.05);
       nodes.panner.pan.rampTo(pan, 0.05);
 
-      const childSoloed = id === 'master' && tracksToEval.some((track: any) => track.id === track.activeTakeId && (track.id === trackId && soloVal !== undefined ? soloVal : track.solo));
-      const shouldBeMuted = this.auditionLayerIds
-        ? (id !== 'master' && isMuted) || (!this.auditionLayerIds.includes(id) && !(id === 'master' && tracksToEval.some((track: any) => track.id === track.activeTakeId && this.auditionLayerIds!.includes(track.id))))
-        : this.auditionTrackId
-        ? id !== this.auditionTrackId && !(id === 'master' && tracksToEval.some((track: any) => track.id === this.auditionTrackId && track.id === track.activeTakeId))
-        : (id !== 'master' && isMuted) || (hasSolo && !isSoloed && !childSoloed);
+      if (id === 'master' && nodes.source) {
+        nodes.volume.mute = false;
+        continue;
+      }
+
       nodes.volume.mute = shouldBeMuted;
     }
     this.syncOriginals();
@@ -1732,48 +1853,57 @@ class DAWEngine {
     useDawStore.setState({ auditionId: trackId });
   }
 
+  private applySpatialParams(nodes: TrackAudioNodes, spatial: DSPFxConfig['spatial']) {
+    nodes.spatialState = { ...spatial };
+    if (!spatial.enabled) {
+      if (nodes.panner3d) {
+        nodes.panner3d.positionX.rampTo(0, 0.05);
+        nodes.panner3d.positionY.rampTo(0, 0.05);
+        nodes.panner3d.positionZ.rampTo(0, 0.05);
+      }
+      return;
+    }
+    const azRad = (spatial.azimuth * Math.PI) / 180;
+    const elRad = (spatial.elevation * Math.PI) / 180;
+    const dist = Math.max(0.1, Math.min(10, spatial.distance));
+    const x = dist * Math.cos(elRad) * Math.sin(azRad);
+    const y = dist * Math.sin(elRad);
+    const z = -dist * Math.cos(elRad) * Math.cos(azRad);
+    if (nodes.panner3d) {
+      nodes.panner3d.positionX.rampTo(x, 0.05);
+      nodes.panner3d.positionY.rampTo(y, 0.05);
+      nodes.panner3d.positionZ.rampTo(z, 0.05);
+    } else {
+      nodes.panner.pan.rampTo(Math.max(-1, Math.min(1, Math.sin(azRad))), 0.05);
+    }
+  }
+
   /**
    * Update DSP effects parameters in real-time
    */
   public updateTrackFx(trackId: string, fx: DSPFxConfig): void;
   public updateTrackFx<K extends keyof DSPFxConfig>(trackId: string, fxKey: K, partial: Partial<DSPFxConfig[K]>): void;
   public updateTrackFx(trackId: string, fxOrKey: any, partial?: any) {
+    if (!this.isToneReady) return;
     const nodes = this.getOrCreateTrackNodes(trackId);
+    const storeTrack = useDawStore.getState().tracks.find((t: DAWTrack) => t.id === trackId);
+    const currentFx = storeTrack?.fx || ENGINE_DEFAULT_FX;
 
+    let fx: DSPFxConfig;
     if (typeof fxOrKey === 'string') {
       const fxKey = fxOrKey as keyof DSPFxConfig;
-      if (fxKey === 'eq' && partial) {
-        if (partial.low !== undefined) nodes.eq.low.rampTo(partial.low, 0.05);
-        if (partial.mid !== undefined) nodes.eq.mid.rampTo(partial.mid, 0.05);
-        if (partial.high !== undefined) nodes.eq.high.rampTo(partial.high, 0.05);
-      } else if (fxKey === 'filter' && partial) {
-        if (partial.cutoff !== undefined) nodes.filter.frequency.rampTo(partial.cutoff, 0.05);
-        if (partial.resonance !== undefined) nodes.filter.Q.rampTo(partial.resonance, 0.05);
-        if (partial.type !== undefined) nodes.filter.type = partial.type;
-      } else if (fxKey === 'distortion' && partial) {
-        if (partial.drive !== undefined) nodes.distortion.distortion = partial.drive;
-        if (partial.wet !== undefined) nodes.distortion.wet.rampTo(partial.wet, 0.05);
-      } else if (fxKey === 'chorus' && partial) {
-        if (partial.rate !== undefined) nodes.chorus.frequency.rampTo(partial.rate, 0.05);
-        if (partial.depth !== undefined) nodes.chorus.depth = partial.depth;
-        if (partial.wet !== undefined) nodes.chorus.wet.rampTo(partial.wet, 0.05);
-      } else if (fxKey === 'delay' && partial) {
-        if (partial.delayTime !== undefined) nodes.delay.delayTime.rampTo(partial.delayTime, 0.05);
-        if (partial.feedback !== undefined) nodes.delay.feedback.rampTo(partial.feedback, 0.05);
-        if (partial.wet !== undefined) nodes.delay.wet.rampTo(partial.wet, 0.05);
-      } else if (fxKey === 'reverb' && partial) {
-        if (partial.decay !== undefined) nodes.reverb.decay = partial.decay;
-        if (partial.wet !== undefined) nodes.reverb.wet.rampTo(partial.wet, 0.05);
-      } else if (fxKey === 'compressor' && partial) {
-        if (partial.threshold !== undefined) nodes.compressor.threshold.rampTo(partial.threshold, 0.05);
-        if (partial.ratio !== undefined) nodes.compressor.ratio.rampTo(partial.ratio, 0.05);
-        if (partial.attack !== undefined) nodes.compressor.attack.rampTo(partial.attack, 0.05);
-        if (partial.release !== undefined) nodes.compressor.release.rampTo(partial.release, 0.05);
-      }
-      return;
+      fx = {
+        ...currentFx,
+        [fxKey]: {
+          ...currentFx[fxKey],
+          ...(partial || {}),
+        },
+      };
+    } else {
+      fx = fxOrKey || currentFx;
     }
 
-    const fx: DSPFxConfig = fxOrKey;
+    this.syncTrackFxChain(nodes, fx);
 
     // EQ3
     nodes.eq.low.rampTo(fx.eq.enabled ? fx.eq.low : 0, 0.05);
@@ -1786,30 +1916,71 @@ class DAWEngine {
     nodes.filter.type = fx.filter.type;
 
     // Distortion
-    nodes.distortion.distortion = fx.distortion.drive;
-    nodes.distortion.wet.rampTo(fx.distortion.enabled ? fx.distortion.wet : 0, 0.05);
+    if (nodes.distortion) {
+      nodes.distortion.distortion = fx.distortion.drive;
+      nodes.distortion.wet.rampTo(fx.distortion.enabled ? fx.distortion.wet : 0, 0.05);
+    }
 
     // Chorus
-    nodes.chorus.frequency.rampTo(fx.chorus.rate, 0.05);
-    nodes.chorus.depth = fx.chorus.depth;
-    nodes.chorus.wet.rampTo(fx.chorus.enabled ? fx.chorus.wet : 0, 0.05);
+    if (nodes.chorus) {
+      if (fx.chorus.enabled) {
+        try { nodes.chorus.start(); } catch {}
+      }
+      nodes.chorus.frequency.rampTo(fx.chorus.rate, 0.05);
+      nodes.chorus.depth = fx.chorus.depth;
+      nodes.chorus.wet.rampTo(fx.chorus.enabled ? fx.chorus.wet : 0, 0.05);
+    }
 
     // Delay
-    nodes.delay.delayTime.rampTo(fx.delay.delayTime, 0.05);
-    nodes.delay.feedback.rampTo(fx.delay.feedback, 0.05);
-    nodes.delay.wet.rampTo(fx.delay.enabled ? fx.delay.wet : 0, 0.05);
+    if (nodes.delay) {
+      nodes.delay.delayTime.rampTo(fx.delay.delayTime, 0.05);
+      nodes.delay.feedback.rampTo(fx.delay.feedback, 0.05);
+      nodes.delay.wet.rampTo(fx.delay.enabled ? fx.delay.wet : 0, 0.05);
+    }
 
-    // Reverb
-    nodes.reverb.decay = fx.reverb.decay;
-    nodes.reverb.wet.rampTo(fx.reverb.enabled ? fx.reverb.wet : 0, 0.05);
+    // Reverb - only regenerate impulse response when reverb is enabled and decay changed (debounced in live mode)
+    if (nodes.reverb) {
+      if (fx.reverb.enabled) {
+        const targetDecay = Math.max(0.01, fx.reverb.decay);
+        if (Math.abs(Number(nodes.reverb.decay) - targetDecay) > 0.01) {
+          if (this.offline) {
+            nodes.reverb.decay = targetDecay;
+          } else {
+            const existingTimer = this.reverbTimers.get(trackId);
+            if (existingTimer) clearTimeout(existingTimer);
+            this.reverbTimers.set(
+              trackId,
+              setTimeout(() => {
+                this.reverbTimers.delete(trackId);
+                if (nodes.reverb && Math.abs(Number(nodes.reverb.decay) - targetDecay) > 0.01) {
+                  nodes.reverb.decay = targetDecay;
+                }
+              }, 120)
+            );
+          }
+        }
+      }
+      nodes.reverb.wet.rampTo(fx.reverb.enabled ? fx.reverb.wet : 0, 0.05);
+    }
 
     // Compressor
-    nodes.compressor.threshold.rampTo(fx.compressor.threshold, 0.05);
-    nodes.compressor.ratio.rampTo(fx.compressor.enabled ? fx.compressor.ratio : 1, 0.05);
-    nodes.compressor.attack.rampTo(fx.compressor.attack, 0.05);
-    nodes.compressor.release.rampTo(fx.compressor.release, 0.05);
+    if (nodes.compressor) {
+      nodes.compressor.threshold.rampTo(fx.compressor.threshold, 0.05);
+      nodes.compressor.ratio.rampTo(fx.compressor.enabled ? fx.compressor.ratio : 1, 0.05);
+      nodes.compressor.attack.rampTo(fx.compressor.attack, 0.05);
+      nodes.compressor.release.rampTo(fx.compressor.release, 0.05);
+    }
+
+    // Spatial 3D Binaural HRTF Panner
+    if (fx.spatial) {
+      this.applySpatialParams(nodes, fx.spatial);
+    }
   }
 
+  /**
+   * Clears clip players and scheduled sequences for a track without destroying
+   * its DSP effect rack / mixer chain (used when switching versions/takes).
+   */
   public clearTrackSources(trackId: string, transport?: ReturnType<typeof Tone.getTransport>) {
     for (const [timerKey, timer] of this.sculptTimers.entries()) {
       if (timerKey.startsWith(`${trackId}:`)) {
