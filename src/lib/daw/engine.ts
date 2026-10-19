@@ -288,6 +288,91 @@ class DAWEngine {
     }
   }
 
+  private flushTrackSculpt(trackId: string, clipId?: string, dirtyRange?: [number, number]) {
+    const tracks = useDawStore.getState().tracks;
+    for (const t of tracks) {
+      if (t.id !== trackId) continue;
+      for (const c of t.clips ?? []) {
+        if (clipId && c.id !== clipId) continue;
+        const key = `${t.id}:${c.id}`;
+        if (!this.clipLoads.has(key) && c.url) {
+          void this.loadClip(t.id, c.id, c.url, c.startTime, c.offset, c.duration);
+        }
+      }
+    }
+
+    let updatedAny = false;
+    for (const [, entry] of this.clipLoads.entries()) {
+      if (trackId === 'master') {
+        if (entry.trackId !== 'master') {
+          const entryNodes = this.trackNodes.get(entry.trackId);
+          if (!entryNodes || entryNodes.volume.mute) continue;
+        } else if (clipId && entry.clipId !== clipId) {
+          continue;
+        }
+      } else {
+        if (entry.trackId !== trackId) continue;
+        if (clipId && entry.clipId !== clipId) continue;
+      }
+      if (entry.buffer) {
+        this.attachClipPlayer(
+          entry.trackId,
+          entry.clipId,
+          entry.buffer,
+          entry.startTime,
+          entry.offset,
+          entry.duration,
+          dirtyRange,
+          true
+        );
+        updatedAny = true;
+      }
+    }
+
+    if (trackId !== 'master' && this.isToneReady) {
+      this.updateTrackMixer(trackId);
+    }
+
+    if (updatedAny && this.isToneReady) {
+      if (trackId === 'master') {
+        this.lastMasterSegmentsKey = '';
+        this.syncOriginals();
+      }
+      if (Tone.getTransport().state === 'started') {
+        Tone.getTransport().seconds = Tone.getTransport().seconds;
+      }
+    }
+  }
+
+  public applyTrackSculpt(trackId: string, clipId?: string, dirtyRange?: [number, number]) {
+    const timerKey = `${trackId}:${clipId ?? '*'}`;
+    if (dirtyRange) {
+      const existing = this.sculptDirtyRanges.get(timerKey);
+      if (existing === undefined) {
+        this.sculptDirtyRanges.set(timerKey, [dirtyRange[0], dirtyRange[1]]);
+      } else if (existing !== null) {
+        this.sculptDirtyRanges.set(timerKey, [
+          Math.min(existing[0], dirtyRange[0]),
+          Math.max(existing[1], dirtyRange[1]),
+        ]);
+      }
+    } else {
+      this.sculptDirtyRanges.set(timerKey, null);
+    }
+
+    if (this.sculptTimers.has(timerKey)) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      this.sculptTimers.delete(timerKey);
+      const coalescedRange = this.sculptDirtyRanges.get(timerKey);
+      this.sculptDirtyRanges.delete(timerKey);
+      this.flushTrackSculpt(trackId, clipId, coalescedRange ?? undefined);
+    }, 45);
+    this.sculptTimers.set(timerKey, timer);
+  }
+
   public async resumeAudioContext() {
     if (typeof window === 'undefined') return;
     try {
@@ -1382,11 +1467,10 @@ class DAWEngine {
     const buffers = new Map<string, AudioBuffer>();
     for (const track of tracks) for (const clip of track.clips) {
       if (buffers.has(clip.url)) continue;
-      const response = await fetch(clip.url);
-      if (!response.ok) throw new Error('Could not load reference audio');
-      buffers.set(clip.url, await original.decodeAudioData(await response.arrayBuffer()));
+      buffers.set(clip.url, await getDecodedAudioBuffer(clip.url, 'high'));
     }
-    const context = new Tone.OfflineContext(2, duration, original.sampleRate);
+    const sampleRate = buffers.values().next().value?.sampleRate || original.sampleRate || 44100;
+    const context = new Tone.OfflineContext(2, duration, sampleRate);
     const engine = new DAWEngine(true);
     const solo = state.tracks.some(track => track.solo);
     try {
@@ -1395,7 +1479,7 @@ class DAWEngine {
       for (const track of tracks) {
         const nodes = engine.getOrCreateTrackNodes(track);
         engine.updateTrackFx(track.id, track.fx);
-        nodes.volume.mute = (track.id !== 'master' && track.muted) || (solo && !track.solo && !(track.id === 'master' && state.tracks.some(child => child.id === child.activeTakeId && child.solo)));
+        nodes.volume.mute = track.id === 'master' ? false : (track.muted || (solo && !track.solo));
         if (commit && track.id === 'master') {
           nodes.input.disconnect();
           nodes.input.toDestination();
@@ -1421,15 +1505,32 @@ class DAWEngine {
           : null;
         if (masterSegs && masterSegs.length > 1 && track.clips[0]) {
           const clip = track.clips[0];
+          const clipSculpt = clip.sculpt && !isIdentityWaveSculpt(clip.sculpt)
+            ? clip.sculpt
+            : (track.sculpt && !isIdentityWaveSculpt(track.sculpt) ? track.sculpt : undefined);
+          const rawBuf = buffers.get(clip.url)!;
+          const effectiveBuf = clipSculpt ? applyWaveSculptToAudioBuffer(rawBuf, clipSculpt) : rawBuf;
           masterSegs.forEach((seg, idx) => {
-            const player = new Tone.Player(buffers.get(clip.url)!);
+            const player = new Tone.Player(effectiveBuf);
             player.connect(nodes.source ?? nodes.input);
             nodes.players.set(`${clip.id}-${idx}`, player);
             player.sync().start(seg.startTime, seg.offset, seg.duration);
           });
         } else {
+          const masterTrack = state.tracks.find(t => t.id === 'master');
+          const masterSculpt = getTrackOwnSculpt(masterTrack);
           for (const clip of track.clips) {
-            const player = new Tone.Player(buffers.get(clip.url)!);
+            const ownSculpt = clip.sculpt && !isIdentityWaveSculpt(clip.sculpt)
+              ? clip.sculpt
+              : (track.sculpt && !isIdentityWaveSculpt(track.sculpt) ? track.sculpt : undefined);
+            const clipSculpt = track.id === 'master'
+              ? ownSculpt
+              : composeWaveSculpts(masterSculpt, ownSculpt);
+            const rawBuf = buffers.get(clip.url)!;
+            const effectiveBuf = clipSculpt && !isIdentityWaveSculpt(clipSculpt)
+              ? applyWaveSculptToAudioBuffer(rawBuf, clipSculpt)
+              : rawBuf;
+            const player = new Tone.Player(effectiveBuf);
             player.connect(nodes.source ?? nodes.input);
             nodes.players.set(clip.id, player);
             player.sync().start(clip.startTime, clip.offset, clip.duration);
@@ -1439,7 +1540,7 @@ class DAWEngine {
       }
       context.transport.start(0);
       Tone.setContext(original);
-      await Promise.all([...engine.trackNodes.values()].map(nodes => nodes.reverb.ready));
+      await Promise.all([...engine.trackNodes.values()].map(nodes => nodes.reverb?.ready));
       const result = await context.render();
       const startSample = startTime > 0 ? Math.max(0, Math.min(result.length, Math.round(startTime * result.sampleRate))) : 0;
       const numSamples = result.length - startSample;
