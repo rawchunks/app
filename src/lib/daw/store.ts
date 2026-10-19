@@ -2043,6 +2043,116 @@ export const useDawStore = create<DAWState>((set, get) => ({
     }));
   },
 
+  updateTrackSculpt: (trackId, sculpt) => {
+    let dirtyRange: [number, number] | undefined;
+    set((state) => ({
+      tracks: state.tracks.map((t) => {
+        if (t.id !== trackId) return t;
+        const base = t.sculpt || t.clips[0]?.sculpt || createDefaultWaveSculpt();
+        const patch = typeof sculpt === 'function' ? sculpt(base) : sculpt;
+        const next: WaveSculptState = {
+          ...base,
+          ...patch,
+          nodes: patch.nodes ? [...patch.nodes].sort((a, b) => a.position - b.position) : base.nodes,
+          anchors: patch.anchors ? [...patch.anchors].sort((a, b) => a.position - b.position) : base.anchors,
+        };
+        if (next.mode === 'granular' && patch.anchors) {
+          const prevMap = new Map((base.anchors ?? []).map((a) => [a.id, a]));
+          let minNorm = 1;
+          let maxNorm = 0;
+          for (const a of next.anchors ?? []) {
+            const p = prevMap.get(a.id);
+            if (!p || p.position !== a.position || p.gainDb !== a.gainDb || p.timeShift !== a.timeShift || p.bend !== a.bend || p.radius !== a.radius || p.smash !== a.smash || p.smooth !== a.smooth || p.sharpen !== a.sharpen) {
+              const r = Math.max(0.04, a.radius ?? 0.075, p?.radius ?? 0.075) * 1.65;
+              const lo = Math.min(a.position, p?.position ?? a.position) - r;
+              const hi = Math.max(a.position, p?.position ?? a.position) + r;
+              if (lo < minNorm) minNorm = lo;
+              if (hi > maxNorm) maxNorm = hi;
+            }
+          }
+          if (maxNorm > minNorm) {
+            dirtyRange = [Math.max(0, minNorm), Math.min(1, maxNorm)];
+          }
+        }
+        return {
+          ...t,
+          sculpt: next,
+          clips: t.clips.map((c) => ({ ...c, sculpt: next })),
+        };
+      }),
+    }));
+    dawEngine.applyTrackSculpt(trackId, undefined, dirtyRange);
+  },
+
+  updateClipSculpt: (trackId, clipId, sculpt) => {
+    let dirtyRange: [number, number] | undefined;
+    set((state) => ({
+      tracks: state.tracks.map((t) => {
+        if (t.id !== trackId) return t;
+        let updatedSculpt: WaveSculptState | undefined;
+        const nextClips = t.clips.map((c) => {
+          if (c.id !== clipId) return c;
+          const base = c.sculpt || t.sculpt || createDefaultWaveSculpt();
+          const patch = typeof sculpt === 'function' ? sculpt(base) : sculpt;
+          const next: WaveSculptState = {
+            ...base,
+            ...patch,
+            nodes: patch.nodes ? [...patch.nodes].sort((a, b) => a.position - b.position) : base.nodes,
+            anchors: patch.anchors ? [...patch.anchors].sort((a, b) => a.position - b.position) : base.anchors,
+          };
+          if (next.mode === 'granular' && patch.anchors) {
+            const prevMap = new Map((base.anchors ?? []).map((a) => [a.id, a]));
+            let minNorm = 1;
+            let maxNorm = 0;
+            for (const a of next.anchors ?? []) {
+              const p = prevMap.get(a.id);
+              if (!p || p.position !== a.position || p.gainDb !== a.gainDb || p.timeShift !== a.timeShift || p.bend !== a.bend || p.radius !== a.radius || p.smash !== a.smash || p.smooth !== a.smooth || p.sharpen !== a.sharpen) {
+                const r = Math.max(0.04, a.radius ?? 0.075, p?.radius ?? 0.075) * 1.65;
+                const lo = Math.min(a.position, p?.position ?? a.position) - r;
+                const hi = Math.max(a.position, p?.position ?? a.position) + r;
+                if (lo < minNorm) minNorm = lo;
+                if (hi > maxNorm) maxNorm = hi;
+              }
+            }
+            if (maxNorm > minNorm) {
+              dirtyRange = [Math.max(0, minNorm), Math.min(1, maxNorm)];
+            }
+          }
+          updatedSculpt = next;
+          return { ...c, sculpt: next };
+        });
+        return {
+          ...t,
+          sculpt: updatedSculpt ?? t.sculpt,
+          clips: nextClips,
+        };
+      }),
+    }));
+    dawEngine.applyTrackSculpt(trackId, clipId, dirtyRange);
+  },
+
+  resetTrackSculpt: (trackId, clipId) => {
+    set((state) => ({
+      tracks: state.tracks.map((t) => {
+        if (t.id !== trackId) return t;
+        const fresh = createDefaultWaveSculpt();
+        if (clipId) {
+          return {
+            ...t,
+            sculpt: fresh,
+            clips: t.clips.map((c) => (c.id === clipId ? { ...c, sculpt: fresh } : c)),
+          };
+        }
+        return {
+          ...t,
+          sculpt: fresh,
+          clips: t.clips.map((c) => ({ ...c, sculpt: fresh })),
+        };
+      }),
+    }));
+    dawEngine.applyTrackSculpt(trackId, clipId);
+  },
+
   toggleSequencerStep: (trackId, voiceIdx, stepIdx) => {
     set((state) => ({
       tracks: state.tracks.map((t) => {
