@@ -139,6 +139,29 @@ class DAWEngine {
     return this.masterCompressor;
   }
 
+  public getClipAudioBuffer(trackId: string, clipId: string): AudioBuffer | undefined {
+    return this.clipLoads.get(`${trackId}:${clipId}`)?.buffer;
+  }
+
+  private getEffectiveClipSculpt(trackId: string, clipId: string): WaveSculptState | undefined {
+    const tracks = useDawStore.getState().tracks;
+    const track = tracks.find((t) => t.id === trackId);
+    const clip = track?.clips?.find((c) => c.id === clipId);
+    const ownSculpt =
+      clip?.sculpt && !isIdentityWaveSculpt(clip.sculpt)
+        ? clip.sculpt
+        : track?.sculpt && !isIdentityWaveSculpt(track.sculpt)
+        ? track.sculpt
+        : undefined;
+    if (trackId === 'master') {
+      return ownSculpt;
+    }
+    const masterTrack = tracks.find((t) => t.id === 'master');
+    const masterSculpt = getTrackOwnSculpt(masterTrack);
+    const composed = composeWaveSculpts(masterSculpt, ownSculpt);
+    return composed && !isIdentityWaveSculpt(composed) ? composed : undefined;
+  }
+
   private safeDisposePlayer(player?: Tone.Player) {
     if (!player) return;
     try {
@@ -155,6 +178,114 @@ class DAWEngine {
       }
       player.dispose();
     } catch {}
+  }
+
+  private getOrCreateWorkingBuffer(key: string, source: AudioBuffer): AudioBuffer {
+    const existing = this.sculptWorkingBuffers.get(key);
+    if (
+      existing &&
+      existing !== source &&
+      existing.numberOfChannels === source.numberOfChannels &&
+      existing.length === source.length &&
+      existing.sampleRate === source.sampleRate
+    ) {
+      return existing;
+    }
+    const created =
+      typeof AudioBuffer === 'function'
+        ? new AudioBuffer({
+            numberOfChannels: source.numberOfChannels,
+            length: source.length,
+            sampleRate: source.sampleRate,
+          })
+        : Tone.getContext().rawContext.createBuffer(
+            source.numberOfChannels,
+            source.length,
+            source.sampleRate
+          );
+    for (let ch = 0; ch < source.numberOfChannels; ch++) {
+      created.getChannelData(ch).set(source.getChannelData(ch));
+    }
+    this.sculptWorkingBuffers.set(key, created);
+    return created;
+  }
+
+  private attachClipPlayer(
+    trackId: string,
+    clipId: string,
+    audioBuffer: AudioBuffer,
+    startTime: number,
+    offset = 0,
+    duration?: number,
+    dirtyRange?: [number, number],
+    _inPlaceOnly = false
+  ) {
+    const key = `${trackId}:${clipId}`;
+    const sculpt = this.getEffectiveClipSculpt(trackId, clipId);
+    const loadEntry = this.clipLoads.get(key);
+    if (loadEntry) {
+      loadEntry.sculpt = sculpt;
+    }
+    const hasActiveSculpt = Boolean(sculpt && !isIdentityWaveSculpt(sculpt));
+    if (!hasActiveSculpt) {
+      this.sculptWorkingBuffers.delete(key);
+    }
+    const workingBuffer = hasActiveSculpt
+      ? this.getOrCreateWorkingBuffer(key, audioBuffer)
+      : null;
+    const effectiveBuffer = workingBuffer
+      ? applyWaveSculptToAudioBuffer(audioBuffer, sculpt, workingBuffer, dirtyRange)
+      : audioBuffer;
+    if (effectiveBuffer !== audioBuffer) {
+      this.sculptWorkingBuffers.set(key, effectiveBuffer);
+    }
+
+    if (!this.isToneReady) return;
+
+    const nodes = this.getOrCreateTrackNodes(trackId);
+    const existing = nodes.players.get(clipId);
+    if (
+      existing &&
+      !(existing as any).disposed &&
+      existing.buffer &&
+      typeof existing.buffer.set === 'function'
+    ) {
+      existing.buffer.set(effectiveBuffer);
+      if (existing.buffer.loaded || (existing as any).loaded) {
+        const activeSources: Set<any> | undefined = (existing as any)._activeSources;
+        if (activeSources && typeof activeSources.forEach === 'function') {
+          for (const src of [...activeSources]) {
+            if (src && src._startTime === -1) {
+              try {
+                src.dispose?.();
+              } catch {}
+              activeSources.delete(src);
+            }
+          }
+        }
+        try {
+          existing.unsync();
+        } catch {}
+        existing.sync().start(startTime, offset, duration);
+      }
+      return;
+    }
+
+    this.safeDisposePlayer(existing);
+    const player = new Tone.Player({ autostart: false });
+    player.connect(nodes.source ?? nodes.input);
+    nodes.players.set(clipId, player);
+    if (player.buffer && typeof player.buffer.set === 'function') {
+      player.buffer.set(effectiveBuffer);
+    }
+    if (!player.buffer || player.buffer.loaded || (player as any).loaded) {
+      player.sync().start(startTime, offset, duration);
+      if (this.isToneReady && !this.offline && Tone.getTransport().state === 'started') {
+        try {
+          Tone.getTransport().seconds = Tone.getTransport().seconds;
+        } catch {}
+      }
+    }
   }
 
   public async resumeAudioContext() {
@@ -246,10 +377,13 @@ class DAWEngine {
           audibleTrackIds.add('master');
         }
         for (const t of tracks) {
-          const isMuted = Boolean(t.mixer?.muted ?? t.muted);
+          const isMuted = Boolean(t.mixer?.muted ?? t.muted) || t.mounted === false;
+          const isSculpted = !isIdentityWaveSculpt(t.sculpt) || Boolean(t.clips?.some((c) => !isIdentityWaveSculpt(c.sculpt)));
           const hasActiveOverlay = Boolean(
             t.activeTakeId ||
+            t.activeVersionId ||
             t.type === 'sample' ||
+            isSculpted ||
             (t.activeVersionTakeId && t.activeVersionTakeId !== 'ORG')
           );
           if (!isMuted && (hasActiveOverlay || (masterMuted && t.id !== 'master'))) {
@@ -330,13 +464,14 @@ class DAWEngine {
   }
 
   public syncOriginals() {
+    if (!this.isToneReady) return;
     const transport = Tone.getTransport(), nodes = this.trackNodes.get('master');
     for (const id of this.originalScheduleIds) transport.clear(id);
     this.originalScheduleIds = [];
     if (!nodes) return;
     const state = useDawStore.getState();
     const extendClips = state.tracks
-      .filter(track => track.activeTakeId && !track.muted && (state.takes ?? []).some(t => t.id === track.activeTakeId && t.task === 'extend'))
+      .filter(track => track.activeTakeId && !track.muted && track.mounted !== false && (state.takes ?? []).some(t => t.id === track.activeTakeId && t.task === 'extend'))
       .flatMap(track => track.clips.map(clip => ({ startTime: clip.startTime, duration: clip.duration })));
     const layout = masterArrangement(state.duration, extendClips);
     const segKey = JSON.stringify(layout.segments);
@@ -345,7 +480,7 @@ class DAWEngine {
       this.lastMasterSegmentsKey = segKey;
       for (const [id, p] of [...nodes.players.entries()]) {
         if (id.startsWith('clip-master-seg-')) {
-          p.dispose();
+          this.safeDisposePlayer(p);
           nodes.players.delete(id);
         }
       }
@@ -952,52 +1087,85 @@ class DAWEngine {
     const previous = this.clipLoads.get(key);
     if (previous?.signature === signature) return previous.promise;
     const project = this.project;
-    const entry = { trackId, url, signature, promise: Promise.resolve() };
+    const entry: ClipLoadEntry = {
+      trackId,
+      clipId,
+      url,
+      startTime,
+      offset,
+      duration,
+      signature,
+      promise: Promise.resolve(),
+    };
     entry.promise = Promise.resolve().then(async () => {
-      await this.init();
       if (project !== this.project || this.clipLoads.get(key) !== entry) return;
-      const nodes = this.getOrCreateTrackNodes(trackId);
-      nodes.players.get(clipId)?.dispose();
-      const player = new Tone.Player({ autostart: false });
-      player.connect(nodes.source ?? nodes.input);
-      nodes.players.set(clipId, player);
+      if (typeof OfflineAudioContext === 'undefined') {
+        await this.init();
+        if (project !== this.project || this.clipLoads.get(key) !== entry) return;
+        const nodes = this.getOrCreateTrackNodes(trackId);
+        const player = new Tone.Player({ autostart: false });
+        player.connect(nodes.source ?? nodes.input);
+        this.safeDisposePlayer(nodes.players.get(clipId));
+        nodes.players.set(clipId, player);
+        await player.load(url);
+        if (project !== this.project || nodes.players.get(clipId) !== player) {
+          this.safeDisposePlayer(player);
+          return;
+        }
+        player.sync().start(startTime, offset, duration);
+        return;
+      }
       const priority =
         trackId === 'master' ||
         this.auditionTrackId === trackId ||
         Boolean(this.auditionLayerIds?.includes(trackId))
           ? 'high'
           : 'normal';
-      try {
-        if (player.buffer && typeof player.buffer.set === 'function') {
-          const audioBuffer = await getDecodedAudioBuffer(url, priority);
-          if (project !== this.project || this.clipLoads.get(key) !== entry || nodes.players.get(clipId) !== player) return;
-          player.buffer.set(audioBuffer);
-        } else {
-          await player.load(url);
-          if (project !== this.project || this.clipLoads.get(key) !== entry || nodes.players.get(clipId) !== player) return;
+      const audioBuffer = await getDecodedAudioBuffer(url, priority);
+      if (project !== this.project || this.clipLoads.get(key) !== entry) return;
+      entry.buffer = audioBuffer;
+      this.attachClipPlayer(
+        entry.trackId,
+        entry.clipId,
+        audioBuffer,
+        entry.startTime,
+        entry.offset,
+        entry.duration
+      );
+    });
+    const handledPromise = entry.promise
+      .catch(error => {
+        if (this.clipLoads.get(key) === entry) this.clipLoads.delete(key);
+        if (
+          project !== this.project ||
+          this.clipLoads.get(key) !== entry ||
+          (error && typeof error === 'object' && 'name' in error && error.name === 'AbortError')
+        ) {
+          return;
         }
-        player.sync().start(startTime, offset, duration);
-      } catch (error) {
-        if (project !== this.project || this.clipLoads.get(key) !== entry) return;
-        nodes.players.delete(clipId);
-        player.dispose();
         throw error;
-      }
-    }).finally(() => {
-      if (this.loading.get(key) === entry.promise) this.loading.delete(key);
-    });
+      })
+      .finally(() => {
+        if (this.loading.get(key) === handledPromise) this.loading.delete(key);
+      });
+    entry.promise = handledPromise;
     this.clipLoads.set(key, entry);
-    this.loading.set(key, entry.promise);
-    return entry.promise.catch(error => {
-      if (this.clipLoads.get(key) === entry) this.clipLoads.delete(key);
-      throw error;
-    });
+    this.loading.set(key, handledPromise);
+    return handledPromise;
   }
 
   /**
    * Re-syncs player transport bounds when clip is dragged, trimmed or slip-edited
    */
   public updateClipTransport(trackId: string, clipId: string, startTime: number, offset = 0, duration?: number) {
+    const key = `${trackId}:${clipId}`;
+    const existing = this.clipLoads.get(key);
+    if (existing) {
+      existing.startTime = startTime;
+      existing.offset = offset;
+      existing.duration = duration;
+      existing.signature = JSON.stringify([existing.url, startTime, offset, duration]);
+    }
     const trackNode = this.trackNodes.get(trackId);
     if (!trackNode) return;
     const player = trackNode.players.get(clipId);
@@ -1390,19 +1558,30 @@ class DAWEngine {
     this.project++;
     this.pauseTransport();
     this.stopAuditionTake();
-    for (const id of this.originalScheduleIds) Tone.getTransport().clear(id);
+    if (this.isToneReady) {
+      for (const id of this.originalScheduleIds) Tone.getTransport().clear(id);
+    }
     this.originalScheduleIds = [];
     this.lastMasterSegmentsKey = '';
+    for (const timer of this.sculptTimers.values()) clearTimeout(timer);
+    this.sculptTimers.clear();
+    this.sculptDirtyRanges.clear();
+    for (const timer of this.reverbTimers.values()) clearTimeout(timer);
+    this.reverbTimers.clear();
+    this.sculptWorkingBuffers.clear();
     this.loading.clear();
     this.clipLoads.clear();
-    if (!this.offline) abortBackgroundAudioFetches();
+    clearMemoryAudioCaches();
     this.disposeTrack('master');
 
     for (const id of [...this.trackNodes.keys()]) {
       if (id !== 'master') this.disposeTrack(id);
     }
-    Tone.getTransport().stop();
-    Tone.getTransport().seconds = 0;
+    this.pendingSeekSeconds = 0;
+    if (this.isToneReady) {
+      Tone.getTransport().stop();
+      Tone.getTransport().seconds = 0;
+    }
 
     // Reset master DSP nodes
     const masterNodes = this.trackNodes.get('master');
@@ -1419,7 +1598,9 @@ class DAWEngine {
       } catch {}
     }
 
-    Tone.getDestination().mute = false;
+    if (this.isToneReady) {
+      Tone.getDestination().mute = false;
+    }
     this.isAuditionLooping = false;
     this.auditionStart = null;
     this.auditionEnd = null;
@@ -1528,30 +1709,59 @@ class DAWEngine {
     nodes.compressor.release.rampTo(fx.compressor.release, 0.05);
   }
 
-  public disposeTrack(trackId: string, transport = Tone.getTransport()) {
-    for (const key of this.clipLoads.keys()) if (key.startsWith(`${trackId}:`)) {
-      this.clipLoads.delete(key);
-      this.loading.delete(key);
+  public clearTrackSources(trackId: string, transport?: ReturnType<typeof Tone.getTransport>) {
+    for (const [timerKey, timer] of this.sculptTimers.entries()) {
+      if (timerKey.startsWith(`${trackId}:`)) {
+        clearTimeout(timer);
+        this.sculptTimers.delete(timerKey);
+      }
     }
+    for (const key of this.sculptDirtyRanges.keys()) {
+      if (key.startsWith(`${trackId}:`)) {
+        this.sculptDirtyRanges.delete(key);
+      }
+    }
+    for (const key of this.sculptWorkingBuffers.keys()) {
+      if (key.startsWith(`${trackId}:`)) {
+        this.sculptWorkingBuffers.delete(key);
+      }
+    }
+    for (const key of this.clipLoads.keys()) {
+      if (key.startsWith(`${trackId}:`)) {
+        this.clipLoads.delete(key);
+        this.loading.delete(key);
+      }
+    }
+    const activeTransport = transport ?? (this.isToneReady ? Tone.getTransport() : undefined);
     const scheduleId = this.sequencerScheduleIds.get(trackId);
     if (scheduleId !== undefined) {
-      transport.clear(scheduleId);
+      activeTransport?.clear(scheduleId);
       this.sequencerScheduleIds.delete(trackId);
     }
-
     const strudelScheduleId = this.strudelScheduleIds.get(trackId);
     if (strudelScheduleId !== undefined) {
-      transport.clear(strudelScheduleId);
+      activeTransport?.clear(strudelScheduleId);
       this.strudelScheduleIds.delete(trackId);
     }
-    for (const id of this.pianoScheduleIds.get(trackId) ?? []) transport.clear(id);
+    for (const id of this.pianoScheduleIds.get(trackId) ?? []) activeTransport?.clear(id);
     this.pianoScheduleIds.delete(trackId);
 
     const nodes = this.trackNodes.get(trackId);
     if (!nodes) return;
-
-    nodes.players.forEach((p) => p.dispose());
+    nodes.players.forEach((p) => this.safeDisposePlayer(p));
     nodes.players.clear();
+  }
+
+  public disposeTrack(trackId: string, transport?: ReturnType<typeof Tone.getTransport>) {
+    this.clearTrackSources(trackId, transport);
+    const revTimer = this.reverbTimers.get(trackId);
+    if (revTimer) {
+      clearTimeout(revTimer);
+      this.reverbTimers.delete(trackId);
+    }
+    const nodes = this.trackNodes.get(trackId);
+    if (!nodes) return;
+
     nodes.polySynth?.dispose();
     if (nodes.drumSynths) {
       nodes.drumSynths.kick.dispose();
@@ -1567,11 +1777,12 @@ class DAWEngine {
     nodes.sectionGain?.dispose();
     nodes.eq.dispose();
     nodes.filter.dispose();
-    nodes.distortion.dispose();
-    nodes.chorus.dispose();
-    nodes.delay.dispose();
-    nodes.reverb.dispose();
-    nodes.compressor.dispose();
+    nodes.distortion?.dispose();
+    nodes.chorus?.dispose();
+    nodes.delay?.dispose();
+    nodes.reverb?.dispose();
+    nodes.compressor?.dispose();
+    nodes.panner3d?.dispose();
     nodes.panner.dispose();
     nodes.volume.dispose();
     nodes.meter.dispose();
