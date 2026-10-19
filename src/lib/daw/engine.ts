@@ -1254,7 +1254,7 @@ class DAWEngine {
   }
 
   /**
-   * Syncs an audio clip to Tone.Transport
+   * Pre-decodes an audio clip via OfflineAudioContext and attaches it to Tone.Transport once Tone is initialized.
    */
   public loadClip(trackId: string, clipId: string, url: string, startTime: number, offset = 0, duration?: number): Promise<void> {
     const key = `${trackId}:${clipId}`;
@@ -1355,6 +1355,7 @@ class DAWEngine {
    */
   public async playNote(pitch: string, duration = '8n', velocity = 0.8, trackId?: string) {
     await this.resumeAudioContext();
+    await this.init();
     const targetTrackId = trackId || useDawStore.getState().selectedTrackId || 'master';
     const trackNode = this.getOrCreateTrackNodes(targetTrackId);
     if (!trackNode.polySynth) {
@@ -1368,7 +1369,7 @@ class DAWEngine {
   }
 
   public triggerNote(trackId: string, pitch: string, duration = '8n', velocity = 0.8) {
-    this.playNote(pitch, duration, velocity, trackId);
+    return this.playNote(pitch, duration, velocity, trackId);
   }
 
   /**
@@ -1376,6 +1377,7 @@ class DAWEngine {
    */
   public async triggerDrumStep(instrument: string, time?: number, velocity = 0.8, trackId?: string) {
     await this.resumeAudioContext();
+    await this.init();
     const targetTrackId = trackId || useDawStore.getState().selectedTrackId || 'master';
     const trackNode = this.getOrCreateTrackNodes(targetTrackId);
     if (!trackNode.drumSynths) {
@@ -1450,13 +1452,15 @@ class DAWEngine {
    * Schedules a 16-step sequencer pattern on the transport
    */
   public scheduleSequencer(track: DAWTrack) {
+    if (!this.isToneReady) return;
     const existingScheduleId = this.sequencerScheduleIds.get(track.id);
     if (existingScheduleId !== undefined) {
       Tone.getTransport().clear(existingScheduleId);
       this.sequencerScheduleIds.delete(track.id);
     }
 
-    if (track.type !== 'sequencer' || !track.sequencerVoices) return;
+    const isSequencerActive = track.type === 'sequencer' || Boolean(track.activeVersionId);
+    if (!isSequencerActive || !track.sequencerVoices?.length) return;
 
     const voices = track.sequencerVoices;
     const trackNode = this.getOrCreateTrackNodes(track);
@@ -1488,6 +1492,10 @@ class DAWEngine {
    * Schedules a Strudel live coding algorithmic pattern on Tone.Transport
    */
   public scheduleStrudel(trackId: string, patternCode: string, bpm?: number) {
+    if (bpm && bpm > 0) {
+      this.setBpm(bpm);
+    }
+    if (!this.isToneReady) return;
     const existingScheduleId = this.strudelScheduleIds.get(trackId);
     if (existingScheduleId !== undefined) {
       Tone.getTransport().clear(existingScheduleId);
@@ -1496,14 +1504,15 @@ class DAWEngine {
 
     if (!patternCode || !patternCode.trim()) return;
 
-    if (bpm && bpm > 0) {
-      this.setBpm(bpm);
-    }
-
     const parsed = parseStrudelPattern(patternCode);
     if (!parsed.events || parsed.events.length === 0) return;
     const track = useDawStore.getState().tracks.find(track => track.id === trackId);
     const nodes = this.getOrCreateTrackNodes(track ?? trackId);
+    const needsRoom = parsed.events.some(event => event.room !== undefined);
+    const needsDelay = parsed.events.some(event => event.delay !== undefined);
+    if (needsRoom || needsDelay) {
+      this.syncTrackFxChain(nodes, track?.fx || ENGINE_DEFAULT_FX, { reverb: needsRoom, delay: needsDelay });
+    }
 
     const currentBpm = bpm && bpm > 0 ? bpm : (Tone.getTransport()?.bpm?.value || 120);
     const baseCycleSeconds = (60 / currentBpm) * 4;
@@ -1514,11 +1523,34 @@ class DAWEngine {
         for (const event of parsed.events) {
           const eventTime = time + event.time * cycleDurationSeconds;
           const eventDuration = Math.max(0.05, event.duration * cycleDurationSeconds);
+          const vel = Math.max(0.05, Math.min(1, event.gain ?? 0.8));
+
+          if (event.pan !== undefined) {
+            nodes.panner.pan.rampTo(Math.max(-1, Math.min(1, event.pan)), 0.02);
+          }
+          if (event.lpf !== undefined) {
+            nodes.filter.type = 'lowpass';
+            nodes.filter.frequency.rampTo(Math.max(40, Math.min(20000, event.lpf)), 0.02);
+          } else if (event.hpf !== undefined) {
+            nodes.filter.type = 'highpass';
+            nodes.filter.frequency.rampTo(Math.max(20, Math.min(18000, event.hpf)), 0.02);
+          }
+          if (event.room !== undefined) {
+            nodes.reverb?.wet.rampTo(Math.max(0, Math.min(1, event.room)), 0.03);
+          }
+          if (event.delay !== undefined) {
+            nodes.delay?.wet.rampTo(Math.max(0, Math.min(1, event.delay)), 0.03);
+          }
 
           if (event.type === 'sound') {
-            this.playDrum(nodes, event.value, eventTime, 0.8);
+            this.playDrum(nodes, event.value, eventTime, vel);
           } else if (event.type === 'note') {
-            nodes.polySynth?.triggerAttackRelease(event.value, eventDuration, eventTime, 0.8);
+            if (event.synthSound && (nodes.polySynth as any)?.set) {
+              try {
+                (nodes.polySynth as any).set({ oscillator: { type: event.synthSound } });
+              } catch {}
+            }
+            nodes.polySynth?.triggerAttackRelease(event.value, eventDuration, eventTime, vel);
           }
         }
       }, cycleDurationSeconds);
@@ -1528,6 +1560,7 @@ class DAWEngine {
   }
 
   public schedulePiano(track: DAWTrack) {
+    if (!this.isToneReady) return;
     for (const id of this.pianoScheduleIds.get(track.id) ?? []) Tone.getTransport().clear(id);
     this.pianoScheduleIds.delete(track.id);
     if (!track.pianoRollNotes?.length) return;
@@ -1539,9 +1572,15 @@ class DAWEngine {
   }
 
   public scheduleTrack(track: DAWTrack) {
-    if (track.type === 'sequencer') this.scheduleSequencer(track);
-    if (track.type === 'pianoroll') this.schedulePiano(track);
-    if (track.type === 'strudel') this.scheduleStrudel(track.id, track.strudelCode ?? '');
+    if ((track.type === 'sequencer' || Boolean(track.activeVersionId)) && Boolean(track.sequencerVoices?.length)) {
+      this.scheduleSequencer(track);
+    }
+    if ((track.type === 'pianoroll' || Boolean(track.activeVersionId)) && Boolean(track.pianoRollNotes?.length)) {
+      this.schedulePiano(track);
+    }
+    if (track.type === 'strudel' || Boolean(track.strudelCode?.trim())) {
+      this.scheduleStrudel(track.id, track.strudelCode ?? '');
+    }
   }
 
   public async render(trackIds: string[], duration: number, commit = false, startTime = 0): Promise<Blob> {
