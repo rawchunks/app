@@ -1,6 +1,7 @@
 import React, { useState, useRef, useLayoutEffect, useEffect } from 'react';
 import { useDawStore, type LyricsAlignment } from '../../lib/daw/store';
 import { dawEngine } from '../../lib/daw/engine';
+import { isIdentityWaveSculpt } from '../../lib/daw/peaks';
 import { Waveform } from '../waveform';
 import { Clip } from './Clip';
 import { Notes } from './Notes';
@@ -30,7 +31,7 @@ import {
 import { Song, Task } from '../../lib/schema';
 import { toast } from 'sonner';
 import { TrackType } from '../../lib/daw/store';
-import { getStemColor } from '../../lib/daw/palette';
+import { getStemColor, formatTrackBadgeCode } from '../../lib/daw/palette';
 import { isBase, mounted, preview, interval, pending, masterArrangement, taskLabel, isLayerTake, layerTrackName, isFullSongRestyleTake } from '../../lib/daw/takes';
 
 export interface BoardProps {
@@ -118,30 +119,37 @@ export const Board: React.FC<BoardProps> = ({
   processing = false,
   reveal: _reveal,
 }) => {
-  const {
-    tracks,
-    playhead,
-    duration,
-    isPlaying,
-    bpm,
-    selection,
-    legoContextTrackIds,
-    takes,
-    setPlayhead,
-    setSelection,
-    extractCurrentSection,
-    toggleLegoContext,
-    updateTrackMixer,
-    removeTrack,
-    toggleTake,
-    activateTake,
-    selectLaneVersion,
-    selectMasterVersion,
-    pendingTake,
-    deleteTake,
-    revertToOriginalMaster,
-    originals, operations, auditionId, toggleOriginal, mergeTakes, moveTake,
-  } = useDawStore();
+  const tracks = useDawStore((s) => s.tracks);
+  const duration = useDawStore((s) => s.duration);
+  const isPlaying = useDawStore((s) => s.isPlaying);
+  const bpm = useDawStore((s) => s.bpm);
+  const selection = useDawStore((s) => s.selection);
+  const legoContextTrackIds = useDawStore((s) => s.legoContextTrackIds);
+  const takes = useDawStore((s) => s.takes);
+  const setPlayhead = useDawStore((s) => s.setPlayhead);
+  const setSelection = useDawStore((s) => s.setSelection);
+  const extractCurrentSection = useDawStore((s) => s.extractCurrentSection);
+  const toggleLegoContext = useDawStore((s) => s.toggleLegoContext);
+  const updateTrackMixer = useDawStore((s) => s.updateTrackMixer);
+  const removeTrack = useDawStore((s) => s.removeTrack);
+  const toggleTake = useDawStore((s) => s.toggleTake);
+  const activateTake = useDawStore((s) => s.activateTake);
+  const selectLaneVersion = useDawStore((s) => s.selectLaneVersion);
+  const selectMasterVersion = useDawStore((s) => s.selectMasterVersion);
+  const addSynthVersion = useDawStore((s) => s.addSynthVersion);
+  const selectSynthVersion = useDawStore((s) => s.selectSynthVersion);
+  const pendingTake = useDawStore((s) => s.pendingTake);
+  const deleteTake = useDawStore((s) => s.deleteTake);
+  const revertToOriginalMaster = useDawStore((s) => s.revertToOriginalMaster);
+  const originals = useDawStore((s) => s.originals);
+  const operations = useDawStore((s) => s.operations);
+  const auditionId = useDawStore((s) => s.auditionId);
+  const toggleOriginal = useDawStore((s) => s.toggleOriginal);
+  const mergeTakes = useDawStore((s) => s.mergeTakes);
+  const moveTake = useDawStore((s) => s.moveTake);
+  const sculptMode = useDawStore((s) => s.sculptMode);
+  const setSculptMode = useDawStore((s) => s.setSculptMode);
+  const resetTrackSculpt = useDawStore((s) => s.resetTrackSculpt);
 
   const [masterExpanded, setMasterExpanded] = useState(true);
   const [lanesExpanded, setLanesExpanded] = useState<boolean>(true);
@@ -276,11 +284,12 @@ export const Board: React.FC<BoardProps> = ({
   const hasExtractedStems = laneTracks.some(track => track.type === 'stem' && track.clips.length > 0);
   const separated = laneTracks.filter(
     track =>
-      track.clips.length > 0 ||
-      track.type === 'pianoroll' ||
-      track.type === 'sequencer' ||
-      track.type === 'strudel' ||
-      track.type === 'sample'
+      track.mounted !== false &&
+      (track.clips.length > 0 ||
+        track.type === 'pianoroll' ||
+        track.type === 'sequencer' ||
+        track.type === 'strudel' ||
+        track.type === 'sample')
   );
   const completeSeparation = ['drums', 'bass', 'other'].every(name => separated.some(track => track.name.toLowerCase() === name));
   const masterLanes = separated.filter(track => !completeSeparation || track.name.toLowerCase() !== 'instrumental');
@@ -288,39 +297,6 @@ export const Board: React.FC<BoardProps> = ({
   const highlighted = completeSeparation && selectedLane?.name.toLowerCase() === 'instrumental'
     ? masterLanes.filter(track => track.name.toLowerCase() !== 'vocals').map(track => track.id)
     : [selectedTrackId];
-
-  const formatTrackBadgeCode = (trackItem: typeof tracks[number]) => {
-    const raw = (trackItem.name || trackItem.type || '').trim();
-    const numMatch = raw.match(/\s+(\d+)$/);
-    const base = raw.replace(/\s+\d+$/, '').toLowerCase();
-    const codeMap: Record<string, string> = {
-      vocals: 'VOC',
-      'backing vocals': 'BGV',
-      backing_vocals: 'BGV',
-      drums: 'DRM',
-      'drum seq': 'DRM',
-      sequencer: 'DRM',
-      bass: 'BAS',
-      guitar: 'GTR',
-      keyboard: 'KEY',
-      keys: 'KEY',
-      'keys synth': 'KEY',
-      pianoroll: 'KEY',
-      strings: 'STR',
-      synth: 'SYN',
-      woodwinds: 'WIN',
-      brass: 'BRS',
-      percussion: 'PER',
-      fx: 'FX',
-      sample: 'SMP',
-      sampler: 'SMP',
-      strudel: 'COD',
-      code: 'COD',
-      'live code': 'COD',
-    };
-    const code = codeMap[base] || codeMap[trackItem.type] || base.slice(0, 3).toUpperCase();
-    return numMatch ? `${code} ${numMatch[1]}` : code;
-  };
 
   // Format seconds to mm:ss.ms
   const formatTime = (sec: number) => {
@@ -395,11 +371,11 @@ export const Board: React.FC<BoardProps> = ({
     tickMarkers.push(i * tickIntervalSec);
   }
 
-  // Playhead percentage position
-  const playheadPercent = Math.max(0, Math.min(100, (playhead / totalDuration) * 100));
-
   // Determine if master is currently playing
   const isMasterPlaying = isPlaying && !playingTakeId && (selectedTrackId === 'master' || !tracks.some((t) => t.solo));
+  const isMasterSculpted = !isIdentityWaveSculpt(masterTrack?.sculpt);
+  const hasActiveMasterTake = takes.some((t) => t.is_active);
+  const canRevertMaster = isMasterSculpted || hasActiveMasterTake;
 
   return (
     <div className="board-container">
@@ -493,7 +469,8 @@ export const Board: React.FC<BoardProps> = ({
                 className="board-transport-btn"
                 aria-label="Select Section"
                 onClick={() => {
-                  const start = Math.max(0, Math.min(playhead, Math.max(0, totalDuration - 5)));
+                  const currentPlayhead = useDawStore.getState().playhead;
+                  const start = Math.max(0, Math.min(currentPlayhead, Math.max(0, totalDuration - 5)));
                   const end = Math.min(totalDuration, Math.max(start + 5, start + 15));
                   useDawStore.getState().setSelection({ start, end });
                 }}
@@ -545,24 +522,43 @@ export const Board: React.FC<BoardProps> = ({
               )}
             </>
           )}
-
-          {takes.some((t) => t.is_active) && (
-            <Tooltip title="Restore Original Mix" description="Revert master track audio back to original source">
-              <button
-                type="button"
-                className="board-transport-btn board-transport-btn-warning"
-                aria-label="Restore Original Mix"
-                onClick={() => revertToOriginalMaster()}
-              >
-                <RotateCcw size={11} />
-                <span className="board-btn-label">RESTORE</span>
-              </button>
-            </Tooltip>
-          )}
         </div>
 
-        {/* Song Lyrics Document Icon Toggle */}
+        {/* Global 3D Wave Sculpt Light-Switcher + Song Lyrics Document Icon Toggle */}
         <div className="board-transport-time">
+          <Tooltip
+            title={sculptMode === 'granular' ? 'Wave Mode: Granular (Spiky)' : 'Wave Mode: Smooth Curve (Timer)'}
+            description="Switch wave sculpting between Granular Peak Mode (left) and Smooth Time-Envelope Mode (right)"
+          >
+            <div className="wave-rocker-switch" role="radiogroup" aria-label="Wave sculpt mode">
+              <button
+                type="button"
+                role="radio"
+                className={`rocker-half rocker-left ${sculptMode === 'granular' ? 'is-pressed' : 'is-raised'}`}
+                aria-checked={sculptMode === 'granular'}
+                aria-label="Granular wave mode"
+                onClick={() => setSculptMode('granular')}
+              >
+                <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M1.5 8h2l1.8-4.5 2.4 9 2.4-7 1.7 2.5h2.7" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                role="radio"
+                className={`rocker-half rocker-right ${sculptMode === 'curve' ? 'is-pressed' : 'is-raised'}`}
+                aria-checked={sculptMode === 'curve'}
+                aria-label="Smooth curve timer mode"
+                onClick={() => setSculptMode('curve')}
+              >
+                <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="8" cy="8.8" r="5.5" />
+                  <path d="M6.2 1.6h3.6M8 1.6v1.7M8 8.8V5.8M8 8.8l2.2 1.5" />
+                </svg>
+              </button>
+            </div>
+          </Tooltip>
+
           {canShowCanvas && (
             <Tooltip
               title="Song Lyrics Document"
@@ -638,7 +634,7 @@ export const Board: React.FC<BoardProps> = ({
             1. MASTER / MAIN MIX TRACK ROW (Exact same row size and left bar)
             ================================================================== */}
         <div
-          className={`board-row master ${takes.some(take => take.provenance?.region) ? 'expanded' : ''}`}
+          className={`board-row master selected ${takes.some(take => take.provenance?.region) ? 'expanded' : ''}`}
           onClick={() => {
             onSelectTrack('master');
             clearNonMasterSolos();
@@ -717,6 +713,31 @@ export const Board: React.FC<BoardProps> = ({
                     S
                   </button>
                 </Tooltip>
+
+                {canRevertMaster && (
+                  <Tooltip
+                    title="Reset / Revert Master"
+                    description="Reset Master wave edits and restore original mix"
+                  >
+                    <button
+                      type="button"
+                      className="board-btn-mini reset"
+                      aria-label="Reset Master"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (isMasterSculpted) {
+                          resetTrackSculpt('master');
+                        }
+                        if (hasActiveMasterTake) {
+                          revertToOriginalMaster();
+                        }
+                      }}
+                    >
+                      <RotateCcw size={10} />
+                    </button>
+                  </Tooltip>
+                )}
+
                 {masterTrack?.activeVersionTakeId && masterTrack.activeVersionTakeId !== 'MST' && (
                   <>
                     <Tooltip title="Merge Restyle" description="Commit this Restyle version as the new Master.">
@@ -796,7 +817,7 @@ export const Board: React.FC<BoardProps> = ({
               </div>
             )}
             {(separated.length > 0 || overlays.length > 0) && (
-              <div className="board-master-badges" aria-label="Instrument and mounted layer controls">
+              <div className="board-master-badges" aria-label={overlays.length > 0 ? 'Mounted layer controls' : 'Instrument and mounted layer controls'}>
                 {separated.map(track => (
                   <Tooltip key={track.id} title={track.name} description={`Select and listen to ${track.name.toLowerCase()} in the master.`}>
                     <button
@@ -836,6 +857,8 @@ export const Board: React.FC<BoardProps> = ({
                 <Volume2 size={12} color="var(--accent)" />
                 <input
                   type="range"
+                  name="master-volume"
+                  aria-label="Master Volume"
                   className="board-slider"
                   min="0"
                   max="1.2"
@@ -890,6 +913,8 @@ export const Board: React.FC<BoardProps> = ({
                   key={`${track.id}:${clip.id ?? clip.startTime}`}
                   className={`board-overlay ${selected ? 'selected' : ''} ${track.muted ? 'muted' : ''}`}
                   style={{
+                    left: `${start / totalDuration * 100}%`,
+                    width: `${(end - start) / totalDuration * 100}%`,
                     '--start-pct': `${start / totalDuration * 100}%`,
                     '--width-pct': `${(end - start) / totalDuration * 100}%`,
                     '--track-color': track.color,
@@ -972,8 +997,6 @@ export const Board: React.FC<BoardProps> = ({
             <span>LANES</span>
             <span className="board-section-badge">{laneTracks.length} TRACKS</span>
           </div>
-
-
         </div>
 
         {/* Folded Overview Bar when collapsed */}
@@ -1011,13 +1034,30 @@ export const Board: React.FC<BoardProps> = ({
               trackItem.type === 'stem' &&
               trackItem.hasOriginalStem !== false &&
               !trackItem.id.startsWith('layer-');
+            const isSynthTrack =
+              trackItem.type === 'pianoroll' ||
+              trackItem.type === 'sequencer' ||
+              trackItem.type === 'strudel';
+            const hasSynthVersions =
+              isSynthTrack || Boolean(trackItem.versions && trackItem.versions.length > 0);
+            const synthVersions = hasSynthVersions
+              ? trackItem.versions && trackItem.versions.length > 0
+                ? trackItem.versions
+                : [{ id: '1', number: 1, createdAt: 0 }]
+              : [];
+            const activeSynthVerId = isSynthTrack
+              ? trackItem.activeVersionId || synthVersions[synthVersions.length - 1]?.id || '1'
+              : trackItem.activeVersionId || null;
+            const isSynthVersionActiveOnStem =
+              trackItem.type === 'stem' && Boolean(activeSynthVerId && trackItem.sequencerVoices?.length);
+            const isTrackSculpted = !isIdentityWaveSculpt(trackItem.sculpt);
             const canDeleteLaneOrTake = Boolean(activeLayerTakeId) || !hasOriginal || laneLayerTakes.length > 0;
 
             return (
               <div
                 key={trackItem.id}
                 data-track-id={trackItem.id}
-                className={`board-row ${laneLayerTakes.length > 0 ? 'has-versions' : ''} ${isSelected ? 'selected' : ''} ${isDimmed ? 'dimmed' : ''}`}
+                className={`board-row ${laneLayerTakes.length > 0 || hasSynthVersions ? 'has-versions' : ''} ${isSelected ? 'selected' : ''} ${isDimmed ? 'dimmed' : ''}`}
                 onClick={() => {
                   onSelectTrack(trackItem.id);
                   dawEngine.auditionTrack(trackItem.id);
@@ -1095,6 +1135,32 @@ export const Board: React.FC<BoardProps> = ({
                         </button>
                       </Tooltip>
 
+                      {(isTrackSculpted || activeLayerTakeId || (trackItem.type === 'stem' && activeSynthVerId)) && (
+                        <Tooltip
+                          title={`Reset ${trackItem.name}`}
+                          description={`Revert wave-sculpt edits and return ${trackItem.name} to original`}
+                        >
+                          <button
+                            type="button"
+                            className="board-btn-mini reset"
+                            aria-label={`Reset ${trackItem.name}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              resetTrackSculpt(trackItem.id);
+                              if (activeLayerTakeId) {
+                                void selectLaneVersion(trackItem.id, null);
+                              }
+                              if (trackItem.type === 'stem' && activeSynthVerId) {
+                                selectSynthVersion(trackItem.id, 'ORG');
+                              }
+                              toast.success(`${trackItem.name} reset to original`);
+                            }}
+                          >
+                            <RotateCcw size={10} />
+                          </button>
+                        </Tooltip>
+                      )}
+
                       {activeLayerTakeId && (
                         <Tooltip title="Merge Layer" description={`Commit this layer take into the ${trackItem.name} lane`}>
                           <button
@@ -1148,23 +1214,28 @@ export const Board: React.FC<BoardProps> = ({
                     </div>
                   </div>
 
-                  {laneLayerTakes.length > 0 && (
+                  {(hasSynthVersions || laneLayerTakes.length > 0) && (
                     <div className="board-category-badges-row" onClick={(e) => e.stopPropagation()}>
                       <div className="board-category-badges-list">
                         {hasOriginal && (
                           <Tooltip title="Original Stem" description={`Original ${trackItem.name} stem`}>
                             <button
                               type="button"
-                              aria-pressed={!activeLayerTakeId}
-                              className={`board-take-badge-pill board-badge-sub ${!activeLayerTakeId ? 'selected mix-active' : ''}`}
-                              onClick={() => void selectLaneVersion(trackItem.id, null)}
+                              aria-pressed={!activeLayerTakeId && !activeSynthVerId}
+                              className={`board-take-badge-pill board-badge-sub ${!activeLayerTakeId && !activeSynthVerId ? 'selected mix-active' : ''}`}
+                              onClick={() => {
+                                if (hasSynthVersions) {
+                                  selectSynthVersion(trackItem.id, 'ORG');
+                                }
+                                void selectLaneVersion(trackItem.id, null);
+                              }}
                             >
                               ORG
                             </button>
                           </Tooltip>
                         )}
                         {laneLayerTakes.map((take, idx) => {
-                          const isVersionActive = activeLayerTakeId === take.id;
+                          const isVersionActive = activeLayerTakeId === take.id && !activeSynthVerId;
                           return (
                             <Tooltip
                               key={take.id}
@@ -1175,13 +1246,52 @@ export const Board: React.FC<BoardProps> = ({
                                 type="button"
                                 aria-pressed={isVersionActive}
                                 className={`board-take-badge-pill board-badge-sub ${isVersionActive ? 'selected mix-active' : ''}`}
-                                onClick={() => void selectLaneVersion(trackItem.id, take.id)}
+                                onClick={() => {
+                                  if (hasSynthVersions) {
+                                    selectSynthVersion(trackItem.id, 'ORG');
+                                  }
+                                  void selectLaneVersion(trackItem.id, take.id);
+                                }}
                               >
                                 #{idx + 1}
                               </button>
                             </Tooltip>
                           );
                         })}
+                        {synthVersions.map((ver) => {
+                          const isVerActive = activeSynthVerId === ver.id;
+                          return (
+                            <Tooltip
+                              key={ver.id}
+                              title={`${trackItem.name} #${ver.number}`}
+                              description={`Switch to version #${ver.number}`}
+                            >
+                              <button
+                                type="button"
+                                aria-pressed={isVerActive}
+                                className={`board-take-badge-pill board-badge-sub ${isVerActive ? 'selected mix-active' : ''}`}
+                                onClick={() => selectSynthVersion(trackItem.id, ver.id)}
+                              >
+                                #{ver.number}
+                              </button>
+                            </Tooltip>
+                          );
+                        })}
+                        {hasSynthVersions && (
+                          <Tooltip
+                            title={`New ${trackItem.name} Version`}
+                            description={`Create version #${synthVersions.length + 1} on this lane`}
+                          >
+                            <button
+                              type="button"
+                              className="board-take-badge-pill board-badge-sub add"
+                              aria-label={`Create new ${trackItem.name} version`}
+                              onClick={() => addSynthVersion(trackItem.id)}
+                            >
+                              +
+                            </button>
+                          </Tooltip>
+                        )}
                       </div>
                     </div>
                   )}
@@ -1191,6 +1301,8 @@ export const Board: React.FC<BoardProps> = ({
                       <Volume2 size={12} color={brandColor} />
                       <input
                         type="range"
+                        name={`track-volume-${trackItem.id}`}
+                        aria-label={`${trackItem.name} Volume`}
                         className="board-slider"
                         min="0"
                         max="1.2"
@@ -1228,11 +1340,11 @@ export const Board: React.FC<BoardProps> = ({
                 >
                   <div className="board-lane-grid" />
 
-                  {(trackItem.type === 'pianoroll' || trackItem.type === 'sequencer') && (
+                  {(isSynthTrack || isSynthVersionActiveOnStem) && (
                     <Notes track={trackItem} bpm={bpm} duration={totalDuration} color={brandColor} />
                   )}
 
-                  {clip && clip.url && (
+                  {!isSynthVersionActiveOnStem && clip && clip.url && (
                     <div
                       className="board-clip-container"
                       style={{
@@ -1240,15 +1352,12 @@ export const Board: React.FC<BoardProps> = ({
                         '--width-pct': `${(clip.duration / totalDuration) * 100}%`,
                       } as React.CSSProperties}
                     >
-                      <ClipWaveform clip={clip} color={brandColor} />
+                      <Clip clip={clip} color={brandColor} trackId={trackItem.id} />
                     </div>
                   )}
 
                   {/* Playhead needle */}
-                  <div
-                    className="board-playhead-line"
-                    style={{ '--pos-pct': `${playheadPercent}%` } as React.CSSProperties}
-                  />
+                  <BoardPlayheadLine totalDuration={totalDuration} />
                 </div>
               </div>
             );
@@ -1292,7 +1401,6 @@ export const Board: React.FC<BoardProps> = ({
               catTakes.find((t) => t.id === selectedTrackId) ||
               catTakes.find((t) => t.id === activeCategoryTakeId[category]) ||
               catTakes.find((t) => mounted(t, tracks, takes)) ||
-              catTakes[catTakes.length - 1] ||
               catTakes[0];
 
             const categoryTitle = taskLabel(category);
@@ -1320,7 +1428,7 @@ export const Board: React.FC<BoardProps> = ({
                           description={`Take #${currentTake.take_number} • ${currentTake.prompt || 'Session take'}`}
                         ><span
                           className={`board-track-badge board-badge-track board-track-badge-category ${isCurrentActive ? 'active' : ''}`}
-                          aria-label={`${categoryTitle}, Take #${currentTake.take_number}`}
+                          aria-label={`Category: ${categoryTitle}, Take #${currentTake.take_number}`}
                         >
                           {categoryTitle}
                         </span></Tooltip>
@@ -1453,11 +1561,13 @@ export const Board: React.FC<BoardProps> = ({
                         <div
                           className="board-clip-container"
                           style={{
+                            left: `${(takeRange.start / rowDuration) * 100}%`,
+                            width: `${((takeRange.end - takeRange.start) / rowDuration) * 100}%`,
                             '--start-pct': `${(takeRange.start / rowDuration) * 100}%`,
                             '--width-pct': `${((takeRange.end - takeRange.start) / rowDuration) * 100}%`,
                           } as React.CSSProperties}
                         >
-                          <ClipWaveform
+                          <Clip
                             clip={{
                               id: currentTake.id,
                               name: `Take #${currentTake.take_number}`,
@@ -1473,12 +1583,7 @@ export const Board: React.FC<BoardProps> = ({
                     })() : null}
 
                     {/* Playhead needle */}
-                    <div
-                      className="board-playhead-line"
-                      style={{
-                        '--pos-pct': `${Math.max(0, Math.min(100, (playhead / Math.max(totalDuration, interval(currentTake, duration).end)) * 100))}%`,
-                      } as React.CSSProperties}
-                    />
+                    <BoardPlayheadLine totalDuration={Math.max(totalDuration, interval(currentTake, duration).end)} />
                   </div>
                 </div>
 
@@ -1504,7 +1609,7 @@ export const Board: React.FC<BoardProps> = ({
                             <div className="board-track-meta">
                               <Tooltip title={`${categoryTitle} · Take #${take.take_number}`} description={take.prompt || 'Session take'}><span
                                 className={`board-track-badge board-badge-track board-track-badge-take ${isTakeCurrentActive ? 'active' : ''}`}
-                                aria-label={`${categoryTitle}, Take #${take.take_number}`}
+                                aria-label={`Category: ${categoryTitle}, Take #${take.take_number}`}
                               >
                                 #{take.take_number}
                               </span></Tooltip>
@@ -1595,11 +1700,13 @@ export const Board: React.FC<BoardProps> = ({
                               <div
                                 className="board-clip-container"
                                 style={{
+                                  left: `${(takeRange.start / rowDuration) * 100}%`,
+                                  width: `${((takeRange.end - takeRange.start) / rowDuration) * 100}%`,
                                   '--start-pct': `${(takeRange.start / rowDuration) * 100}%`,
                                   '--width-pct': `${((takeRange.end - takeRange.start) / rowDuration) * 100}%`,
                                 } as React.CSSProperties}
                               >
-                                <ClipWaveform
+                                <Clip
                                   clip={{
                                     id: take.id,
                                     name: `Take #${take.take_number}`,
@@ -1613,12 +1720,7 @@ export const Board: React.FC<BoardProps> = ({
                               </div>
                             );
                           })() : null}
-                          <div
-                            className="board-playhead-line"
-                            style={{
-                              '--pos-pct': `${Math.max(0, Math.min(100, (playhead / Math.max(totalDuration, interval(take, duration).end)) * 100))}%`,
-                            } as React.CSSProperties}
-                          />
+                          <BoardPlayheadLine totalDuration={Math.max(totalDuration, interval(take, duration).end)} />
                         </div>
                       </div>
                     );
