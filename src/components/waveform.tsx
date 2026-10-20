@@ -1,7 +1,22 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { useDawStore, type DAWTrack } from '../lib/daw/store';
 import { dawEngine } from '../lib/daw/engine';
-import { extractPeaksFromUrl, extractBipolarPeaksFromUrl, readPeaks, contributions } from '../lib/daw/peaks';
+import {
+  extractPeaksFromUrl,
+  extractBipolarPeaksFromUrl,
+  readPeaks,
+  contributions,
+  createDefaultWaveSculpt,
+  isIdentityWaveSculpt,
+  getTrackOwnSculpt,
+  composeWaveSculpts,
+  evaluateSculptField,
+  type WaveSculptState,
+  type GranularPeakAnchor,
+  type GranularTool,
+  type WaveSculptMode,
+} from '../lib/daw/peaks';
+import { synthesizeStrudelBipolarPeaks } from '../lib/daw/strudel';
 import { getStemColor } from '../lib/daw/palette';
 
 export interface Props {
@@ -24,7 +39,81 @@ export interface Props {
   className?: string;
 }
 
-type DragMode = 'none' | 'pinch' | 'start' | 'end' | 'pan' | 'create';
+type DragMode = 'none' | 'pinch' | 'start' | 'end' | 'pan' | 'create' | 'sculpt' | 'anchor' | 'fadeIn' | 'fadeOut';
+
+function transformMagnitudeArray(values: number[], sculpt?: WaveSculptState): number[] {
+  if (!sculpt || isIdentityWaveSculpt(sculpt) || values.length === 0) return values;
+  const n = values.length;
+  const out = new Array<number>(n);
+  const driveAmount = Math.max(0, Math.min(1, sculpt.drive ?? 0));
+  const crestAmount = Math.max(-1, Math.min(1, sculpt.crest ?? 0));
+  const textureAmount = Math.max(-1, Math.min(1, sculpt.texture ?? 0));
+
+  const sampleAt = (normT: number): number => {
+    if (n <= 1) return values[0] ?? 0;
+    const pos = Math.max(0, Math.min(1, normT)) * (n - 1);
+    const i1 = Math.max(0, Math.min(n - 1, Math.floor(pos)));
+    const i0 = Math.max(0, i1 - 1);
+    const i2 = Math.min(n - 1, i1 + 1);
+    const i3 = Math.min(n - 1, i1 + 2);
+    const u = pos - i1;
+    const u2 = u * u;
+    const u3 = u2 * u;
+    const p0 = values[i0] ?? 0;
+    const p1 = values[i1] ?? 0;
+    const p2 = values[i2] ?? 0;
+    const p3 = values[i3] ?? 0;
+    return Math.max(
+      0,
+      0.5 * (2 * p1 + (-p0 + p2) * u + (2 * p0 - 5 * p1 + 4 * p2 - p3) * u2 + (-p0 + 3 * p1 - 3 * p2 + p3) * u3)
+    );
+  };
+
+  const span = n > 2 ? 1.5 / (n - 1) : 0;
+
+  for (let i = 0; i < n; i++) {
+    const t = n > 1 ? i / (n - 1) : 0;
+    const {
+      gainLinear,
+      warpedTime,
+      fadeMultiplier,
+      bend,
+      smash,
+      smooth,
+      sharpen,
+    } = evaluateSculptField(sculpt, t);
+
+    const rawVal = sampleAt(warpedTime);
+    const prevVal = span > 0 ? sampleAt(warpedTime - span) : rawVal;
+    const nextVal = span > 0 ? sampleAt(warpedTime + span) : rawVal;
+    const avgVal = 0.25 * prevVal + 0.5 * rawVal + 0.25 * nextVal;
+    const detail = rawVal - avgVal;
+
+    const totalGain = gainLinear * fadeMultiplier * Math.max(0.4, 1 + (textureAmount + bend * 0.25) * 0.22);
+    const detailGain = Math.max(
+      0.12,
+      (1 - smooth * 0.85) * (1 + sharpen * 1.55 + Math.max(0, crestAmount) * 0.65)
+    );
+
+    const effectiveGain = totalGain * (1 - smooth * 0.14);
+
+    const body = avgVal * effectiveGain;
+    let p = Math.max(0, body + detail * detailGain * Math.min(2.6, effectiveGain));
+
+    if (smash > 0.001) {
+      const foldFreq = 1 + smash * 3.8;
+      const folded = Math.abs(Math.sin(p * foldFreq * (Math.PI * 0.5)));
+      p = p * (1 - smash * 0.72) + folded * (smash * 0.72);
+    }
+
+    if (driveAmount > 0.001) {
+      const k = 1 + driveAmount * 3.5;
+      p = Math.tanh(p * k) / Math.tanh(k);
+    }
+    out[i] = Math.min(1.52, Math.max(0, p));
+  }
+  return out;
+}
 
 function magnitudes(url?: string) {
   const peaks = url ? readPeaks(url, 256) : null;
@@ -61,7 +150,7 @@ function synthLayerValues(lane: DAWTrack): number[] {
         values[bin] = Math.min(0.95, energy);
       }
     }
-  } else if (lane.type === 'sequencer') {
+  } else if (lane.type === 'sequencer' || Boolean(lane.activeVersionId && lane.sequencerVoices?.length)) {
     const voices = lane.sequencerVoices ?? [];
     if (voices.length > 0) {
       for (let bin = 0; bin < 256; bin++) {
@@ -74,11 +163,9 @@ function synthLayerValues(lane: DAWTrack): number[] {
       }
     }
   } else if (lane.type === 'strudel') {
-    const code = (lane.strudelCode ?? '').trim();
-    const seed = code.split('').reduce((acc, ch) => acc + ch.charCodeAt(0), 0) || 7;
+    const synth = synthesizeStrudelBipolarPeaks(lane.strudelCode ?? '', 256);
     for (let bin = 0; bin < 256; bin++) {
-      const pulse = ((bin + seed) % 8 === 0 || (bin + seed) % 8 === 3 || (bin + seed) % 8 === 6) ? 0.34 : 0.12;
-      values[bin] = code.length > 0 ? pulse : 0.08;
+      values[bin] = Math.max(0.08, synth.maxs[bin]);
     }
   }
   return values;
