@@ -3,9 +3,39 @@ import { sdk } from '@/lib/sdk';
 import type { Task } from '@/lib/schema';
 
 export interface Choice { id: string; label: string }
+export interface ReworkPreset {
+  id: string;
+  mode: 'conservative' | 'balanced' | 'aggressive';
+  strength: number;
+  label: string;
+  shortLabel: string;
+  desc: string;
+}
+export interface CoverPreset {
+  id: string;
+  value: number;
+  strength?: number;
+  noise?: number;
+  label: string;
+  shortLabel: string;
+  desc: string;
+}
+export interface CompletePreset {
+  id: string;
+  label: string;
+  classes: string;
+  trackClasses?: string[];
+  desc: string;
+}
+export interface SculptModeOption {
+  id: string;
+  label: string;
+  axis: string;
+  description: string;
+}
 export interface Parameter {
   label: string;
-  type: 'number' | 'select' | 'text';
+  type: 'number' | 'select' | 'text' | 'multiselect';
   min?: number;
   max?: number;
   step?: number;
@@ -14,7 +44,21 @@ export interface Parameter {
 }
 export interface Options {
   generation: { modes: Choice[]; languages: Choice[]; duration: { min: number; max: number }; parameters: Record<string, Parameter> };
-  editing: { modes: Choice[]; tasks: (Choice & { modes: string[]; description: string })[]; repaintModes: Choice[]; stems: Choice[]; duration: { min: number; max: number }; parameters: Record<string, Parameter> };
+  editing: {
+    modes: Choice[];
+    tasks: (Choice & { modes: string[]; description: string })[];
+    repaintModes: Choice[];
+    stems: Choice[];
+    tracks?: Choice[];
+    qualities?: Choice[];
+    reworkPresets?: ReworkPreset[];
+    coverPresets?: CoverPreset[];
+    completePresets?: CompletePreset[];
+    promptTags?: string[];
+    sculptModes?: SculptModeOption[];
+    duration: { min: number; max: number };
+    parameters: Record<string, Parameter>;
+  };
 }
 
 export function useOptions() {

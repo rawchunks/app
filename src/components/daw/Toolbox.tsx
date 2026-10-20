@@ -1,5 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { useDawStore, type LyricsAlignment } from '../../lib/daw/store';
+import {
+  useDawStore,
+  isTrackMixerModified,
+  isTrackFxModified,
+  isTrackSynthModified,
+  type LyricsAlignment,
+} from '../../lib/daw/store';
 import { dawEngine } from '../../lib/daw/engine';
 import { mounted, taskLabel } from '../../lib/daw/takes';
 import {
@@ -33,15 +39,15 @@ import {
 import type { Options } from '../../hooks/use-options';
 import { Modal } from '../modal';
 import { Task } from '../../lib/schema';
-import { DspRack } from './DspRack';
-import { PianoRoll } from './PianoRoll';
-import { StepSequencer } from './StepSequencer';
-import { StrudelEditor } from './StrudelEditor';
-import { SampleImporter } from './SampleImporter';
+import { Rack } from './Rack';
+import { Keys } from './Keys';
+import { Drums } from './Drums';
+import { Strudel } from './Strudel';
+import { Sampler } from './Sampler';
 import { Mixer } from './mixer';
 import { Canvas } from './Canvas';
 import { Tooltip } from './Tooltip';
-import { Key } from './Key';
+import { Key } from './Keys';
 import { toast } from 'sonner';
 
 export type ActiveTool = 'studio' | 'mixer' | 'keys' | 'drums' | 'strudel' | 'dsp' | 'sample' | 'history' | null;
@@ -50,8 +56,8 @@ export interface ToolboxProps {
   options?: Options['editing'];
   languages?: Options['generation']['languages'];
   optionsError?: string;
-  parameters: Record<string, string | number>;
-  onParametersChange: (values: Record<string, string | number>) => void;
+  parameters: Record<string, string | number | string[]>;
+  onParametersChange: (values: Record<string, string | number | string[]>) => void;
   activeTool: ActiveTool;
   onSelectTool: (tool: ActiveTool) => void;
   task: Task;
@@ -101,68 +107,7 @@ const ACTION_ICONS = {
   extract: Split,
 };
 
-const DEFAULT_AI_TASKS = [
-  { id: 'repaint', label: 'Rework Section', description: 'Regenerate selected section with AI' },
-  { id: 'lego', label: 'Add Layer', description: 'Add instrumental or vocal stem layer' },
-  { id: 'extend', label: 'Extend Track', description: 'Extend track duration seamlessly' },
-  { id: 'complete', label: 'Accompany', description: 'Generate full backing accompaniment' },
-  { id: 'cover', label: 'Restyle / Cover', description: 'Transform musical style and timbre' },
-  { id: 'extract', label: 'Extract Stem', description: 'Isolate stem into separate lane' },
-];
-
-const DEFAULT_INSTRUMENTS = [
-  { id: 'vocals', label: 'Vocals' },
-  { id: 'backing_vocals', label: 'Backing Vocals' },
-  { id: 'drums', label: 'Drums' },
-  { id: 'bass', label: 'Bass' },
-  { id: 'guitar', label: 'Guitar' },
-  { id: 'keyboard', label: 'Keyboard' },
-  { id: 'synths', label: 'Synths' },
-  { id: 'strings', label: 'Strings' },
-];
-
-const DEFAULT_STEMS = [
-  { id: 'vocals', label: 'Vocals' },
-  { id: 'drums', label: 'Drums' },
-  { id: 'bass', label: 'Bass' },
-  { id: 'guitar', label: 'Guitar' },
-  { id: 'keyboard', label: 'Keyboard' },
-  { id: 'synths', label: 'Synths' },
-];
-
-const REWORK_INTENSITY_PRESETS = [
-  { id: 'subtle', mode: 'conservative' as const, strength: 0, label: 'Subtle (0%)', shortLabel: 'Subtle', desc: 'Preserves original melody, timing & structure closely' },
-  { id: 'light', mode: 'balanced' as const, strength: 0.25, label: 'Light (25%)', shortLabel: 'Light', desc: 'Gentle timbral & phrasing variation while locking groove' },
-  { id: 'balanced', mode: 'balanced' as const, strength: 0.5, label: 'Balanced (50%)', shortLabel: 'Balanced', desc: 'Blends original musical phrasing with fresh AI variation' },
-  { id: 'strong', mode: 'balanced' as const, strength: 0.75, label: 'Strong (75%)', shortLabel: 'Strong', desc: 'Major creative rework with loose structural anchoring' },
-  { id: 'bold', mode: 'aggressive' as const, strength: 1.0, label: 'Bold (100%)', shortLabel: 'Bold', desc: 'Reimagines the selected region freely from your prompt' },
-];
-
-const COVER_BLEND_PRESETS = [
-  { id: '0.35', value: 0.35, label: 'Subtle (35%)', shortLabel: 'Subtle', desc: 'Light timbral restyling while keeping original groove' },
-  { id: '0.65', value: 0.65, label: 'Balanced (65%)', shortLabel: 'Balanced', desc: 'Balanced style & timbre transformation' },
-  { id: '0.85', value: 0.85, label: 'Bold (85%)', shortLabel: 'Bold', desc: 'Deep genre & instrumentation transformation' },
-  { id: '1', value: 1.0, label: 'Full Cover (100%)', shortLabel: 'Full Cover', desc: 'Complete musical reinterpretation' },
-];
-
-const COMPLETE_ARRANGEMENT_PRESETS = [
-  { id: 'full_band', label: 'Full Arrangement', classes: 'drums, bass, keyboard, guitar, strings', tag: 'Full band arrangement', desc: 'Generates drums, bass & harmonic accompaniment' },
-  { id: 'rhythm', label: 'Rhythm Section', classes: 'drums, bass, percussion', tag: 'Tight rhythm section with punchy drums and bass', desc: 'Locks in drums, bass & rhythmic groove' },
-  { id: 'electronic', label: 'Electronic Production', classes: 'drums, bass, synth, fx', tag: 'Modern electronic synths & punchy drums', desc: 'Builds modern synth, bass & beat production' },
-  { id: 'acoustic', label: 'Organic / Acoustic', classes: 'guitar, keyboard, strings, percussion', tag: 'Warm acoustic instrumentation', desc: 'Adds organic acoustic instruments around stem' },
-  { id: 'cinematic', label: 'Cinematic Score', classes: 'strings, brass, woodwinds, synth', tag: 'Lush orchestral strings & atmospheric pads', desc: 'Layers wide orchestral & ambient backing' },
-];
-
-const PROMPT_QUICK_TAGS = [
-  'Punchy 808 Bass',
-  'Warm Analog Synth',
-  'Crisp Acoustic Drums',
-  'Airy Lead Vocals',
-  'Lush Backing Harmonies',
-  'Funky Electric Guitar',
-  'Cinematic Strings',
-  'Lo-Fi Tape Saturation',
-];
+// All AI tasks, instruments, stems, presets, and quick tags are dynamically driven by /api/options.
 
 export const Toolbox: React.FC<ToolboxProps> = ({
   options,
@@ -186,8 +131,8 @@ export const Toolbox: React.FC<ToolboxProps> = ({
   lyricsAlignment = null,
   isAligningLyrics = false,
   onAlignLyrics,
-  selectedQuality: _selectedQuality,
-  onQualityChange: _onQualityChange,
+  selectedQuality,
+  onQualityChange,
   repaintMode,
   onRepaintModeChange,
   repaintStrength,
@@ -209,20 +154,18 @@ export const Toolbox: React.FC<ToolboxProps> = ({
   onClearSelection,
   onOpenCommitModal,
 }) => {
-  const {
-    tracks,
-    selection,
-    duration,
-    loop,
-    setLoop,
-    setPlayhead,
-    takes,
-    commits,
-    toggleTake,
-    deleteTake,
-    isPlaying,
-    setPlaying,
-  } = useDawStore();
+  const tracks = useDawStore((s) => s.tracks);
+  const selection = useDawStore((s) => s.selection);
+  const duration = useDawStore((s) => s.duration);
+  const loop = useDawStore((s) => s.loop);
+  const setLoop = useDawStore((s) => s.setLoop);
+  const setPlayhead = useDawStore((s) => s.setPlayhead);
+  const takes = useDawStore((s) => s.takes);
+  const commits = useDawStore((s) => s.commits);
+  const toggleTake = useDawStore((s) => s.toggleTake);
+  const deleteTake = useDawStore((s) => s.deleteTake);
+  const isPlaying = useDawStore((s) => s.isPlaying);
+  const setPlaying = useDawStore((s) => s.setPlaying);
 
   // Default to unified self-contained 'compact' mode across all tabs (Item #5)
   const [controllerMode, setControllerMode] = useState<'split' | 'compact'>('compact');
@@ -334,15 +277,21 @@ export const Toolbox: React.FC<ToolboxProps> = ({
   const [activeCommitCategory, setActiveCommitCategory] = useState<string | null>(null);
   const [selectedCommitId, setSelectedCommitId] = useState<string | null>(null);
 
+  const isMixerDirty = tracks.some((t) => isTrackMixerModified(t));
+  const isDspDirty = tracks.some((t) => isTrackFxModified(t));
+  const isKeysDirty = tracks.some((t) => t.type === 'pianoroll' && isTrackSynthModified(t));
+  const isDrumsDirty = tracks.some((t) => t.type === 'sequencer' && isTrackSynthModified(t));
+  const isStrudelDirty = tracks.some((t) => t.type === 'strudel' && isTrackSynthModified(t));
+
   const tabs = [
-    { id: 'studio' as ActiveTool, label: 'AI STUDIO', desc: 'AI Generative Studio: rework, layer, extend & isolate', icon: Wand2, className: 'tab-studio' },
-    { id: 'mixer' as ActiveTool, label: 'MIXER', desc: 'Multitrack faders, panning, mute & solo console', icon: Sliders, className: 'tab-mixer' },
-    { id: 'keys' as ActiveTool, label: 'KEYS SYNTH', desc: 'Polyphonic piano roll MIDI composer & editor', icon: Key, className: 'tab-keys' },
-    { id: 'drums' as ActiveTool, label: 'DRUM SEQ', desc: '16-step polyphonic drum pattern sequencer', icon: Drum, className: 'tab-drums' },
-    { id: 'strudel' as ActiveTool, label: 'LIVE CODE', desc: 'Strudel REPL for algorithmic pattern generation', icon: Terminal, className: 'tab-strudel' },
-    { id: 'dsp' as ActiveTool, label: 'FX RACK', desc: 'Parametric EQ, compression, reverb & delay rack', icon: Activity, className: 'tab-dsp' },
-    { id: 'sample' as ActiveTool, label: 'SAMPLER', desc: 'Import and slice audio samples to tracks', icon: Plus, className: 'tab-sample' },
-    { id: 'history' as ActiveTool, label: 'HISTORY', desc: `Session takes (${takes.length}) and commit milestones (${commits.length})`, icon: History, className: 'tab-history' },
+    { id: 'studio' as ActiveTool, label: 'AI STUDIO', desc: 'AI Generative Studio: rework, layer, extend & isolate', icon: Wand2, className: 'tab-studio', dirty: false },
+    { id: 'mixer' as ActiveTool, label: 'MIXER', desc: 'Multitrack faders, panning, mute & solo console', icon: Sliders, className: 'tab-mixer', dirty: isMixerDirty },
+    { id: 'keys' as ActiveTool, label: 'KEYS SYNTH', desc: 'Polyphonic piano roll MIDI composer & editor', icon: Key, className: 'tab-keys', dirty: isKeysDirty },
+    { id: 'drums' as ActiveTool, label: 'DRUM SEQ', desc: '16-step polyphonic drum pattern sequencer', icon: Drum, className: 'tab-drums', dirty: isDrumsDirty },
+    { id: 'strudel' as ActiveTool, label: 'LIVE CODE', desc: 'Strudel REPL for algorithmic pattern generation', icon: Terminal, className: 'tab-strudel', dirty: isStrudelDirty },
+    { id: 'dsp' as ActiveTool, label: 'FX RACK', desc: 'Parametric EQ, compression, reverb & delay rack', icon: Activity, className: 'tab-dsp', dirty: isDspDirty },
+    { id: 'sample' as ActiveTool, label: 'SAMPLER', desc: 'Import and slice audio samples to tracks', icon: Plus, className: 'tab-sample', dirty: false },
+    { id: 'history' as ActiveTool, label: 'HISTORY', desc: `Session takes (${takes.length}) and commit milestones (${commits.length})`, icon: History, className: 'tab-history', dirty: false },
   ];
 
   // Selecting 'vocals' or 'backing_vocals' in 'lego' (Add Layer) opens the Lyrics Canvas overlay modal directly
@@ -369,14 +318,42 @@ export const Toolbox: React.FC<ToolboxProps> = ({
     { value: maxExtendDur, shortLabel: 'Max', label: `Max (${maxExtendDur}s)` },
   ].filter((preset, idx, arr) => arr.findIndex((p) => p.value === preset.value) === idx);
 
+  const aiTasks = options?.tasks ?? [];
+  const reworkPresets = options?.reworkPresets ?? [];
+  const coverPresets = options?.coverPresets ?? [];
+  const completePresets = options?.completePresets ?? [];
+  const promptQuickTags = options?.promptTags ?? [];
+  const instrumentList = options?.parameters.trackName?.options ?? options?.tracks ?? [];
+  const trackClassesOptions = options?.parameters.trackClasses?.options ?? instrumentList;
+  const stemList = React.useMemo(() => {
+    const baseStems = options?.stems ?? [];
+    const extraTracks = instrumentList.filter((t) => !baseStems.some((s) => s.id === t.id));
+    return [...baseStems, ...extraTracks];
+  }, [options?.stems, instrumentList]);
+
+  const activeTaskDef = aiTasks.find((t) => t.id === task);
+  const qualityOptions = React.useMemo(() => {
+    const allModes = options?.qualities ?? options?.modes ?? [];
+    if (task === 'lego' || task === 'extract' || task === 'complete') {
+      return allModes.filter((m) => m.id === 'base');
+    }
+    if (activeTaskDef?.modes?.length) {
+      return allModes.filter((m) => activeTaskDef.modes.includes(m.id));
+    }
+    return allModes;
+  }, [options?.qualities, options?.modes, task, activeTaskDef]);
+
   const effectiveRepaintVal =
     repaintMode === 'conservative' ? 0 : repaintMode === 'aggressive' ? 1 : repaintStrength;
   const effectiveRepaintPct = Math.round(effectiveRepaintVal * 100);
-  const closestReworkPreset = REWORK_INTENSITY_PRESETS.reduce((prev, curr) =>
-    Math.abs(curr.strength - effectiveRepaintVal) < Math.abs(prev.strength - effectiveRepaintVal)
-      ? curr
-      : prev,
-  );
+  const closestReworkPreset =
+    reworkPresets.length > 0
+      ? reworkPresets.reduce((prev, curr) =>
+        Math.abs(curr.strength - effectiveRepaintVal) < Math.abs(prev.strength - effectiveRepaintVal)
+          ? curr
+          : prev,
+      )
+      : { id: repaintMode, mode: repaintMode, strength: effectiveRepaintVal, label: `${effectiveRepaintPct}%`, shortLabel: repaintMode, desc: '' };
 
   const handleReworkIntensityChange = (val0to1: number) => {
     const clamped = Math.max(0, Math.min(1, Number(val0to1.toFixed(2))));
@@ -392,16 +369,18 @@ export const Toolbox: React.FC<ToolboxProps> = ({
     }
   };
 
-  const closestCoverPreset = COVER_BLEND_PRESETS.reduce((prev, curr) =>
-    Math.abs(curr.value - coverStrength) < Math.abs(prev.value - coverStrength) ? curr : prev,
-  );
+  const closestCoverPreset =
+    coverPresets.length > 0
+      ? coverPresets.reduce((prev, curr) =>
+        Math.abs(curr.value - coverStrength) < Math.abs(prev.value - coverStrength) ? curr : prev,
+      )
+      : { id: String(coverStrength), value: coverStrength, label: `${Math.round(coverStrength * 100)}%`, shortLabel: `${Math.round(coverStrength * 100)}%`, desc: '' };
 
-  const instrumentList = options?.parameters.trackName?.options ?? DEFAULT_INSTRUMENTS;
   const activeInstrumentLabel = instrumentList.find((i) => i.id === instrument)?.label ?? instrument;
-  const stemList = options?.stems ?? DEFAULT_STEMS;
   const activeStemLabel = stemList.find((s) => s.id === stemType)?.label ?? stemType;
   const activeCompletePreset =
-    COMPLETE_ARRANGEMENT_PRESETS.find((p) => p.id === completePreset) ?? COMPLETE_ARRANGEMENT_PRESETS[0];
+    completePresets.find((p) => p.id === completePreset) ??
+    completePresets[0] ?? { id: completePreset, label: completePreset, classes: String(parameters.trackClasses || ''), desc: '' };
 
   const getActiveSubnavParamSummary = (
     actionId: string,
@@ -414,10 +393,11 @@ export const Toolbox: React.FC<ToolboxProps> = ({
       };
     }
     if (actionId === 'lego') {
+      const seamSec = Number(parameters.repaintWavCrossfadeSec ?? 0);
       return {
         tag: 'STEM',
-        value: `${activeInstrumentLabel} · ${Math.round(repaintStrength * 100)}%`,
-        title: 'Layer Stem & Expression',
+        value: seamSec > 0 ? `${activeInstrumentLabel} · ${seamSec.toFixed(2)}s` : activeInstrumentLabel,
+        title: 'Layer Stem & Boundary Seam',
       };
     }
     if (actionId === 'extract') {
@@ -584,12 +564,16 @@ export const Toolbox: React.FC<ToolboxProps> = ({
             const isActive = activeTool === tabItem.id && !isMinimized;
 
             return (
-              <Tooltip title={tabItem.label} description={tabItem.desc} key={tabItem.id}>
+              <Tooltip
+                title={tabItem.dirty ? `${tabItem.label} (MODIFIED)` : tabItem.label}
+                description={tabItem.dirty ? `${tabItem.desc} • Active uncommitted WIP edits` : tabItem.desc}
+                key={tabItem.id}
+              >
                 <button
                   type="button"
                   role="tab"
                   aria-selected={isActive}
-                  className={`toolbox-tab-btn tab-${tabItem.id} ${isActive ? `active ${tabItem.className}` : ''}`}
+                  className={`toolbox-tab-btn tab-${tabItem.id} ${isActive ? `active ${tabItem.className}` : ''} ${tabItem.dirty ? 'is-dirty' : ''}`}
                   onClick={() => {
                     if (isActive && controllerMode === 'split') {
                       setIsMinimized(true);
@@ -601,6 +585,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
                 >
                   <Icon size={12} />
                   <span className="tab-label-full">{tabItem.label}</span>
+                  {tabItem.dirty && <span className="toolbox-tab-dirty-dot" aria-label="Modified" />}
                 </button>
               </Tooltip>
             );
@@ -647,7 +632,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
       {activeTool === 'studio' && !isMinimized && (
         <div className="toolbox-ai-subnav toolbox-interactive-element">
           <div className="toolbox-tabs-bar toolbox-subnav-tabs" role="tablist" aria-label="AI Studio Operations">
-            {(options?.tasks ?? DEFAULT_AI_TASKS)
+            {aiTasks
               .filter((action) => action.id in ACTION_ICONS)
               .map((action) => {
                 const ActionIcon = ACTION_ICONS[action.id as keyof typeof ACTION_ICONS];
@@ -735,6 +720,8 @@ export const Toolbox: React.FC<ToolboxProps> = ({
                       <div className="toolbox-prompt-box-wrapper">
                         <input
                           type="text"
+                          name="studio-prompt"
+                          aria-label="AI Studio Prompt"
                           className="toolbox-prompt-input"
                           placeholder={promptPlaceholder}
                           value={prompt}
@@ -838,19 +825,19 @@ export const Toolbox: React.FC<ToolboxProps> = ({
           {activeTool === 'mixer' && <Mixer />}
 
           {/* 3. KEYS SYNTH (Piano Roll) */}
-          {activeTool === 'keys' && <PianoRoll track={selectedTrack} />}
+          {activeTool === 'keys' && <Keys track={selectedTrack} />}
 
           {/* 4. DRUM SEQ (Step Sequencer) */}
-          {activeTool === 'drums' && <StepSequencer track={selectedTrack} />}
+          {activeTool === 'drums' && <Drums track={selectedTrack} />}
 
           {/* 5. LIVE CODE (Strudel) */}
-          {activeTool === 'strudel' && <StrudelEditor track={selectedTrack} />}
+          {activeTool === 'strudel' && <Strudel track={selectedTrack} />}
 
           {/* 6. FX RACK (DSP Rack) */}
-          {activeTool === 'dsp' && <DspRack track={selectedTrack} />}
+          {activeTool === 'dsp' && <Rack track={selectedTrack} />}
 
           {/* 7. SAMPLER */}
-          {activeTool === 'sample' && <SampleImporter onImportComplete={() => onSelectTool('studio')} />}
+          {activeTool === 'sample' && <Sampler onImportComplete={() => onSelectTool('studio')} />}
 
           {/* 8. HISTORY (Takes & Commits — Progressive Revealing: Folded Categories + Vertical Extension + Selected Horizontal Controllers) */}
           {activeTool === 'history' && (() => {
@@ -1142,7 +1129,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
                   <span className="toolbox-param-readout-tag">{closestReworkPreset.label.toUpperCase()}</span>
                 </div>
                 <div className="toolbox-param-presets-grid cols-5">
-                  {REWORK_INTENSITY_PRESETS.map((preset) => {
+                  {reworkPresets.map((preset) => {
                     const isSelected = closestReworkPreset.id === preset.id;
                     return (
                       <button
@@ -1248,7 +1235,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
             </>
           )}
 
-          {/* 2. LAYER (lego): Preselect Instrument Stems + Custom Stem + Granular Layer Presence Slider */}
+          {/* 2. LAYER (lego): Preselect Instrument Stems + Custom Stem + Boundary Seam */}
           {task === 'lego' && (
             <>
               <div className="toolbox-param-section">
@@ -1286,38 +1273,50 @@ export const Toolbox: React.FC<ToolboxProps> = ({
 
               <div className="toolbox-param-section">
                 <div className="toolbox-param-section-head">
-                  <span className="daw-field-label">GRANULAR LAYER INTENSITY & PRESENCE</span>
-                  <span className="toolbox-param-readout-val">{Math.round(repaintStrength * 100)}%</span>
+                  <span className="daw-field-label">BOUNDARY SEAM CROSSFADE</span>
+                  <span className="toolbox-param-readout-val">
+                    {Number(parameters.repaintWavCrossfadeSec ?? 0).toFixed(2)}s
+                  </span>
                 </div>
                 <div className="toolbox-param-slider-row">
                   <button
                     type="button"
                     className="toolbox-param-step-btn"
-                    onClick={() => onRepaintStrengthChange(Math.max(0.05, Number((repaintStrength - 0.05).toFixed(2))))}
+                    onClick={() =>
+                      onParametersChange({
+                        ...parameters,
+                        repaintWavCrossfadeSec: Math.max(0, Number((Number(parameters.repaintWavCrossfadeSec ?? 0) - 0.05).toFixed(2))),
+                      })
+                    }
                   >
-                    -5%
+                    -0.05s
                   </button>
                   <input
                     type="range"
-                    min="0.05"
-                    max="1"
-                    step="0.01"
-                    value={repaintStrength}
-                    onChange={(e) => onRepaintStrengthChange(Number(e.target.value))}
+                    min="0"
+                    max="2"
+                    step="0.05"
+                    value={Number(parameters.repaintWavCrossfadeSec ?? 0)}
+                    onChange={(e) =>
+                      onParametersChange({
+                        ...parameters,
+                        repaintWavCrossfadeSec: Number(e.target.value),
+                      })
+                    }
                     className="daw-ContextSlider toolbox-param-range"
                   />
                   <button
                     type="button"
                     className="toolbox-param-step-btn"
-                    onClick={() => onRepaintStrengthChange(Math.min(1, Number((repaintStrength + 0.05).toFixed(2))))}
+                    onClick={() =>
+                      onParametersChange({
+                        ...parameters,
+                        repaintWavCrossfadeSec: Math.min(2, Number((Number(parameters.repaintWavCrossfadeSec ?? 0) + 0.05).toFixed(2))),
+                      })
+                    }
                   >
-                    +5%
+                    +0.05s
                   </button>
-                </div>
-                <div className="toolbox-param-scale-labels">
-                  <span>Subtle Backing</span>
-                  <span>Balanced Mix</span>
-                  <span>Lead Foreground</span>
                 </div>
               </div>
             </>
@@ -1440,7 +1439,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
             </>
           )}
 
-          {/* 4. ACCOMPANY (complete): Preselect Arrangement Focus + Track Classes + Granular Density Slider */}
+          {/* 4. ACCOMPANY (complete): Preselect Arrangement Focus + 12-Class Multi-Select Track Classes */}
           {task === 'complete' && (
             <>
               <div className="toolbox-param-section">
@@ -1451,7 +1450,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
                   </span>
                 </div>
                 <div className="toolbox-param-presets-grid cols-3">
-                  {COMPLETE_ARRANGEMENT_PRESETS.map((preset) => {
+                  {completePresets.map((preset) => {
                     const isSelected = completePreset === preset.id;
                     return (
                       <button
@@ -1473,14 +1472,14 @@ export const Toolbox: React.FC<ToolboxProps> = ({
 
               <div className="toolbox-param-section">
                 <div className="toolbox-param-section-head">
-                  <span className="daw-field-label">ACTIVE TRACK CLASSES (MODEL TARGETS)</span>
+                  <span className="daw-field-label">ACTIVE TRACK CLASSES (12 CANONICAL XL TARGETS)</span>
                   <span className="toolbox-param-readout-val">
-                    {String(parameters.trackClasses || 'drums, bass, guitar, keyboard, synths')}
+                    {String(parameters.trackClasses || activeCompletePreset.classes)}
                   </span>
                 </div>
                 <div className="toolbox-param-chip-list">
-                  {instrumentList.slice(0, 8).map((inst) => {
-                    const currentClasses = String(parameters.trackClasses || 'drums, bass, guitar, keyboard, synths')
+                  {trackClassesOptions.map((inst) => {
+                    const currentClasses = String(parameters.trackClasses || activeCompletePreset.classes)
                       .split(',')
                       .map((s) => s.trim())
                       .filter(Boolean);
@@ -1506,43 +1505,6 @@ export const Toolbox: React.FC<ToolboxProps> = ({
                   })}
                 </div>
               </div>
-
-              <div className="toolbox-param-section">
-                <div className="toolbox-param-section-head">
-                  <span className="daw-field-label">GRANULAR ARRANGEMENT DENSITY</span>
-                  <span className="toolbox-param-readout-val">{Math.round(repaintStrength * 100)}%</span>
-                </div>
-                <div className="toolbox-param-slider-row">
-                  <button
-                    type="button"
-                    className="toolbox-param-step-btn"
-                    onClick={() => onRepaintStrengthChange(Math.max(0.1, Number((repaintStrength - 0.05).toFixed(2))))}
-                  >
-                    -5%
-                  </button>
-                  <input
-                    type="range"
-                    min="0.1"
-                    max="1"
-                    step="0.01"
-                    value={repaintStrength}
-                    onChange={(e) => onRepaintStrengthChange(Number(e.target.value))}
-                    className="daw-ContextSlider toolbox-param-range"
-                  />
-                  <button
-                    type="button"
-                    className="toolbox-param-step-btn"
-                    onClick={() => onRepaintStrengthChange(Math.min(1, Number((repaintStrength + 0.05).toFixed(2))))}
-                  >
-                    +5%
-                  </button>
-                </div>
-                <div className="toolbox-param-scale-labels">
-                  <span>Sparse Pocket</span>
-                  <span>Balanced Full Band</span>
-                  <span>Dense Orchestration</span>
-                </div>
-              </div>
             </>
           )}
 
@@ -1555,7 +1517,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
                   <span className="toolbox-param-readout-tag">{closestCoverPreset.label.toUpperCase()}</span>
                 </div>
                 <div className="toolbox-param-presets-grid cols-4">
-                  {COVER_BLEND_PRESETS.map((preset) => {
+                  {coverPresets.map((preset) => {
                     const isSelected = closestCoverPreset.value === preset.value;
                     return (
                       <button
@@ -1661,69 +1623,57 @@ export const Toolbox: React.FC<ToolboxProps> = ({
             </>
           )}
 
-          {/* 6. ISOLATE (extract): Preselect Stem Targets + Granular Isolation Focus Slider */}
+          {/* 6. ISOLATE (extract): Preselect Stem Targets */}
           {task === 'extract' && (
-            <>
-              <div className="toolbox-param-section">
-                <div className="toolbox-param-section-head">
-                  <span className="daw-field-label">PRESELECT ISOLATION TARGET</span>
-                  <span className="toolbox-param-readout-tag">{activeStemLabel.toUpperCase()}</span>
-                </div>
-                <div className="toolbox-param-presets-grid cols-3">
-                  {stemList.map((stem) => {
-                    const isSelected = stemType === stem.id;
-                    return (
-                      <button
-                        key={stem.id}
-                        type="button"
-                        className={`toolbox-param-preset-btn compact ${isSelected ? 'active' : ''}`}
-                        onClick={() => onStemTypeChange(stem.id)}
-                      >
-                        <span className="preset-btn-title">{stem.label}</span>
-                        <span className="preset-btn-sub">Isolate {stem.label.toLowerCase()} lane</span>
-                      </button>
-                    );
-                  })}
-                </div>
+            <div className="toolbox-param-section">
+              <div className="toolbox-param-section-head">
+                <span className="daw-field-label">PRESELECT ISOLATION TARGET</span>
+                <span className="toolbox-param-readout-tag">{activeStemLabel.toUpperCase()}</span>
               </div>
+              <div className="toolbox-param-presets-grid cols-3">
+                {stemList.map((stem) => {
+                  const isSelected = stemType === stem.id;
+                  return (
+                    <button
+                      key={stem.id}
+                      type="button"
+                      className={`toolbox-param-preset-btn compact ${isSelected ? 'active' : ''}`}
+                      onClick={() => onStemTypeChange(stem.id)}
+                    >
+                      <span className="preset-btn-title">{stem.label}</span>
+                      <span className="preset-btn-sub">Isolate {stem.label.toLowerCase()} lane</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
-              <div className="toolbox-param-section">
-                <div className="toolbox-param-section-head">
-                  <span className="daw-field-label">GRANULAR ISOLATION SEPARATION FOCUS</span>
-                  <span className="toolbox-param-readout-val">{Math.round(repaintStrength * 100)}%</span>
-                </div>
-                <div className="toolbox-param-slider-row">
-                  <button
-                    type="button"
-                    className="toolbox-param-step-btn"
-                    onClick={() => onRepaintStrengthChange(Math.max(0.1, Number((repaintStrength - 0.05).toFixed(2))))}
-                  >
-                    -5%
-                  </button>
-                  <input
-                    type="range"
-                    min="0.1"
-                    max="1"
-                    step="0.01"
-                    value={repaintStrength}
-                    onChange={(e) => onRepaintStrengthChange(Number(e.target.value))}
-                    className="daw-ContextSlider toolbox-param-range"
-                  />
-                  <button
-                    type="button"
-                    className="toolbox-param-step-btn"
-                    onClick={() => onRepaintStrengthChange(Math.min(1, Number((repaintStrength + 0.05).toFixed(2))))}
-                  >
-                    +5%
-                  </button>
-                </div>
-                <div className="toolbox-param-scale-labels">
-                  <span>Natural Room Bleed</span>
-                  <span>Balanced Stem Isolation</span>
-                  <span>Surgical Gate</span>
-                </div>
+          {qualityOptions.length > 0 && (
+            <div className="toolbox-param-section">
+              <div className="toolbox-param-section-head">
+                <span className="daw-field-label">SYNTHESIS QUALITY</span>
+                <span className="toolbox-param-readout-tag">
+                  {(task === 'lego' || task === 'extract' || task === 'complete' ? 'base' : selectedQuality).toUpperCase()}
+                </span>
               </div>
-            </>
+              <div className="toolbox-param-chip-list">
+                {qualityOptions.map((q) => {
+                  const effectiveQuality =
+                    task === 'lego' || task === 'extract' || task === 'complete' ? 'base' : selectedQuality;
+                  return (
+                    <button
+                      key={q.id}
+                      type="button"
+                      className={`toolbox-param-chip ${effectiveQuality === q.id ? 'active' : ''}`}
+                      onClick={() => onQualityChange(q.id)}
+                    >
+                      {q.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           )}
 
           <div className="toolbox-param-modal-footer">
@@ -1810,7 +1760,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
             <span className="toolbox-prompt-char-count">{prompt.length} chars</span>
           </div>
           <div className="toolbox-prompt-modal-tags">
-            {PROMPT_QUICK_TAGS.map((tag) => (
+            {promptQuickTags.map((tag) => (
               <button
                 key={tag}
                 type="button"
