@@ -59,6 +59,40 @@ export interface BoardProps {
   reveal?: number;
 }
 
+const BoardPlayheadLine: React.FC<{ totalDuration: number; showCap?: boolean }> = ({
+  totalDuration,
+  showCap = false,
+}) => {
+  const lineRef = useRef<HTMLDivElement>(null);
+  const initialPlayhead = useDawStore.getState().playhead;
+  const initialPct =
+    totalDuration > 0 ? Math.max(0, Math.min(100, (initialPlayhead / totalDuration) * 100)) : 0;
+
+  useEffect(() => {
+    const updateLine = (playhead: number) => {
+      if (!lineRef.current) return;
+      const pct = totalDuration > 0 ? Math.max(0, Math.min(100, (playhead / totalDuration) * 100)) : 0;
+      lineRef.current.style.setProperty('--pos-pct', `${pct}%`);
+    };
+    updateLine(useDawStore.getState().playhead);
+    return useDawStore.subscribe((state, prevState) => {
+      if (state.playhead !== prevState.playhead) {
+        updateLine(state.playhead);
+      }
+    });
+  }, [totalDuration]);
+
+  return (
+    <div
+      ref={lineRef}
+      className="board-playhead-line"
+      style={{ '--pos-pct': `${initialPct}%` } as React.CSSProperties}
+    >
+      {showCap && <div className="board-playhead-cap" />}
+    </div>
+  );
+};
+
 export const Board: React.FC<BoardProps> = ({
   song,
   selectedTrackId,
@@ -596,12 +630,7 @@ export const Board: React.FC<BoardProps> = ({
             </div>
 
             {/* Playhead indicator on ruler */}
-            <div
-              className="board-playhead-line"
-              style={{ '--pos-pct': `${playheadPercent}%` } as React.CSSProperties}
-            >
-              <div className="board-playhead-cap" />
-            </div>
+            <BoardPlayheadLine totalDuration={totalDuration} showCap />
           </div>
         </div>
 
@@ -925,10 +954,7 @@ export const Board: React.FC<BoardProps> = ({
               </div>}
             </div>
 
-            <div
-              className="board-playhead-line"
-              style={{ '--pos-pct': `${playheadPercent}%` } as React.CSSProperties}
-            />
+            <BoardPlayheadLine totalDuration={totalDuration} />
           </div>
         </div>
 
