@@ -2,7 +2,7 @@ import React, { useState, useRef, useLayoutEffect, useEffect } from 'react';
 import { useDawStore, type LyricsAlignment } from '../../lib/daw/store';
 import { dawEngine } from '../../lib/daw/engine';
 import { Waveform } from '../waveform';
-import { ClipWaveform } from './ClipWaveform';
+import { Clip } from './Clip';
 import { Notes } from './Notes';
 import { Tooltip } from './Tooltip';
 import { Canvas } from './Canvas';
@@ -904,7 +904,7 @@ export const Board: React.FC<BoardProps> = ({
                         useDawStore.setState({ auditionId: take.id });
                       }
                     }}
-                  ><ClipWaveform clip={clip} color={track.color} /></button>
+                  ><Clip clip={clip} color={track.color} trackId={track.id} /></button>
                 </div>;
               }))}
               {selectedOverlay && selectedClip && <div
