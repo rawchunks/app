@@ -1,6 +1,11 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo } from 'react';
 import { useDawStore, type LyricsAlignment, type AlignedLine, type AlignedWord } from '../../lib/daw/store';
 import { dawEngine } from '../../lib/daw/engine';
+import {
+  DEFAULT_WAVE_SCULPT,
+  mapPlayheadTimeToSourceTime,
+  mapSourceTimeToPlayheadTime,
+} from '../../lib/daw/peaks';
 import { CheckCircle2, Check, Pencil, Loader2, X } from 'lucide-react';
 import { Tooltip } from './Tooltip';
 import { Languages } from '../languages';
@@ -156,6 +161,7 @@ const LyricsHighlightedCanvas: React.FC<LyricsHighlightedCanvasProps> = ({
   const playhead = useDawStore((s) => s.playhead);
   const isPlaying = useDawStore((s) => s.isPlaying);
   const duration = useDawStore((s) => s.duration);
+  const tracks = useDawStore((s) => s.tracks);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const lineRefs = useRef<Array<HTMLDivElement | null>>([]);
   const lastScrolledPlayLineRef = useRef<number>(-1);
@@ -170,6 +176,25 @@ const LyricsHighlightedCanvas: React.FC<LyricsHighlightedCanvasProps> = ({
   }, [alignment.lines]);
 
   const totalTimelineDuration = duration > 0 ? duration : maxAlignedEnd;
+
+  const vocalTrack = useMemo(
+    () =>
+      tracks.find(
+        (t) =>
+          ['vocals', 'backing_vocals'].includes((t.stemType || t.name || '').toLowerCase()) &&
+          t.clips.length > 0,
+      ) ||
+      tracks.find((t) => t.id === 'master') ||
+      tracks[0],
+    [tracks],
+  );
+  const activeSculpt = vocalTrack?.sculpt || DEFAULT_WAVE_SCULPT;
+  const clipStart = vocalTrack?.clips[0]?.startTime ?? 0;
+  const clipDuration = vocalTrack?.clips[0]?.duration || totalTimelineDuration || 60;
+  const sourcePlayhead = useMemo(
+    () => mapPlayheadTimeToSourceTime(playhead, clipStart, clipDuration, activeSculpt),
+    [playhead, clipStart, clipDuration, activeSculpt],
+  );
 
   const footerTimeLabel = useMemo(() => {
     if (selection) {
@@ -195,21 +220,23 @@ const LyricsHighlightedCanvas: React.FC<LyricsHighlightedCanvasProps> = ({
         !l.isTag &&
         l.start !== null &&
         l.end !== null &&
-        playhead >= l.start &&
-        playhead <= l.end + 0.15,
+        sourcePlayhead >= l.start &&
+        sourcePlayhead <= l.end + 0.15,
     );
-  }, [alignment.lines, playhead]);
+  }, [alignment.lines, sourcePlayhead]);
 
   const selectedLineIndices = useMemo(() => {
     if (!selection) return new Set<number>();
+    const selStart = mapPlayheadTimeToSourceTime(selection.start, clipStart, clipDuration, activeSculpt);
+    const selEnd = mapPlayheadTimeToSourceTime(selection.end, clipStart, clipDuration, activeSculpt);
     const indices = new Set<number>();
     alignment.lines.forEach((line, idx) => {
       if (
         !line.isTag &&
         line.start !== null &&
         line.end !== null &&
-        line.end >= selection.start &&
-        line.start <= selection.end
+        line.end >= selStart &&
+        line.start <= selEnd
       ) {
         indices.add(idx);
         if (idx > 0 && alignment.lines[idx - 1]?.isTag) {
@@ -218,7 +245,7 @@ const LyricsHighlightedCanvas: React.FC<LyricsHighlightedCanvasProps> = ({
       }
     });
     return indices;
-  }, [alignment.lines, selection]);
+  }, [alignment.lines, selection, clipStart, clipDuration, activeSculpt]);
 
   const scrollLineIntoContainer = (lineIdx: number) => {
     const container = scrollContainerRef.current;
@@ -247,23 +274,30 @@ const LyricsHighlightedCanvas: React.FC<LyricsHighlightedCanvasProps> = ({
     if (key === lastSelectionKeyRef.current) return;
     lastSelectionKeyRef.current = key;
     if (isPlaying) return;
+    const selStart = mapPlayheadTimeToSourceTime(selection.start, clipStart, clipDuration, activeSculpt);
+    const selEnd = mapPlayheadTimeToSourceTime(selection.end, clipStart, clipDuration, activeSculpt);
     const firstSungIdx = alignment.lines.findIndex(
       (l) =>
         !l.isTag &&
         l.start !== null &&
         l.end !== null &&
-        l.end >= selection.start &&
-        l.start <= selection.end,
+        l.end >= selStart &&
+        l.start <= selEnd,
     );
     if (firstSungIdx >= 0) {
       const timer = setTimeout(() => scrollLineIntoContainer(firstSungIdx), 40);
       return () => clearTimeout(timer);
     }
-  }, [selection, alignment.lines, isPlaying]);
+  }, [selection, alignment.lines, isPlaying, clipStart, clipDuration, activeSculpt]);
 
   const handleSeek = (sec: number | null | undefined) => {
     if (typeof sec !== 'number' || !Number.isFinite(sec)) return;
-    const clamped = Math.max(0, sec);
+    const clamped = mapSourceTimeToPlayheadTime(
+      Math.max(0, sec),
+      clipStart,
+      clipDuration,
+      activeSculpt,
+    );
     dawEngine.seek(clamped);
     useDawStore.getState().setPlayhead(clamped);
   };
@@ -306,7 +340,7 @@ const LyricsHighlightedCanvas: React.FC<LyricsHighlightedCanvasProps> = ({
                 <span className="toolbox-lyrics-sync-section-tag">{line.text}</span>
                 {line.start !== null && (
                   <span className="toolbox-lyrics-sync-timestamp">
-                    {formatSyncTimestamp(line.start)}
+                    {formatSyncTimestamp(mapSourceTimeToPlayheadTime(line.start, clipStart, clipDuration, activeSculpt))}
                   </span>
                 )}
                 {isInSelection && <span className="toolbox-lyrics-sync-sel-pill">SELECTED</span>}
@@ -315,7 +349,7 @@ const LyricsHighlightedCanvas: React.FC<LyricsHighlightedCanvasProps> = ({
           }
 
           const isActiveLine = lineIdx === activeLineIndex;
-          const isPastLine = line.end !== null && playhead > line.end + 0.15;
+          const isPastLine = line.end !== null && sourcePlayhead > line.end + 0.15;
 
           return (
             <div
@@ -333,17 +367,25 @@ const LyricsHighlightedCanvas: React.FC<LyricsHighlightedCanvasProps> = ({
                 {line.words.length > 0 ? (
                   line.words.map((word, wIdx) => {
                     const isActiveWord =
-                      playhead >= word.start && playhead <= word.end + 0.08;
-                    const isPastWord = playhead > word.end + 0.08;
+                      sourcePlayhead >= word.start && sourcePlayhead <= word.end + 0.08;
+                    const isPastWord = sourcePlayhead > word.end + 0.08;
+                    const selStart = selection
+                      ? mapPlayheadTimeToSourceTime(selection.start, clipStart, clipDuration, activeSculpt)
+                      : 0;
+                    const selEnd = selection
+                      ? mapPlayheadTimeToSourceTime(selection.end, clipStart, clipDuration, activeSculpt)
+                      : 0;
                     const isWordInSelection = Boolean(
-                      selection && word.end >= selection.start && word.start <= selection.end,
+                      selection && word.end >= selStart && word.start <= selEnd,
                     );
+                    const warpedWordStart = mapSourceTimeToPlayheadTime(word.start, clipStart, clipDuration, activeSculpt);
+                    const warpedWordEnd = mapSourceTimeToPlayheadTime(word.end, clipStart, clipDuration, activeSculpt);
                     return (
                       <span
                         key={`w-${lineIdx}-${wIdx}-${word.start}`}
                         className={`toolbox-lyrics-sync-word ${isActiveWord ? 'is-active-word' : ''} ${isPastWord ? 'is-past-word' : ''} ${isWordInSelection ? 'is-in-selection' : ''}`}
                         onClick={() => handleSeek(word.start)}
-                        title={`${word.text} [${formatSyncTimestamp(word.start)} – ${formatSyncTimestamp(word.end)}]`}
+                        title={`${word.text} [${formatSyncTimestamp(warpedWordStart)} – ${formatSyncTimestamp(warpedWordEnd)}]`}
                       >
                         {word.text}{wIdx < line.words.length - 1 ? ' ' : ''}
                       </span>
@@ -361,9 +403,9 @@ const LyricsHighlightedCanvas: React.FC<LyricsHighlightedCanvasProps> = ({
               <span
                 className="toolbox-lyrics-sync-timestamp"
                 onClick={() => handleSeek(line.start)}
-                title={`Seek playhead to ${formatSyncTimestamp(line.start)}`}
+                title={`Seek playhead to ${formatSyncTimestamp(line.start !== null ? mapSourceTimeToPlayheadTime(line.start, clipStart, clipDuration, activeSculpt) : null)}`}
               >
-                {formatSyncTimestamp(line.start)}
+                {formatSyncTimestamp(line.start !== null ? mapSourceTimeToPlayheadTime(line.start, clipStart, clipDuration, activeSculpt) : null)}
               </span>
             </div>
           );
@@ -421,7 +463,8 @@ export const Canvas: React.FC<CanvasProps> = ({
   mode = 'dock',
   autoEdit = false,
 }) => {
-  const { selection, isPlaying } = useDawStore();
+  const selection = useDawStore((s) => s.selection);
+  const isPlaying = useDawStore((s) => s.isPlaying);
   const [isEditingLyricsCanvas, setIsEditingLyricsCanvas] = useState<boolean>(autoEdit || mode === 'overlay');
   const [isLanguageModalOpen, setIsLanguageModalOpen] = useState<boolean>(false);
   const lyricsCanvasRef = useRef<HTMLTextAreaElement | null>(null);
@@ -601,13 +644,25 @@ export const Canvas: React.FC<CanvasProps> = ({
     let targetEndIdx = 0;
     const alignLines = activeAlign?.lines ?? [];
 
+    const storeState = useDawStore.getState();
+    const vocalOrMaster =
+      storeState.tracks.find((t) => (t.stemType || t.name || '').toLowerCase() === 'vocals' && !t.muted) ||
+      storeState.tracks.find((t) => t.id === 'master') ||
+      storeState.tracks[0];
+    const activeClip = vocalOrMaster?.clips?.[0];
+    const activeSculpt = activeClip?.sculpt || vocalOrMaster?.sculpt;
+    const clipStart = activeClip?.startTime || 0;
+    const clipDuration = activeClip?.duration || storeState.duration || 0;
+
     if (typeof preferredLineIdx === 'number' && preferredLineIdx >= 0) {
       targetStartIdx = preferredLineIdx;
       targetEndIdx = preferredLineIdx;
     } else if (selection && alignLines.length > 0) {
+      const selStart = mapPlayheadTimeToSourceTime(selection.start, clipStart, clipDuration, activeSculpt);
+      const selEnd = mapPlayheadTimeToSourceTime(selection.end, clipStart, clipDuration, activeSculpt);
       const overlapping: number[] = [];
       alignLines.forEach((l, idx) => {
-        if (!l.isTag && l.start !== null && l.end !== null && l.end >= selection.start && l.start <= selection.end) {
+        if (!l.isTag && l.start !== null && l.end !== null && l.end >= selStart && l.start <= selEnd) {
           overlapping.push(idx);
         }
       });
@@ -619,7 +674,7 @@ export const Canvas: React.FC<CanvasProps> = ({
         let bestDist = Infinity;
         alignLines.forEach((l, idx) => {
           if (l.start !== null) {
-            const dist = Math.abs(l.start - selection.start);
+            const dist = Math.abs(l.start - selStart);
             if (dist < bestDist) {
               bestDist = dist;
               bestIdx = idx;
@@ -630,7 +685,8 @@ export const Canvas: React.FC<CanvasProps> = ({
         targetEndIdx = bestIdx;
       }
     } else if (alignLines.length > 0) {
-      const ph = useDawStore.getState().playhead;
+      const rawPh = storeState.playhead;
+      const ph = mapPlayheadTimeToSourceTime(rawPh, clipStart, clipDuration, activeSculpt);
       if (ph > 0) {
         const activeIdx = alignLines.findIndex(
           (l) => !l.isTag && l.start !== null && l.end !== null && ph >= l.start && ph <= l.end + 0.2,
