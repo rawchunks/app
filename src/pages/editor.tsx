@@ -286,7 +286,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
 
   const options = useOptions();
   const editing = options.data?.editing;
-  const [parameters, setParameters] = useState<Record<string, string | number>>({});
+  const [parameters, setParameters] = useState<Record<string, string | number | string[]>>({});
   useEffect(() => {
     const action = editing?.tasks.find(action => action.id === task);
     if (action?.modes.length && !action.modes.includes(selectedQuality)) setSelectedQuality(action.modes[0]);
@@ -1093,7 +1093,12 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
         songId: song.id,
         stemId: (() => { const candidate = takes.find(take => take.id === selectedTrackId); const id = candidate ? source(candidate, tracks) : selectedTrackId; if (!id) throw new Error('The source lane is unavailable'); return id !== 'master' ? id : undefined; })(),
         userAddress: effectiveAddress,
-        modelQuality: task === 'extract' ? undefined : selectedQuality,
+        modelQuality:
+          task === 'extract'
+            ? undefined
+            : task === 'lego' || task === 'complete'
+              ? 'base'
+              : selectedQuality,
         vocalLanguage: vocalLanguage || 'en',
         globalCaption: globalCaption || undefined,
         ...Object.fromEntries(Object.entries(parameters).filter(([key]) => editing.parameters[key]?.tasks?.includes(task))),

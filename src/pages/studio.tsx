@@ -35,19 +35,6 @@ export interface Props {
   className?: string;
 }
 
-const TAGS = [
-  'ACID TECHNO',
-  '140 BPM',
-  'TB-303',
-  'INDUSTRIAL',
-  'CYBERPUNK',
-  'DARK AMBIENT',
-  'DISTORTED 808',
-  'BREAKCORE',
-  'SYNTHWAVE',
-  'NEURAL GLITCH',
-];
-
 export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
   const [state, setState] = useState<State>(store.getState());
   const [title, setTitle] = useState('');
@@ -915,7 +902,8 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                     <span className="studio-field-optional">({activeTags.length}/5 SELECTED)</span>
                   </label>
                   <div className="studio-tags-container">
-                    {TAGS.map((t) => {
+                    {(options.data?.editing?.promptTags ?? []).map((rawTag) => {
+                      const t = rawTag.toUpperCase();
                       const isSelected = activeTags.includes(t);
                       return (
                         <Badge
