@@ -682,6 +682,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
       return;
     }
     try {
+      const st = useDawStore.getState();
       const res = await sdk.fetch('/api/editing/commit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -689,7 +690,12 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
           songId: song.id,
           userAddress: effectiveAddress,
           message: commitMessage,
-          snapshot: { tracks, bpm, duration, originals: useDawStore.getState().originals },
+          snapshot: {
+            tracks,
+            bpm,
+            duration,
+            originals: st.originals,
+          },
         }),
       });
 
@@ -774,19 +780,37 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
   };
 
   useEffect(() => {
-    if (!readAddress) return;
-    const save = (state: ReturnType<typeof useDawStore.getState>) => {
-      if (state.songId !== song.id) return;
-      const cached = readProject(song.id, readAddress);
-      if (!cached) return;
-      const masterUrl = state.tracks.find(track => track.id === 'master')?.clips[0]?.url ?? cached.song.url;
-      const updatedSong = { ...cached.song, url: masterUrl, duration: state.duration };
-      const updatedStems = cached.stems.map(stem =>
+    const storageAddress = readAddress || song.creator || 'public';
+    let saveTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const persistLocalAndRemote = (state: ReturnType<typeof useDawStore.getState>, syncRemote = true) => {
+      if (!wipHydratedRef.current || state.songId !== song.id) return;
+      const cached =
+        (readAddress ? readProject(song.id, readAddress) : null) ??
+        (song.creator ? readProject(song.id, song.creator) : null) ??
+        readProject(song.id, 'public');
+      const masterUrl = state.tracks.find(track => track.id === 'master')?.clips[0]?.url ?? cached?.song.url ?? song.url;
+      const updatedSong = { ...(cached?.song ?? song), url: masterUrl, duration: state.duration };
+      const updatedStems = (cached?.stems ?? []).map(stem =>
         stem.name?.toLowerCase() === 'master' || stem.id.startsWith('stem-master') || stem.id.startsWith('stm-master')
           ? { ...stem, url: masterUrl }
           : stem
       );
-      writeProject({ ...cached, song: updatedSong, stems: updatedStems, takes: state.takes, commits: state.commits, session: { tracks: state.tracks, originals: state.originals, operations: state.operations, bpm: state.bpm } }, readAddress);
+      writeProject(
+        {
+          song: updatedSong,
+          stems: updatedStems,
+          takes: state.takes,
+          commits: state.commits,
+          session: {
+            tracks: state.tracks,
+            originals: state.originals,
+            operations: state.operations,
+            bpm: state.bpm,
+          },
+        },
+        storageAddress,
+      );
       try {
         const raw = sessionStorage.getItem('rawchunks_editing_song');
         if (raw) {
@@ -796,11 +820,75 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
           }
         }
       } catch {}
+
+      const wipSnapshot = {
+        ...state.buildWipSnapshot(),
+        updatedAt: Date.now(),
+      };
+      lastWipRef.current = wipSnapshot;
+      try {
+        localStorage.setItem(`rawchunks:wip:v1:${song.id}`, JSON.stringify(wipSnapshot));
+      } catch {}
+
+      if (syncRemote) {
+        void sdk.fetch(`/api/editing/wip/${encodeURIComponent(song.id)}`, {
+          method: 'PUT',
+          ...(readAddress ? { userAddress: readAddress } : {}),
+          keepalive: true,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...wipSnapshot,
+            userAddress: storageAddress,
+            wip: wipSnapshot,
+          }),
+        }).catch(() => {});
+      }
     };
-    return useDawStore.subscribe((state, previous) => {
-      if (state.tracks !== previous.tracks || state.takes !== previous.takes || state.commits !== previous.commits || state.operations !== previous.operations || state.originals !== previous.originals || state.bpm !== previous.bpm) save(state);
+
+    const unsub = useDawStore.subscribe((state, previous) => {
+      if (!wipHydratedRef.current || state.songId !== song.id) return;
+      if (
+        state.tracks !== previous.tracks ||
+        state.takes !== previous.takes ||
+        state.commits !== previous.commits ||
+        state.operations !== previous.operations ||
+        state.originals !== previous.originals ||
+        state.bpm !== previous.bpm ||
+        state.sectionGain !== previous.sectionGain ||
+        state.sectionLow !== previous.sectionLow ||
+        state.sectionMid !== previous.sectionMid ||
+        state.sectionHigh !== previous.sectionHigh
+      ) {
+        persistLocalAndRemote(state, false);
+        if (saveTimer) clearTimeout(saveTimer);
+        saveTimer = setTimeout(() => {
+          saveTimer = null;
+          persistLocalAndRemote(useDawStore.getState(), true);
+        }, 250);
+      }
     });
-  }, [song.id, readAddress]);
+
+    const handleFlush = () => {
+      if (saveTimer) {
+        clearTimeout(saveTimer);
+        saveTimer = null;
+      }
+      persistLocalAndRemote(useDawStore.getState(), true);
+    };
+    window.addEventListener('pagehide', handleFlush);
+    window.addEventListener('beforeunload', handleFlush);
+
+    return () => {
+      window.removeEventListener('pagehide', handleFlush);
+      window.removeEventListener('beforeunload', handleFlush);
+      if (saveTimer) {
+        clearTimeout(saveTimer);
+        saveTimer = null;
+        persistLocalAndRemote(useDawStore.getState(), true);
+      }
+      unsub();
+    };
+  }, [song, readAddress]);
 
   useEffect(() => {
     if (!readAddress) return;
