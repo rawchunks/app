@@ -84,6 +84,19 @@
   color: inherit;
 }
 
+.mixer-subnav-pill.is-modified {
+  border-color: rgba(255, 170, 0, 0.52);
+}
+
+.mixer-subnav-dirty-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--warning, #ffaa00);
+  box-shadow: 0 0 6px var(--warning, #ffaa00);
+  flex-shrink: 0;
+}
+
 .mixer-subnav-fullname {
   font-size: var(--daw-badge-font, clamp(0.64rem, 0.58rem + 0.25vw, 0.74rem));
   font-weight: 700;

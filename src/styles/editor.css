@@ -300,34 +300,8 @@
 }
 
 /* ==========================================================================
-   COMMIT MODAL OVERLAY & CARD
+   COMMIT MODAL OVERLAY & CARD (Uses shared Modal component)
    ========================================================================== */
-.editor-modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.82);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  padding: 16px;
-  box-sizing: border-box;
-}
-
-.editor-modal-card {
-  background: var(--surface-elevated);
-  border: 1px solid var(--border-bright);
-  border-radius: 6px;
-  padding: clamp(16px, 2.5vw, 24px);
-  width: clamp(280px, 92vw, 440px);
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.9), 0 0 1px rgba(255, 255, 255, 0.15);
-  box-sizing: border-box;
-}
 
 .editor-modal-title {
   font-size: var(--font-sm);
