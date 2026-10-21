@@ -525,6 +525,43 @@ textarea.cyber-input-field {
   min-width: 0;
 }
 
+.modal-header-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  margin-right: 4px;
+  min-width: 0;
+  flex-shrink: 0;
+}
+
+@media (max-width: 768px) {
+  .modal-header-row.has-header-meta {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  .modal-header-row.has-header-meta .modal-title-text {
+    order: 1;
+    flex: 1 1 0;
+  }
+
+  .modal-header-row.has-header-meta > .daw-tooltip-wrapper {
+    order: 2;
+    margin-left: auto;
+  }
+
+  .modal-header-row.has-header-meta .modal-header-meta {
+    order: 3;
+    flex: 1 0 100%;
+    width: 100%;
+    margin: 0;
+    padding-top: 4px;
+    border-top: 1px dashed rgba(255, 255, 255, 0.1);
+    justify-content: flex-start;
+  }
+}
+
 .modal-title-text {
   color: var(--primary);
   font-size: clamp(0.82rem, 2.2vw, var(--font-md));
