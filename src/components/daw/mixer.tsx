@@ -1,9 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { useDawStore, DAWTrack } from '../../lib/daw/store';
+import {
+  useDawStore,
+  DAWTrack,
+  isTrackMixerModified,
+  isTrackFxModified,
+} from '../../lib/daw/store';
 import { dawEngine } from '../../lib/daw/engine';
 import { Tooltip } from './Tooltip';
 import { Play, Sliders, Volume2 } from 'lucide-react';
-import { getStemColor } from '../../lib/daw/palette';
+import { getStemColor, formatTrackBadgeCode } from '../../lib/daw/palette';
 
 interface HorizontalChannelDeckProps {
   track: DAWTrack;
@@ -11,23 +16,27 @@ interface HorizontalChannelDeckProps {
 }
 
 const HorizontalChannelDeck: React.FC<HorizontalChannelDeckProps> = ({ track, isMaster = false }) => {
-  const {
-    updateTrackMixer,
-    updateTrackFx,
-    selection,
-    sectionGain,
-    sectionLow,
-    sectionMid,
-    sectionHigh,
-    setSectionGain,
-    setSectionTone,
-  } = useDawStore();
+  const updateTrackMixer = useDawStore((s) => s.updateTrackMixer);
+  const updateTrackFx = useDawStore((s) => s.updateTrackFx);
+  const selection = useDawStore((s) => s.selection);
+  const sectionGain = useDawStore((s) => s.sectionGain);
+  const sectionLow = useDawStore((s) => s.sectionLow);
+  const sectionMid = useDawStore((s) => s.sectionMid);
+  const sectionHigh = useDawStore((s) => s.sectionHigh);
+  const setSectionGain = useDawStore((s) => s.setSectionGain);
+  const setSectionTone = useDawStore((s) => s.setSectionTone);
+  const isPlaying = useDawStore((s) => s.isPlaying);
+  const auditionId = useDawStore((s) => s.auditionId);
 
   const [level, setLevel] = useState(-Infinity);
   const [peak, setPeak] = useState(-Infinity);
 
   useEffect(() => {
     setPeak(-Infinity);
+    if (!isPlaying && !auditionId) {
+      setLevel(-Infinity);
+      return;
+    }
     let frame: number;
     const update = () => {
       const value = dawEngine.level(track.id);
@@ -37,7 +46,7 @@ const HorizontalChannelDeck: React.FC<HorizontalChannelDeckProps> = ({ track, is
     };
     frame = requestAnimationFrame(update);
     return () => cancelAnimationFrame(frame);
-  }, [track.id]);
+  }, [track.id, isPlaying, auditionId]);
 
   const selectionStart = selection?.start ?? null;
   const selectionEnd = selection?.end ?? null;
@@ -67,19 +76,26 @@ const HorizontalChannelDeck: React.FC<HorizontalChannelDeckProps> = ({ track, is
     if (band === 'mid') setEqMid(val);
     if (band === 'high') setEqHigh(val);
 
+    const low = band === 'low' ? val : eqLow;
+    const mid = band === 'mid' ? val : eqMid;
+    const high = band === 'high' ? val : eqHigh;
     const updated = {
-      low: band === 'low' ? val : eqLow,
-      mid: band === 'mid' ? val : eqMid,
-      high: band === 'high' ? val : eqHigh,
+      enabled: low !== 0 || mid !== 0 || high !== 0,
+      low,
+      mid,
+      high,
     };
-    dawEngine.updateTrackFx(track.id, 'eq', updated);
     updateTrackFx(track.id, 'eq', updated);
   };
 
   const handleCutoffChange = (val: number) => {
     setCutoff(val);
-    const filterConfig = { cutoff: val, resonance: 1.0 };
-    dawEngine.updateTrackFx(track.id, 'filter', filterConfig);
+    const filterConfig = {
+      enabled: val < 19900,
+      cutoff: val,
+      resonance: track.fx?.filter?.resonance ?? 1.0,
+      type: track.fx?.filter?.type ?? ('lowpass' as const),
+    };
     updateTrackFx(track.id, 'filter', filterConfig);
   };
 
@@ -114,7 +130,7 @@ const HorizontalChannelDeck: React.FC<HorizontalChannelDeckProps> = ({ track, is
       <div className="mixer-horiz-fader-row">
         <div className="mixer-horiz-identity">
           <span className="mixer-strip-badge daw-badge">
-            {isMaster ? (selection ? 'MST•SEC' : 'MST') : track.name.slice(0, 3).toUpperCase()}
+            {isMaster ? (selection ? 'MST•SEC' : 'MST') : formatTrackBadgeCode(track)}
           </span>
           <span className="mixer-strip-title" title={track.name}>
             {isMaster && selection
@@ -323,34 +339,13 @@ const HorizontalChannelDeck: React.FC<HorizontalChannelDeckProps> = ({ track, is
 };
 
 export const Mixer: React.FC = () => {
-  const { tracks, selectedTrackId, setSelectedTrackId, selection } = useDawStore();
+  const tracks = useDawStore((s) => s.tracks);
+  const selectedTrackId = useDawStore((s) => s.selectedTrackId);
+  const setSelectedTrackId = useDawStore((s) => s.setSelectedTrackId);
+  const selection = useDawStore((s) => s.selection);
 
-  const masterTrack: DAWTrack = tracks.find((t) => t.id === 'master') || {
-    id: 'master',
-    name: 'Master',
-    type: 'stem',
-    color: '#00ff41',
-    volume: 1.0,
-    pan: 0.0,
-    muted: false,
-    solo: false,
-    clips: [],
-    mixer: {
-      volume: 1.0,
-      pan: 0.0,
-      muted: false,
-      solo: false,
-    },
-    fx: {
-      eq: { enabled: true, low: 0, mid: 0, high: 0 },
-      compressor: { enabled: false, threshold: -24, ratio: 4, attack: 0.003, release: 0.25 },
-      reverb: { enabled: false, decay: 2.5, wet: 0.25 },
-      delay: { enabled: false, delayTime: 0.25, feedback: 0.35, wet: 0.2 },
-      distortion: { enabled: false, drive: 0.2, wet: 0.3 },
-      chorus: { enabled: false, rate: 1.5, depth: 0.5, wet: 0.3 },
-      filter: { enabled: false, cutoff: 20000, resonance: 1, type: 'lowpass' },
-    },
-  };
+  const masterTrack = tracks.find((t) => t.id === 'master') ?? tracks[0];
+  if (!masterTrack) return null;
 
   const stemTracks = tracks.filter((t) => t.id !== 'master');
   const allChannels: DAWTrack[] = [masterTrack, ...stemTracks];
@@ -366,14 +361,15 @@ export const Mixer: React.FC = () => {
         {allChannels.map((track) => {
           const isMaster = track.id === 'master';
           const isSelected = activeTrack.id === track.id;
-          const color = isMaster ? '#00ffff' : getStemColor(track.name);
+          const color = isMaster ? 'var(--accent)' : getStemColor(track.name);
           const isMuted = track.mixer?.muted ?? false;
           const isSoloed = track.mixer?.solo ?? false;
+          const isModified = isTrackMixerModified(track) || isTrackFxModified(track);
           const shortCode = isMaster
             ? selection
               ? 'MST•SEC'
               : 'MST'
-            : track.name.slice(0, 3).toUpperCase();
+            : formatTrackBadgeCode(track);
 
           return (
             <Tooltip
@@ -383,22 +379,20 @@ export const Mixer: React.FC = () => {
                   ? selection
                     ? `Master Bus + Section Trim (${selection.start.toFixed(1)}s–${selection.end.toFixed(1)}s)`
                     : 'Master Bus Channel'
-                  : `${track.name} Channel${isSoloed ? ' [SOLO]' : ''}${isMuted ? ' [MUTED]' : ''}`
+                  : `${track.name} Channel${isSoloed ? ' [SOLO]' : ''}${isMuted ? ' [MUTED]' : ''}${isModified ? ' • Modified' : ''}`
               }
             >
               <button
                 type="button"
                 role="tab"
                 aria-selected={isSelected}
-                className={`mixer-subnav-pill ${isSelected ? 'active' : ''} ${isMuted ? 'is-muted' : ''} ${isSoloed ? 'is-solo' : ''}`}
+                className={`mixer-subnav-pill ${isSelected ? 'active' : ''} ${isMuted ? 'is-muted' : ''} ${isSoloed ? 'is-solo' : ''} ${isModified ? 'is-modified' : ''}`}
                 style={{ '--channel-color': color } as React.CSSProperties}
                 onClick={() => setSelectedTrackId(track.id)}
               >
                 <span className="mixer-subnav-dot" />
                 <span className="mixer-subnav-code">{shortCode}</span>
-                {isSelected && !isMaster && (
-                  <span className="mixer-subnav-fullname">{track.name}</span>
-                )}
+                {isModified && <span className="mixer-subnav-dirty-dot" title="Modified Mixer / FX" />}
                 {isSoloed && <span className="mixer-subnav-status-tag solo">S</span>}
                 {isMuted && <span className="mixer-subnav-status-tag mute">M</span>}
               </button>

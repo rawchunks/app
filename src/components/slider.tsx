@@ -5,9 +5,11 @@ export interface Props {
   min: number;
   max: number;
   step?: number;
+  defaultValue?: number;
   onChange: (value: number) => void;
   label?: string;
   unit?: string;
+  formatValue?: (val: number) => string;
   color?: string;
   className?: string;
 }
@@ -17,9 +19,11 @@ export const Slider: React.FC<Props> = ({
   min,
   max,
   step = 1,
+  defaultValue,
   onChange,
   label,
   unit = '',
+  formatValue,
   color = 'var(--primary)',
   className = '',
 }) => {
@@ -27,12 +31,11 @@ export const Slider: React.FC<Props> = ({
 
   return (
     <div className={`cyber-slider-wrap ${className}`.trim()}>
-      {(label || unit) && (
+      {(label || unit || formatValue) && (
         <div className="cyber-slider-header">
           {label && <span className="cyber-slider-label">{label}</span>}
           <span className="cyber-slider-val">
-            {value}
-            {unit}
+            {formatValue ? formatValue(value) : `${value}${unit}`}
           </span>
         </div>
       )}
@@ -45,6 +48,8 @@ export const Slider: React.FC<Props> = ({
           step={step}
           value={value}
           onChange={(e) => onChange(parseFloat(e.target.value))}
+          onDoubleClick={defaultValue !== undefined ? () => onChange(defaultValue) : undefined}
+          title={defaultValue !== undefined ? 'Double-click to reset' : undefined}
           className="cyber-slider-input"
           style={{
             '--slider-color': color,
