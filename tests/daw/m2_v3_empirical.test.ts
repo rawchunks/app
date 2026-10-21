@@ -7,6 +7,7 @@ const {
   MockGain,
   MockVolume,
   MockPanner,
+  MockPanner3D,
   MockEQ3,
   MockFilter,
   MockDistortion,
@@ -19,7 +20,10 @@ const {
   MockNoiseSynth,
   MockMetalSynth,
   MockPlayer,
+  MockMeter,
 } = vi.hoisted(() => {
+  (globalThis as any).window ??= globalThis;
+  (globalThis as any).AudioContext ??= class {};
   const scheduledRepeats = new Map<number, ScheduleRepeatFn>();
   let nextScheduleId = 1;
 
@@ -63,6 +67,25 @@ const {
       super();
       this.pan = new MockParam(val);
     }
+  }
+
+  class MockPanner3D extends MockAudioNode {
+    positionX: MockParam;
+    positionY: MockParam;
+    positionZ: MockParam;
+    panningModel: string;
+    constructor(opts?: any) {
+      super();
+      this.positionX = new MockParam(opts?.positionX ?? 0);
+      this.positionY = new MockParam(opts?.positionY ?? 0);
+      this.positionZ = new MockParam(opts?.positionZ ?? -1);
+      this.panningModel = opts?.panningModel ?? 'HRTF';
+    }
+    setPosition = vi.fn((x: number, y: number, z: number) => {
+      this.positionX.value = x;
+      this.positionY.value = y;
+      this.positionZ.value = z;
+    });
   }
 
   class MockEQ3 extends MockAudioNode {
@@ -165,8 +188,12 @@ const {
 
   class MockPlayer extends MockAudioNode {
     url: string;
+    loaded = true;
+    load = vi.fn().mockResolvedValue(undefined);
     sync = vi.fn().mockReturnThis();
+    unsync = vi.fn().mockReturnThis();
     start = vi.fn();
+    stop = vi.fn();
     constructor(opts?: any) {
       super();
       this.url = opts?.url ?? '';
@@ -176,12 +203,17 @@ const {
     }
   }
 
+  class MockMeter extends MockAudioNode {
+    getValue = vi.fn(() => -12);
+  }
+
   return {
     scheduledRepeats,
     nextScheduleId,
     MockGain,
     MockVolume,
     MockPanner,
+    MockPanner3D,
     MockEQ3,
     MockFilter,
     MockDistortion,
@@ -194,6 +226,7 @@ const {
     MockNoiseSynth,
     MockMetalSynth,
     MockPlayer,
+    MockMeter,
   };
 });
 
@@ -202,17 +235,26 @@ vi.mock('tone', () => {
   return {
     start: vi.fn().mockResolvedValue(undefined),
     gainToDb: (gain: number) => (gain > 0 ? 20 * Math.log10(gain) : -100),
+    dbToGain: (db: number) => Math.pow(10, db / 20),
     now: () => 0,
+    getContext: () => ({
+      state: 'running',
+      resume: vi.fn().mockResolvedValue(undefined),
+      rawContext: {},
+    }),
     getTransport: () => ({
       state: 'stopped',
       seconds: 0,
-      bpm: { rampTo: vi.fn() },
+      PPQ: 192,
+      getTicksAtTime: (time: number) => Math.round(time / 0.125) * 48,
+      bpm: { value: 120, rampTo: vi.fn() },
       loop: false,
       loopStart: 0,
       loopEnd: 30,
       start: vi.fn(),
       pause: vi.fn(),
       stop: vi.fn(),
+      cancel: vi.fn(),
       scheduleRepeat: (fn: ScheduleRepeatFn) => {
         const id = scheduleCounter++;
         scheduledRepeats.set(id, fn);
@@ -230,6 +272,7 @@ vi.mock('tone', () => {
     Gain: MockGain,
     Volume: MockVolume,
     Panner: MockPanner,
+    Panner3D: MockPanner3D,
     EQ3: MockEQ3,
     Filter: MockFilter,
     Distortion: MockDistortion,
@@ -238,6 +281,7 @@ vi.mock('tone', () => {
     Reverb: MockReverb,
     Compressor: MockCompressor,
     Limiter: MockGain,
+    Meter: MockMeter,
     PolySynth: MockPolySynth,
     MembraneSynth: MockMembraneSynth,
     NoiseSynth: MockNoiseSynth,
@@ -252,8 +296,12 @@ import { dawEngine } from '../../src/lib/daw/engine';
 import { useDawStore } from '../../src/lib/daw/store';
 
 describe('Milestone M2 Iteration 3 Empirical Stress Suite', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     scheduledRepeats.clear();
+    (dawEngine as any).trackNodes.clear();
+    (dawEngine as any).sequencerScheduleIds.clear();
+    (dawEngine as any).clipLoads.clear();
+    await dawEngine.init();
     useDawStore.setState({
       tracks: [],
       sequencerSteps: {},
@@ -326,9 +374,9 @@ describe('Milestone M2 Iteration 3 Empirical Stress Suite', () => {
 
       // Track 2 callback still exists and advances track 2
       const [seq2Cb] = Array.from(scheduledRepeats.values()) as ScheduleRepeatFn[];
-      seq2Cb(0.125);
+      seq2Cb(0);
       expect(useDawStore.getState().sequencerSteps[track2.id]).toBe(0);
-      seq2Cb(0.250);
+      seq2Cb(0.125);
       expect(useDawStore.getState().sequencerSteps[track2.id]).toBe(1);
     });
   });
@@ -350,13 +398,13 @@ describe('Milestone M2 Iteration 3 Empirical Stress Suite', () => {
       expect(nodes.players.has('clip-1')).toBe(true);
     });
 
-    test('lazily creates audio nodes on triggerNote for uninitialized pianoroll track', () => {
+    test('lazily creates audio nodes on triggerNote for uninitialized pianoroll track', async () => {
       const prTrack = useDawStore.getState().addTrack('pianoroll', 'Piano Roll Track');
 
       expect((dawEngine as any).trackNodes.has(prTrack.id)).toBe(false);
 
       // Call triggerNote
-      dawEngine.triggerNote(prTrack.id, 'C4', '8n', 0.8);
+      await dawEngine.triggerNote(prTrack.id, 'C4', '8n', 0.8);
 
       expect((dawEngine as any).trackNodes.has(prTrack.id)).toBe(true);
       const nodes = dawEngine.getOrCreateTrackNodes(prTrack.id);
@@ -435,6 +483,172 @@ describe('Milestone M2 Iteration 3 Empirical Stress Suite', () => {
 
       expect((dawEngine as any).trackNodes.has(seqTrack.id)).toBe(false);
       expect(scheduledRepeats.size).toBe(0);
+    });
+  });
+
+  describe('4. 2D Wave-Sculpting, Spectral Peaks & 3D Spatial Audio', () => {
+    test('evaluates 2D peak-sculpting (vertical gain/crest/drive) and wave-design (horizontal warp/texture)', async () => {
+      const { createDefaultWaveSculpt, evaluateSculptField, sculptBipolarPeaks } = await import('../../src/lib/daw/peaks');
+      const state = createDefaultWaveSculpt();
+      state.fadeIn = 0.1;
+      state.fadeOut = 0.1;
+      state.crest = 0.5;
+      state.drive = 0.4;
+      state.texture = 0.3;
+      state.nodes[1].gainDb = 6;
+      state.nodes[1].warpOffset = 0.05;
+
+      const fieldStart = evaluateSculptField(state, 0);
+      expect(fieldStart.fadeMultiplier).toBeCloseTo(0, 4);
+
+      const fieldMid = evaluateSculptField(state, state.nodes[1].position + state.nodes[1].warpOffset);
+      expect(fieldMid.gainLinear).toBeGreaterThan(1.5);
+      expect(fieldMid.warpedTime).toBeGreaterThan(0);
+      expect(fieldMid.warpedTime).toBeLessThan(1);
+
+      const basePeaks = {
+        mins: new Float32Array([-0.5, -0.6, -0.7, -0.5]),
+        maxs: new Float32Array([0.5, 0.6, 0.7, 0.5]),
+        rms: new Float32Array([0.3, 0.4, 0.45, 0.3]),
+        low: new Float32Array([0.4, 0.3, 0.2, 0.4]),
+        mid: new Float32Array([0.3, 0.4, 0.4, 0.3]),
+        high: new Float32Array([0.3, 0.3, 0.4, 0.3]),
+        bins: 4,
+        duration: 4,
+      };
+      const sculpted = sculptBipolarPeaks(basePeaks, state);
+      expect(sculpted.maxs.length).toBe(4);
+      expect(sculpted.maxs[0]).toBeCloseTo(0, 3);
+      expect(sculpted.maxs[1]).toBeGreaterThan(0.5);
+    });
+
+    test('synthesizes Strudel bipolar + 3-band spectral peaks and preserves immutable .rev() and .s() sound override', async () => {
+      const { parseStrudelPattern, synthesizeStrudelBipolarPeaks } = await import('../../src/lib/daw/strudel');
+      const parsed = parseStrudelPattern('note("c3 e3 g3 b3").s("sawtooth").rev().fast(2).lpf(1800)');
+      expect(parsed.isValid).toBe(true);
+      expect(parsed.events.length).toBeGreaterThan(0);
+      expect(parsed.events[0].synthSound).toBe('sawtooth');
+      expect(parsed.events[0].lpf).toBe(1800);
+
+      const peaks = synthesizeStrudelBipolarPeaks('s("bd sd hh cp")', 64, 4);
+      expect(peaks.maxs.length).toBe(64);
+      expect(peaks.mins.length).toBe(64);
+      expect(peaks.low?.length).toBe(64);
+      expect(peaks.mid?.length).toBe(64);
+      expect(peaks.high?.length).toBe(64);
+    });
+
+    test('updates 3D binaural spatial panner state on track FX', () => {
+      const track = useDawStore.getState().addTrack('stem', 'Spatial Stem');
+      useDawStore.getState().updateTrackFx(track.id, 'spatial', {
+        enabled: true,
+        azimuth: 60,
+        elevation: 20,
+        distance: 1.8,
+      });
+      const updated = useDawStore.getState().tracks.find((t) => t.id === track.id)!;
+      expect(updated.fx.spatial).toEqual({
+        enabled: true,
+        azimuth: 60,
+        elevation: 20,
+        distance: 1.8,
+      });
+    });
+
+    test('composes Master and Stem wave sculpts two-ways without losing stem or master deltas', async () => {
+      const {
+        createDefaultWaveSculpt,
+        composeWaveSculpts,
+        getTrackOwnSculpt,
+        sculptBipolarPeaks,
+      } = await import('../../src/lib/daw/peaks');
+
+      const stemTrack = useDawStore.getState().addTrack('stem', 'Vocals');
+      useDawStore.setState((s) => ({
+        tracks: [
+          ...(s.tracks.some((t) => t.id === 'master')
+            ? []
+            : [
+                {
+                  ...stemTrack,
+                  id: 'master',
+                  name: 'Master',
+                  clips: [],
+                },
+              ]),
+          ...s.tracks.map((t) =>
+            t.id === stemTrack.id
+              ? {
+                  ...t,
+                  clips: [
+                    {
+                      id: 'clip-v1',
+                      name: 'Vocals',
+                      url: '/test-vocals.mp3',
+                      startTime: 0,
+                      duration: 4,
+                      offset: 0,
+                    },
+                  ],
+                }
+              : t
+          ),
+        ],
+      }));
+
+      // 1. Sculpt Master (add granular anchor at 0.25 with +6dB and node[0] +3dB)
+      const masterSculpt = createDefaultWaveSculpt();
+      masterSculpt.nodes[0].gainDb = 3;
+      masterSculpt.anchors = [
+        { id: 'm-a1', position: 0.25, radius: 0.08, gainDb: 6, timeShift: 0.02, polarity: 'both' },
+      ];
+      masterSculpt.granularAnchors = masterSculpt.anchors;
+      masterSculpt.drive = 0.2;
+      useDawStore.getState().updateTrackSculpt('master', masterSculpt);
+
+      // 2. Sculpt Stem (add granular anchor at 0.75 with -5dB and node[0] +2dB)
+      const stemSculpt = createDefaultWaveSculpt();
+      stemSculpt.nodes[0].gainDb = 2;
+      stemSculpt.anchors = [
+        { id: 's-a1', position: 0.75, radius: 0.08, gainDb: -5, timeShift: -0.01, polarity: 'both' },
+      ];
+      stemSculpt.granularAnchors = stemSculpt.anchors;
+      stemSculpt.drive = 0.3;
+      useDawStore.getState().updateClipSculpt(stemTrack.id, 'clip-v1', stemSculpt);
+
+      const updatedMaster = useDawStore.getState().tracks.find((t) => t.id === 'master')!;
+      const updatedStem = useDawStore.getState().tracks.find((t) => t.id === stemTrack.id)!;
+
+      const composed = composeWaveSculpts(
+        getTrackOwnSculpt(updatedMaster),
+        getTrackOwnSculpt(updatedStem)
+      );
+
+      // Nodes and global scalars compose additively
+      expect(composed.nodes[0].gainDb).toBe(5);
+      expect(composed.drive).toBeCloseTo(0.5, 4);
+      // Both Master and Stem anchors are preserved in sorted order
+      expect(composed.anchors?.length).toBe(2);
+      expect(composed.anchors?.[0].id).toBe('m-a1');
+      expect(composed.anchors?.[1].id).toBe('s-a1');
+
+      // Engine resolves composed sculpt for stem clip
+      const engineSculpt = (dawEngine as any).getEffectiveClipSculpt(stemTrack.id, 'clip-v1');
+      expect(engineSculpt).toBeDefined();
+      expect(engineSculpt.nodes[0].gainDb).toBe(5);
+      expect(engineSculpt.anchors.length).toBe(2);
+
+      // Bipolar peak array transforms cleanly with composed sculpt (5 bins -> t = 0, 0.25, 0.5, 0.75, 1.0)
+      const rawPeaks = {
+        mins: new Float32Array([-0.4, -0.4, -0.4, -0.4, -0.4]),
+        maxs: new Float32Array([0.4, 0.4, 0.4, 0.4, 0.4]),
+        rms: new Float32Array([0.25, 0.25, 0.25, 0.25, 0.25]),
+        bins: 5,
+        duration: 4,
+      };
+      const reshaped = sculptBipolarPeaks(rawPeaks, composed);
+      expect(reshaped.maxs[1]).toBeGreaterThan(reshaped.maxs[2]); // boosted by Master anchor at t=0.25
+      expect(reshaped.maxs[3]).toBeLessThan(reshaped.maxs[2]); // attenuated by Stem anchor at t=0.75
     });
   });
 });
