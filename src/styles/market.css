@@ -375,7 +375,7 @@
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
-  font-size: clamp(7px, 3.6cqi, 9.5px) !important;
+  font-size: clamp(11px, 3.6cqi, 11px) !important;
   font-family: var(--font-family);
   font-weight: 700;
   padding: clamp(1px, 0.8cqi, 2px) clamp(3.5px, 2cqi, 6px) !important;
@@ -466,7 +466,7 @@
   backdrop-filter: blur(4px);
   border: 1px solid rgba(255, 255, 255, 0.16);
   color: #ffffff;
-  font-size: clamp(7.5px, 3.8cqi, 10px);
+  font-size: clamp(11px, 3.8cqi, 11px);
   font-family: var(--font-family);
   font-weight: 700;
   padding: clamp(1px, 0.8cqi, 2px) clamp(3.5px, 2.2cqi, 6px);
@@ -548,7 +548,7 @@
 .market-card-row-title {
   height: clamp(14px, 8cqi, 20px);
   line-height: 1.2;
-  font-size: clamp(9.5px, 5cqi, 12.5px);
+  font-size: clamp(11px, 5cqi, 12.5px);
   font-weight: 700;
   color: var(--text);
   white-space: nowrap;
@@ -562,7 +562,7 @@
 .market-card-row-album {
   height: clamp(12px, 6.5cqi, 16px);
   line-height: 1.2;
-  font-size: clamp(8px, 4cqi, 10.5px);
+  font-size: clamp(11px, 4cqi, 11px);
   color: var(--accent);
   display: flex;
   align-items: center;
@@ -599,7 +599,7 @@
   align-items: center;
   justify-content: space-between;
   gap: clamp(3px, 2cqi, 6px);
-  font-size: clamp(8px, 4cqi, 10.5px);
+  font-size: clamp(11px, 4cqi, 11px);
   color: var(--text-dim);
   min-width: 0;
   width: 100%;
@@ -645,7 +645,7 @@
   text-overflow: ellipsis;
   color: var(--text);
   font-weight: 600;
-  font-size: clamp(8px, 4cqi, 10.5px);
+  font-size: clamp(11px, 4cqi, 11px);
   min-width: 0;
 }
 
@@ -667,7 +667,7 @@
 
 .market-creator-none {
   color: var(--text-dim);
-  font-size: clamp(8px, 4cqi, 10.5px);
+  font-size: clamp(11px, 4cqi, 11px);
 }
 
 /* Row 4: Tags (Styles / Genres) - Proportionally Scaled & Strictly Bounded */
@@ -708,7 +708,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: clamp(6px, 3.4cqi, 9px);
+  font-size: clamp(11px, 3.4cqi, 11px);
   padding: clamp(1px, 0.7cqi, 2px) clamp(3px, 1.8cqi, 5px);
   letter-spacing: clamp(0px, 0.1cqi, 0.3px);
   line-height: 1.2;
@@ -744,7 +744,7 @@
 }
 
 .market-price-label {
-  font-size: clamp(7px, 3.4cqi, 9px);
+  font-size: clamp(11px, 3.4cqi, 11px);
   color: var(--text-dim);
   text-transform: uppercase;
   font-weight: 700;
@@ -755,7 +755,7 @@
 }
 
 .market-price-val {
-  font-size: clamp(8.5px, 4.4cqi, 11px);
+  font-size: clamp(11px, 4.4cqi, 11px);
   font-weight: 700;
   white-space: nowrap;
   overflow: hidden;
@@ -767,7 +767,7 @@
 }
 
 .market-price-unit {
-  font-size: clamp(7px, 3.4cqi, 9px);
+  font-size: clamp(11px, 3.4cqi, 11px);
   color: var(--text-secondary);
 }
 
@@ -777,7 +777,7 @@
 
 .market-price-remix {
   color: var(--secondary);
-  font-size: clamp(7px, 3.4cqi, 9px);
+  font-size: clamp(11px, 3.4cqi, 11px);
   font-weight: 900;
 }
 
@@ -815,7 +815,7 @@
   justify-content: center !important;
   gap: clamp(3px, 2cqi, 6px) !important;
   padding: 0 clamp(4px, 2.5cqi, 10px) !important;
-  font-size: clamp(8px, 4.2cqi, 11px) !important;
+  font-size: clamp(11px, 4.2cqi, 11px) !important;
   font-weight: 700 !important;
   letter-spacing: clamp(0.2px, 0.15cqi, 0.5px) !important;
   text-transform: uppercase !important;

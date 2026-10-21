@@ -168,7 +168,7 @@
   padding: clamp(3px, 1.8cqi, 6px) clamp(6px, 3cqi, 10px);
   text-align: left;
   cursor: pointer;
-  font-size: clamp(7.5px, 3.8cqi, 10px);
+  font-size: clamp(11px, 3.8cqi, 11px);
   font-family: var(--font-family);
   font-weight: 700;
   letter-spacing: 0.6px;
@@ -259,7 +259,7 @@
 }
 
 .mypage-toggle-label {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-secondary);
 }
 
@@ -418,7 +418,7 @@
 }
 
 .mypage-profile-stat-label {
-  font-size: 9px;
+  font-size: 11px;
   color: var(--text-dim);
   letter-spacing: 0.8px;
   text-transform: uppercase;
@@ -555,13 +555,13 @@
   max-width: 48%;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: clamp(6.5px, 3.6cqi, 9px);
+  font-size: clamp(11px, 3.6cqi, 11px);
   padding: clamp(1px, 0.7cqi, 2px) clamp(3px, 1.8cqi, 6px);
 }
 
 .mypage-item-title {
   flex: 1 1 auto;
-  font-size: clamp(9.5px, 5.2cqi, 13px);
+  font-size: clamp(11px, 5.2cqi, 13px);
   font-weight: 700;
   color: var(--text);
   white-space: nowrap;
@@ -574,7 +574,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: clamp(2px, 1.5cqi, 4px) clamp(6px, 3.5cqi, 10px);
-  font-size: clamp(8px, 4.2cqi, 10.5px);
+  font-size: clamp(11px, 4.2cqi, 11px);
   line-height: 1.4;
   min-width: 0;
   width: 100%;
@@ -582,14 +582,14 @@
 
 .mypage-voice-card .studio-voice-detail,
 .mypage-voice-card .studio-voice-message {
-  font-size: clamp(7.5px, 3.8cqi, 10px);
+  font-size: clamp(11px, 3.8cqi, 11px);
   line-height: 1.4;
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
 .mypage-item-desc {
-  font-size: clamp(8.5px, 4.2cqi, 11px);
+  font-size: clamp(11px, 4.2cqi, 11px);
   color: var(--text-secondary);
   line-height: 1.4;
   overflow: hidden;
@@ -605,7 +605,7 @@
   margin-top: auto;
   padding-top: 6px;
   border-top: 1px solid rgba(255, 255, 255, 0.05);
-  font-size: clamp(8px, 4cqi, 10px);
+  font-size: clamp(11px, 4cqi, 11px);
   color: var(--text-dim);
 }
 
@@ -656,7 +656,7 @@
   display: inline-flex;
   align-items: center;
   gap: clamp(2px, 1cqi, 3px);
-  font-size: clamp(7.5px, 3.8cqi, 10px);
+  font-size: clamp(11px, 3.8cqi, 11px);
   font-weight: 700;
   line-height: 1;
   padding: clamp(1px, 0.6cqi, 2px) clamp(3px, 1.5cqi, 4px);
@@ -689,7 +689,7 @@
 
 .mypage-status-badge {
   flex-shrink: 0;
-  font-size: clamp(7px, 3.6cqi, 9px) !important;
+  font-size: clamp(11px, 3.6cqi, 11px) !important;
   padding: clamp(1px, 0.8cqi, 2px) clamp(3px, 2cqi, 5px) !important;
   letter-spacing: clamp(0.2px, 0.15cqi, 0.5px) !important;
 }
@@ -705,13 +705,13 @@
 }
 
 .mypage-remix-badge {
-  font-size: clamp(7px, 3.6cqi, 9px) !important;
+  font-size: clamp(11px, 3.6cqi, 11px) !important;
   font-weight: 900 !important;
   letter-spacing: clamp(0.2px, 0.15cqi, 0.5px) !important;
 }
 
 .mypage-no-tags {
-  font-size: clamp(8px, 4cqi, 10.5px);
+  font-size: clamp(11px, 4cqi, 11px);
   color: var(--text-dim);
 }
 
@@ -815,7 +815,7 @@
 }
 
 .edit-song-field-hint {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-dim);
   margin-top: 2px;
 }
@@ -844,7 +844,7 @@
   align-items: center !important;
   justify-content: center !important;
   padding: 1px clamp(3px, 1.8cqi, 5px) !important;
-  font-size: clamp(7px, 3.6cqi, 9px) !important;
+  font-size: clamp(11px, 3.6cqi, 11px) !important;
   height: clamp(14px, 7cqi, 18px) !important;
   line-height: 1 !important;
   border-radius: 2px !important;
