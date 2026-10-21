@@ -1,5 +1,5 @@
 import { sdk } from '@/lib/sdk';
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
 import { Glitch } from '../components/glitch';
 import { Button } from '../components/button';
@@ -228,29 +228,27 @@ const EditorBpmControl: React.FC<{
 };
 
 export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
-  const {
-    tracks,
-    isPlaying,
-    duration,
-    bpm,
-    loop,
-    selection,
-    legoContextTrackIds,
-    takes,
-    selectedTrackId,
-    initProject,
-    setPlaying,
-    setPlayhead,
-    setBpm,
-    setLoop,
-    setSelection,
-    setSelectedTrackId,
-    addTrack,
-    setTakes,
-    setCommits,
-    syncStems,
-    restoreSession,
-  } = useDawStore();
+  const tracks = useDawStore((s) => s.tracks);
+  const isPlaying = useDawStore((s) => s.isPlaying);
+  const duration = useDawStore((s) => s.duration);
+  const bpm = useDawStore((s) => s.bpm);
+  const loop = useDawStore((s) => s.loop);
+  const selection = useDawStore((s) => s.selection);
+  const legoContextTrackIds = useDawStore((s) => s.legoContextTrackIds);
+  const takes = useDawStore((s) => s.takes);
+  const selectedTrackId = useDawStore((s) => s.selectedTrackId);
+  const initProject = useDawStore((s) => s.initProject);
+  const setPlaying = useDawStore((s) => s.setPlaying);
+  const setPlayhead = useDawStore((s) => s.setPlayhead);
+  const setBpm = useDawStore((s) => s.setBpm);
+  const setLoop = useDawStore((s) => s.setLoop);
+  const setSelection = useDawStore((s) => s.setSelection);
+  const setSelectedTrackId = useDawStore((s) => s.setSelectedTrackId);
+  const addTrack = useDawStore((s) => s.addTrack);
+  const setTakes = useDawStore((s) => s.setTakes);
+  const setCommits = useDawStore((s) => s.setCommits);
+  const syncStems = useDawStore((s) => s.syncStems);
+  const restoreSession = useDawStore((s) => s.restoreSession);
 
   // Connected wallet address
   const { userAddress, readAddress } = useSelectedUserAddress();
@@ -379,15 +377,42 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
     })();
   }, [readAddress, vocalLanguage]);
 
+  const wipHydratedRef = useRef<boolean>(false);
+  const lastWipRef = useRef<any>(null);
+
   // Fetch real takes, commits, and multitrack stems from API
   const loadSongData = useCallback(async () => {
-    if (!readAddress) return;
+    const effectiveAddress = readAddress || song.creator || '';
+    const storageAddress = readAddress || song.creator || 'public';
     const scope = scopeRef.current;
+
+    const fetchAndHydrateRemoteWip = async () => {
+      try {
+        const wipRes = await sdk.fetch(`/api/editing/wip/${encodeURIComponent(song.id)}`, {
+          ...(effectiveAddress ? { userAddress: effectiveAddress } : {}),
+        });
+        if (wipRes.ok) {
+          const wipData = await wipRes.json();
+          if (wipData?.wip && scope === scopeRef.current && useDawStore.getState().songId === song.id) {
+            const remoteUpdatedAt = Number(wipData.wip.updatedAt || 0);
+            const localUpdatedAt = Number(lastWipRef.current?.updatedAt || 0);
+            if (!lastWipRef.current || remoteUpdatedAt >= localUpdatedAt) {
+              lastWipRef.current = wipData.wip;
+              try {
+                localStorage.setItem(`rawchunks:wip:v1:${song.id}`, JSON.stringify(wipData.wip));
+              } catch {}
+              useDawStore.getState().hydrateWipSnapshot(wipData.wip);
+            }
+          }
+        }
+      } catch {}
+    };
+
     try {
       const history = await queryClient.fetchQuery({
-        queryKey: ['history', song.id, readAddress], staleTime: 0,
+        queryKey: ['history', song.id, effectiveAddress || 'public'], staleTime: 0,
         queryFn: async () => {
-          const response = await sdk.fetch(`/api/editing/history/${song.id}`, { userAddress: readAddress });
+          const response = await sdk.fetch(`/api/editing/history/${song.id}`, effectiveAddress ? { userAddress: effectiveAddress } : {});
           const result = await response.json();
           if (!response.ok) throw new Error(result.error || 'Could not load song history');
           return result;
@@ -450,22 +475,50 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
       useDawStore.setState(state => ({ operations: state.operations.filter(operation => !completed.has(operation.id)) }));
       if (!sessionRef.current) { restoreSession(history.commits); sessionRef.current = true; }
       syncStems(history.stems);
+      if (lastWipRef.current) {
+        useDawStore.getState().hydrateWipSnapshot(lastWipRef.current);
+      }
+      await fetchAndHydrateRemoteWip();
+      wipHydratedRef.current = true;
       const state = useDawStore.getState();
-      writeProject({ song: { ...song, url: state.tracks.find(track => track.id === 'master')?.clips[0]?.url ?? song.url, duration: state.duration }, ...history, session: { tracks: state.tracks, originals: state.originals, operations: state.operations, bpm: state.bpm } }, readAddress);
+      writeProject({ song: { ...song, url: state.tracks.find(track => track.id === 'master')?.clips[0]?.url ?? song.url, duration: state.duration }, ...history, session: { tracks: state.tracks, originals: state.originals, operations: state.operations, bpm: state.bpm } }, storageAddress);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Could not load song history');
+      await fetchAndHydrateRemoteWip();
+      wipHydratedRef.current = true;
     }
   }, [song, readAddress, setTakes, setCommits, syncStems, restoreSession, queryClient, pollSongLyrics]);
 
+  const activeSongIdRef = useRef<string | null>(null);
+
   // Initialize DAW Engine and Project Store on Mount
   useEffect(() => {
-    dawEngine.resetProject();
+    const isNewSong = activeSongIdRef.current !== song.id;
+    if (isNewSong) {
+      dawEngine.resetProject();
+      activeSongIdRef.current = song.id;
+      wipHydratedRef.current = false;
+      lastWipRef.current = null;
+    } else if (sessionRef.current) {
+      return;
+    }
     const initialDur = typeof song.duration === 'number' && song.duration > 0 ? song.duration : 60;
     const cached =
       (readAddress ? readProject(song.id, readAddress) : null) ??
-      (song.creator ? readProject(song.id, song.creator) : null);
+      (song.creator ? readProject(song.id, song.creator) : null) ??
+      readProject(song.id, 'public');
     sessionRef.current = Boolean(cached?.session || cached?.commits.some(commit => Array.isArray(commit.timeline_snapshot?.tracks)));
     initProject(song.id, song.title, initialDur, song.url, cached ?? undefined);
+
+    try {
+      const rawLocalWip = localStorage.getItem(`rawchunks:wip:v1:${song.id}`);
+      if (rawLocalWip) {
+        const parsedLocalWip = JSON.parse(rawLocalWip);
+        if (parsedLocalWip && typeof parsedLocalWip === 'object') {
+          lastWipRef.current = parsedLocalWip;
+          useDawStore.getState().hydrateWipSnapshot(parsedLocalWip);
+        }
+      }
+    } catch {}
 
     const master = useDawStore.getState().tracks.find(track => track.id === 'master')?.clips[0];
     if (master) {
@@ -475,13 +528,16 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
     dawEngine.setTimeCallback((seconds) => {
       setPlayhead(seconds);
     });
+  }, [song.id, song.url, readAddress, initProject, setPlayhead]);
 
+  useEffect(() => {
     return () => {
+      activeSongIdRef.current = null;
       dawEngine.resetProject();
       for (const timer of pollTimersRef.current.values()) clearTimeout(timer);
       pollTimersRef.current.clear();
     };
-  }, [song.id, song.url, readAddress, initProject, setPlayhead]);
+  }, [song.id]);
 
   useEffect(() => { void loadSongData(); }, [loadSongData]);
 
@@ -497,9 +553,30 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
     }
   }, [song.id, readAddress, tracks, lyricsAlignment, isTranscribingLyrics, isAligningLyrics, pollSongLyrics]);
 
-  useEffect(() => {
-    for (const track of tracks) dawEngine.scheduleTrack(track);
+  const synthScheduleSignature = useMemo(() => {
+    return tracks
+      .filter((t) => t.type === 'pianoroll' || t.type === 'sequencer' || t.type === 'strudel')
+      .map((t) => JSON.stringify({
+        id: t.id,
+        type: t.type,
+        mounted: t.mounted,
+        muted: t.mixer?.muted ?? t.muted,
+        solo: t.mixer?.solo ?? t.solo,
+        activeVersionId: t.activeVersionId,
+        notes: t.pianoRollNotes,
+        voices: t.sequencerVoices,
+        code: t.strudelCode,
+      }))
+      .join('|');
   }, [tracks]);
+
+  useEffect(() => {
+    for (const track of useDawStore.getState().tracks) {
+      if (track.type === 'pianoroll' || track.type === 'sequencer' || track.type === 'strudel') {
+        dawEngine.scheduleTrack(track);
+      }
+    }
+  }, [synthScheduleSignature]);
 
   // Master Transport Controls
   const handleTogglePlay = async () => {
