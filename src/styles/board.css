@@ -165,7 +165,7 @@
 }
 
 /* ==========================================================================
-   SCROLLABLE BOARD WORKSPACE (Left Headers + Right Timelines)
+   ZERO-SCROLL BOARD WORKSPACE (Left Headers + Right Timelines)
    ========================================================================== */
 .board-viewport {
   flex: 1 1 0;
@@ -240,7 +240,7 @@
   pointer-events: none;
 }
 
-/* Unified Track Segment Row - Master, Lanes, and Extracts grow naturally if badges wrap */
+/* Unified Track Segment Row - Dynamic Height for Multi-Row Version Badges */
 .board-row,
 .board-row.has-versions {
   display: flex;
@@ -251,9 +251,9 @@
   border-bottom: 1px solid var(--border);
   background: var(--surface);
   position: relative;
+  flex-shrink: 0;
   transition: background 0.15s ease;
   box-sizing: border-box;
-  flex-shrink: 0;
 }
 
 .board-row.master {
@@ -265,16 +265,18 @@
   border-bottom: 1px solid var(--border);
   background: var(--surface);
   position: relative;
+  flex-shrink: 0;
   transition: background 0.15s ease;
   box-sizing: border-box;
-  flex-shrink: 0;
 }
 
 .board-row:hover {
   background: rgba(255, 255, 255, 0.02);
 }
 
-.board-row.selected {
+.board-row.selected,
+.board-row.master.selected,
+.board-row.master.expanded.selected {
   z-index: 2;
   background: rgba(0, 255, 65, 0.08);
   box-shadow: inset 3px 0 0 var(--primary), inset 0 0 24px rgba(0, 255, 65, 0.06);
@@ -712,8 +714,7 @@
   }
 
   .board-btn-label,
-  .board-track-name-compact,
-  .board-btn-mini.arm {
+  .board-track-name-compact {
     display: none;
   }
 
@@ -840,6 +841,141 @@
   display: block;
 }
 
+.clip-sculpt-toolbar,
+.waveform-mode-toolbar,
+.waveform-mode-bar {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  z-index: 12;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  pointer-events: auto;
+  user-select: none;
+}
+
+.wave-rocker-switch {
+  display: inline-flex;
+  align-items: stretch;
+  height: 18px;
+  padding: 2px;
+  border-radius: 4px;
+  background: linear-gradient(180deg, #06070b 0%, #141722 100%);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  box-shadow:
+    inset 0 1px 3px rgba(0, 0, 0, 0.9),
+    0 1px 2px rgba(0, 0, 0, 0.65);
+  perspective: 140px;
+  gap: 1px;
+}
+
+.wave-rocker-switch .rocker-half {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 100%;
+  padding: 0;
+  border: none;
+  cursor: pointer;
+  transition: transform 0.14s cubic-bezier(0.22, 1, 0.36, 1), background 0.14s ease, box-shadow 0.14s ease, color 0.14s ease;
+  transform-style: preserve-3d;
+}
+
+.wave-rocker-switch .rocker-left {
+  border-radius: 2.5px 0 0 2.5px;
+  transform-origin: right center;
+}
+
+.wave-rocker-switch .rocker-right {
+  border-radius: 0 2.5px 2.5px 0;
+  transform-origin: left center;
+}
+
+.wave-rocker-switch .rocker-half.is-raised {
+  background: linear-gradient(180deg, #2e3346 0%, #1d2130 100%);
+  color: rgba(255, 255, 255, 0.55);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    0 2px 3px rgba(0, 0, 0, 0.7);
+}
+
+.wave-rocker-switch .rocker-left.is-raised {
+  transform: rotateY(14deg) translateZ(1.5px);
+}
+
+.wave-rocker-switch .rocker-right.is-raised {
+  transform: rotateY(-14deg) translateZ(1.5px);
+}
+
+.wave-rocker-switch .rocker-left.is-pressed {
+  background: linear-gradient(180deg, rgba(0, 240, 255, 0.22) 0%, rgba(0, 240, 255, 0.38) 100%);
+  color: var(--accent, #00f0ff);
+  box-shadow:
+    inset 0 1.5px 3px rgba(0, 0, 0, 0.85),
+    inset 0 0 6px rgba(0, 240, 255, 0.35);
+  transform: rotateY(-6deg) translateZ(-1px);
+}
+
+.wave-rocker-switch .rocker-right.is-pressed {
+  background: linear-gradient(180deg, rgba(255, 170, 0, 0.22) 0%, rgba(255, 170, 0, 0.4) 100%);
+  color: var(--warning, #ffaa00);
+  box-shadow:
+    inset 0 1.5px 3px rgba(0, 0, 0, 0.85),
+    inset 0 0 6px rgba(255, 170, 0, 0.38);
+  transform: rotateY(6deg) translateZ(-1px);
+}
+
+.wave-rocker-switch:hover .rocker-half.is-raised {
+  color: rgba(255, 255, 255, 0.88);
+  filter: brightness(1.12);
+}
+
+.waveform-sculpt-reset.icon-only,
+.clip-sculpt-reset.icon-only {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 15px;
+  padding: 0;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(9, 9, 14, 0.78);
+  color: var(--text);
+  font-family: var(--font-family);
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.waveform-sculpt-reset.icon-only:hover,
+.clip-sculpt-reset.icon-only:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.board-btn-mini.lane-mount-btn.mounted {
+  background: rgba(0, 255, 65, 0.18);
+  border-color: var(--primary);
+  color: var(--primary);
+  box-shadow: 0 0 6px rgba(0, 255, 65, 0.28);
+}
+
+.board-btn-mini.lane-mount-btn.unmounted {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.18);
+  color: var(--text-dim);
+}
+
+@media (max-width: 640px) {
+  .clip-tool-group {
+    display: none;
+  }
+}
+
 /* ==========================================================================
    DAW PINCHER (Precision Section Selector & Steppers)
    ========================================================================== */
@@ -912,15 +1048,15 @@
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 3px;
+  gap: 2px;
   width: 100%;
-  margin-top: 2px;
+  margin-top: 0;
 }
 
 .board-category-badges-list {
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 2px;
   flex-wrap: wrap;
   overflow: visible;
   max-width: 100%;
@@ -1004,17 +1140,8 @@
 .board-take-indented-row .board-track-header {
   padding-left: 10px;
 }
-.board-row.master.expanded {
-  height: auto;
-  min-height: var(--board-master-row-h);
-  max-height: none;
-  flex-shrink: 0;
-}
-.board-row.master.expanded .board-track-lane {
-  height: auto;
-  min-height: var(--board-master-row-h);
-  align-self: stretch;
-}
+.board-row.master.expanded { height: auto; min-height: var(--board-master-row-h); max-height: none; flex-shrink: 0; }
+.board-row.master.expanded .board-track-lane { height: auto; min-height: var(--board-master-row-h); }
 .board-row.master.expanded.dimmed { opacity: 1; filter: none; }
 .board-overlays { position: absolute; inset: 0; pointer-events: none; }
 .board-overlay { position: absolute; inset-block: 0; left: var(--start-pct, 0%); width: var(--width-pct, 0%); color: var(--track-color, var(--accent)); box-sizing: border-box; opacity: .8; pointer-events: auto; }

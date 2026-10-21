@@ -73,18 +73,18 @@
 
   /* Fluid DAW Board & Unified Compact Toolbox Dimensions */
   --board-header-w: clamp(202px, 21vw, 252px);
-  --board-row-h: clamp(64px, 8.5dvh, 78px);
-  --board-master-row-h: clamp(82px, 10.8dvh, 102px);
-  --board-section-h: clamp(20px, 2.4vh, 26px);
-  --board-ruler-h: clamp(20px, 2.4vh, 26px);
-  --toolbox-compact-h: clamp(172px, 24.5dvh, 194px);
+  --board-row-h: clamp(36px, 4.3dvh, 50px);
+  --board-master-row-h: clamp(52px, 6.4dvh, 70px);
+  --board-section-h: clamp(17px, 2dvh, 21px);
+  --board-ruler-h: clamp(17px, 2dvh, 21px);
+  --toolbox-compact-h: clamp(154px, 21dvh, 176px);
 
   /* Strict 3-Tier Badge Hierarchy:
      Tier 1 (100%): 'MST' leading badge in Master
      Tier 2 (95%):  All track leading badges ('stems'/lanes & 'extracted' categories)
      Tier 3 (90%):  Internal sub-badges ('stems' & 'extracts' inside 'MST', 'versions' everywhere) */
-  --badge-mst-h: clamp(22px, 2.65dvh, 25px);
-  --badge-mst-font: clamp(10.5px, 0.78vw + 0.22vh, 12px);
+  --badge-mst-h: clamp(18px, 2.05dvh, 21px);
+  --badge-mst-font: clamp(9.5px, 0.72vw + 0.18vh, 11px);
   --badge-track-h: calc(var(--badge-mst-h) * 0.95);
   --badge-track-font: calc(var(--badge-mst-font) * 0.95);
   --badge-sub-h: calc(var(--badge-mst-h) * 0.90);
@@ -93,9 +93,9 @@
   /* Standardized DRY DAW Badge & Control Tokens */
   --daw-badge-font: var(--badge-track-font);
   --daw-badge-h: var(--badge-track-h);
-  --daw-badge-pad: 0 clamp(5px, 0.45vw, 8px);
-  --daw-ctrl-font: clamp(10px, 0.75vw + 0.2vh, 12px);
-  --daw-ctrl-h: clamp(21px, 2.5dvh, 25px);
+  --daw-badge-pad: 0 clamp(4px, 0.4vw, 7px);
+  --daw-ctrl-font: clamp(9.5px, 0.7vw + 0.18vh, 11px);
+  --daw-ctrl-h: clamp(18px, 2.1dvh, 22px);
 
   /* Fluid Header Brand Scaling System */
   --header-brand-font: clamp(12px, 1.1vw + 0.45vh, 26px);
@@ -138,14 +138,20 @@
   --sal: env(safe-area-inset-left, 0px);
   --sar: env(safe-area-inset-right, 0px);
 
-  /* Industry-Standard Stem Audio Palette */
+  /* Industry-Standard Stem Audio Palette (All 12 Canonical ACE-Step 1.5 XL Classes) */
   --stem-master: #a855f7;
   --stem-vocals: #00f0ff;
+  --stem-backing-vocals: #38bdf8;
   --stem-drums: #ff5500;
+  --stem-percussion: #fb923c;
   --stem-bass: #ffb700;
   --stem-synth: #d946ef;
   --stem-keys: #ec4899;
   --stem-guitar: #10b981;
+  --stem-strings: #f43f5e;
+  --stem-woodwinds: #2dd4bf;
+  --stem-brass: #facc15;
+  --stem-fx: #818cf8;
   --stem-other: #00e676;
   --stem-instrumental: #3b82f6;
 }
