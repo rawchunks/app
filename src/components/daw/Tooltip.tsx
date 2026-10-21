@@ -19,12 +19,33 @@ export const Tooltip: React.FC<TooltipProps> = ({
   const [isVisible, setIsVisible] = useState(false);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const bubbleRef = useRef<HTMLDivElement | null>(null);
+  const showTimerRef = useRef<NodeJS.Timeout | null>(null);
   const hideTimerRef = useRef<NodeJS.Timeout | null>(null);
   const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const isTouchShowingRef = useRef(false);
+
+  const clearAllTimers = () => {
+    if (showTimerRef.current) {
+      clearTimeout(showTimerRef.current);
+      showTimerRef.current = null;
+    }
+    if (hideTimerRef.current) {
+      clearTimeout(hideTimerRef.current);
+      hideTimerRef.current = null;
+    }
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
 
   const calculatePosition = () => {
     if (!wrapperRef.current || !bubbleRef.current) return;
     const rect = wrapperRef.current.getBoundingClientRect();
+    if (rect.width === 0 && rect.height === 0) {
+      setIsVisible(false);
+      return;
+    }
     const tooltipWidth = bubbleRef.current.offsetWidth || 220;
     const tooltipHeight = bubbleRef.current.offsetHeight || 44;
     const padding = 12;
@@ -56,39 +77,48 @@ export const Tooltip: React.FC<TooltipProps> = ({
     if (typeof window !== 'undefined' && window.matchMedia('(hover: none)').matches) {
       return;
     }
-    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
-    setIsVisible(true);
+    clearAllTimers();
+    showTimerRef.current = setTimeout(() => {
+      if (wrapperRef.current && wrapperRef.current.matches(':hover')) {
+        isTouchShowingRef.current = false;
+        setIsVisible(true);
+      }
+    }, 100);
   };
 
-  const hideTooltip = () => {
-    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
-    hideTimerRef.current = setTimeout(() => {
-      setIsVisible(false);
-    }, 80);
+  const hideTooltipImmediate = () => {
+    clearAllTimers();
+    isTouchShowingRef.current = false;
+    setIsVisible(false);
   };
 
   const handleTouchStart = () => {
     if (typeof window !== 'undefined' && window.matchMedia('(hover: none)').matches) {
-      if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+      clearAllTimers();
       longPressTimerRef.current = setTimeout(() => {
+        isTouchShowingRef.current = true;
         setIsVisible(true);
       }, 450);
     }
   };
 
   const handleTouchEnd = () => {
-    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
     if (isVisible) {
       hideTimerRef.current = setTimeout(() => {
+        isTouchShowingRef.current = false;
         setIsVisible(false);
-      }, 1200);
+      }, 900);
     }
   };
 
-  const handleClick = () => {
-    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
-    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
-    setIsVisible(false);
+  const handlePointerDownCapture = (e: React.PointerEvent) => {
+    if (e.pointerType !== 'touch') {
+      hideTooltipImmediate();
+    }
   };
 
   useLayoutEffect(() => {
@@ -98,31 +128,78 @@ export const Tooltip: React.FC<TooltipProps> = ({
   }, [isVisible]);
 
   useEffect(() => {
-    const handleScrollOrResize = () => {
-      if (isVisible) {
-        calculatePosition();
+    if (!isVisible) return;
+
+    const handleGlobalDismiss = () => {
+      hideTooltipImmediate();
+    };
+
+    const handleGlobalPointerMove = (e: PointerEvent) => {
+      if (isTouchShowingRef.current) return;
+      const el = wrapperRef.current;
+      if (!el) {
+        hideTooltipImmediate();
+        return;
+      }
+      const rect = el.getBoundingClientRect();
+      const inside =
+        e.clientX >= rect.left &&
+        e.clientX <= rect.right &&
+        e.clientY >= rect.top &&
+        e.clientY <= rect.bottom;
+      if (!inside || !el.matches(':hover')) {
+        hideTooltipImmediate();
       }
     };
-    window.addEventListener('scroll', handleScrollOrResize, true);
-    window.addEventListener('resize', handleScrollOrResize);
+
+    const handleGlobalPointerDown = (e: PointerEvent) => {
+      if (isTouchShowingRef.current && wrapperRef.current?.contains(e.target as Node)) {
+        return;
+      }
+      hideTooltipImmediate();
+    };
+
+    window.addEventListener('pointermove', handleGlobalPointerMove, { passive: true, capture: true });
+    window.addEventListener('pointerdown', handleGlobalPointerDown, true);
+    window.addEventListener('click', handleGlobalDismiss, true);
+    window.addEventListener('keydown', handleGlobalDismiss, true);
+    window.addEventListener('scroll', handleGlobalDismiss, true);
+    window.addEventListener('wheel', handleGlobalDismiss, { passive: true, capture: true });
+    window.addEventListener('resize', handleGlobalDismiss);
+    window.addEventListener('blur', handleGlobalDismiss);
+
     return () => {
-      window.removeEventListener('scroll', handleScrollOrResize, true);
-      window.removeEventListener('resize', handleScrollOrResize);
-      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
-      if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+      window.removeEventListener('pointermove', handleGlobalPointerMove, true);
+      window.removeEventListener('pointerdown', handleGlobalPointerDown, true);
+      window.removeEventListener('click', handleGlobalDismiss, true);
+      window.removeEventListener('keydown', handleGlobalDismiss, true);
+      window.removeEventListener('scroll', handleGlobalDismiss, true);
+      window.removeEventListener('wheel', handleGlobalDismiss, true);
+      window.removeEventListener('resize', handleGlobalDismiss);
+      window.removeEventListener('blur', handleGlobalDismiss);
     };
   }, [isVisible]);
+
+  useEffect(() => {
+    return () => {
+      clearAllTimers();
+    };
+  }, []);
 
   return (
     <div
       ref={wrapperRef}
       className={`daw-tooltip-wrapper ${className}`}
       onMouseEnter={showTooltip}
-      onMouseLeave={hideTooltip}
+      onMouseLeave={hideTooltipImmediate}
+      onPointerLeave={hideTooltipImmediate}
+      onPointerDownCapture={handlePointerDownCapture}
+      onClickCapture={hideTooltipImmediate}
+      onBlur={hideTooltipImmediate}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
-      onTouchCancel={handleTouchEnd}
-      onClick={handleClick}
+      onTouchCancel={ hideTooltipImmediate }
+      onTouchMove={ hideTooltipImmediate }
     >
       {children}
       {isVisible &&
