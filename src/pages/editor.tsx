@@ -10,9 +10,11 @@ import { useDawStore, TrackType, type Take, type LyricsAlignment } from '../lib/
 import { dawEngine } from '../lib/daw/engine';
 import { useOptions } from '../hooks/use-options';
 import { useSelectedUserAddress } from '../hooks/use-address';
-import { useSession, promptSessionModal } from '../components/session';
+import { useSession, promptSessionModal, SessionControl } from '../components/session';
+import { WalletConnector } from '../components/connector';
 import { Board } from '../components/daw/Board';
-import { Toolbox, ActiveTool } from '../components/daw/Toolbox';
+import { Toolbox, ManualToolTab } from '../components/daw/Toolbox';
+import { Studio } from '../components/daw/Studio';
 import { Tooltip } from '../components/daw/Tooltip';
 import { ArrowLeft, Play, Pause, Square, SkipBack, Repeat } from 'lucide-react';
 import { source, sourceInterval, interval, isLayerTake, layerTrackName, isFullSongRestyleTake } from '../lib/daw/takes';
@@ -374,15 +376,15 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
   const effectiveAddress = userAddress;
   const queryClient = useQueryClient();
 
-  // Active Toolbox View (Supports deep-linking via ?tab=mixer, etc.)
-  const [activeTool, setActiveTool] = useState<ActiveTool>(() => {
+  // Active Manual Tool View (Supports deep-linking via ?tab=mixer, etc.)
+  const [activeTool, setActiveTool] = useState<ManualToolTab>(() => {
     if (typeof window !== 'undefined') {
       const p = new URLSearchParams(window.location.search).get('tab');
-      if (p && ['studio', 'mixer', 'keys', 'drums', 'strudel', 'dsp', 'sample', 'history'].includes(p)) {
-        return p as ActiveTool;
+      if (p && ['mixer', 'keys', 'drums', 'strudel', 'dsp', 'sample', 'history'].includes(p)) {
+        return p as ManualToolTab;
       }
     }
-    return 'studio';
+    return 'mixer';
   });
 
   // Mobile Mission-Control Focus ('toolbox' | 'studio' — both remain visible via live graphical telemetry bars)
@@ -597,12 +599,12 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
               lastWipRef.current = wipData.wip;
               try {
                 localStorage.setItem(`rawchunks:wip:v1:${song.id}`, JSON.stringify(wipData.wip));
-              } catch {}
+              } catch { }
               useDawStore.getState().hydrateWipSnapshot(wipData.wip);
             }
           }
         }
-      } catch {}
+      } catch { }
     };
 
     try {
@@ -715,7 +717,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
           useDawStore.getState().hydrateWipSnapshot(parsedLocalWip);
         }
       }
-    } catch {}
+    } catch { }
 
     const master = useDawStore.getState().tracks.find(track => track.id === 'master')?.clips[0];
     if (master) {
@@ -807,7 +809,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
     }
   };
 
-  // Global Keyboard Shortcuts (Space, Shift+Space, L, 0, M, S, Escape)
+  // Global Keyboard Shortcuts (Space, Shift+Space, L, 0, M, S, Escape, Cmd/Ctrl+Z, Cmd/Ctrl+Shift+Z)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName) || (e.target as HTMLElement)?.isContentEditable) {
@@ -879,6 +881,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
     if (type === 'pianoroll') setActiveTool('keys');
     if (type === 'sequencer') setActiveTool('drums');
     if (type === 'strudel') setActiveTool('strudel');
+    setMobileFocus('toolbox');
     setToolboxRevision((v) => v + 1);
   };
 
@@ -1030,7 +1033,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
             sessionStorage.setItem('rawchunks_editing_song', JSON.stringify({ ...parsed, url: masterUrl, duration: state.duration }));
           }
         }
-      } catch {}
+      } catch { }
 
       const wipSnapshot = {
         ...state.buildWipSnapshot(),
@@ -1039,7 +1042,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
       lastWipRef.current = wipSnapshot;
       try {
         localStorage.setItem(`rawchunks:wip:v1:${song.id}`, JSON.stringify(wipSnapshot));
-      } catch {}
+      } catch { }
 
       if (syncRemote) {
         void sdk.fetch(`/api/editing/wip/${encodeURIComponent(song.id)}`, {
@@ -1052,7 +1055,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
             userAddress: storageAddress,
             wip: wipSnapshot,
           }),
-        }).catch(() => {});
+        }).catch(() => { });
       }
     };
 
@@ -1147,7 +1150,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
         body: JSON.stringify({
           songId: song.id,
           userAddress: effectiveAddress,
-            stemType: 'all',
+          stemType: 'all',
         }),
       });
 
@@ -1337,7 +1340,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
 
       if (task === 'repaint' && !selection) throw new Error('Select a section to rework');
       const selectedTake = takes.find(take => take.id === selectedTrackId);
-      const sourceRegion = selection && selectedTake ? sourceInterval(selectedTake,tracks,selection) : selection;
+      const sourceRegion = selection && selectedTake ? sourceInterval(selectedTake, tracks, selection) : selection;
       const start = sourceRegion?.start;
       const end = sourceRegion?.end;
 
@@ -1507,7 +1510,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
     const selectedTake = currentTakes.find((t) => t.id === trackId);
     if (selectedTake && selectedTake.url) {
       const mounted = useDawStore.getState().tracks.find(track => track.id === trackId && track.id === track.activeTakeId);
-      const region = mounted?.clips.length ? {start:Math.min(...mounted.clips.map(clip => clip.startTime)),end:Math.max(...mounted.clips.map(clip => clip.startTime + clip.duration))} : interval(selectedTake, useDawStore.getState().duration);
+      const region = mounted?.clips.length ? { start: Math.min(...mounted.clips.map(clip => clip.startTime)), end: Math.max(...mounted.clips.map(clip => clip.startTime + clip.duration)) } : interval(selectedTake, useDawStore.getState().duration);
       if (region && (!useDawStore.getState().selection || useDawStore.getState().selection!.start < region.start || useDawStore.getState().selection!.end > region.end)) setSelection(region);
       return;
     }
@@ -1517,22 +1520,22 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
   const handleReworkSection = useCallback(() => {
     const sel = useDawStore.getState().selection;
     if (sel) {
-      setActiveTool('studio');
       setTask('repaint');
+      setMobileFocus('studio');
       setToolboxRevision(value => value + 1);
     } else {
       toast.error('Select a region on the timeline first to rework');
     }
-  }, [setActiveTool, setTask, setPrompt]);
+  }, [setTask]);
 
   return (
-    <div className={`editor-container ${className}`}>
-      {/* Top Workstation Bar */}
+    <div className={`editor-container ${className}`} data-mobile-focus={mobileFocus}>
+      {/* Row 1: Top Workstation Bar — [BACK-ARROW] | [TITLE-SECTION] | [CONTROLLERS] | [SESSION+PROFILE] */}
       <div className="editor-header-bar">
         <div className="editor-header-left">
-          <Tooltip title="Return to Library" description="Exit workstation and return to your tracks">
-            <Button variant="ghost" size="sm" onClick={onBack} className="editor-back-btn">
-              <ArrowLeft size={14} /> <span className="editor-btn-label">STUDIO</span>
+          <Tooltip title="Return to your Page" description="Exit workstation and return to your tracks">
+            <Button variant="ghost" size="sm" onClick={onBack} className="editor-back-btn" aria-label="Return to Profile">
+              <ArrowLeft size={14} /> <span className="editor-btn-label">PROFILE</span>
             </Button>
           </Tooltip>
           <div className="editor-header-text">
@@ -1551,6 +1554,14 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
                   dawEngine.setBpm(v);
                 }}
               />
+              {processing && (
+                <>
+                  <span>•</span>
+                  <Badge variant="secondary">
+                    PROCESSING {progress === undefined ? '' : `${progress}%`}
+                  </Badge>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -1558,25 +1569,12 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
         <EditorTransportDeck fallbackDuration={song.duration} />
 
         <div className="editor-header-actions">
-          <Tooltip title="Commit Snapshot" description="Save project milestone snapshot to timeline history">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setIsCommitModalOpen(true)}
-              className="editor-commit-btn"
-            >
-              <GitCommit size={13} /> <span className="editor-btn-label">COMMIT</span>
-            </Button>
-          </Tooltip>
-          {processing && (
-            <Badge variant="secondary">
-              PROCESSING {progress === undefined ? '' : `${progress}%`}
-            </Badge>
-          )}
+          <SessionControl />
+          <WalletConnector compact />
         </div>
       </div>
 
-      {/* Unified Multi-Track Board Viewport */}
+      {/* Rows 2 & 3: Selected Lane (with Embedded Master Horizon) + Middle Split (Stems Matrix | Manual Toolbox) */}
       <div className="editor-board-wrapper">
         <Board
           song={song}
@@ -1584,8 +1582,13 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
           onSelectTrack={handleSelectTrack}
           onAddTrack={handleAddTrack}
           onOpenTool={(tool, studioTask) => {
-            setActiveTool(tool);
-            if (studioTask) setTask(studioTask);
+            if (tool === 'studio') {
+              if (studioTask) setTask(studioTask);
+              setMobileFocus('studio');
+            } else {
+              setActiveTool(tool as ManualToolTab);
+              setMobileFocus('toolbox');
+            }
             setToolboxRevision((v) => v + 1);
           }}
           onSeparateStems={handleSeparateStems}
@@ -1606,55 +1609,78 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
           instrument={instrument}
           processing={processing}
           reveal={toolboxRevision}
+          canUndo={historyCounts.past > 0}
+          canRedo={historyCounts.future > 0}
+          onUndo={handleUndo}
+          onRedo={handleRedo}
+          onOpenCommitModal={() => setIsCommitModalOpen(true)}
+          toolboxSlot={
+            <Toolbox
+              activeTool={activeTool}
+              onSelectTool={(tool) => {
+                if (tool && tool !== 'studio') {
+                  setActiveTool(tool);
+                }
+                setMobileFocus('toolbox');
+              }}
+              selectedTrackId={selectedTrackId}
+              onSelectTrack={handleSelectTrack}
+              onOpenCommitModal={() => setIsCommitModalOpen(true)}
+              mobileFocused={mobileFocus === 'toolbox'}
+              onMobileFocus={() => setMobileFocus('toolbox')}
+            />
+          }
         />
       </div>
 
-      {/* Unified Bottom Controller (Option A: Split & Compact Modes) */}
-      <Toolbox
-        options={editing}
-        optionsError={options.error?.message}
-        languages={options.data?.generation?.languages}
-        parameters={parameters}
-        onParametersChange={setParameters}
-        activeTool={activeTool}
-        onSelectTool={setActiveTool}
-        task={task}
-        onSelectTask={setTask}
-        prompt={prompt}
-        onPromptChange={setPrompt}
-        lyrics={lyrics}
-        onLyricsChange={setLyrics}
-        vocalLanguage={vocalLanguage}
-        onVocalLanguageChange={setVocalLanguage}
-        hasExistingLyrics={hasExistingLyrics}
-        isTranscribingLyrics={isTranscribingLyrics}
-        onExtractLyrics={handleExtractLyrics}
-        lyricsAlignment={lyricsAlignment}
-        isAligningLyrics={isAligningLyrics}
-        onAlignLyrics={handleAlignLyrics}
-        selectedQuality={selectedQuality}
-        onQualityChange={setSelectedQuality}
-        repaintMode={repaintMode}
-        onRepaintModeChange={setRepaintMode}
-        repaintStrength={repaintStrength}
-        onRepaintStrengthChange={setRepaintStrength}
-        instrument={instrument}
-        onInstrumentChange={setInstrument}
-        coverStrength={coverStrength}
-        onCoverStrengthChange={setCoverStrength}
-        targetDuration={targetDuration}
-        onTargetDurationChange={setTargetDuration}
-        stemType={stemType}
-        onStemTypeChange={setStemType}
-        onExecute={handleApplyEdit}
-        processing={processing}
-        progress={progress}
-        reveal={toolboxRevision}
-        selectedTrackId={selectedTrackId}
-        onSelectTrack={handleSelectTrack}
-        onClearSelection={() => setSelection(null)}
-        onOpenCommitModal={() => setIsCommitModalOpen(true)}
-      />
+      {/* Row 4: Bottom Split — Standalone AI Studio ([SELECTED AI] | [AI ICON x 6]) */}
+      <div className="editor-studio-wrapper">
+        <Studio
+          options={editing}
+          optionsError={options.error?.message}
+          languages={options.data?.generation?.languages}
+          parameters={parameters}
+          onParametersChange={setParameters}
+          task={task}
+          onSelectTask={(nextTask) => {
+            setTask(nextTask);
+            setMobileFocus('studio');
+          }}
+          prompt={prompt}
+          onPromptChange={setPrompt}
+          lyrics={lyrics}
+          onLyricsChange={setLyrics}
+          vocalLanguage={vocalLanguage}
+          onVocalLanguageChange={setVocalLanguage}
+          hasExistingLyrics={hasExistingLyrics}
+          isTranscribingLyrics={isTranscribingLyrics}
+          onExtractLyrics={handleExtractLyrics}
+          lyricsAlignment={lyricsAlignment}
+          isAligningLyrics={isAligningLyrics}
+          onAlignLyrics={handleAlignLyrics}
+          selectedQuality={selectedQuality}
+          onQualityChange={setSelectedQuality}
+          repaintMode={repaintMode}
+          onRepaintModeChange={setRepaintMode}
+          repaintStrength={repaintStrength}
+          onRepaintStrengthChange={setRepaintStrength}
+          instrument={instrument}
+          onInstrumentChange={setInstrument}
+          coverStrength={coverStrength}
+          onCoverStrengthChange={setCoverStrength}
+          targetDuration={targetDuration}
+          onTargetDurationChange={setTargetDuration}
+          stemType={stemType}
+          onStemTypeChange={setStemType}
+          onExecute={handleApplyEdit}
+          processing={processing}
+          progress={progress}
+          selectedTrackId={selectedTrackId}
+          onClearSelection={() => setSelection(null)}
+          isFocusedMobile={mobileFocus === 'studio'}
+          onFocusMobile={() => setMobileFocus('studio')}
+        />
+      </div>
 
       {/* Commit Snapshot Modal Dialog */}
       <Modal
