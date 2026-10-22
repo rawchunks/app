@@ -545,7 +545,8 @@ export const Clip: React.FC<ClipProps> = ({
   );
 
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!trackId || e.button !== 0) return;
+    if ((!trackId && !enableSelection) || e.button !== 0) return;
+    e.stopPropagation();
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
@@ -561,10 +562,15 @@ export const Clip: React.FC<ClipProps> = ({
       holdTimerRef.current = null;
     }
 
+    const clickTimeSec = Math.max(
+      0,
+      Math.min(effectiveDuration, (clip.startTime || 0) + xRatio * (clip.duration || effectiveDuration))
+    );
+
     // Check top-left fade-in / top-right fade-out handles first
     const fadeInPx = ratioToLocalX(effectiveSculpt.fadeIn, rect.width);
     const fadeOutPx = ratioToLocalX(1 - effectiveSculpt.fadeOut, rect.width);
-    if (localY <= Math.min(14, rect.height * 0.38)) {
+    if (trackId && localY <= Math.min(14, rect.height * 0.38)) {
       if (Math.abs(localX - fadeInPx) <= 12) {
         dragStateRef.current = {
           pointerId: e.pointerId,
@@ -611,6 +617,125 @@ export const Clip: React.FC<ClipProps> = ({
       }
     }
 
+    // Priority check for active selected-region edges (iv) and selected-region body pan/drag (iii)
+    if (enableSelection && clipRatioSelection && selection) {
+      const selStartX = ratioToLocalX(clipRatioSelection.start, rect.width);
+      const selEndX = ratioToLocalX(clipRatioSelection.end, rect.width);
+
+      if (Math.abs(localX - selStartX) <= 12) {
+        dragStateRef.current = {
+          pointerId: e.pointerId,
+          mode: 'sel-start',
+          nodeIdx: -1,
+          rangeOriginSec: clickTimeSec,
+          initialSelStart: selection.start,
+          initialSelEnd: selection.end,
+          tool: 'grab',
+          startX: e.clientX,
+          startY: e.clientY,
+          initialGainDb: 0,
+          initialWarpOffset: 0,
+          initialTimeShift: 0,
+          initialBend: 0,
+          initialSmash: 0,
+          initialSmooth: 0,
+          initialSharpen: 0,
+          initialRadius: 0.04,
+          moved: false,
+          downTime: now,
+        };
+        canvas.style.cursor = 'ew-resize';
+        try { canvas.setPointerCapture(e.pointerId); } catch {}
+        return;
+      }
+
+      if (Math.abs(localX - selEndX) <= 12) {
+        dragStateRef.current = {
+          pointerId: e.pointerId,
+          mode: 'sel-end',
+          nodeIdx: -1,
+          rangeOriginSec: clickTimeSec,
+          initialSelStart: selection.start,
+          initialSelEnd: selection.end,
+          tool: 'grab',
+          startX: e.clientX,
+          startY: e.clientY,
+          initialGainDb: 0,
+          initialWarpOffset: 0,
+          initialTimeShift: 0,
+          initialBend: 0,
+          initialSmash: 0,
+          initialSmooth: 0,
+          initialSharpen: 0,
+          initialRadius: 0.04,
+          moved: false,
+          downTime: now,
+        };
+        canvas.style.cursor = 'ew-resize';
+        try { canvas.setPointerCapture(e.pointerId); } catch {}
+        return;
+      }
+
+      if (localX > selStartX + 12 && localX < selEndX - 12) {
+        dragStateRef.current = {
+          pointerId: e.pointerId,
+          mode: 'sel-pan',
+          nodeIdx: -1,
+          rangeOriginSec: clickTimeSec,
+          initialSelStart: selection.start,
+          initialSelEnd: selection.end,
+          tool: 'grab',
+          startX: e.clientX,
+          startY: e.clientY,
+          initialGainDb: 0,
+          initialWarpOffset: 0,
+          initialTimeShift: 0,
+          initialBend: 0,
+          initialSmash: 0,
+          initialSmooth: 0,
+          initialSharpen: 0,
+          initialRadius: 0.04,
+          moved: false,
+          downTime: now,
+        };
+        canvas.style.cursor = 'grabbing';
+        try { canvas.setPointerCapture(e.pointerId); } catch {}
+        return;
+      }
+    }
+
+    const outsideWave = isPointOutsideWaveform(xRatio, localY, rect.height);
+
+    // (i) Single click OUTSIDE the waveform (above or below): instant seek & play;
+    // (ii) Long-hold and drag: draw the selected-region
+    if (!trackId || (enableSelection && outsideWave)) {
+      if (enableSelection) {
+        seekAndPlayAtSec(clickTimeSec);
+      }
+      dragStateRef.current = {
+        pointerId: e.pointerId,
+        mode: 'range',
+        nodeIdx: -1,
+        rangeOriginSec: clickTimeSec,
+        tool: 'grab',
+        startX: e.clientX,
+        startY: e.clientY,
+        initialGainDb: 0,
+        initialWarpOffset: 0,
+        initialTimeShift: 0,
+        initialBend: 0,
+        initialSmash: 0,
+        initialSmooth: 0,
+        initialSharpen: 0,
+        initialRadius: 0.04,
+        moved: false,
+        alreadySeeked: true,
+        downTime: now,
+      };
+      try { canvas.setPointerCapture(e.pointerId); } catch {}
+      return;
+    }
+
     if (sculptMode === 'curve') {
       // SPEED / MEDIAN CURVE MODE
       const nodes = effectiveSculpt.nodes;
@@ -625,28 +750,30 @@ export const Clip: React.FC<ClipProps> = ({
         }
       });
 
-      const targetNode = nodes[closestIdx];
-      dragStateRef.current = {
-        pointerId: e.pointerId,
-        mode: 'node',
-        nodeIdx: closestIdx,
-        tool: 'grab',
-        startX: e.clientX,
-        startY: e.clientY,
-        initialGainDb: targetNode.gainDb,
-        initialWarpOffset: targetNode.warpOffset,
-        initialTimeShift: 0,
-        initialBend: 0,
-        initialSmash: 0,
-        initialSmooth: 0,
-        initialSharpen: 0,
-        initialRadius: 0.04,
-        moved: false,
-        downTime: now,
-      };
-      setActiveNodeIdx(closestIdx);
-      try { canvas.setPointerCapture(e.pointerId); } catch {}
-      return;
+      if (!enableSelection || closestDist <= 0.04 / zoomFactor) {
+        const targetNode = nodes[closestIdx];
+        dragStateRef.current = {
+          pointerId: e.pointerId,
+          mode: 'node',
+          nodeIdx: closestIdx,
+          tool: 'grab',
+          startX: e.clientX,
+          startY: e.clientY,
+          initialGainDb: targetNode.gainDb,
+          initialWarpOffset: targetNode.warpOffset,
+          initialTimeShift: 0,
+          initialBend: 0,
+          initialSmash: 0,
+          initialSmooth: 0,
+          initialSharpen: 0,
+          initialRadius: 0.04,
+          moved: false,
+          downTime: now,
+        };
+        setActiveNodeIdx(closestIdx);
+        try { canvas.setPointerCapture(e.pointerId); } catch {}
+        return;
+      }
     }
 
     // GRANULAR WAVE SHAPE DESIGN MODE: Direct finger/cursor peak manipulation
@@ -719,6 +846,7 @@ export const Clip: React.FC<ClipProps> = ({
       anchorsSnapshot: ownAnchors,
       pendingAnchor: targetAnchor,
       isNewAnchor,
+      rangeOriginSec: clickTimeSec,
       tool: 'grab',
       startX: e.clientX,
       startY: e.clientY,
