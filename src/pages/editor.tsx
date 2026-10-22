@@ -385,6 +385,85 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
     return 'studio';
   });
 
+  // Mobile Mission-Control Focus ('toolbox' | 'studio' — both remain visible via live graphical telemetry bars)
+  const [mobileFocus, setMobileFocus] = useState<'toolbox' | 'studio'>(() => {
+    if (typeof window !== 'undefined') {
+      const p = new URLSearchParams(window.location.search).get('tab');
+      if (p === 'studio') return 'studio';
+    }
+    return 'toolbox';
+  });
+
+  // Client-side Undo / Redo History Stack
+  const historyRef = useRef<{
+    past: Array<{ tracks: ReturnType<typeof useDawStore.getState>['tracks']; bpm: number; originals: ReturnType<typeof useDawStore.getState>['originals'] }>;
+    future: Array<{ tracks: ReturnType<typeof useDawStore.getState>['tracks']; bpm: number; originals: ReturnType<typeof useDawStore.getState>['originals'] }>;
+    isApplying: boolean;
+    lastPushTime: number;
+  }>({
+    past: [],
+    future: [],
+    isApplying: false,
+    lastPushTime: 0,
+  });
+  const [historyCounts, setHistoryCounts] = useState<{ past: number; future: number }>({ past: 0, future: 0 });
+
+  const applyHistorySnapshot = useCallback(
+    (snap: { tracks: ReturnType<typeof useDawStore.getState>['tracks']; bpm: number; originals: ReturnType<typeof useDawStore.getState>['originals'] }) => {
+      historyRef.current.isApplying = true;
+      try {
+        useDawStore.setState({
+          tracks: structuredClone(snap.tracks),
+          bpm: snap.bpm,
+          originals: structuredClone(snap.originals),
+        });
+        dawEngine.setBpm(snap.bpm);
+        for (const t of snap.tracks) {
+          dawEngine.updateTrackMixer(t.id);
+        }
+      } finally {
+        historyRef.current.isApplying = false;
+      }
+    },
+    [],
+  );
+
+  const handleUndo = useCallback(() => {
+    const past = historyRef.current.past;
+    if (past.length === 0) return;
+    const prevSnap = past[past.length - 1];
+    const current = useDawStore.getState();
+    historyRef.current.past = past.slice(0, -1);
+    historyRef.current.future = [
+      ...historyRef.current.future,
+      {
+        tracks: structuredClone(current.tracks),
+        bpm: current.bpm,
+        originals: structuredClone(current.originals),
+      },
+    ];
+    applyHistorySnapshot(prevSnap);
+    setHistoryCounts({ past: historyRef.current.past.length, future: historyRef.current.future.length });
+  }, [applyHistorySnapshot]);
+
+  const handleRedo = useCallback(() => {
+    const future = historyRef.current.future;
+    if (future.length === 0) return;
+    const nextSnap = future[future.length - 1];
+    const current = useDawStore.getState();
+    historyRef.current.future = future.slice(0, -1);
+    historyRef.current.past = [
+      ...historyRef.current.past,
+      {
+        tracks: structuredClone(current.tracks),
+        bpm: current.bpm,
+        originals: structuredClone(current.originals),
+      },
+    ];
+    applyHistorySnapshot(nextSnap);
+    setHistoryCounts({ past: historyRef.current.past.length, future: historyRef.current.future.length });
+  }, [applyHistorySnapshot]);
+
   // AI Generation & Studio Parameters
   const [task, setTask] = useState<Task>('repaint');
   const [selectedQuality, setSelectedQuality] = useState<string>('');
@@ -734,7 +813,21 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName) || (e.target as HTMLElement)?.isContentEditable) {
         return;
       }
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.metaKey || e.ctrlKey) {
+        if ((e.key === 'z' || e.key === 'Z') && !e.altKey) {
+          e.preventDefault();
+          if (e.shiftKey) {
+            handleRedo();
+          } else {
+            handleUndo();
+          }
+        } else if ((e.key === 'y' || e.key === 'Y') && !e.altKey) {
+          e.preventDefault();
+          handleRedo();
+        }
+        return;
+      }
+      if (e.altKey) return;
       if (e.code === 'Space') {
         e.preventDefault();
         if (e.shiftKey) {
@@ -776,7 +869,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isPlaying, loop, selection, selectedTrackId, takes, setSelection]);
+  }, [isPlaying, loop, selection, selectedTrackId, takes, setSelection, handleUndo, handleRedo]);
 
   // Track Creation via '+' Tool Selector
   const handleAddTrack = (type: TrackType) => {
@@ -965,6 +1058,25 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
 
     const unsub = useDawStore.subscribe((state, previous) => {
       if (!wipHydratedRef.current || state.songId !== song.id) return;
+      if (
+        !historyRef.current.isApplying &&
+        (state.tracks !== previous.tracks || state.bpm !== previous.bpm || state.originals !== previous.originals)
+      ) {
+        const now = performance.now();
+        if (now - historyRef.current.lastPushTime > 400 || historyRef.current.past.length === 0) {
+          historyRef.current.past = [
+            ...historyRef.current.past.slice(-34),
+            {
+              tracks: structuredClone(previous.tracks),
+              bpm: previous.bpm,
+              originals: structuredClone(previous.originals),
+            },
+          ];
+        }
+        historyRef.current.lastPushTime = now;
+        historyRef.current.future = [];
+        setHistoryCounts({ past: historyRef.current.past.length, future: 0 });
+      }
       if (
         state.tracks !== previous.tracks ||
         state.takes !== previous.takes ||
