@@ -634,16 +634,18 @@
   display: flex;
   flex-direction: column;
   width: 100%;
-  min-height: clamp(17rem, 48dvh, 26rem);
+  height: clamp(18rem, 52dvh, 26rem);
+  min-height: 0;
   gap: 0.5rem;
 }
 
 .toolbox-lyrics-overlay-modal .toolbox-lyrics-sidepanel {
-  flex: 1 1 auto !important;
+  flex: 1 1 0 !important;
   width: 100% !important;
   min-width: 0 !important;
   max-width: 100% !important;
-  min-height: clamp(15rem, 42dvh, 23rem);
+  height: 100% !important;
+  min-height: 0 !important;
   border-left: 1px solid var(--border-bright);
 }
 
