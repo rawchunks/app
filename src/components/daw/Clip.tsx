@@ -871,9 +871,9 @@ export const Clip: React.FC<ClipProps> = ({
     try { canvas.setPointerCapture(e.pointerId); } catch {}
   };
 
-  const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+  const handlePointerMove = (e: React.PointerEvent<HTMLElement>) => {
     const canvas = canvasRef.current;
-    if (!canvas || !trackId) return;
+    if (!canvas || (!trackId && !enableSelection)) return;
     const rect = canvas.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return;
 
@@ -883,6 +883,26 @@ export const Clip: React.FC<ClipProps> = ({
 
     const drag = dragStateRef.current;
     if (!drag) {
+      if (enableSelection && clipRatioSelection) {
+        const selStartX = ratioToLocalX(clipRatioSelection.start, rect.width);
+        const selEndX = ratioToLocalX(clipRatioSelection.end, rect.width);
+        if (Math.abs(localX - selStartX) <= 12 || Math.abs(localX - selEndX) <= 12) {
+          if (hoverPeak) setHoverPeak(null);
+          canvas.style.cursor = 'ew-resize';
+          return;
+        }
+        if (localX > selStartX + 12 && localX < selEndX - 12) {
+          if (hoverPeak) setHoverPeak(null);
+          canvas.style.cursor = 'grab';
+          return;
+        }
+      }
+      const outsideWave = isPointOutsideWaveform(xRatio, localY, rect.height);
+      if (outsideWave) {
+        if (hoverPeak) setHoverPeak(null);
+        canvas.style.cursor = 'pointer';
+        return;
+      }
       if (sculptMode === 'granular' && displayPeaks && displayPeaks.bins > 0) {
         const bin = Math.min(displayPeaks.bins - 1, Math.max(0, Math.floor(xRatio * displayPeaks.bins)));
         const midY = rect.height / 2;
@@ -901,6 +921,7 @@ export const Clip: React.FC<ClipProps> = ({
             ? displayPeaks.maxs[bin]
             : displayPeaks.mins[bin];
         setHoverPeak({ ratio: (bin + 0.5) / displayPeaks.bins, polarity, peakVal });
+        canvas.style.cursor = 'grab';
       } else if (hoverPeak) {
         setHoverPeak(null);
       }
@@ -916,7 +937,16 @@ export const Clip: React.FC<ClipProps> = ({
         clearTimeout(holdTimerRef.current);
         holdTimerRef.current = null;
       }
-      if (drag.mode === 'anchor' && drag.anchorId) {
+      // In Focus Lane, a horizontal drag without holding on an existing peak draws a time section directly
+      if (
+        enableSelection &&
+        drag.mode === 'anchor' &&
+        !drag.held &&
+        Math.abs(dx) >= Math.abs(dy) * 0.85
+      ) {
+        drag.mode = 'range';
+        setActiveAnchorId(null);
+      } else if (drag.mode === 'anchor' && drag.anchorId) {
         setActiveAnchorId(drag.anchorId);
         if (drag.isNewAnchor && drag.pendingAnchor) {
           let snap = [...(drag.anchorsSnapshot ?? ownSculpt.anchors ?? [])];
@@ -930,6 +960,61 @@ export const Clip: React.FC<ClipProps> = ({
       }
     }
     e.stopPropagation();
+
+    const currentSec = Math.max(
+      0,
+      Math.min(effectiveDuration, (clip.startTime || 0) + xRatio * (clip.duration || effectiveDuration))
+    );
+
+    if (drag.mode === 'range') {
+      const origin = drag.rangeOriginSec ?? currentSec;
+      const start = Math.max(0, Math.min(origin, currentSec));
+      const end = Math.min(effectiveDuration, Math.max(origin, currentSec));
+      if (end - start >= 0.25) {
+        setSelection({
+          start: Number(start.toFixed(2)),
+          end: Number(end.toFixed(2)),
+        });
+      }
+      return;
+    }
+
+    if (drag.mode === 'sel-start' && selection) {
+      const nextStart = Math.max(0, Math.min(selection.end - 0.5, currentSec));
+      setSelection({ start: Number(nextStart.toFixed(2)), end: selection.end });
+      canvas.style.cursor = 'ew-resize';
+      return;
+    }
+
+    if (drag.mode === 'sel-end' && selection) {
+      const nextEnd = Math.min(effectiveDuration, Math.max(selection.start + 0.5, currentSec));
+      setSelection({ start: selection.start, end: Number(nextEnd.toFixed(2)) });
+      canvas.style.cursor = 'ew-resize';
+      return;
+    }
+
+    if (drag.mode === 'sel-pan' && drag.initialSelStart !== undefined && drag.initialSelEnd !== undefined) {
+      const span = drag.initialSelEnd - drag.initialSelStart;
+      const deltaSec = (dx / Math.max(1, rect.width * zoomFactor)) * effectiveDuration;
+      let nextStart = drag.initialSelStart + deltaSec;
+      let nextEnd = drag.initialSelEnd + deltaSec;
+      if (nextStart < 0) {
+        nextStart = 0;
+        nextEnd = span;
+      }
+      if (nextEnd > effectiveDuration) {
+        nextEnd = effectiveDuration;
+        nextStart = Math.max(0, effectiveDuration - span);
+      }
+      setSelection({
+        start: Number(nextStart.toFixed(2)),
+        end: Number(nextEnd.toFixed(2)),
+      });
+      canvas.style.cursor = 'grabbing';
+      return;
+    }
+
+    if (!trackId) return;
 
     if (drag.mode === 'fadeIn') {
       const nextFadeIn = Math.max(0, Math.min(0.45, Math.round(xRatio * 100) / 100));
@@ -1028,7 +1113,7 @@ export const Clip: React.FC<ClipProps> = ({
     }
   };
 
-  const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+  const handlePointerUp = (e: React.PointerEvent<HTMLElement>) => {
     if (holdTimerRef.current) {
       clearTimeout(holdTimerRef.current);
       holdTimerRef.current = null;
@@ -1036,24 +1121,48 @@ export const Clip: React.FC<ClipProps> = ({
     const drag = dragStateRef.current;
     if (drag) {
       const elapsed = performance.now() - drag.downTime;
-      const didHoldOrDrag = Boolean(
-        drag.moved ||
-          drag.held ||
-          elapsed >= 180 ||
-          drag.mode === 'node' ||
-          drag.mode === 'fadeIn' ||
-          drag.mode === 'fadeOut'
-      );
-      if (didHoldOrDrag) {
-        suppressNextClickRef.current = true;
-        e.stopPropagation();
+      const dist = Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY);
+      if (drag.mode === 'sel-pan') {
+        if (!drag.moved && dist < 5 && enableSelection && drag.rangeOriginSec !== undefined) {
+          seekAndPlayAtSec(drag.rangeOriginSec);
+        } else {
+          suppressNextClickRef.current = true;
+          e.stopPropagation();
+        }
+      } else {
+        const didHoldOrDrag = Boolean(
+          drag.moved ||
+            drag.held ||
+            dist >= 5 ||
+            elapsed >= 220 ||
+            drag.mode === 'node' ||
+            drag.mode === 'fadeIn' ||
+            drag.mode === 'fadeOut' ||
+            drag.mode === 'sel-start' ||
+            drag.mode === 'sel-end'
+        );
+        if (!didHoldOrDrag && !drag.alreadySeeked && enableSelection && drag.rangeOriginSec !== undefined) {
+          seekAndPlayAtSec(drag.rangeOriginSec);
+        }
+        if (didHoldOrDrag || drag.alreadySeeked) {
+          suppressNextClickRef.current = true;
+          e.stopPropagation();
+        }
       }
       dragStateRef.current = null;
     }
+    try {
+      const targetEl = e.currentTarget as HTMLElement;
+      if (targetEl && targetEl.hasPointerCapture && targetEl.hasPointerCapture(e.pointerId)) {
+        targetEl.releasePointerCapture(e.pointerId);
+      }
+    } catch {}
     const canvas = canvasRef.current;
-    if (canvas && canvas.hasPointerCapture(e.pointerId)) {
-      canvas.releasePointerCapture(e.pointerId);
-    }
+    try {
+      if (canvas && canvas.hasPointerCapture && canvas.hasPointerCapture(e.pointerId)) {
+        canvas.releasePointerCapture(e.pointerId);
+      }
+    } catch {}
     setActiveNodeIdx(null);
     setActiveAnchorId(null);
   };
