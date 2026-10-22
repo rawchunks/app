@@ -400,6 +400,7 @@ export const Waveform: React.FC<Props> = ({
     moved?: boolean;
     held?: boolean;
     downTime?: number;
+    alreadySeeked?: boolean;
   }>({
     mode: 'none',
     startX: 0,
@@ -1095,6 +1096,20 @@ export const Waveform: React.FC<Props> = ({
     }
   };
 
+  const isPointOutsideWaveform = useCallback(
+    (ratio: number, localY: number, h: number): boolean => {
+      const midY = h / 2;
+      const distFromCenter = Math.abs(localY - midY);
+      if (distFromCenter >= midY * 0.64) return true;
+      if (activePeaks.length === 0) return true;
+      const bin = Math.min(activePeaks.length - 1, Math.max(0, Math.floor(ratio * activePeaks.length)));
+      const peak = Math.max(0.05, activePeaks[bin] ?? 0.15);
+      const waveHalfHeight = Math.min(midY * 0.62, peak * (midY * 0.88));
+      return distFromCenter > waveHalfHeight + 4;
+    },
+    [activePeaks]
+  );
+
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!interactive) return;
     const canvas = canvasRef.current;
@@ -1152,6 +1167,83 @@ export const Waveform: React.FC<Props> = ({
       }
     }
 
+    const outsideWave = isPointOutsideWaveform(ratio, y, h);
+
+    // Priority check for active selected-region edges (iv) and selected-region body pan/drag (iii)
+    if (effectiveRatioSelection && showSelection) {
+      const selStartX = ratioToLocalX(effectiveRatioSelection.start, w);
+      const selEndX = ratioToLocalX(effectiveRatioSelection.end, w);
+
+      if (Math.abs(x - selStartX) <= 12) {
+        dragRef.current = {
+          mode: 'start',
+          startX: x,
+          startRatio: ratio,
+          initialSel: { ...effectiveRatioSelection },
+          moved: false,
+          downTime: performance.now(),
+        };
+        setDragMode('start');
+        canvas.style.cursor = 'ew-resize';
+        return;
+      }
+
+      if (Math.abs(x - selEndX) <= 12) {
+        dragRef.current = {
+          mode: 'end',
+          startX: x,
+          startRatio: ratio,
+          initialSel: { ...effectiveRatioSelection },
+          moved: false,
+          downTime: performance.now(),
+        };
+        setDragMode('end');
+        canvas.style.cursor = 'ew-resize';
+        return;
+      }
+
+      if (x > selStartX + 12 && x < selEndX - 12) {
+        if (holdTimerRef.current) {
+          clearTimeout(holdTimerRef.current);
+          holdTimerRef.current = null;
+        }
+        dragRef.current = {
+          mode: 'pan',
+          startX: x,
+          startY: e.clientY,
+          startRatio: ratio,
+          initialSel: { ...effectiveRatioSelection },
+          moved: false,
+          downTime: performance.now(),
+        };
+        setDragMode('pan');
+        canvas.style.cursor = 'grabbing';
+        return;
+      }
+    }
+
+    // (i) Single click OUTSIDE the waveform (above or below): instant seek & play;
+    // (ii) Long-hold and drag: draw the selected-region
+    if (outsideWave) {
+      if (holdTimerRef.current) {
+        clearTimeout(holdTimerRef.current);
+        holdTimerRef.current = null;
+      }
+      triggerTapAtClientPos(e.clientX, e.clientY);
+      dragRef.current = {
+        mode: 'create',
+        startX: x,
+        startY: e.clientY,
+        startRatio: ratio,
+        initialSel: { start: ratio, end: ratio },
+        moved: false,
+        alreadySeeked: true,
+        downTime: performance.now(),
+      };
+      setDragMode('create');
+      return;
+    }
+
     if (sculptMode === 'curve') {
       // Check Speed / Median Curve node handle hit
       const hitSculptNode = findNearestSculptNode(x, y, w, h, e.altKey || e.shiftKey ? w : 14);
@@ -1171,135 +1263,91 @@ export const Waveform: React.FC<Props> = ({
         return;
       }
     } else {
-      // GRANULAR WAVE SHAPE DESIGN MODE: Direct finger/cursor peak manipulation anywhere on the waveform
+      // GRANULAR WAVE SHAPE DESIGN MODE: Direct finger/cursor peak manipulation on the waveform
       const hitDistRatio = Math.max(0.014, 16 / Math.max(60, w * zoomFactor));
       const existingAnchor = findNearestAnchor(ratio, hitDistRatio);
       const midY = h / 2;
 
-      const isOnSelectionEdge =
-        effectiveRatioSelection &&
-        showSelection &&
-        (Math.abs(x - ratioToLocalX(effectiveRatioSelection.start, w)) <= 12 ||
-          Math.abs(x - ratioToLocalX(effectiveRatioSelection.end, w)) <= 12);
-
-      if (!isOnSelectionEdge) {
-        if (holdTimerRef.current) {
-          clearTimeout(holdTimerRef.current);
-          holdTimerRef.current = null;
-        }
-        let targetAnchor: GranularPeakAnchor;
-        const nextAnchors = [...(effectiveSculpt.anchors ?? [])];
-        const isNewAnchor = !existingAnchor;
-        if (existingAnchor) {
-          targetAnchor = existingAnchor;
-        } else {
-          let snappedRatio = ratio;
-          if (activePeaks.length > 0) {
-            const centerBin = Math.min(activePeaks.length - 1, Math.max(0, Math.floor(ratio * activePeaks.length)));
-            let bestBin = centerBin;
-            let bestMag = -1;
-            for (let b = Math.max(0, centerBin - 2); b <= Math.min(activePeaks.length - 1, centerBin + 2); b++) {
-              const mag = activePeaks[b] ?? 0;
-              if (mag > bestMag) {
-                bestMag = mag;
-                bestBin = b;
-              }
+      if (holdTimerRef.current) {
+        clearTimeout(holdTimerRef.current);
+        holdTimerRef.current = null;
+      }
+      let targetAnchor: GranularPeakAnchor;
+      const nextAnchors = [...(effectiveSculpt.anchors ?? [])];
+      const isNewAnchor = !existingAnchor;
+      if (existingAnchor) {
+        targetAnchor = existingAnchor;
+      } else {
+        let snappedRatio = ratio;
+        if (activePeaks.length > 0) {
+          const centerBin = Math.min(activePeaks.length - 1, Math.max(0, Math.floor(ratio * activePeaks.length)));
+          let bestBin = centerBin;
+          let bestMag = -1;
+          for (let b = Math.max(0, centerBin - 2); b <= Math.min(activePeaks.length - 1, centerBin + 2); b++) {
+            const mag = activePeaks[b] ?? 0;
+            if (mag > bestMag) {
+              bestMag = mag;
+              bestBin = b;
             }
-            snappedRatio = (bestBin + 0.5) / activePeaks.length;
           }
-          targetAnchor = {
-            id: `pk-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
-            position: Number(snappedRatio.toFixed(4)),
-            radius: Number(Math.max(0.035, Math.min(0.12, 0.075 / Math.sqrt(zoomFactor))).toFixed(3)),
-            polarity: 'both',
-            gainDb: 0,
-            timeShift: 0,
-            bend: 0,
-            smash: 0,
-            smooth: 0,
-            sharpen: 0,
-          };
+          snappedRatio = (bestBin + 0.5) / activePeaks.length;
         }
-
-        const now = performance.now();
-        dragRef.current = {
-          mode: 'anchor',
-          startX: e.clientX,
-          startY: e.clientY,
-          startRatio: ratio,
-          initialSel: effectiveRatioSelection ? { ...effectiveRatioSelection } : { start: 0, end: 1 },
-          anchorId: targetAnchor.id,
-          anchorsSnapshot: nextAnchors,
-          pendingAnchor: targetAnchor,
-          isNewAnchor,
-          grabSide: y >= midY ? -1 : 1,
-          tool: 'grab',
-          initialGainDb: targetAnchor.gainDb,
-          initialTimeShift: targetAnchor.timeShift,
-          initialBend: targetAnchor.bend,
-          initialSmash: targetAnchor.smash,
-          initialSmooth: targetAnchor.smooth,
-          initialSharpen: targetAnchor.sharpen,
-          initialRadius: targetAnchor.radius,
-          moved: false,
-          held: false,
-          downTime: now,
+        targetAnchor = {
+          id: `pk-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+          position: Number(snappedRatio.toFixed(4)),
+          radius: Number(Math.max(0.035, Math.min(0.12, 0.075 / Math.sqrt(zoomFactor))).toFixed(3)),
+          polarity: 'both',
+          gainDb: 0,
+          timeShift: 0,
+          bend: 0,
+          smash: 0,
+          smooth: 0,
+          sharpen: 0,
         };
-        holdTimerRef.current = setTimeout(() => {
-          if (dragRef.current.mode === 'anchor' && dragRef.current.anchorId === targetAnchor.id) {
-            dragRef.current.held = true;
-            setActiveAnchorId(targetAnchor.id);
-          }
-        }, 150);
-        setDragMode('anchor');
-        return;
       }
+
+      const now = performance.now();
+      dragRef.current = {
+        mode: 'anchor',
+        startX: e.clientX,
+        startY: e.clientY,
+        startRatio: ratio,
+        initialSel: effectiveRatioSelection ? { ...effectiveRatioSelection } : { start: 0, end: 1 },
+        anchorId: targetAnchor.id,
+        anchorsSnapshot: nextAnchors,
+        pendingAnchor: targetAnchor,
+        isNewAnchor,
+        grabSide: y >= midY ? -1 : 1,
+        tool: 'grab',
+        initialGainDb: targetAnchor.gainDb,
+        initialTimeShift: targetAnchor.timeShift,
+        initialBend: targetAnchor.bend,
+        initialSmash: targetAnchor.smash,
+        initialSmooth: targetAnchor.smooth,
+        initialSharpen: targetAnchor.sharpen,
+        initialRadius: targetAnchor.radius,
+        moved: false,
+        held: false,
+        downTime: now,
+      };
+      holdTimerRef.current = setTimeout(() => {
+        if (dragRef.current.mode === 'anchor' && dragRef.current.anchorId === targetAnchor.id) {
+          dragRef.current.held = true;
+          setActiveAnchorId(targetAnchor.id);
+        }
+      }, 150);
+      setDragMode('anchor');
+      return;
     }
 
-    if (effectiveRatioSelection && showSelection) {
-      const selStartX = ratioToLocalX(effectiveRatioSelection.start, w);
-      const selEndX = ratioToLocalX(effectiveRatioSelection.end, w);
-
-      if (Math.abs(x - selStartX) <= 14) {
-        dragRef.current = {
-          mode: 'start',
-          startX: x,
-          startRatio: ratio,
-          initialSel: { ...effectiveRatioSelection },
-        };
-        setDragMode('start');
-        return;
-      }
-
-      if (Math.abs(x - selEndX) <= 14) {
-        dragRef.current = {
-          mode: 'end',
-          startX: x,
-          startRatio: ratio,
-          initialSel: { ...effectiveRatioSelection },
-        };
-        setDragMode('end');
-        return;
-      }
-
-      if (x > selStartX && x < selEndX) {
-        dragRef.current = {
-          mode: 'pan',
-          startX: x,
-          startRatio: ratio,
-          initialSel: { ...effectiveRatioSelection },
-        };
-        setDragMode('pan');
-        return;
-      }
-    }
-
-    // Clicked outside existing selection -> Marquee creation mode
+    // Clicked anywhere else on canvas -> Marquee region creation mode
     dragRef.current = {
       mode: 'create',
       startX: x,
       startRatio: ratio,
       initialSel: { start: ratio, end: ratio },
+      moved: false,
+      downTime: performance.now(),
     };
     setDragMode('create');
   };
