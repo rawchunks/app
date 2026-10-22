@@ -14,7 +14,7 @@ import { useSession, promptSessionModal } from '../components/session';
 import { Board } from '../components/daw/Board';
 import { Toolbox, ActiveTool } from '../components/daw/Toolbox';
 import { Tooltip } from '../components/daw/Tooltip';
-import { GitCommit, ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Play, Pause, Square, SkipBack, Repeat } from 'lucide-react';
 import { source, sourceInterval, interval, isLayerTake, layerTrackName, isFullSongRestyleTake } from '../lib/daw/takes';
 import { readProject, writeProject } from '../lib/cache';
 import { useQueryClient } from '@tanstack/react-query';
@@ -33,16 +33,134 @@ const fmtHeaderTime = (sec: number) => {
   return `${m}:${s < 10 ? '0' : ''}${s}.${ms}`;
 };
 
-const EditorTimeCounter: React.FC<{ fallbackDuration?: number }> = ({ fallbackDuration = 0 }) => {
+const EditorTransportDeck: React.FC<{
+  fallbackDuration?: number;
+}> = ({ fallbackDuration = 0 }) => {
   const playhead = useDawStore((s) => s.playhead);
   const duration = useDawStore((s) => s.duration);
   const isPlaying = useDawStore((s) => s.isPlaying);
+  const setPlaying = useDawStore((s) => s.setPlaying);
+  const setPlayhead = useDawStore((s) => s.setPlayhead);
+  const loop = useDawStore((s) => s.loop);
+  const setLoop = useDawStore((s) => s.setLoop);
+  const selection = useDawStore((s) => s.selection);
   const total = duration > 0 ? duration : fallbackDuration;
+
+  const handleTogglePlay = useCallback(async () => {
+    if (useDawStore.getState().isPlaying) {
+      dawEngine.pauseTransport();
+      setPlaying(false);
+    } else {
+      try {
+        await dawEngine.startTransport();
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Could not play the arrangement');
+      }
+    }
+  }, [setPlaying]);
+
+  const handleStop = useCallback(() => {
+    dawEngine.stopTransport();
+    setPlaying(false);
+    setPlayhead(0);
+  }, [setPlaying, setPlayhead]);
+
+  const handleReturnToZero = useCallback(() => {
+    dawEngine.seek(0);
+    setPlayhead(0);
+  }, [setPlayhead]);
+
+  const handleToggleLoop = useCallback(() => {
+    const nextLoop = !loop;
+    setLoop(nextLoop);
+    if (selection) {
+      dawEngine.setLoop(nextLoop, selection.start, selection.end);
+    } else {
+      dawEngine.setLoop(nextLoop, 0, total);
+    }
+  }, [loop, setLoop, selection, total]);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.code !== 'Space' || e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.tagName === 'BUTTON' ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      e.preventDefault();
+      void handleTogglePlay();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [handleTogglePlay]);
+
   return (
-    <div className={`editor-header-time ${isPlaying ? 'playing' : ''}`} aria-label="Playback time">
-      <span className="editor-header-time-current">{fmtHeaderTime(playhead)}</span>
-      <span className="editor-header-time-sep">-</span>
-      <span className="editor-header-time-total">{fmtHeaderTime(total)}</span>
+    <div className={`editor-transport-deck ${isPlaying ? 'is-playing' : ''}`} role="group" aria-label="Master Transport">
+      <div className="editor-transport-controls">
+        <Tooltip title="Return to Zero" description="Rewind playhead to 0:00.0">
+          <button
+            type="button"
+            className="editor-transport-btn editor-transport-rtz-btn"
+            onClick={handleReturnToZero}
+            aria-label="Return to Zero"
+          >
+            <SkipBack size={12} />
+          </button>
+        </Tooltip>
+
+        <Tooltip
+          title={isPlaying ? 'Pause (Space)' : 'Play (Space)'}
+          description={isPlaying ? 'Pause master playback' : 'Start master playback'}
+        >
+          <button
+            type="button"
+            className={`editor-transport-play-btn ${isPlaying ? 'active' : ''}`}
+            onClick={handleTogglePlay}
+            aria-label={isPlaying ? 'Pause' : 'Play'}
+          >
+            {isPlaying ? <Pause size={13} /> : <Play size={13} className="play-icon-nudge" />}
+            <span className="editor-transport-play-label">{isPlaying ? 'PAUSE' : 'PLAY'}</span>
+          </button>
+        </Tooltip>
+
+        <Tooltip title="Stop" description="Stop playback and reset playhead to 0:00.0">
+          <button
+            type="button"
+            className="editor-transport-btn editor-transport-stop-btn"
+            onClick={handleStop}
+            aria-label="Stop"
+          >
+            <Square size={11} />
+          </button>
+        </Tooltip>
+
+        <Tooltip
+          title="Loop"
+          description={selection ? 'Loop active timeline region (A-B)' : 'Loop full arrangement'}
+        >
+          <button
+            type="button"
+            className={`editor-transport-btn ${loop ? 'active' : ''}`}
+            onClick={handleToggleLoop}
+            aria-label="Toggle Loop"
+          >
+            <Repeat size={12} />
+          </button>
+        </Tooltip>
+      </div>
+
+      <div className={`editor-header-time ${isPlaying ? 'playing' : ''}`} aria-label="Playback time">
+        <span className="editor-header-time-current">{fmtHeaderTime(playhead)}</span>
+        <span className="editor-header-time-sep">/</span>
+        <span className="editor-header-time-total">{fmtHeaderTime(total)}</span>
+      </div>
     </div>
   );
 };
@@ -1325,7 +1443,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
           </div>
         </div>
 
-        <EditorTimeCounter fallbackDuration={song.duration} />
+        <EditorTransportDeck fallbackDuration={song.duration} />
 
         <div className="editor-header-actions">
           <Tooltip title="Commit Snapshot" description="Save project milestone snapshot to timeline history">
