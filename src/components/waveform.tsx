@@ -1376,6 +1376,26 @@ export const Waveform: React.FC<Props> = ({
           return;
         }
       }
+      if (effectiveRatioSelection && showSelection) {
+        const selStartX = ratioToLocalX(effectiveRatioSelection.start, w);
+        const selEndX = ratioToLocalX(effectiveRatioSelection.end, w);
+        if (Math.abs(x - selStartX) <= 12 || Math.abs(x - selEndX) <= 12) {
+          setHoverPeak(null);
+          canvas.style.cursor = 'ew-resize';
+          return;
+        }
+        if (x > selStartX + 12 && x < selEndX - 12) {
+          setHoverPeak(null);
+          canvas.style.cursor = 'grab';
+          return;
+        }
+      }
+      const outsideWave = isPointOutsideWaveform(ratio, y, h);
+      if (outsideWave) {
+        setHoverPeak(null);
+        canvas.style.cursor = 'pointer';
+        return;
+      }
       if (sculptMode === 'curve') {
         const hoverNode = findNearestSculptNode(x, y, w, h, 13);
         if (hoverNode) {
@@ -1391,19 +1411,7 @@ export const Waveform: React.FC<Props> = ({
         canvas.style.cursor = 'grab';
         return;
       }
-      if (effectiveRatioSelection && showSelection) {
-        const selStartX = ratioToLocalX(effectiveRatioSelection.start, w);
-        const selEndX = ratioToLocalX(effectiveRatioSelection.end, w);
-        if (Math.abs(x - selStartX) <= 14 || Math.abs(x - selEndX) <= 14) {
-          canvas.style.cursor = 'ew-resize';
-        } else if (x > selStartX && x < selEndX) {
-          canvas.style.cursor = 'grab';
-        } else {
-          canvas.style.cursor = 'crosshair';
-        }
-      } else {
-        canvas.style.cursor = 'crosshair';
-      }
+      canvas.style.cursor = 'crosshair';
       return;
     }
 
@@ -1481,12 +1489,24 @@ export const Waveform: React.FC<Props> = ({
     if (mode === 'anchor' && anchorId) {
       const deltaY = e.clientY - (startY ?? e.clientY);
       const deltaX = e.clientX - startX;
-      if (!dragRef.current.moved && Math.hypot(deltaX, deltaY) < 4) return;
+      if (!dragRef.current.moved && Math.hypot(deltaX, deltaY) < 5) return;
       if (!dragRef.current.moved) {
         dragRef.current.moved = true;
         if (holdTimerRef.current) {
           clearTimeout(holdTimerRef.current);
           holdTimerRef.current = null;
+        }
+        // Horizontal drag creates/updates a timeline region selection; vertical drag sculpts peak amplitude
+        if (!dragRef.current.held && showSelection && Math.abs(deltaX) >= Math.abs(deltaY) * 0.85) {
+          dragRef.current.mode = 'create';
+          setDragMode('create');
+          const minR = Math.min(startRatio, ratio);
+          const maxR = Math.max(startRatio, ratio);
+          if (maxR - minR >= 0.008) {
+            updateSelectionState(minR, maxR);
+          }
+          canvas.style.cursor = 'crosshair';
+          return;
         }
         setActiveAnchorId(anchorId);
         if (dragRef.current.isNewAnchor && dragRef.current.pendingAnchor) {
@@ -1553,7 +1573,8 @@ export const Waveform: React.FC<Props> = ({
     if (mode === 'create') {
       const minR = Math.min(startRatio, ratio);
       const maxR = Math.max(startRatio, ratio);
-      if (maxR - minR >= 0.01) {
+      if (maxR - minR >= 0.008) {
+        dragRef.current.moved = true;
         updateSelectionState(minR, maxR);
       }
     } else if (mode === 'start') {
@@ -1563,10 +1584,15 @@ export const Waveform: React.FC<Props> = ({
       updateSelectionState(initialSel.start, ratio);
       canvas.style.cursor = 'ew-resize';
     } else if (mode === 'pan') {
-      const deltaRatio = ((x - startX) / w) / zoomFactor;
-      const span = initialSel.end - initialSel.start;
-      const newStart = Math.max(0, Math.min(1 - span, initialSel.start + deltaRatio));
-      updateSelectionState(newStart, newStart + span);
+      if (Math.abs(x - startX) >= 3) {
+        dragRef.current.moved = true;
+      }
+      if (dragRef.current.moved) {
+        const deltaRatio = ((x - startX) / w) / zoomFactor;
+        const span = initialSel.end - initialSel.start;
+        const newStart = Math.max(0, Math.min(1 - span, initialSel.start + deltaRatio));
+        updateSelectionState(newStart, newStart + span);
+      }
       canvas.style.cursor = 'grabbing';
     }
   };
@@ -1627,9 +1653,16 @@ export const Waveform: React.FC<Props> = ({
       dragRef.current.mode === 'fadeOut'
     ) {
       suppressNextClickRef.current = true;
-    } else if (dragRef.current.mode === 'create' || dragRef.current.mode === 'pan') {
+    } else if (dragRef.current.mode === 'pan') {
       const dist = Math.abs(x - dragRef.current.startX);
-      if (dist < 4 && elapsed < 180) {
+      if (!dragRef.current.moved && dist < 5) {
+        triggerTapAtClientPos(e.clientX, e.clientY);
+      } else {
+        suppressNextClickRef.current = true;
+      }
+    } else if (dragRef.current.mode === 'create') {
+      const dist = Math.abs(x - dragRef.current.startX);
+      if (!dragRef.current.moved && !dragRef.current.alreadySeeked && dist < 5 && elapsed < 240) {
         triggerTapAtClientPos(e.clientX, e.clientY);
       } else {
         suppressNextClickRef.current = true;
