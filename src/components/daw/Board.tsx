@@ -324,12 +324,27 @@ export const Board: React.FC<BoardProps> = ({
     const ratio = rect.width > 0 ? Math.max(0, Math.min(1, clickX / rect.width)) : 0;
     const targetTime = ratio * totalDuration;
     if (startIfPaused) {
-      onSelectTrack('master');
-      clearNonMasterSolos();
-      dawEngine.stopAuditionTake(true);
-      dawEngine.seek(targetTime);
-      setPlayhead(targetTime);
-      void dawEngine.startTransport(false);
+      const focusedLane = laneTracks.find((t) => t.id === selectedTrackId);
+      const focusedTake = takes.find((t) => t.id === selectedTrackId);
+      if (focusedLane) {
+        setPlayhead(targetTime);
+        dawEngine.auditionTrack(focusedLane.id, targetTime);
+      } else if (focusedTake && focusedTake.url) {
+        const takeRange = interval(focusedTake, totalDuration || 60);
+        const range = preview(focusedTake);
+        const segDur = Math.max(0, takeRange.end - takeRange.start);
+        const offsetInSeg =
+          segDur > 0 ? Math.max(0, Math.min(Math.max(0, segDur - 0.05), targetTime - takeRange.start)) : 0;
+        const timelineStart = takeRange.start + offsetInSeg;
+        setPlayhead(timelineStart);
+        dawEngine.auditionTake(focusedTake.url, range.start + offsetInSeg, range.end, timelineStart);
+        useDawStore.setState({ auditionId: focusedTake.id });
+      } else {
+        dawEngine.stopAuditionTake(true);
+        dawEngine.seek(targetTime);
+        setPlayhead(targetTime);
+        void dawEngine.startTransport(false);
+      }
     } else {
       dawEngine.seek(targetTime);
       setPlayhead(targetTime);
@@ -343,7 +358,7 @@ export const Board: React.FC<BoardProps> = ({
   const playExtractedTakeAtClick = (take: typeof takes[number], e?: React.MouseEvent<HTMLElement>) => {
     onSelectTrack(take.id);
     if (!take.url) return;
-    const takeRange = interval(take, duration);
+    const takeRange = interval(take, totalDuration || 60);
     const rowDuration = Math.max(totalDuration, takeRange.end);
     const range = preview(take);
     let offsetInSeg = 0;
