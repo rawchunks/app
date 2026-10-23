@@ -511,11 +511,15 @@ export const Clip: React.FC<ClipProps> = ({
   }, [enableSelection, selection, effectiveDuration, clipStartSec, clipDurSec]);
 
   const isPointOutsideWaveform = useCallback(
-    (xRatio: number, localY: number, h: number): boolean => {
+    (xRatio: number, localY: number, h: number, isTouch = false): boolean => {
+      if (h <= 0) return false;
       const midY = h / 2;
       const distFromCenter = Math.abs(localY - midY);
-      if (distFromCenter >= midY * 0.64) return true;
-      if (!displayPeaks || displayPeaks.bins === 0) return true;
+      const outerCap = midY * (isTouch ? 0.72 : 0.64);
+      if (distFromCenter >= outerCap) return true;
+      if (!displayPeaks || displayPeaks.bins === 0) {
+        return isTouch ? distFromCenter > midY * 0.62 : true;
+      }
       const bin = Math.min(displayPeaks.bins - 1, Math.max(0, Math.floor(xRatio * displayPeaks.bins)));
       let maxPeak = 0;
       const refPeaks = bipolarPeaks ?? displayPeaks;
@@ -524,10 +528,29 @@ export const Clip: React.FC<ClipProps> = ({
       }
       const normScale = maxPeak > 0 && maxPeak < 0.25 ? Math.min(4, 0.35 / maxPeak) : 1;
       const ampHeight = midY * 0.64 * normScale;
-      const upperPx = Math.min(midY * 0.62, Math.max(0.05, Math.abs(displayPeaks.maxs[bin])) * ampHeight);
-      const lowerPx = Math.min(midY * 0.62, Math.max(0.05, Math.abs(displayPeaks.mins[bin])) * ampHeight);
-      if (localY < midY - upperPx - 4) return true;
-      if (localY > midY + lowerPx + 4) return true;
+      const radiusBins = isTouch ? Math.max(2, Math.round(displayPeaks.bins * 0.03)) : 1;
+      let localUpper = 0.05;
+      let localLower = 0.05;
+      for (
+        let b = Math.max(0, bin - radiusBins);
+        b <= Math.min(displayPeaks.bins - 1, bin + radiusBins);
+        b++
+      ) {
+        localUpper = Math.max(localUpper, Math.abs(displayPeaks.maxs[b]));
+        localLower = Math.max(localLower, Math.abs(displayPeaks.mins[b]));
+      }
+      if (isTouch) {
+        const padPx = Math.max(14, midY * 0.36);
+        const upperPx = Math.max(midY * 0.62, Math.min(outerCap, localUpper * ampHeight + padPx));
+        const lowerPx = Math.max(midY * 0.62, Math.min(outerCap, localLower * ampHeight + padPx));
+        if (localY < midY - upperPx) return true;
+        if (localY > midY + lowerPx) return true;
+        return false;
+      }
+      const upperPx = Math.min(midY * 0.68, localUpper * ampHeight + 4);
+      const lowerPx = Math.min(midY * 0.68, localLower * ampHeight + 4);
+      if (localY < midY - upperPx) return true;
+      if (localY > midY + lowerPx) return true;
       return false;
     },
     [displayPeaks, bipolarPeaks]
@@ -555,6 +578,9 @@ export const Clip: React.FC<ClipProps> = ({
     const localX = e.clientX - rect.left;
     const localY = e.clientY - rect.top;
     const xRatio = localXToRatio(localX, rect.width);
+    const isTouchPointer =
+      e.pointerType === 'touch' ||
+      (typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches);
 
     const now = performance.now();
     if (holdTimerRef.current) {
@@ -621,8 +647,10 @@ export const Clip: React.FC<ClipProps> = ({
     if (enableSelection && clipRatioSelection && selection) {
       const selStartX = ratioToLocalX(clipRatioSelection.start, rect.width);
       const selEndX = ratioToLocalX(clipRatioSelection.end, rect.width);
+      const selWidthPx = Math.max(0, selEndX - selStartX);
+      const edgeZonePx = Math.min(10, Math.max(3, selWidthPx * 0.2));
 
-      if (Math.abs(localX - selStartX) <= 12) {
+      if (Math.abs(localX - selStartX) <= edgeZonePx) {
         dragStateRef.current = {
           pointerId: e.pointerId,
           mode: 'sel-start',
@@ -649,7 +677,7 @@ export const Clip: React.FC<ClipProps> = ({
         return;
       }
 
-      if (Math.abs(localX - selEndX) <= 12) {
+      if (Math.abs(localX - selEndX) <= edgeZonePx) {
         dragStateRef.current = {
           pointerId: e.pointerId,
           mode: 'sel-end',
@@ -676,7 +704,7 @@ export const Clip: React.FC<ClipProps> = ({
         return;
       }
 
-      if (localX > selStartX + 12 && localX < selEndX - 12) {
+      if (localX > selStartX + edgeZonePx && localX < selEndX - edgeZonePx) {
         dragStateRef.current = {
           pointerId: e.pointerId,
           mode: 'sel-pan',
@@ -704,7 +732,7 @@ export const Clip: React.FC<ClipProps> = ({
       }
     }
 
-    const outsideWave = isPointOutsideWaveform(xRatio, localY, rect.height);
+    const outsideWave = isPointOutsideWaveform(xRatio, localY, rect.height, isTouchPointer);
 
     // (i) Single click OUTSIDE the waveform (above or below): instant seek & play;
     // (ii) Long-hold and drag: draw the selected-region
@@ -750,7 +778,8 @@ export const Clip: React.FC<ClipProps> = ({
         }
       });
 
-      if (!enableSelection || closestDist <= 0.04 / zoomFactor) {
+      const nodeHitThreshold = (isTouchPointer ? 1 : 0.04) / zoomFactor;
+      if (!enableSelection || closestDist <= nodeHitThreshold) {
         const targetNode = nodes[closestIdx];
         dragStateRef.current = {
           pointerId: e.pointerId,
@@ -886,18 +915,20 @@ export const Clip: React.FC<ClipProps> = ({
       if (enableSelection && clipRatioSelection) {
         const selStartX = ratioToLocalX(clipRatioSelection.start, rect.width);
         const selEndX = ratioToLocalX(clipRatioSelection.end, rect.width);
-        if (Math.abs(localX - selStartX) <= 12 || Math.abs(localX - selEndX) <= 12) {
+        const selWidthPx = Math.max(0, selEndX - selStartX);
+        const edgeZonePx = Math.min(10, Math.max(3, selWidthPx * 0.2));
+        if (Math.abs(localX - selStartX) <= edgeZonePx || Math.abs(localX - selEndX) <= edgeZonePx) {
           if (hoverPeak) setHoverPeak(null);
           canvas.style.cursor = 'ew-resize';
           return;
         }
-        if (localX > selStartX + 12 && localX < selEndX - 12) {
+        if (localX > selStartX + edgeZonePx && localX < selEndX - edgeZonePx) {
           if (hoverPeak) setHoverPeak(null);
           canvas.style.cursor = 'grab';
           return;
         }
       }
-      const outsideWave = isPointOutsideWaveform(xRatio, localY, rect.height);
+      const outsideWave = isPointOutsideWaveform(xRatio, localY, rect.height, false);
       if (outsideWave) {
         if (hoverPeak) setHoverPeak(null);
         canvas.style.cursor = 'pointer';
@@ -937,13 +968,19 @@ export const Clip: React.FC<ClipProps> = ({
         clearTimeout(holdTimerRef.current);
         holdTimerRef.current = null;
       }
-      // In Focus Lane, a horizontal drag without holding on an existing peak draws a time section directly
-      if (
-        enableSelection &&
-        drag.mode === 'anchor' &&
-        !drag.held &&
-        Math.abs(dx) >= Math.abs(dy) * 0.85
-      ) {
+      const isTouchPointer =
+        e.pointerType === 'touch' ||
+        (typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches);
+      // On touch: direct finger drag on the waveform always sculpts the wave peaks (never hijacked into region drawer).
+      // On desktop mouse: horizontal drag without holding draws a region; vertical or held drag sculpts peaks.
+      const shouldDrawSelection = Boolean(
+        !isTouchPointer &&
+          enableSelection &&
+          drag.mode === 'anchor' &&
+          !drag.held &&
+          Math.abs(dx) >= Math.abs(dy) * 0.85
+      );
+      if (shouldDrawSelection) {
         drag.mode = 'range';
         setActiveAnchorId(null);
       } else if (drag.mode === 'anchor' && drag.anchorId) {
@@ -995,7 +1032,7 @@ export const Clip: React.FC<ClipProps> = ({
 
     if (drag.mode === 'sel-pan' && drag.initialSelStart !== undefined && drag.initialSelEnd !== undefined) {
       const span = drag.initialSelEnd - drag.initialSelStart;
-      const deltaSec = (dx / Math.max(1, rect.width * zoomFactor)) * effectiveDuration;
+      const deltaSec = (dx / Math.max(1, rect.width * zoomFactor)) * clipDurSec;
       let nextStart = drag.initialSelStart + deltaSec;
       let nextEnd = drag.initialSelEnd + deltaSec;
       if (nextStart < 0) {
@@ -1202,12 +1239,26 @@ export const Clip: React.FC<ClipProps> = ({
     if (!clipRatioSelection || !canvasRef.current) return;
     event.stopPropagation();
     event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
+    const rect = canvasRef.current.getBoundingClientRect();
+    let effectiveMode = mode;
+    if (rect.width > 0 && mode !== 'pan') {
+      const localX = event.clientX - rect.left;
+      const selStartX = ratioToLocalX(clipRatioSelection.start, rect.width);
+      const selEndX = ratioToLocalX(clipRatioSelection.end, rect.width);
+      const selWidthPx = Math.max(0, selEndX - selStartX);
+      const edgeZonePx = Math.min(10, Math.max(3, selWidthPx * 0.2));
+      if (localX > selStartX + edgeZonePx && localX < selEndX - edgeZonePx) {
+        effectiveMode = 'pan';
+      }
+    }
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {}
     clipRangeDragRef.current = {
-      mode,
+      mode: effectiveMode,
       x: event.clientX,
       selection: clipRatioSelection,
-      width: Math.max(1, canvasRef.current.getBoundingClientRect().width),
+      width: Math.max(1, rect.width * zoomFactor),
     };
   };
 
@@ -1235,9 +1286,11 @@ export const Clip: React.FC<ClipProps> = ({
 
   const handleClipRangeUp = (event: React.PointerEvent<HTMLButtonElement>) => {
     clipRangeDragRef.current = null;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
+    try {
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+    } catch {}
   };
 
   return (
@@ -1248,6 +1301,7 @@ export const Clip: React.FC<ClipProps> = ({
       onPointerMove={trackId || enableSelection ? handlePointerMove : undefined}
       onPointerUp={trackId || enableSelection ? handlePointerUp : undefined}
       onPointerCancel={trackId || enableSelection ? handlePointerUp : undefined}
+      onClick={(e) => e.stopPropagation()}
       onClickCapture={(e) => {
         if (suppressNextClickRef.current) {
           suppressNextClickRef.current = false;

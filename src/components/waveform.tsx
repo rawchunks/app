@@ -1097,15 +1097,36 @@ export const Waveform: React.FC<Props> = ({
   };
 
   const isPointOutsideWaveform = useCallback(
-    (ratio: number, localY: number, h: number): boolean => {
+    (ratio: number, localY: number, h: number, isTouch = false): boolean => {
+      if (h <= 0) return false;
       const midY = h / 2;
       const distFromCenter = Math.abs(localY - midY);
-      if (distFromCenter >= midY * 0.64) return true;
-      if (activePeaks.length === 0) return true;
-      const bin = Math.min(activePeaks.length - 1, Math.max(0, Math.floor(ratio * activePeaks.length)));
-      const peak = Math.max(0.05, activePeaks[bin] ?? 0.15);
-      const waveHalfHeight = Math.min(midY * 0.62, peak * (midY * 0.88));
-      return distFromCenter > waveHalfHeight + 4;
+      const outerCap = isTouch ? midY * 0.72 : midY * 0.64;
+      if (distFromCenter >= outerCap) return true;
+      if (activePeaks.length === 0) {
+        return isTouch ? distFromCenter > midY * 0.62 : true;
+      }
+      const centerBin = Math.min(
+        activePeaks.length - 1,
+        Math.max(0, Math.floor(ratio * activePeaks.length))
+      );
+      const radiusBins = isTouch
+        ? Math.max(4, Math.round(activePeaks.length * 0.03))
+        : Math.max(1, Math.round(activePeaks.length * 0.008));
+      let localMaxPeak = 0.05;
+      for (
+        let b = Math.max(0, centerBin - radiusBins);
+        b <= Math.min(activePeaks.length - 1, centerBin + radiusBins);
+        b++
+      ) {
+        localMaxPeak = Math.max(localMaxPeak, activePeaks[b] ?? 0.15);
+      }
+      const waveHalfHeight = Math.min(outerCap, localMaxPeak * (midY * 0.88));
+      if (isTouch) {
+        const touchBand = Math.max(midY * 0.62, Math.min(outerCap, waveHalfHeight + Math.max(14, midY * 0.36)));
+        return distFromCenter > touchBand;
+      }
+      return distFromCenter > Math.min(outerCap, waveHalfHeight + 5);
     },
     [activePeaks]
   );
@@ -1128,6 +1149,9 @@ export const Waveform: React.FC<Props> = ({
     const w = rect.width;
     const h = rect.height;
     const ratio = localXToRatio(x, w);
+    const isTouchPointer =
+      e.pointerType === 'touch' ||
+      (typeof window !== 'undefined' && Boolean(window.matchMedia?.('(pointer: coarse)').matches));
 
     // Two finger multi-touch pinch to zoom
     if (activePointers.current.size === 2) {
@@ -1167,14 +1191,16 @@ export const Waveform: React.FC<Props> = ({
       }
     }
 
-    const outsideWave = isPointOutsideWaveform(ratio, y, h);
+    const outsideWave = isPointOutsideWaveform(ratio, y, h, isTouchPointer);
 
     // Priority check for active selected-region edges (iv) and selected-region body pan/drag (iii)
     if (effectiveRatioSelection && showSelection) {
       const selStartX = ratioToLocalX(effectiveRatioSelection.start, w);
       const selEndX = ratioToLocalX(effectiveRatioSelection.end, w);
+      const selWidthPx = Math.max(0, selEndX - selStartX);
+      const edgeZonePx = Math.min(10, Math.max(3, selWidthPx * 0.2));
 
-      if (Math.abs(x - selStartX) <= 12) {
+      if (Math.abs(x - selStartX) <= edgeZonePx) {
         dragRef.current = {
           mode: 'start',
           startX: x,
@@ -1188,7 +1214,7 @@ export const Waveform: React.FC<Props> = ({
         return;
       }
 
-      if (Math.abs(x - selEndX) <= 12) {
+      if (Math.abs(x - selEndX) <= edgeZonePx) {
         dragRef.current = {
           mode: 'end',
           startX: x,
@@ -1202,7 +1228,7 @@ export const Waveform: React.FC<Props> = ({
         return;
       }
 
-      if (x > selStartX + 12 && x < selEndX - 12) {
+      if (x > selStartX + edgeZonePx && x < selEndX - edgeZonePx) {
         if (holdTimerRef.current) {
           clearTimeout(holdTimerRef.current);
           holdTimerRef.current = null;
@@ -1246,7 +1272,8 @@ export const Waveform: React.FC<Props> = ({
 
     if (sculptMode === 'curve') {
       // Check Speed / Median Curve node handle hit
-      const hitSculptNode = findNearestSculptNode(x, y, w, h, e.altKey || e.shiftKey ? w : 14);
+      const curveHitTol = e.altKey || e.shiftKey || isTouchPointer ? w : 14;
+      const hitSculptNode = findNearestSculptNode(x, y, w, h, curveHitTol);
       if (hitSculptNode) {
         setActiveSculptNodeId(hitSculptNode.id);
         dragRef.current = {
@@ -1379,12 +1406,14 @@ export const Waveform: React.FC<Props> = ({
       if (effectiveRatioSelection && showSelection) {
         const selStartX = ratioToLocalX(effectiveRatioSelection.start, w);
         const selEndX = ratioToLocalX(effectiveRatioSelection.end, w);
-        if (Math.abs(x - selStartX) <= 12 || Math.abs(x - selEndX) <= 12) {
+        const selWidthPx = Math.max(0, selEndX - selStartX);
+        const edgeZonePx = Math.min(10, Math.max(3, selWidthPx * 0.2));
+        if (Math.abs(x - selStartX) <= edgeZonePx || Math.abs(x - selEndX) <= edgeZonePx) {
           setHoverPeak(null);
           canvas.style.cursor = 'ew-resize';
           return;
         }
-        if (x > selStartX + 12 && x < selEndX - 12) {
+        if (x > selStartX + edgeZonePx && x < selEndX - edgeZonePx) {
           setHoverPeak(null);
           canvas.style.cursor = 'grab';
           return;
@@ -1489,17 +1518,28 @@ export const Waveform: React.FC<Props> = ({
     if (mode === 'anchor' && anchorId) {
       const deltaY = e.clientY - (startY ?? e.clientY);
       const deltaX = e.clientX - startX;
-      if (!dragRef.current.moved && Math.hypot(deltaX, deltaY) < 5) return;
+      const isTouchPointer =
+        e.pointerType === 'touch' ||
+        (typeof window !== 'undefined' && Boolean(window.matchMedia?.('(pointer: coarse)').matches));
+      if (!dragRef.current.moved && Math.hypot(deltaX, deltaY) < (isTouchPointer ? 6 : 5)) return;
       if (!dragRef.current.moved) {
         dragRef.current.moved = true;
         if (holdTimerRef.current) {
           clearTimeout(holdTimerRef.current);
           holdTimerRef.current = null;
         }
-        // Horizontal drag creates/updates a timeline region selection; vertical drag sculpts peak amplitude
-        if (!dragRef.current.held && showSelection && Math.abs(deltaX) >= Math.abs(deltaY) * 0.85) {
+        // On touch: direct finger drag on the waveform always sculpts peaks (never hijacked into region drawer).
+        // On desktop mouse: horizontal drag without holding draws a region; vertical or held drag sculpts peaks.
+        const shouldCreateRegion = Boolean(
+          !isTouchPointer &&
+            !dragRef.current.held &&
+            showSelection &&
+            Math.abs(deltaX) >= Math.abs(deltaY) * 0.85
+        );
+        if (shouldCreateRegion) {
           dragRef.current.mode = 'create';
           setDragMode('create');
+          setActiveAnchorId(null);
           const minR = Math.min(startRatio, ratio);
           const maxR = Math.max(startRatio, ratio);
           if (maxR - minR >= 0.008) {
@@ -1706,15 +1746,33 @@ export const Waveform: React.FC<Props> = ({
   const rangeDrag = useRef<{ mode: 'start' | 'end' | 'pan'; x: number; selection: { start: number; end: number }; width: number } | null>(null);
   const handleRangeDown = (event: React.PointerEvent<HTMLButtonElement>, mode: 'start' | 'end' | 'pan') => {
     if (!effectiveRatioSelection || !canvasRef.current) return;
-    event.stopPropagation(); event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
-    rangeDrag.current = { mode, x: event.clientX, selection: effectiveRatioSelection, width: canvasRef.current.getBoundingClientRect().width };
+    event.stopPropagation();
+    event.preventDefault();
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {}
+    const rect = canvasRef.current.getBoundingClientRect();
+    const w = Math.max(1, rect.width);
+    const localX = event.clientX - rect.left;
+    const selStartX = ratioToLocalX(effectiveRatioSelection.start, w);
+    const selEndX = ratioToLocalX(effectiveRatioSelection.end, w);
+    const selWidthPx = Math.max(0, selEndX - selStartX);
+    const edgeZonePx = Math.min(10, Math.max(3, selWidthPx * 0.2));
+    let resolvedMode = mode;
+    if (
+      (mode === 'start' || mode === 'end') &&
+      localX > selStartX + edgeZonePx &&
+      localX < selEndX - edgeZonePx
+    ) {
+      resolvedMode = 'pan';
+    }
+    rangeDrag.current = { mode: resolvedMode, x: event.clientX, selection: effectiveRatioSelection, width: w };
   };
   const handleRangeMove = (event: React.PointerEvent<HTMLButtonElement>) => {
     const drag = rangeDrag.current;
     if (!drag) return;
     event.stopPropagation();
-    const delta = (event.clientX - drag.x) / drag.width;
+    const delta = ((event.clientX - drag.x) / Math.max(1, drag.width)) / zoomFactor;
     if (drag.mode === 'start') updateSelectionState(Math.min(drag.selection.end - .01, drag.selection.start + delta), drag.selection.end);
     else if (drag.mode === 'end') updateSelectionState(drag.selection.start, Math.max(drag.selection.start + .01, drag.selection.end + delta));
     else {
@@ -1726,7 +1784,11 @@ export const Waveform: React.FC<Props> = ({
   const handleRangeUp = (event: React.PointerEvent<HTMLButtonElement>) => {
     const drag = rangeDrag.current;
     rangeDrag.current = null;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    try {
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+    } catch {}
     if (drag && Math.abs(event.clientX - drag.x) < 5) {
       triggerTapAtClientPos(event.clientX, event.clientY);
     }

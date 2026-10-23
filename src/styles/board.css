@@ -1138,6 +1138,9 @@
   position: relative;
   overflow: hidden;
   background: rgba(0, 0, 0, 0.42);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .board-row.master .board-track-lane {
@@ -1511,6 +1514,9 @@
   min-height: 0;
   overflow: visible;
   display: block;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .board-track-lane .waveform-box {
@@ -1526,6 +1532,9 @@
   height: 100% !important;
   min-height: 0;
   display: block;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 /* Responsive Clip Waveform Container & Canvas */
@@ -1535,12 +1544,18 @@
   position: relative;
   overflow: hidden;
   display: block;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .stem-clip-waveform-canvas {
   width: 100% !important;
   height: 100% !important;
   display: block;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .clip-sculpt-toolbar,
@@ -1886,8 +1901,8 @@
 .board-row.master .board-track-header { justify-content: space-between; }
 .board-row.master .board-track-header-bottom { margin-top: 0; }
 
-.waveform-selection { position: absolute; inset: 0; pointer-events: none; z-index: 8; }
-.waveform-range { position: absolute; top: 0; left: var(--range-left, 0%); height: 100%; width: clamp(0.75rem, 1.5vw, 1rem); padding: 0; border: 0; background: transparent; pointer-events: auto; touch-action: none; cursor: ew-resize; transform: translateX(-50%); z-index: 2; }
+.waveform-selection { position: absolute; inset: 0; pointer-events: none; touch-action: none; user-select: none; -webkit-user-select: none; z-index: 8; }
+.waveform-range { position: absolute; top: 0; left: var(--range-left, 0%); height: 100%; width: clamp(0.5rem, 1.4vw, 0.875rem); padding: 0; border: 0; background: transparent; pointer-events: auto; touch-action: none; user-select: none; -webkit-user-select: none; cursor: ew-resize; transform: translateX(-50%); z-index: 2; }
 .waveform-range.start::after,
 .waveform-range.end::after {
   content: '';

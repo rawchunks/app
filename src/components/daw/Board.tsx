@@ -734,6 +734,14 @@ export const Board: React.FC<BoardProps> = ({
     rowDur: number = totalDuration
   ) => {
     if (e.button !== 0) return;
+    const target = e.target as HTMLElement | null;
+    if (
+      target?.closest(
+        'button, input, a, .board-segment-hud, .waveform-selection, .board-clip-container, .stem-clip-waveform-container, .waveform-box, .board-embedded-horizon, .clip-sculpt-toolbar, .waveform-mode-toolbar, .board-overlay'
+      )
+    ) {
+      return;
+    }
     const laneEl = e.currentTarget;
     const rect = laneEl.getBoundingClientRect();
     if (rect.width <= 0) return;
