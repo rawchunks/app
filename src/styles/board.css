@@ -1074,18 +1074,22 @@
   border-color: var(--secondary);
 }
 
-/* Track Header Bottom: Fader & Meter */
-.board-track-header-bottom {
+/* Track Header Bottom / Right Controller Cluster: Fader & Actions */
+.board-track-header-bottom,
+.board-controller-right {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 9px;
+  gap: clamp(4px, 0.5vw, 8px);
+  font-size: 11px;
   color: var(--text-secondary);
+  flex-shrink: 0;
+  margin-left: auto;
 }
 
 .board-fader-wrap {
-  flex: 1 1 0;
-  min-width: 0;
+  width: clamp(64px, 8vw, 112px);
+  flex: 0 1 auto;
+  min-width: 44px;
   display: flex;
   align-items: center;
   gap: 5px;
@@ -1112,7 +1116,7 @@
 }
 
 .board-fader-val {
-  font-size: 9px;
+  font-size: 11px;
   font-family: var(--font-family);
   color: var(--text-dim);
   min-width: 3ch;
@@ -1121,21 +1125,24 @@
 }
 
 /* ==========================================================================
-   RIGHT-SIDE TIMELINE LANE
+   FULL-WIDTH WAVEFORM LANE ROW (Row 2 of Each Stage Card)
    ========================================================================== */
-.board-track-lane {
+.board-track-lane,
+.board-lane-waveform-row {
   flex: 1 1 0;
+  width: 100%;
   min-width: 0;
-  height: auto;
-  min-height: var(--board-row-h);
+  height: 100%;
+  min-height: 0;
   align-self: stretch;
   position: relative;
   overflow: hidden;
-  background: rgba(0, 0, 0, 0.4);
+  background: rgba(0, 0, 0, 0.42);
 }
 
 .board-row.master .board-track-lane {
-  min-height: var(--board-master-row-h);
+  min-height: 0;
+  height: 100%;
 }
 
 /* Grid Lines Behind Waveform */
