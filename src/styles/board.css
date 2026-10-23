@@ -1294,35 +1294,74 @@
 }
 
 /* ==========================================================================
-   BOARD RESPONSIVE RULES (Mobile & Tablet)
+   BOARD RESPONSIVE RULES (Mobile & Tablet Mission-Control)
    ========================================================================== */
+@media (max-width: 960px) {
+  .board-stage-focus {
+    flex: 65 1 0%;
+    height: auto;
+    min-height: 120px;
+    max-height: none;
+  }
+
+  .board-middle-split {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 35 1 0%;
+    min-height: 0;
+    overflow: visible;
+  }
+
+  .board-stems-card {
+    flex: 0 0 46px;
+    height: 46px;
+    min-height: 44px;
+    max-height: 48px;
+    padding: 3px 5px;
+    gap: 2px;
+  }
+
+  .board-stems-card-head {
+    display: none;
+  }
+
+  .board-vault-wrap {
+    flex: 0 0 auto;
+  }
+
+  .board-vault-trigger {
+    flex-direction: row;
+    width: auto;
+    padding: 0 8px;
+  }
+
+  .board-toolbox-slot {
+    flex: 1 1 0;
+    min-height: 0;
+    height: auto;
+  }
+}
+
 @media (max-width: 768px) {
-  .board-transport {
-    padding: 0.15rem 0.4rem;
-    gap: 0.25rem;
+  .board-track-header,
+  .board-lane-controller-row {
+    padding: 0 6px;
+    justify-content: space-between;
+    gap: 4px;
+    height: 28px;
+    min-height: 28px;
   }
 
-  .board-transport-cluster {
-    gap: 0.2rem;
+  .board-track-header-bottom,
+  .board-controller-right {
+    display: flex;
+    align-items: center;
+    gap: 4px;
   }
 
-  .board-transport-btn {
-    padding: 0.15rem 0.35rem;
-    font-size: var(--font-xs);
-  }
-
-  .board-transport-time > .board-time-display {
-    display: none;
-  }
-
-  .board-track-header {
-    padding: 0.2rem 0.26rem;
-    justify-content: center;
-    gap: 0.18rem;
-  }
-
-  .board-track-header-bottom {
-    display: none;
+  .board-stage-focus .board-fader-wrap {
+    width: clamp(46px, 12vw, 68px);
   }
 
   .board-btn-label,
@@ -1330,24 +1369,58 @@
     display: none;
   }
 
+  .board-stage-role-tag {
+    font-size: 11px;
+    padding: 1px 4px;
+  }
+
+  .board-segment-hud {
+    left: clamp(4px, var(--seg-left-pct, 0%), max(4px, calc(100% - 196px)));
+    padding: 3px 5px;
+    gap: 3px;
+    max-width: calc(100% - 8px);
+  }
+
+  .board-segment-hud-tag,
+  .board-segment-hud-label {
+    display: none !important;
+  }
+
+  .board-segment-hud-btn {
+    padding: 2px 5px;
+    min-width: 24px;
+    justify-content: center;
+  }
+
+  .board-segment-hud-time {
+    font-size: 10px;
+    padding: 0 3px;
+  }
+
+  .board-vault-popover {
+    width: min(260px, 90vw);
+  }
+
   /* Single-row horizontal layout across ALL rows (MST, stems, extracted) */
   .board-track-header-top,
+  .board-controller-left,
   .board-row:not(.master) .board-track-header-top,
   .board-row.master .board-track-header-top {
     flex-direction: row;
     flex-wrap: nowrap;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-start;
     gap: 3px;
-    width: 100%;
+    width: auto;
+    min-width: 0;
   }
 
   .board-track-meta,
   .board-row.master .board-track-meta {
-    flex: 0 0 auto;
+    flex: 0 1 auto;
     width: auto;
     min-width: 0;
-    overflow: visible;
+    overflow: hidden;
   }
 
   .board-track-badge.board-badge-mst {
@@ -1387,27 +1460,44 @@
   .board-row.master .board-btn-mini {
     height: var(--badge-track-h);
     min-height: var(--badge-track-h);
-    min-width: clamp(17px, 4.4vw, 20px);
+    min-width: clamp(18px, 4.8vw, 22px);
     flex: 0 0 auto;
-    padding: 0 2px;
+    padding: 0 3px;
     font-size: var(--badge-sub-font);
+  }
+
+  .board-mini-square {
+    padding: 2px 4px;
+  }
+
+  .board-mini-square-play {
+    display: inline-flex;
   }
 }
 
 @media (max-width: 480px) {
-  .board-track-header {
-    padding: 0.16rem 0.2rem;
-    gap: 0.14rem;
+  .board-track-header,
+  .board-lane-controller-row {
+    padding: 0 4px;
+    gap: 3px;
+  }
+
+  .board-stage-focus .board-fader-wrap {
+    display: none;
+  }
+
+  .board-lane-onboarding-hint {
+    display: none;
   }
 
   .board-track-controls {
-    gap: 1.5px;
+    gap: 2px;
   }
 
   .board-btn-mini,
   .board-row.master .board-btn-mini {
-    min-width: 16px;
-    padding: 0 2px;
+    min-width: 18px;
+    padding: 0 3px;
   }
 }
 
