@@ -78,7 +78,7 @@
   background: transparent;
   color: var(--text);
   font-family: var(--font-family);
-  font-size: var(--font-2xs, 10px);
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.04em;
   cursor: pointer;
@@ -96,11 +96,11 @@
   background: rgba(255, 255, 255, 0.03);
   color: var(--text-dim);
   border: 1px solid var(--border);
-  min-height: 1.375rem;
-  padding: 0.1rem 0.4rem;
+  min-height: 1.5rem;
+  padding: 0.12rem 0.5rem;
   border-radius: var(--radius-sm);
   font-family: var(--font-family);
-  font-size: 9.5px;
+  font-size: 11px;
   font-weight: 700;
   cursor: pointer;
   display: inline-flex;
@@ -130,7 +130,7 @@
   align-items: center;
   gap: 6px;
   font-family: var(--font-family);
-  font-size: 9.5px;
+  font-size: 11px;
   color: var(--text-dim);
   flex-wrap: nowrap;
   flex-shrink: 0;
@@ -141,8 +141,8 @@
   align-items: center;
   gap: 4px;
   background: rgba(0, 0, 0, 0.5);
-  min-height: 1.375rem;
-  padding: 0.1rem 0.4rem;
+  min-height: 1.5rem;
+  padding: 0.12rem 0.45rem;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   box-sizing: border-box;
@@ -150,7 +150,7 @@
 
 .board-time-label {
   color: var(--text-secondary);
-  font-size: 9px;
+  font-size: 11px;
   letter-spacing: 0.03em;
 }
 
@@ -1639,15 +1639,15 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 15px;
+  width: 18px;
+  height: 18px;
   padding: 0;
   border-radius: 3px;
   border: 1px solid rgba(255, 255, 255, 0.25);
   background: rgba(9, 9, 14, 0.78);
   color: var(--text);
   font-family: var(--font-family);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   cursor: pointer;
   line-height: 1;
@@ -1708,7 +1708,7 @@
 }
 
 .daw-pincher-label {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -1733,7 +1733,7 @@
 }
 
 .daw-pincher-badge {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   color: #fff;
   border: 1px solid #3f3f46;
@@ -1746,21 +1746,23 @@
    CATEGORY BADGES SWAPPER & ACCORDION (EXTRACTED LANES)
    ========================================================================== */
 .board-category-badges-row {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 2px;
-  width: 100%;
+  justify-content: flex-start;
+  flex-wrap: nowrap;
+  gap: 3px;
+  width: auto;
+  min-width: 0;
   margin-top: 0;
+  overflow: hidden;
 }
 
 .board-category-badges-list {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 2px;
-  flex-wrap: wrap;
-  overflow: visible;
+  flex-wrap: nowrap;
+  overflow: hidden;
   max-width: 100%;
 }
 
@@ -1852,19 +1854,20 @@
 .board-overlay-wave { width: 100%; height: 100%; padding: 0; border: 0; background: transparent; cursor: grab; touch-action: none; }
 .board-overlay-actions { --board-overlay-actions-w: clamp(6rem, 15vw, 7.5rem); position: absolute; inset-block-end: 2px; left: clamp(0px, var(--actions-left, 0%), max(0px, calc(100% - var(--board-overlay-actions-w)))); z-index: 6; display: flex; flex-wrap: nowrap; max-width: 100%; width: var(--board-overlay-actions-w); box-sizing: border-box; pointer-events: auto; background: var(--surface); border: 1px solid var(--accent); }
 .board-overlay-actions .daw-tooltip-wrapper { flex: 1; min-width: 0; }
-.board-overlay-actions button { width: 100%; height: 28px; display: grid; place-items: center; flex: 1 1 auto; border: 0; background: transparent; color: var(--accent); font: inherit; font-size: 9px; padding: 6px; cursor: pointer; }
+.board-overlay-actions button { width: 100%; height: 28px; display: grid; place-items: center; flex: 1 1 auto; border: 0; background: transparent; color: var(--accent); font: inherit; font-size: 11px; padding: 6px; cursor: pointer; }
 .board-overlay-actions button[aria-pressed="true"] { background: var(--primary); color: var(--bg); }
 .board-overlay-actions button:disabled { opacity: .4; cursor: wait; }
 .board-overlay-player { flex: 1; min-width: 0; height: 28px; display: grid; grid-template-rows: 16px 12px; }
 .board-overlay-choices { display: flex; min-width: 0; }
 .board-overlay-player > .daw-tooltip-wrapper button { height: 16px; padding: 0; }
-.board-overlay-choices button { height: 12px; padding: 0; font-size: 6px; line-height: 1; }
+.board-overlay-choices button { height: 12px; padding: 0; font-size: 11px; line-height: 1; }
 .board-operation { display: flex; flex-wrap: wrap; gap: 12px; padding: 10px; border-block-end: 1px solid var(--accent); font-size: 11px; }
 
 .board-master-badges {
-  display: flex;
-  flex-wrap: wrap;
-  overflow: visible;
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  overflow: hidden;
   gap: 3px;
   margin: 0;
   min-width: 0;
@@ -1905,7 +1908,7 @@
   width: var(--range-width, 0%);
   height: 100%;
   transform: none;
-  cursor: grab;
+  pointer-events: none;
   z-index: 1;
   background: rgba(0, 240, 255, 0.14);
   border-top: 2px solid rgba(0, 240, 255, 0.85);
@@ -1929,7 +1932,7 @@
   border: none;
   color: var(--text);
   font-family: var(--font-family);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: bold;
   outline: none;
 }
@@ -1987,7 +1990,7 @@
 }
 
 .board-track-name-compact {
-  font-size: 10px;
+  font-size: 11px;
 }
 
 /* ==========================================================================
@@ -1998,7 +2001,7 @@
   min-height: 0;
   display: flex;
   flex-direction: row;
-  overflow: hidden;
+  overflow: visible;
   position: relative;
 }
 
@@ -2025,7 +2028,7 @@
   border: none;
   color: var(--text-dim);
   font-family: var(--font-family);
-  font-size: var(--font-2xs);
+  font-size: var(--font-xs);
   font-weight: 700;
   letter-spacing: 0.04em;
   padding: 2px 6px;

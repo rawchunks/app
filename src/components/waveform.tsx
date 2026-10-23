@@ -584,8 +584,8 @@ export const Waveform: React.FC<Props> = ({
           sCtx.setLineDash([]);
 
           sCtx.fillStyle = '#00ffff';
-          sCtx.font = '700 9px monospace';
-          sCtx.fillText(`TAKE ${activeReworkedTake.take_number}: REWORKED`, reworkStartX + 4, 12);
+          sCtx.font = '700 11px monospace';
+          sCtx.fillText(`TAKE ${activeReworkedTake.take_number}: REWORKED`, reworkStartX + 4, 14);
         }
 
         // Center zero baseline
