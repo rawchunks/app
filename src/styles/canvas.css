@@ -42,7 +42,7 @@
   padding: 0 clamp(6px, 0.9vw, 10px);
   border-radius: 3px;
   font-family: var(--font-family);
-  font-size: var(--daw-badge-font, clamp(10.5px, 0.58rem + 0.25vw, 12px));
+  font-size: var(--daw-badge-font, clamp(11px, 11px + 0.25vw, 12px));
   font-weight: 800;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -202,7 +202,7 @@
 
 .toolbox-lyrics-sidepanel-title {
   font-family: var(--font-family);
-  font-size: var(--daw-badge-font, clamp(10.5px, 0.58rem + 0.25vw, 12px));
+  font-size: var(--daw-badge-font, clamp(11px, 11px + 0.25vw, 12px));
   font-weight: 800;
   letter-spacing: 0.06em;
   color: var(--primary);
@@ -229,7 +229,7 @@
   border: 1px solid var(--border-bright);
   background: rgba(255, 255, 255, 0.06);
   color: var(--text-secondary);
-  font-size: var(--daw-badge-font, clamp(10.5px, 0.58rem + 0.25vw, 12px));
+  font-size: var(--daw-badge-font, clamp(11px, 11px + 0.25vw, 12px));
   cursor: pointer;
   transition: all 0.15s ease;
 }
@@ -260,7 +260,7 @@
   min-height: clamp(21px, 2.6dvh, 24px);
   padding: 2px 7px;
   font-family: var(--font-family);
-  font-size: var(--daw-badge-font, clamp(10px, 0.56rem + 0.2vw, 11.5px));
+  font-size: var(--daw-badge-font, clamp(11px, 11px + 0.2vw, 11.5px));
   font-weight: 700;
   border-radius: 3px;
   border: 1px solid var(--border-bright);
@@ -288,7 +288,7 @@
   padding: clamp(8px, 1.2vw, 12px);
   color: var(--text);
   font-family: var(--font-family);
-  font-size: clamp(11.5px, 0.68rem + 0.25vw, 13.5px);
+  font-size: clamp(11.5px, 11px + 0.25vw, 13.5px);
   line-height: 1.55;
   resize: none;
   box-sizing: border-box;
@@ -309,7 +309,7 @@
   background: rgba(255, 255, 255, 0.06);
   color: var(--text);
   font-family: var(--font-family);
-  font-size: var(--daw-badge-font, clamp(10px, 0.56rem + 0.2vw, 11.5px));
+  font-size: var(--daw-badge-font, clamp(11px, 11px + 0.2vw, 11.5px));
   font-weight: 800;
   letter-spacing: 0.04em;
   cursor: pointer;
@@ -356,7 +356,7 @@
 
 .toolbox-lyrics-selection-badge {
   font-family: var(--font-family);
-  font-size: var(--daw-badge-font, clamp(10px, 0.56rem + 0.2vw, 11px));
+  font-size: var(--daw-badge-font, clamp(11px, 11px + 0.2vw, 11px));
   font-weight: 800;
   letter-spacing: 0.06em;
   color: var(--accent);
@@ -366,7 +366,7 @@
 
 .toolbox-lyrics-selection-count {
   font-family: var(--font-family);
-  font-size: var(--daw-badge-font, clamp(10px, 0.56rem + 0.2vw, 11px));
+  font-size: var(--daw-badge-font, clamp(11px, 11px + 0.2vw, 11px));
   font-weight: 700;
   color: var(--text-secondary);
   white-space: nowrap;
@@ -432,7 +432,7 @@
 
 .toolbox-lyrics-sync-section-tag {
   font-family: var(--font-family);
-  font-size: var(--daw-badge-font, clamp(10px, 0.58rem + 0.2vw, 11.5px));
+  font-size: var(--daw-badge-font, clamp(11px, 11px + 0.2vw, 11.5px));
   font-weight: 800;
   letter-spacing: 0.05em;
   color: var(--primary);
@@ -441,7 +441,7 @@
 
 .toolbox-lyrics-sync-timestamp {
   font-family: var(--font-family);
-  font-size: var(--daw-badge-font, clamp(10px, 0.56rem + 0.2vw, 11px));
+  font-size: var(--daw-badge-font, clamp(11px, 11px + 0.2vw, 11px));
   font-weight: 700;
   color: var(--text-muted);
   cursor: pointer;
@@ -456,7 +456,7 @@
 .toolbox-lyrics-sync-sel-pill {
   margin-left: auto;
   font-family: var(--font-family);
-  font-size: clamp(9.5px, 0.54rem + 0.18vw, 10.5px);
+  font-size: clamp(11px, 11px + 0.18vw, 11px);
   font-weight: 800;
   letter-spacing: 0.05em;
   padding: 1px 5px;
@@ -476,7 +476,7 @@
 
 .toolbox-lyrics-sync-word {
   font-family: var(--font-family);
-  font-size: clamp(11.5px, 0.68rem + 0.2vw, 13px);
+  font-size: clamp(11.5px, 11px + 0.2vw, 13px);
   color: var(--text-secondary);
   padding: 1px 3px;
   border-radius: 2px;
@@ -516,7 +516,7 @@
   background: rgba(255, 255, 255, 0.02);
   border-top: 1px solid var(--border);
   font-family: var(--font-family);
-  font-size: var(--daw-badge-font, clamp(10px, 0.56rem + 0.2vw, 11px));
+  font-size: var(--daw-badge-font, clamp(11px, 11px + 0.2vw, 11px));
   font-weight: 700;
   letter-spacing: 0.05em;
   color: var(--text-muted);
@@ -527,7 +527,7 @@
 
 .toolbox-lyrics-footer-time {
   font-family: var(--font-family);
-  font-size: var(--daw-badge-font, clamp(10px, 0.56rem + 0.2vw, 11px));
+  font-size: var(--daw-badge-font, clamp(11px, 11px + 0.2vw, 11px));
   font-weight: 800;
   letter-spacing: 0.05em;
   color: var(--text-secondary);
@@ -555,7 +555,7 @@
   width: 280px;
   padding: 10px;
   font-family: var(--font-family);
-  font-size: clamp(11.5px, 0.68rem + 0.25vw, 13.5px);
+  font-size: clamp(11.5px, 11px + 0.25vw, 13.5px);
   line-height: 1.55;
 }
 

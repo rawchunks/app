@@ -387,7 +387,7 @@ textarea.cyber-input-field {
 
 .cyber-checkbox:checked::after {
   content: '✓';
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 900;
   color: var(--primary);
   line-height: 1;
@@ -564,7 +564,7 @@ textarea.cyber-input-field {
 
 .modal-title-text {
   color: var(--primary);
-  font-size: clamp(0.82rem, 2.2vw, var(--font-md));
+  font-size: clamp(12px, 2.2vw, var(--font-md));
   margin: 0;
   letter-spacing: clamp(0.04em, 0.12vw, var(--letter-spacing-base));
   min-width: 0;
@@ -709,7 +709,7 @@ textarea.cyber-input-field {
 .connect-address {
   color: var(--text-dim);
   font-family: var(--font-family);
-  font-size: clamp(10px, 0.75vw + 0.3vh, 13px);
+  font-size: clamp(11px, 0.75vw + 0.3vh, 13px);
   letter-spacing: var(--letter-spacing-tight);
   white-space: nowrap;
 }
@@ -781,7 +781,7 @@ textarea.cyber-input-field {
 }
 
 .menu-note {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--warning);
   margin-top: 4px;
   word-break: break-word;
@@ -829,7 +829,7 @@ textarea.cyber-input-field {
 }
 
 .dialog-version {
-  font-size: 9px;
+  font-size: 11px;
   color: var(--text-muted);
   letter-spacing: 1px;
 }
@@ -878,7 +878,7 @@ textarea.cyber-input-field {
 .spec-num {
   color: var(--primary);
   font-weight: 700;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .spec-term {
@@ -893,7 +893,7 @@ textarea.cyber-input-field {
 
 .spec-text {
   color: var(--text-dim);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.4;
 }
 
@@ -1108,7 +1108,7 @@ textarea.cyber-input-field {
 }
 
 .network-trigger-name {
-  font-size: clamp(10px, 0.75vw + 0.3vh, 12px);
+  font-size: clamp(11px, 0.75vw + 0.3vh, 12px);
   font-weight: 700;
   letter-spacing: var(--letter-spacing-base);
   text-transform: uppercase;
@@ -1171,13 +1171,13 @@ textarea.cyber-input-field {
 .session-trigger-amount {
   font-family: var(--font-mono);
   font-weight: 700;
-  font-size: clamp(10px, 0.75vw + 0.3vh, 12px);
+  font-size: clamp(11px, 0.75vw + 0.3vh, 12px);
   color: var(--primary);
   letter-spacing: var(--letter-spacing-base);
 }
 
 .session-trigger-label {
-  font-size: clamp(10px, 0.75vw + 0.3vh, 12px);
+  font-size: clamp(11px, 0.75vw + 0.3vh, 12px);
   font-weight: 700;
   letter-spacing: var(--letter-spacing-base);
   text-transform: uppercase;
@@ -1274,7 +1274,7 @@ div[data-state][class*="tw-modal"] {
   flex-basis: 100% !important;
   width: 100% !important;
   font-family: var(--font-family, monospace) !important;
-  font-size: clamp(9px, 0.7vw + 0.2vh, 11px) !important;
+  font-size: clamp(11px, 0.7vw + 0.2vh, 11px) !important;
   font-weight: 500 !important;
   letter-spacing: 1.5px !important;
   color: var(--text-dim) !important;
@@ -1490,7 +1490,7 @@ div[data-state][class*="tw-modal"] {
 .tw-modal div[class*="css-c8p4k5"] span,
 .tw-modal .css-c8p4k5 span {
   font-family: var(--font-family, monospace) !important;
-  font-size: clamp(9px, 0.6vw + 0.3vh, 11px) !important;
+  font-size: clamp(11px, 0.6vw + 0.3vh, 11px) !important;
   color: #666677 !important;
   letter-spacing: 2px !important;
   font-weight: 700 !important;
@@ -1633,7 +1633,7 @@ div[data-state][class*="tw-modal"] {
 }
 
 .daw-tooltip-desc {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-dim);
   line-height: 1.35;
   letter-spacing: 0.02em;
@@ -1709,7 +1709,7 @@ div[data-state][class*="tw-modal"] {
 
 .session-hud-label {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   color: var(--text-dim);
   letter-spacing: 1px;
@@ -1775,7 +1775,7 @@ div[data-state][class*="tw-modal"] {
   align-items: center;
   justify-content: space-between;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-dim);
   letter-spacing: 0.5px;
 }
@@ -1805,7 +1805,7 @@ div[data-state][class*="tw-modal"] {
   align-items: center;
   gap: 6px;
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 700;
   color: var(--text-dim);
   letter-spacing: 0.5px;
@@ -1828,7 +1828,7 @@ div[data-state][class*="tw-modal"] {
 }
 
 .session-grid-item-sub {
-  font-size: 9px;
+  font-size: 11px;
   color: var(--text-dim);
 }
 
@@ -1883,7 +1883,7 @@ div[data-state][class*="tw-modal"] {
 }
 
 .session-info-desc {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-secondary);
   line-height: 1.4;
 }
@@ -1925,7 +1925,7 @@ div[data-state][class*="tw-modal"] {
 
 .session-section-label {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   color: var(--primary);
   letter-spacing: 1px;
@@ -2001,7 +2001,7 @@ div[data-state][class*="tw-modal"] {
   justify-content: center;
   padding: 8px 6px;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   background: var(--surface-raised);
   border: 1px solid var(--border);
@@ -2029,7 +2029,7 @@ div[data-state][class*="tw-modal"] {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-dim);
   padding: 4px 0;
   line-height: 1.4;
@@ -2300,7 +2300,7 @@ div[data-state][class*="tw-modal"] {
   border: 1px solid rgba(0, 255, 65, 0.2);
   border-radius: 2px;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 1px;
   color: var(--primary);
@@ -2314,7 +2314,7 @@ div[data-state][class*="tw-modal"] {
   gap: 6px;
   color: var(--text-dim);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 0.5px;
 }
 
