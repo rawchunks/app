@@ -1900,20 +1900,17 @@
   gap: 0.22rem;
   flex: 1 1 0;
   min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: hidden;
 }
 
 .floating-toolbox.toolbox-controller.mode-compact .toolbox-takes-section,
 .floating-toolbox.toolbox-controller.mode-compact .toolbox-commits-section {
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: hidden;
   justify-content: flex-start;
-  scrollbar-width: thin;
 }
 
 .toolbox-history-empty {
-  font-size: var(--daw-badge-font, clamp(0.64rem, 0.58rem + 0.25vw, 0.74rem));
+  font-size: var(--daw-badge-font, clamp(0.6875rem, 0.58rem + 0.25vw, 0.74rem));
   color: var(--text-muted);
   font-style: italic;
   padding: 0.15rem 0;
@@ -1923,22 +1920,23 @@
 .toolbox-takes-list,
 .toolbox-commits-list {
   display: flex;
-  flex-direction: column;
+  flex-wrap: wrap;
   align-items: stretch;
-  gap: 0.22rem;
+  align-content: flex-start;
+  gap: 0.24rem;
   width: 100%;
   min-width: 0;
-  overflow-x: hidden;
+  overflow: hidden;
 }
 
 .floating-toolbox.toolbox-controller.mode-compact .toolbox-takes-list,
 .floating-toolbox.toolbox-controller.mode-compact .toolbox-commits-list {
-  flex-direction: column;
+  display: flex;
+  flex-wrap: wrap;
   align-items: stretch;
-  gap: 0.22rem;
-  overflow-x: hidden;
-  overflow-y: auto;
-  scrollbar-width: thin;
+  align-content: flex-start;
+  gap: 0.24rem;
+  overflow: hidden;
 }
 
 .toolbox-take-item,
@@ -1946,27 +1944,41 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.45rem;
+  gap: 0.35rem;
   background: rgba(0, 0, 0, 0.42);
   border: 1px solid var(--border);
   border-radius: 4px;
-  padding: 0.2rem 0.48rem;
+  padding: 0.18rem 0.42rem;
   cursor: pointer;
-  flex-shrink: 0;
   min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  box-sizing: border-box;
   transition: all 0.14s ease;
 }
 
 .toolbox-take-item.folded,
 .toolbox-commit-item.folded {
-  padding: 0.14rem 0.45rem;
+  flex: 0 0 auto;
+  padding: 0.14rem 0.42rem;
   background: rgba(0, 0, 0, 0.26);
   border-color: rgba(255, 255, 255, 0.08);
   opacity: 0.85;
 }
 
+.toolbox-take-item.folded .toolbox-take-range,
+.toolbox-commit-item.folded .toolbox-commit-msg,
+.toolbox-commit-item.folded .toolbox-commit-time {
+  display: none;
+}
+
 .toolbox-take-item.selected,
 .toolbox-commit-item.selected {
+  flex: 1 1 300px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.35rem;
   border-color: rgba(0, 255, 65, 0.55);
   background: rgba(0, 255, 65, 0.08);
   opacity: 1;
@@ -1981,23 +1993,32 @@
 .toolbox-commit-actions {
   display: inline-flex;
   align-items: center;
-  gap: 0.25rem;
+  gap: 0.2rem;
   flex-shrink: 0;
+}
+
+.toolbox-take-actions .btn-base,
+.toolbox-commit-actions .btn-base {
+  padding: 0 0.36rem;
+  min-height: 20px;
+  height: 20px;
+  font-size: 11px;
 }
 
 .toolbox-take-delete-btn {
   color: #ef4444 !important;
-  padding: 0 0.35rem;
+  padding: 0 0.3rem !important;
 }
 
 .toolbox-take-meta,
 .toolbox-commit-meta {
   display: flex;
   align-items: center;
-  gap: 0.36rem;
+  gap: 0.3rem;
   min-width: 0;
   flex: 1 1 0;
-  font-size: var(--badge-sub-font, clamp(0.62rem, 0.56rem + 0.22vw, 0.72rem));
+  overflow: hidden;
+  font-size: var(--badge-sub-font, clamp(0.6875rem, 0.56rem + 0.22vw, 0.72rem));
 }
 
 .toolbox-take-num,
@@ -2011,7 +2032,7 @@
 .toolbox-commit-cat-tag {
   font-size: var(--badge-sub-font, clamp(0.6rem, 0.54rem + 0.18vw, 0.68rem));
   font-weight: 700;
-  padding: 0.06rem 0.3rem;
+  padding: 0.06rem 0.28rem;
   border-radius: 3px;
   background: rgba(255, 255, 255, 0.1);
   color: var(--text-secondary);
@@ -2022,7 +2043,10 @@
   font-size: var(--badge-sub-font, clamp(0.6rem, 0.54rem + 0.18vw, 0.68rem));
   font-weight: 700;
   color: var(--warning);
-  flex-shrink: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 
 .toolbox-commit-msg {
@@ -2037,7 +2061,7 @@
 
 .toolbox-commit-time {
   color: var(--text-secondary);
-  font-size: clamp(0.58rem, 0.52rem + 0.18vw, 0.66rem);
+  font-size: 11px;
   flex-shrink: 0;
 }
 
