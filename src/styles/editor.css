@@ -449,14 +449,98 @@
   gap: 6px;
 }
 
-@media (max-width: 768px) {
-  .editor-btn-label {
+/* ==========================================================================
+   MOBILE & TABLET MISSION-CONTROL ARCHITECTURE (<= 960px, Zero Switcher)
+   ========================================================================== */
+@media (max-width: 960px) {
+  .editor-container {
+    padding: 4px 6px calc(4px + var(--sab));
+    gap: 4px;
+  }
+
+  .editor-header-bar {
+    gap: 5px;
+    padding: 2px 2px 4px;
+  }
+
+  .editor-header-left {
+    gap: 5px;
+  }
+
+  .editor-track-title {
+    font-size: 12px;
+  }
+
+  .editor-btn-label,
+  .editor-transport-play-label,
+  .editor-header-time-sep,
+  .editor-header-time-total {
     display: none;
   }
 
-  .editor-back-btn,
-  .editor-commit-btn {
-    padding: 4px 8px;
+  .editor-back-btn {
+    padding: 4px 6px;
+    min-height: 26px;
+    height: 26px;
+    flex-shrink: 0;
+  }
+
+  .editor-transport-deck {
+    gap: 4px;
+    padding: 2px 5px;
+  }
+
+  .editor-transport-controls {
+    gap: 3px;
+  }
+
+  .editor-transport-btn {
+    width: 24px;
+    height: 24px;
+  }
+
+  .editor-transport-play-btn {
+    height: 24px;
+    padding: 0 7px;
+  }
+
+  .editor-header-time {
+    font-size: 11px;
+    padding: 2px 6px;
+  }
+
+  .editor-bpm-trigger {
+    min-height: 22px;
+    height: 22px;
+    padding: 0 6px;
+  }
+
+  .editor-track-sub {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 2px;
+  }
+
+  .editor-track-sub > span:nth-child(-n+4) {
+    display: none;
+  }
+
+  /* Maintain Desktop-aligned vertical proportions on Mobile:
+     Both Board (Selected Lane + Unselected Lanes + Manual Toolbox) and AI Studio remain open simultaneously */
+  .editor-board-wrapper {
+    flex: 76 1 0%;
+    min-height: 0;
+  }
+
+  .editor-studio-wrapper {
+    flex: 24 1 0%;
+    height: auto;
+    min-height: 106px;
+    max-height: 124px;
   }
 }
+
+
+
 
