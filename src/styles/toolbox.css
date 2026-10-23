@@ -5123,3 +5123,190 @@
    MOBILE & TABLET SIMULTANEOUS BENTO LAYOUT (<= 960px)
    Both Manual Toolbox and AI Studio remain open in Desktop proportions
    ========================================================================== */
+@media (max-width: 960px) {
+  .toolbox-mobile-telemetry-bar {
+    display: none !important;
+  }
+
+  .dsp-module-card {
+    padding: 4px 6px;
+    gap: 4px;
+  }
+
+  .dsp-module-header {
+    padding-bottom: 2px;
+  }
+
+  .dsp-module-card.active-module .dsp-control-group {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 4px 8px;
+  }
+
+  .studio-unified-block {
+    gap: 4px;
+    padding: 4px 5px;
+  }
+
+  .studio-op-item.is-open {
+    flex: 60 1 0%;
+    padding: 4px 6px;
+    gap: 3px;
+  }
+
+  .studio-op-item.is-closed {
+    flex: 8 1 0%;
+  }
+
+  .studio-inline-presets,
+  .studio-open-visual,
+  .studio-open-param-desc,
+  .studio-open-brief {
+    display: none !important;
+  }
+
+  .studio-selected-main {
+    flex: 1 1 0;
+    min-height: 0;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: space-between;
+    gap: 4px;
+  }
+
+  .studio-prompt-wrapper {
+    flex: 1 1 0;
+    width: 100%;
+    min-height: 36px;
+    height: auto;
+    align-items: stretch;
+  }
+
+  .studio-prompt-wrapper .toolbox-prompt-input {
+    height: 100%;
+    min-height: 36px;
+  }
+
+  .studio-selected-actions {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex: 0 0 auto;
+  }
+
+  .studio-selected-actions > .daw-tooltip-wrapper:last-child {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+  }
+
+  .studio-selected-actions .toolbox-execute-btn {
+    width: 100% !important;
+    flex: 1 1 0 !important;
+    justify-content: center;
+  }
+
+  /* Smart View with Discovery for History on Mobile (Chronological #id square badges wrapped in rows) */
+  .toolbox-takes-list,
+  .toolbox-commits-list,
+  .floating-toolbox.toolbox-controller.mode-compact .toolbox-takes-list,
+  .floating-toolbox.toolbox-controller.mode-compact .toolbox-commits-list {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    align-content: flex-start;
+    gap: 4px;
+    overflow: hidden;
+  }
+
+  .toolbox-take-item.folded,
+  .toolbox-commit-item.folded {
+    flex: 0 0 auto;
+    width: auto;
+    min-width: 26px;
+    height: 22px;
+    padding: 0 5px;
+    justify-content: center;
+  }
+
+  .toolbox-take-item.folded .toolbox-take-meta,
+  .toolbox-commit-item.folded .toolbox-commit-meta {
+    flex: 0 0 auto;
+    justify-content: center;
+    gap: 0;
+  }
+
+  .toolbox-take-item.folded .toolbox-take-task,
+  .toolbox-take-item.folded .toolbox-take-range,
+  .toolbox-commit-item.folded .toolbox-commit-cat-tag,
+  .toolbox-commit-item.folded .toolbox-commit-msg,
+  .toolbox-commit-item.folded .toolbox-commit-time {
+    display: none !important;
+  }
+
+  .toolbox-take-item.selected,
+  .toolbox-commit-item.selected {
+    flex: 1 1 100%;
+    width: 100%;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 6px;
+  }
+
+  .toolbox-take-item.selected .toolbox-take-range,
+  .toolbox-commit-item.selected .toolbox-commit-time {
+    display: none;
+  }
+
+  .studio-op-item.is-closed .studio-op-tile {
+    padding: 4px 2px;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .studio-op-item.is-closed .studio-op-tile-param,
+  .studio-op-item.is-closed .studio-op-mini-svg {
+    display: none;
+  }
+
+  .studio-op-item.is-closed .studio-op-tile-top {
+    justify-content: center;
+  }
+
+  .studio-op-item.is-closed .studio-op-tile-label {
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    transform: rotate(180deg);
+    white-space: nowrap;
+    overflow: visible;
+    text-overflow: clip;
+    text-align: center;
+    font-size: 11px;
+    letter-spacing: 0.03em;
+    line-height: 1;
+  }
+
+  .toolbox-bottom-dock > .daw-tooltip-wrapper:first-child {
+    flex: 0 1 112px;
+    min-width: 92px;
+  }
+}
+
+@media (max-width: 640px) {
+  .studio-selected-header .studio-target-chip,
+  .studio-selected-header .studio-param-tag,
+  .studio-selected-header .studio-header-right,
+  .studio-extract-hint {
+    display: none;
+  }
+
+  .studio-selected-header .studio-context-cluster {
+    width: 100%;
+    justify-content: space-between;
+  }
+}
+
+
+
