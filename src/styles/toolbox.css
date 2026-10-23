@@ -4224,4 +4224,441 @@
   color: var(--primary);
 }
 
+/* ==========================================================================
+   ROW 3 RIGHT: BENTO MANUAL TOOLBOX CARD (Toolbox.tsx)
+   ========================================================================== */
+.toolbox-bento-card {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  border-radius: 6px;
+  border: 1px solid var(--border-bright);
+  background: linear-gradient(180deg, rgba(13, 16, 24, 0.96) 0%, rgba(7, 9, 14, 0.98) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 4px 18px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+  box-sizing: border-box;
+  position: relative;
+}
+
+.toolbox-bento-card:hover,
+.toolbox-bento-card:focus-within {
+  border-color: rgba(0, 240, 255, 0.42);
+}
+
+.toolbox-bento-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+/* Mobile Telemetry Preview Bar (Hidden on Desktop, shown on Mobile when folded) */
+.toolbox-mobile-telemetry-bar,
+.studio-mobile-telemetry-bar {
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  height: 38px;
+  min-height: 38px;
+  padding: 0 10px;
+  background: linear-gradient(90deg, rgba(16, 20, 32, 0.96) 0%, rgba(10, 12, 19, 0.98) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 6px;
+  box-sizing: border-box;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.toolbox-telemetry-left,
+.studio-telemetry-preview-trigger {
+  appearance: none;
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.toolbox-telemetry-pill,
+.studio-telemetry-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  padding: 2px 5px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.toolbox-telemetry-pill {
+  background: rgba(0, 240, 255, 0.16);
+  color: var(--accent);
+  border: 1px solid rgba(0, 240, 255, 0.42);
+}
+
+.studio-telemetry-badge {
+  background: rgba(0, 255, 65, 0.16);
+  color: var(--primary);
+  border: 1px solid rgba(0, 255, 65, 0.42);
+}
+
+.toolbox-telemetry-svg-wrap,
+.studio-micro-preview-svg {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1 1 36px;
+  min-width: 28px;
+  max-width: 56px;
+  height: 20px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 1px 3px;
+  box-sizing: border-box;
+}
+
+.toolbox-micro-svg,
+.studio-micro-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.toolbox-telemetry-active-name,
+.studio-telemetry-param-pill {
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--text);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.toolbox-telemetry-icons,
+.studio-telemetry-icons-strip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.toolbox-telemetry-icon-btn,
+.studio-telemetry-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 4px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.toolbox-telemetry-icon-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #000;
+}
+
+.studio-telemetry-icon-btn.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #000;
+}
+
+/* Selected Tool Active Workspace (Top ~78% of Manual Toolbox Card) */
+.toolbox-selected-tool-body {
+  flex: 1 1 0;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 4px 6px;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.toolbox-selected-tool-body > * {
+  flex: 1 1 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Bottom Dock: [MRU - PREVIEW] | [TOOL ICON] | [TOOL ICON] | [TOOL ICON] | [+N] */
+.toolbox-bottom-dock {
+  flex: 0 0 38px;
+  height: 38px;
+  min-height: 38px;
+  width: 100%;
+  display: flex;
+  align-items: stretch;
+  gap: 5px;
+  padding: 4px 6px;
+  background: rgba(6, 8, 13, 0.94);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  box-sizing: border-box;
+  position: relative;
+  z-index: 15;
+}
+
+.toolbox-bottom-dock > .daw-tooltip-wrapper {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+  align-items: stretch;
+}
+
+.toolbox-bottom-dock > .daw-tooltip-wrapper:first-child {
+  flex: 0 1 154px;
+  min-width: 112px;
+}
+
+.toolbox-mru-preview-btn {
+  width: 100%;
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1.5px solid rgba(0, 240, 255, 0.72);
+  background: linear-gradient(90deg, rgba(0, 240, 255, 0.22) 0%, rgba(14, 20, 32, 0.96) 100%);
+  box-shadow: inset 0 0 10px rgba(0, 240, 255, 0.14);
+  color: #ffffff;
+  cursor: pointer;
+  overflow: hidden;
+  box-sizing: border-box;
+  transition: border-color 0.14s ease, background 0.14s ease, box-shadow 0.14s ease;
+}
+
+.toolbox-mru-preview-btn:hover {
+  border-color: var(--accent);
+  background: linear-gradient(90deg, rgba(0, 240, 255, 0.32) 0%, rgba(18, 26, 40, 0.98) 100%);
+  box-shadow: 0 0 12px rgba(0, 240, 255, 0.28);
+}
+
+.toolbox-mru-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.toolbox-mru-tag {
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  font-weight: 900;
+  color: #ffffff;
+  letter-spacing: 0.04em;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(0, 240, 255, 0.28);
+  border: 1px solid rgba(0, 240, 255, 0.6);
+  flex-shrink: 0;
+}
+
+.toolbox-mru-label {
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  font-weight: 900;
+  color: #ffffff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.toolbox-mru-graphic {
+  width: 48px;
+  height: 20px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  filter: drop-shadow(0 0 4px rgba(0, 240, 255, 0.45));
+}
+
+.toolbox-dock-tool-btn {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-secondary);
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.14s ease;
+}
+
+.toolbox-dock-tool-btn:hover {
+  border-color: var(--accent);
+  color: var(--text);
+  background: rgba(0, 240, 255, 0.1);
+}
+
+.toolbox-dock-tool-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #000;
+  box-shadow: 0 0 10px rgba(0, 240, 255, 0.28);
+}
+
+.toolbox-dock-tool-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* [+N] Overflow Trigger & Popover */
+.toolbox-overflow-wrap {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  flex-shrink: 0;
+}
+
+.toolbox-overflow-wrap > .daw-tooltip-wrapper {
+  display: flex;
+  align-items: stretch;
+}
+
+.toolbox-dock-more-btn {
+  min-width: 42px;
+  height: 100%;
+  padding: 0 8px;
+  gap: 4px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.14s ease;
+}
+
+.toolbox-dock-more-btn:hover,
+.toolbox-dock-more-btn.active,
+.toolbox-dock-more-btn.open {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(0, 240, 255, 0.14);
+}
+
+.toolbox-more-count {
+  font-weight: 900;
+}
+
+.toolbox-more-active-tag {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--accent);
+}
+
+.toolbox-overflow-popover {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  right: 0;
+  width: min(320px, 88vw);
+  padding: 8px;
+  border-radius: 6px;
+  background: rgba(10, 13, 21, 0.98);
+  border: 1px solid var(--accent);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.85);
+  z-index: 60;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.toolbox-overflow-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  border-radius: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.14s ease;
+}
+
+.toolbox-overflow-item:hover,
+.toolbox-overflow-item.active {
+  border-color: var(--accent);
+  background: rgba(0, 240, 255, 0.12);
+}
+
+.toolbox-overflow-item-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  min-width: 0;
+}
+
+.toolbox-overflow-item-label {
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.toolbox-overflow-item-meta {
+  margin-left: auto;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.toolbox-overflow-item-preview {
+  height: 18px;
+  width: 100%;
+  opacity: 0.85;
+}
 
