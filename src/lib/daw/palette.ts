@@ -66,8 +66,85 @@ export function formatTrackBadgeCode(trackItem: { id?: string; name?: string; ty
     strudel: 'COD',
     code: 'COD',
     'live code': 'COD',
+    other: 'OTH',
+    instrumental: 'INS',
   };
-  const code = codeMap[base] || (trackItem.type ? codeMap[trackItem.type] : undefined) || base.slice(0, 3).toUpperCase();
+  let matched = codeMap[base];
+  if (!matched) {
+    if (base.includes('backing') && base.includes('vocal')) matched = 'BGV';
+    else if (base.includes('vocal')) matched = 'VOC';
+    else if (base.includes('percussion')) matched = 'PER';
+    else if (base.includes('drum') || base.includes('sequencer')) matched = 'DRM';
+    else if (base.includes('bass')) matched = 'BAS';
+    else if (base.includes('guitar')) matched = 'GTR';
+    else if (base.includes('key') || base.includes('piano')) matched = 'KEY';
+    else if (base.includes('synth')) matched = 'SYN';
+    else if (base.includes('string')) matched = 'STR';
+    else if (base.includes('woodwind') || base.includes('flute') || base.includes('sax')) matched = 'WIN';
+    else if (base.includes('brass') || base.includes('horn') || base.includes('trumpet')) matched = 'BRS';
+    else if (base.includes('fx') || base.includes('sfx')) matched = 'FX';
+    else if (base.includes('sample')) matched = 'SMP';
+    else if (base.includes('strudel') || base.includes('code')) matched = 'COD';
+    else if (base.includes('other')) matched = 'OTH';
+    else if (base.includes('instrumental')) matched = 'INS';
+  }
+  const code = matched || (trackItem.type ? codeMap[trackItem.type] : undefined) || base.slice(0, 3).toUpperCase();
   return numMatch ? `${code} ${numMatch[1]}` : code;
 }
+
+export function formatTrackBadgeFull(trackItem: { id?: string; name?: string; type?: string }): string {
+  if (trackItem.id === 'master') return 'MASTER';
+  const raw = (trackItem.name || trackItem.type || '').trim();
+  const numMatch = raw.match(/\s+(\d+)$/);
+  const base = raw.replace(/\s+\d+$/, '').toLowerCase();
+  const fullMap: Record<string, string> = {
+    vocals: 'VOCALS',
+    'backing vocals': 'BACKING VOCALS',
+    backing_vocals: 'BACKING VOCALS',
+    drums: 'DRUMS',
+    'drum seq': 'DRUMS',
+    sequencer: 'DRUMS',
+    bass: 'BASS',
+    guitar: 'GUITAR',
+    keyboard: 'KEYS',
+    keys: 'KEYS',
+    'keys synth': 'KEYS',
+    pianoroll: 'KEYS',
+    strings: 'STRINGS',
+    synth: 'SYNTH',
+    woodwinds: 'WOODWINDS',
+    brass: 'BRASS',
+    percussion: 'PERCUSSION',
+    fx: 'FX',
+    sample: 'SAMPLE',
+    sampler: 'SAMPLE',
+    strudel: 'LIVE CODE',
+    code: 'LIVE CODE',
+    'live code': 'LIVE CODE',
+    other: 'OTHER',
+    instrumental: 'INSTRUMENTAL',
+  };
+  let matched = fullMap[base];
+  if (!matched) {
+    if (base.includes('backing') && base.includes('vocal')) matched = 'BACKING VOCALS';
+    else if (base.includes('vocal')) matched = 'VOCALS';
+    else if (base.includes('percussion')) matched = 'PERCUSSION';
+    else if (base.includes('drum') || base.includes('sequencer')) matched = 'DRUMS';
+    else if (base.includes('bass')) matched = 'BASS';
+    else if (base.includes('guitar')) matched = 'GUITAR';
+    else if (base.includes('key') || base.includes('piano')) matched = 'KEYS';
+    else if (base.includes('synth')) matched = 'SYNTH';
+    else if (base.includes('string')) matched = 'STRINGS';
+    else if (base.includes('woodwind') || base.includes('flute') || base.includes('sax')) matched = 'WOODWINDS';
+    else if (base.includes('brass') || base.includes('horn') || base.includes('trumpet')) matched = 'BRASS';
+    else if (base.includes('fx') || base.includes('sfx')) matched = 'FX';
+    else if (base.includes('sample')) matched = 'SAMPLE';
+    else if (base.includes('strudel') || base.includes('code')) matched = 'LIVE CODE';
+    else if (base.includes('other')) matched = 'OTHER';
+    else if (base.includes('instrumental')) matched = 'INSTRUMENTAL';
+  }
+  const full = matched || (trackItem.type ? fullMap[trackItem.type] : undefined) || base.toUpperCase() || 'TRACK';
+  return numMatch ? `${full} ${numMatch[1]}` : full;
+}
+
 

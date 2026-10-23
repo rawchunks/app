@@ -23,7 +23,7 @@
     --board-header-w: clamp(134px, 38vw, 168px);
     --toolbox-compact-h: clamp(192px, 28dvh, 212px);
     --badge-mst-h: clamp(20px, 2.5dvh, 22px);
-    --badge-mst-font: clamp(10px, 2.5vw, 11px);
+    --badge-mst-font: 11px;
   }
 
   /* Studio: Enable Pocket Switcher Bar */
@@ -98,7 +98,7 @@
   }
 
   .session-trigger-amount {
-    font-size: clamp(9.5px, 2.4vw, 11px);
+    font-size: 11px;
     letter-spacing: 0;
   }
 
@@ -202,10 +202,15 @@
     gap: clamp(12px, 3vw, 20px);
   }
 
-  /* Icon-only action buttons on small screens (tooltips remain active) */
+  /* Icon-only action buttons on small screens outside modals (tooltips remain active) */
   .board-btn-label,
   .daw-btn-label {
     display: none !important;
+  }
+
+  .modal-inner-card .daw-btn-label,
+  .modal-inner-card .board-btn-label {
+    display: inline !important;
   }
 
   .variation-card-actions {
@@ -253,7 +258,7 @@
   :root {
     --board-header-w: clamp(126px, 38vw, 152px);
     --badge-mst-h: clamp(19px, 2.4dvh, 21px);
-    --badge-mst-font: clamp(9.5px, 2.5vw, 10.5px);
+    --badge-mst-font: 11px;
   }
 
   .app-header {

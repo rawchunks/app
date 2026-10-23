@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState, useMemo, useCallback } from 'react';
 import { DAWClip, useDawStore } from '../../lib/daw/store';
+import { dawEngine } from '../../lib/daw/engine';
 import {
   extractBipolarPeaksFromUrl,
   readPeaks,
@@ -20,10 +21,17 @@ interface ClipProps {
   trackId?: string;
   color?: string;
   className?: string;
+  enableSelection?: boolean;
 }
 
 
-export const Clip: React.FC<ClipProps> = ({ clip, trackId, color, className = '' }) => {
+export const Clip: React.FC<ClipProps> = ({
+  clip,
+  trackId,
+  color,
+  className = '',
+  enableSelection = false,
+}) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const binCount = 512;
@@ -39,6 +47,11 @@ export const Clip: React.FC<ClipProps> = ({ clip, trackId, color, className = ''
     anchorId?: string;
   } | null>(null);
 
+  const totalDuration = useDawStore((s) => s.duration);
+  const selection = useDawStore((s) => s.selection);
+  const setSelection = useDawStore((s) => s.setSelection);
+  const setPlayhead = useDawStore((s) => s.setPlayhead);
+
   const trackSculpt = useDawStore((s) =>
     trackId ? s.tracks.find((t) => t.id === trackId)?.sculpt : undefined
   );
@@ -48,6 +61,8 @@ export const Clip: React.FC<ClipProps> = ({ clip, trackId, color, className = ''
   const globalSculptMode = useDawStore((s) => s.sculptMode);
   const updateClipSculpt = useDawStore((s) => s.updateClipSculpt);
   const resetTrackSculpt = useDawStore((s) => s.resetTrackSculpt);
+
+  const effectiveDuration = totalDuration > 0 ? totalDuration : clip.duration || 30;
 
   const ownSculpt = useMemo(
     () => clip.sculpt ?? trackSculpt ?? createDefaultWaveSculpt(),
@@ -83,12 +98,15 @@ export const Clip: React.FC<ClipProps> = ({ clip, trackId, color, className = ''
 
   const dragStateRef = useRef<{
     pointerId: number;
-    mode: 'node' | 'anchor' | 'fadeIn' | 'fadeOut';
+    mode: 'node' | 'anchor' | 'fadeIn' | 'fadeOut' | 'range' | 'sel-start' | 'sel-end' | 'sel-pan';
     nodeIdx: number;
     anchorId?: string;
     anchorsSnapshot?: GranularPeakAnchor[];
     pendingAnchor?: GranularPeakAnchor;
     isNewAnchor?: boolean;
+    rangeOriginSec?: number;
+    initialSelStart?: number;
+    initialSelEnd?: number;
     tool: GranularTool;
     startX: number;
     startY: number;
@@ -102,6 +120,7 @@ export const Clip: React.FC<ClipProps> = ({ clip, trackId, color, className = ''
     initialRadius: number;
     moved: boolean;
     held?: boolean;
+    alreadySeeked?: boolean;
     downTime: number;
   } | null>(null);
 
@@ -481,8 +500,53 @@ export const Clip: React.FC<ClipProps> = ({ clip, trackId, color, className = ''
     }
   };
 
+  const clipStartSec = clip.startTime || 0;
+  const clipDurSec = Math.max(0.01, clip.duration || effectiveDuration);
+  const clipRatioSelection = useMemo(() => {
+    if (!enableSelection || !selection || effectiveDuration <= 0) return null;
+    const s = Math.max(0, Math.min(1, (selection.start - clipStartSec) / clipDurSec));
+    const e = Math.max(0, Math.min(1, (selection.end - clipStartSec) / clipDurSec));
+    if (e <= s + 0.004) return null;
+    return { start: s, end: e };
+  }, [enableSelection, selection, effectiveDuration, clipStartSec, clipDurSec]);
+
+  const isPointOutsideWaveform = useCallback(
+    (xRatio: number, localY: number, h: number): boolean => {
+      const midY = h / 2;
+      const distFromCenter = Math.abs(localY - midY);
+      if (distFromCenter >= midY * 0.64) return true;
+      if (!displayPeaks || displayPeaks.bins === 0) return true;
+      const bin = Math.min(displayPeaks.bins - 1, Math.max(0, Math.floor(xRatio * displayPeaks.bins)));
+      let maxPeak = 0;
+      const refPeaks = bipolarPeaks ?? displayPeaks;
+      for (let i = 0; i < refPeaks.bins; i++) {
+        maxPeak = Math.max(maxPeak, Math.abs(refPeaks.maxs[i]), Math.abs(refPeaks.mins[i]));
+      }
+      const normScale = maxPeak > 0 && maxPeak < 0.25 ? Math.min(4, 0.35 / maxPeak) : 1;
+      const ampHeight = midY * 0.64 * normScale;
+      const upperPx = Math.min(midY * 0.62, Math.max(0.05, Math.abs(displayPeaks.maxs[bin])) * ampHeight);
+      const lowerPx = Math.min(midY * 0.62, Math.max(0.05, Math.abs(displayPeaks.mins[bin])) * ampHeight);
+      if (localY < midY - upperPx - 4) return true;
+      if (localY > midY + lowerPx + 4) return true;
+      return false;
+    },
+    [displayPeaks, bipolarPeaks]
+  );
+
+  const seekAndPlayAtSec = useCallback(
+    (targetSec: number) => {
+      const clampedSec = Math.max(0, Math.min(effectiveDuration, targetSec));
+      setPlayhead(clampedSec);
+      dawEngine.stopAuditionTake(true);
+      dawEngine.seek(clampedSec);
+      void dawEngine.startTransport(false);
+    },
+    [effectiveDuration, setPlayhead]
+  );
+
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!trackId || e.button !== 0) return;
+    if ((!trackId && !enableSelection) || e.button !== 0) return;
+    e.stopPropagation();
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
@@ -498,10 +562,15 @@ export const Clip: React.FC<ClipProps> = ({ clip, trackId, color, className = ''
       holdTimerRef.current = null;
     }
 
+    const clickTimeSec = Math.max(
+      0,
+      Math.min(effectiveDuration, (clip.startTime || 0) + xRatio * (clip.duration || effectiveDuration))
+    );
+
     // Check top-left fade-in / top-right fade-out handles first
     const fadeInPx = ratioToLocalX(effectiveSculpt.fadeIn, rect.width);
     const fadeOutPx = ratioToLocalX(1 - effectiveSculpt.fadeOut, rect.width);
-    if (localY <= Math.min(14, rect.height * 0.38)) {
+    if (trackId && localY <= Math.min(14, rect.height * 0.38)) {
       if (Math.abs(localX - fadeInPx) <= 12) {
         dragStateRef.current = {
           pointerId: e.pointerId,
@@ -548,6 +617,125 @@ export const Clip: React.FC<ClipProps> = ({ clip, trackId, color, className = ''
       }
     }
 
+    // Priority check for active selected-region edges (iv) and selected-region body pan/drag (iii)
+    if (enableSelection && clipRatioSelection && selection) {
+      const selStartX = ratioToLocalX(clipRatioSelection.start, rect.width);
+      const selEndX = ratioToLocalX(clipRatioSelection.end, rect.width);
+
+      if (Math.abs(localX - selStartX) <= 12) {
+        dragStateRef.current = {
+          pointerId: e.pointerId,
+          mode: 'sel-start',
+          nodeIdx: -1,
+          rangeOriginSec: clickTimeSec,
+          initialSelStart: selection.start,
+          initialSelEnd: selection.end,
+          tool: 'grab',
+          startX: e.clientX,
+          startY: e.clientY,
+          initialGainDb: 0,
+          initialWarpOffset: 0,
+          initialTimeShift: 0,
+          initialBend: 0,
+          initialSmash: 0,
+          initialSmooth: 0,
+          initialSharpen: 0,
+          initialRadius: 0.04,
+          moved: false,
+          downTime: now,
+        };
+        canvas.style.cursor = 'ew-resize';
+        try { canvas.setPointerCapture(e.pointerId); } catch {}
+        return;
+      }
+
+      if (Math.abs(localX - selEndX) <= 12) {
+        dragStateRef.current = {
+          pointerId: e.pointerId,
+          mode: 'sel-end',
+          nodeIdx: -1,
+          rangeOriginSec: clickTimeSec,
+          initialSelStart: selection.start,
+          initialSelEnd: selection.end,
+          tool: 'grab',
+          startX: e.clientX,
+          startY: e.clientY,
+          initialGainDb: 0,
+          initialWarpOffset: 0,
+          initialTimeShift: 0,
+          initialBend: 0,
+          initialSmash: 0,
+          initialSmooth: 0,
+          initialSharpen: 0,
+          initialRadius: 0.04,
+          moved: false,
+          downTime: now,
+        };
+        canvas.style.cursor = 'ew-resize';
+        try { canvas.setPointerCapture(e.pointerId); } catch {}
+        return;
+      }
+
+      if (localX > selStartX + 12 && localX < selEndX - 12) {
+        dragStateRef.current = {
+          pointerId: e.pointerId,
+          mode: 'sel-pan',
+          nodeIdx: -1,
+          rangeOriginSec: clickTimeSec,
+          initialSelStart: selection.start,
+          initialSelEnd: selection.end,
+          tool: 'grab',
+          startX: e.clientX,
+          startY: e.clientY,
+          initialGainDb: 0,
+          initialWarpOffset: 0,
+          initialTimeShift: 0,
+          initialBend: 0,
+          initialSmash: 0,
+          initialSmooth: 0,
+          initialSharpen: 0,
+          initialRadius: 0.04,
+          moved: false,
+          downTime: now,
+        };
+        canvas.style.cursor = 'grabbing';
+        try { canvas.setPointerCapture(e.pointerId); } catch {}
+        return;
+      }
+    }
+
+    const outsideWave = isPointOutsideWaveform(xRatio, localY, rect.height);
+
+    // (i) Single click OUTSIDE the waveform (above or below): instant seek & play;
+    // (ii) Long-hold and drag: draw the selected-region
+    if (!trackId || (enableSelection && outsideWave)) {
+      if (enableSelection) {
+        seekAndPlayAtSec(clickTimeSec);
+      }
+      dragStateRef.current = {
+        pointerId: e.pointerId,
+        mode: 'range',
+        nodeIdx: -1,
+        rangeOriginSec: clickTimeSec,
+        tool: 'grab',
+        startX: e.clientX,
+        startY: e.clientY,
+        initialGainDb: 0,
+        initialWarpOffset: 0,
+        initialTimeShift: 0,
+        initialBend: 0,
+        initialSmash: 0,
+        initialSmooth: 0,
+        initialSharpen: 0,
+        initialRadius: 0.04,
+        moved: false,
+        alreadySeeked: true,
+        downTime: now,
+      };
+      try { canvas.setPointerCapture(e.pointerId); } catch {}
+      return;
+    }
+
     if (sculptMode === 'curve') {
       // SPEED / MEDIAN CURVE MODE
       const nodes = effectiveSculpt.nodes;
@@ -562,28 +750,30 @@ export const Clip: React.FC<ClipProps> = ({ clip, trackId, color, className = ''
         }
       });
 
-      const targetNode = nodes[closestIdx];
-      dragStateRef.current = {
-        pointerId: e.pointerId,
-        mode: 'node',
-        nodeIdx: closestIdx,
-        tool: 'grab',
-        startX: e.clientX,
-        startY: e.clientY,
-        initialGainDb: targetNode.gainDb,
-        initialWarpOffset: targetNode.warpOffset,
-        initialTimeShift: 0,
-        initialBend: 0,
-        initialSmash: 0,
-        initialSmooth: 0,
-        initialSharpen: 0,
-        initialRadius: 0.04,
-        moved: false,
-        downTime: now,
-      };
-      setActiveNodeIdx(closestIdx);
-      try { canvas.setPointerCapture(e.pointerId); } catch {}
-      return;
+      if (!enableSelection || closestDist <= 0.04 / zoomFactor) {
+        const targetNode = nodes[closestIdx];
+        dragStateRef.current = {
+          pointerId: e.pointerId,
+          mode: 'node',
+          nodeIdx: closestIdx,
+          tool: 'grab',
+          startX: e.clientX,
+          startY: e.clientY,
+          initialGainDb: targetNode.gainDb,
+          initialWarpOffset: targetNode.warpOffset,
+          initialTimeShift: 0,
+          initialBend: 0,
+          initialSmash: 0,
+          initialSmooth: 0,
+          initialSharpen: 0,
+          initialRadius: 0.04,
+          moved: false,
+          downTime: now,
+        };
+        setActiveNodeIdx(closestIdx);
+        try { canvas.setPointerCapture(e.pointerId); } catch {}
+        return;
+      }
     }
 
     // GRANULAR WAVE SHAPE DESIGN MODE: Direct finger/cursor peak manipulation
@@ -656,6 +846,7 @@ export const Clip: React.FC<ClipProps> = ({ clip, trackId, color, className = ''
       anchorsSnapshot: ownAnchors,
       pendingAnchor: targetAnchor,
       isNewAnchor,
+      rangeOriginSec: clickTimeSec,
       tool: 'grab',
       startX: e.clientX,
       startY: e.clientY,
@@ -680,9 +871,9 @@ export const Clip: React.FC<ClipProps> = ({ clip, trackId, color, className = ''
     try { canvas.setPointerCapture(e.pointerId); } catch {}
   };
 
-  const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+  const handlePointerMove = (e: React.PointerEvent<HTMLElement>) => {
     const canvas = canvasRef.current;
-    if (!canvas || !trackId) return;
+    if (!canvas || (!trackId && !enableSelection)) return;
     const rect = canvas.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return;
 
@@ -692,6 +883,26 @@ export const Clip: React.FC<ClipProps> = ({ clip, trackId, color, className = ''
 
     const drag = dragStateRef.current;
     if (!drag) {
+      if (enableSelection && clipRatioSelection) {
+        const selStartX = ratioToLocalX(clipRatioSelection.start, rect.width);
+        const selEndX = ratioToLocalX(clipRatioSelection.end, rect.width);
+        if (Math.abs(localX - selStartX) <= 12 || Math.abs(localX - selEndX) <= 12) {
+          if (hoverPeak) setHoverPeak(null);
+          canvas.style.cursor = 'ew-resize';
+          return;
+        }
+        if (localX > selStartX + 12 && localX < selEndX - 12) {
+          if (hoverPeak) setHoverPeak(null);
+          canvas.style.cursor = 'grab';
+          return;
+        }
+      }
+      const outsideWave = isPointOutsideWaveform(xRatio, localY, rect.height);
+      if (outsideWave) {
+        if (hoverPeak) setHoverPeak(null);
+        canvas.style.cursor = 'pointer';
+        return;
+      }
       if (sculptMode === 'granular' && displayPeaks && displayPeaks.bins > 0) {
         const bin = Math.min(displayPeaks.bins - 1, Math.max(0, Math.floor(xRatio * displayPeaks.bins)));
         const midY = rect.height / 2;
@@ -710,6 +921,7 @@ export const Clip: React.FC<ClipProps> = ({ clip, trackId, color, className = ''
             ? displayPeaks.maxs[bin]
             : displayPeaks.mins[bin];
         setHoverPeak({ ratio: (bin + 0.5) / displayPeaks.bins, polarity, peakVal });
+        canvas.style.cursor = 'grab';
       } else if (hoverPeak) {
         setHoverPeak(null);
       }
@@ -725,7 +937,16 @@ export const Clip: React.FC<ClipProps> = ({ clip, trackId, color, className = ''
         clearTimeout(holdTimerRef.current);
         holdTimerRef.current = null;
       }
-      if (drag.mode === 'anchor' && drag.anchorId) {
+      // In Focus Lane, a horizontal drag without holding on an existing peak draws a time section directly
+      if (
+        enableSelection &&
+        drag.mode === 'anchor' &&
+        !drag.held &&
+        Math.abs(dx) >= Math.abs(dy) * 0.85
+      ) {
+        drag.mode = 'range';
+        setActiveAnchorId(null);
+      } else if (drag.mode === 'anchor' && drag.anchorId) {
         setActiveAnchorId(drag.anchorId);
         if (drag.isNewAnchor && drag.pendingAnchor) {
           let snap = [...(drag.anchorsSnapshot ?? ownSculpt.anchors ?? [])];
@@ -739,6 +960,61 @@ export const Clip: React.FC<ClipProps> = ({ clip, trackId, color, className = ''
       }
     }
     e.stopPropagation();
+
+    const currentSec = Math.max(
+      0,
+      Math.min(effectiveDuration, (clip.startTime || 0) + xRatio * (clip.duration || effectiveDuration))
+    );
+
+    if (drag.mode === 'range') {
+      const origin = drag.rangeOriginSec ?? currentSec;
+      const start = Math.max(0, Math.min(origin, currentSec));
+      const end = Math.min(effectiveDuration, Math.max(origin, currentSec));
+      if (end - start >= 0.25) {
+        setSelection({
+          start: Number(start.toFixed(2)),
+          end: Number(end.toFixed(2)),
+        });
+      }
+      return;
+    }
+
+    if (drag.mode === 'sel-start' && selection) {
+      const nextStart = Math.max(0, Math.min(selection.end - 0.5, currentSec));
+      setSelection({ start: Number(nextStart.toFixed(2)), end: selection.end });
+      canvas.style.cursor = 'ew-resize';
+      return;
+    }
+
+    if (drag.mode === 'sel-end' && selection) {
+      const nextEnd = Math.min(effectiveDuration, Math.max(selection.start + 0.5, currentSec));
+      setSelection({ start: selection.start, end: Number(nextEnd.toFixed(2)) });
+      canvas.style.cursor = 'ew-resize';
+      return;
+    }
+
+    if (drag.mode === 'sel-pan' && drag.initialSelStart !== undefined && drag.initialSelEnd !== undefined) {
+      const span = drag.initialSelEnd - drag.initialSelStart;
+      const deltaSec = (dx / Math.max(1, rect.width * zoomFactor)) * effectiveDuration;
+      let nextStart = drag.initialSelStart + deltaSec;
+      let nextEnd = drag.initialSelEnd + deltaSec;
+      if (nextStart < 0) {
+        nextStart = 0;
+        nextEnd = span;
+      }
+      if (nextEnd > effectiveDuration) {
+        nextEnd = effectiveDuration;
+        nextStart = Math.max(0, effectiveDuration - span);
+      }
+      setSelection({
+        start: Number(nextStart.toFixed(2)),
+        end: Number(nextEnd.toFixed(2)),
+      });
+      canvas.style.cursor = 'grabbing';
+      return;
+    }
+
+    if (!trackId) return;
 
     if (drag.mode === 'fadeIn') {
       const nextFadeIn = Math.max(0, Math.min(0.45, Math.round(xRatio * 100) / 100));
@@ -837,7 +1113,7 @@ export const Clip: React.FC<ClipProps> = ({ clip, trackId, color, className = ''
     }
   };
 
-  const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+  const handlePointerUp = (e: React.PointerEvent<HTMLElement>) => {
     if (holdTimerRef.current) {
       clearTimeout(holdTimerRef.current);
       holdTimerRef.current = null;
@@ -845,24 +1121,48 @@ export const Clip: React.FC<ClipProps> = ({ clip, trackId, color, className = ''
     const drag = dragStateRef.current;
     if (drag) {
       const elapsed = performance.now() - drag.downTime;
-      const didHoldOrDrag = Boolean(
-        drag.moved ||
-          drag.held ||
-          elapsed >= 180 ||
-          drag.mode === 'node' ||
-          drag.mode === 'fadeIn' ||
-          drag.mode === 'fadeOut'
-      );
-      if (didHoldOrDrag) {
-        suppressNextClickRef.current = true;
-        e.stopPropagation();
+      const dist = Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY);
+      if (drag.mode === 'sel-pan') {
+        if (!drag.moved && dist < 5 && enableSelection && drag.rangeOriginSec !== undefined) {
+          seekAndPlayAtSec(drag.rangeOriginSec);
+        } else {
+          suppressNextClickRef.current = true;
+          e.stopPropagation();
+        }
+      } else {
+        const didHoldOrDrag = Boolean(
+          drag.moved ||
+            drag.held ||
+            dist >= 5 ||
+            elapsed >= 220 ||
+            drag.mode === 'node' ||
+            drag.mode === 'fadeIn' ||
+            drag.mode === 'fadeOut' ||
+            drag.mode === 'sel-start' ||
+            drag.mode === 'sel-end'
+        );
+        if (!didHoldOrDrag && !drag.alreadySeeked && enableSelection && drag.rangeOriginSec !== undefined) {
+          seekAndPlayAtSec(drag.rangeOriginSec);
+        }
+        if (didHoldOrDrag || drag.alreadySeeked) {
+          suppressNextClickRef.current = true;
+          e.stopPropagation();
+        }
       }
       dragStateRef.current = null;
     }
+    try {
+      const targetEl = e.currentTarget as HTMLElement;
+      if (targetEl && targetEl.hasPointerCapture && targetEl.hasPointerCapture(e.pointerId)) {
+        targetEl.releasePointerCapture(e.pointerId);
+      }
+    } catch {}
     const canvas = canvasRef.current;
-    if (canvas && canvas.hasPointerCapture(e.pointerId)) {
-      canvas.releasePointerCapture(e.pointerId);
-    }
+    try {
+      if (canvas && canvas.hasPointerCapture && canvas.hasPointerCapture(e.pointerId)) {
+        canvas.releasePointerCapture(e.pointerId);
+      }
+    } catch {}
     setActiveNodeIdx(null);
     setActiveAnchorId(null);
   };
@@ -891,11 +1191,63 @@ export const Clip: React.FC<ClipProps> = ({ clip, trackId, color, className = ''
     }
   };
 
+  const clipRangeDragRef = useRef<{
+    mode: 'start' | 'end' | 'pan';
+    x: number;
+    selection: { start: number; end: number };
+    width: number;
+  } | null>(null);
+
+  const handleClipRangeDown = (event: React.PointerEvent<HTMLButtonElement>, mode: 'start' | 'end' | 'pan') => {
+    if (!clipRatioSelection || !canvasRef.current) return;
+    event.stopPropagation();
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    clipRangeDragRef.current = {
+      mode,
+      x: event.clientX,
+      selection: clipRatioSelection,
+      width: Math.max(1, canvasRef.current.getBoundingClientRect().width),
+    };
+  };
+
+  const handleClipRangeMove = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const drag = clipRangeDragRef.current;
+    if (!drag) return;
+    event.stopPropagation();
+    const delta = (event.clientX - drag.x) / drag.width;
+    let nextStart = drag.selection.start;
+    let nextEnd = drag.selection.end;
+    if (drag.mode === 'start') {
+      nextStart = Math.max(0, Math.min(drag.selection.end - 0.01, drag.selection.start + delta));
+    } else if (drag.mode === 'end') {
+      nextEnd = Math.min(1, Math.max(drag.selection.start + 0.01, drag.selection.end + delta));
+    } else {
+      const span = drag.selection.end - drag.selection.start;
+      nextStart = Math.max(0, Math.min(1 - span, drag.selection.start + delta));
+      nextEnd = nextStart + span;
+    }
+    setSelection({
+      start: Number((clipStartSec + nextStart * clipDurSec).toFixed(2)),
+      end: Number((clipStartSec + nextEnd * clipDurSec).toFixed(2)),
+    });
+  };
+
+  const handleClipRangeUp = (event: React.PointerEvent<HTMLButtonElement>) => {
+    clipRangeDragRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+
   return (
     <div
       ref={containerRef}
       className={`stem-clip-waveform-container ${className}`.trim()}
       onPointerLeave={() => setHoverPeak(null)}
+      onPointerMove={trackId || enableSelection ? handlePointerMove : undefined}
+      onPointerUp={trackId || enableSelection ? handlePointerUp : undefined}
+      onPointerCancel={trackId || enableSelection ? handlePointerUp : undefined}
       onClickCapture={(e) => {
         if (suppressNextClickRef.current) {
           suppressNextClickRef.current = false;
@@ -911,12 +1263,34 @@ export const Clip: React.FC<ClipProps> = ({ clip, trackId, color, className = ''
         data-sculpted={isSculpted ? 'true' : 'false'}
         data-sculpt-mode={sculptMode}
         onWheel={trackId ? handleWheel : undefined}
-        onPointerDown={trackId ? handlePointerDown : undefined}
-        onPointerMove={trackId ? handlePointerMove : undefined}
-        onPointerUp={trackId ? handlePointerUp : undefined}
-        onPointerCancel={trackId ? handlePointerUp : undefined}
+        onPointerDown={trackId || enableSelection ? handlePointerDown : undefined}
         onDoubleClick={trackId ? handleDoubleClick : undefined}
       />
+      {enableSelection && clipRatioSelection && (
+        <div className="waveform-selection">
+          {(['start', 'end', 'pan'] as const).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              className={`waveform-range ${mode}`}
+              aria-label={mode === 'pan' ? 'Move selection' : `Selection ${mode}`}
+              style={
+                {
+                  '--range-left': `${clipRatioSelection[mode === 'end' ? 'end' : 'start'] * 100}%`,
+                  ...(mode === 'pan'
+                    ? { '--range-width': `${(clipRatioSelection.end - clipRatioSelection.start) * 100}%` }
+                    : {}),
+                } as React.CSSProperties
+              }
+              onPointerDown={(event) => handleClipRangeDown(event, mode)}
+              onPointerMove={handleClipRangeMove}
+              onPointerUp={handleClipRangeUp}
+              onPointerCancel={handleClipRangeUp}
+              onClick={(event) => event.stopPropagation()}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 };

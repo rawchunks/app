@@ -124,7 +124,7 @@ export const Rack: React.FC<RackProps> = ({ track }) => {
           </div>
           <div className="dsp-control-group">
             <RangeSlider
-              label="PEAK CREST"
+              label="CREST"
               min={-1}
               max={1}
               step={0.05}
@@ -135,7 +135,7 @@ export const Rack: React.FC<RackProps> = ({ track }) => {
               isPercent
             />
             <RangeSlider
-              label="WAVE TEXTURE"
+              label="TEXTURE"
               min={-1}
               max={1}
               step={0.05}
@@ -146,7 +146,7 @@ export const Rack: React.FC<RackProps> = ({ track }) => {
               isPercent
             />
             <RangeSlider
-              label="PEAK DRIVE"
+              label="DRIVE"
               min={0}
               max={1}
               step={0.05}

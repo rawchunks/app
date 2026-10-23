@@ -39,8 +39,8 @@
   --letter-spacing-base: clamp(1px, 0.15vw, 2px);
   --letter-spacing-wide: clamp(1.5px, 0.25vw, 3px);
 
-  /* Fluid Font Sizes */
-  --font-xs: clamp(9px, 0.65vw + 0.3vh, 11px);
+  /* Fluid Font Sizes — Strict >= 11px Legibility Floor */
+  --font-xs: clamp(11px, 0.65vw + 0.3vh, 12px);
   --font-sm: clamp(11px, 0.75vw + 0.35vh, 13px);
   --font-md: clamp(12px, 0.9vw + 0.4vh, 14px);
   --font-base: var(--font-md);
@@ -79,27 +79,27 @@
   --board-ruler-h: clamp(17px, 2dvh, 21px);
   --toolbox-compact-h: clamp(154px, 21dvh, 176px);
 
-  /* Strict 3-Tier Badge Hierarchy:
+  /* Strict 3-Tier Badge Hierarchy (>= 11px floor):
      Tier 1 (100%): 'MST' leading badge in Master
      Tier 2 (95%):  All track leading badges ('stems'/lanes & 'extracted' categories)
      Tier 3 (90%):  Internal sub-badges ('stems' & 'extracts' inside 'MST', 'versions' everywhere) */
   --badge-mst-h: clamp(18px, 2.05dvh, 21px);
-  --badge-mst-font: clamp(9.5px, 0.72vw + 0.18vh, 11px);
+  --badge-mst-font: clamp(11px, 0.72vw + 0.18vh, 12px);
   --badge-track-h: calc(var(--badge-mst-h) * 0.95);
-  --badge-track-font: calc(var(--badge-mst-font) * 0.95);
+  --badge-track-font: 11px;
   --badge-sub-h: calc(var(--badge-mst-h) * 0.90);
-  --badge-sub-font: calc(var(--badge-mst-font) * 0.90);
+  --badge-sub-font: 11px;
 
   /* Standardized DRY DAW Badge & Control Tokens */
   --daw-badge-font: var(--badge-track-font);
   --daw-badge-h: var(--badge-track-h);
   --daw-badge-pad: 0 clamp(4px, 0.4vw, 7px);
-  --daw-ctrl-font: clamp(9.5px, 0.7vw + 0.18vh, 11px);
-  --daw-ctrl-h: clamp(18px, 2.1dvh, 22px);
+  --daw-ctrl-font: clamp(11px, 0.7vw + 0.18vh, 12px);
+  --daw-ctrl-h: clamp(20px, 2.2dvh, 24px);
 
   /* Fluid Header Brand Scaling System */
   --header-brand-font: clamp(12px, 1.1vw + 0.45vh, 26px);
-  --header-brand-tag-font: clamp(8px, 0.45vw + 0.25vh, 12px);
+  --header-brand-tag-font: clamp(11px, 0.45vw + 0.25vh, 12px);
   --header-brand-tag-pad: clamp(1px, 0.2vh, 3px) clamp(4px, 0.35vw, 8px);
 
   /* Fluid Button Dimensions & Proportional Scaling Engine */
@@ -113,15 +113,15 @@
   --btn-pad-md: clamp(7px, 1vh, 11px) clamp(12px, 1.5vw, 22px);
   --btn-pad-lg: clamp(10px, 1.4vh, 16px) clamp(18px, 2.2vw, 30px);
 
-  --btn-font-xs: clamp(9.5px, 0.65vw + 0.3vh, 12px);
-  --btn-font-sm: clamp(10.5px, 0.75vw + 0.35vh, 13px);
+  --btn-font-xs: clamp(11px, 0.65vw + 0.3vh, 12px);
+  --btn-font-sm: clamp(11px, 0.75vw + 0.35vh, 13px);
   --btn-font-md: clamp(11.5px, 0.85vw + 0.4vh, 14px);
   --btn-font-lg: clamp(13px, 1.05vw + 0.5vh, 17px);
 
   /* Fluid Header Actions & Connector Scaling */
   --header-btn-h: clamp(30px, 2vw + 1.5vh, 40px);
   --header-btn-pad: clamp(4px, 0.6vh, 8px) clamp(8px, 1.1vw, 18px);
-  --header-btn-font: clamp(10px, 0.7vw + 0.3vh, 13px);
+  --header-btn-font: clamp(11px, 0.7vw + 0.3vh, 13px);
   --header-btn-min-w: clamp(32px, 6vw, 140px);
   --header-icon-size: clamp(13px, 1vw + 0.2vh, 17px);
 
@@ -241,7 +241,7 @@
 
 .daw-field-label {
   font-family: var(--font-family);
-  font-size: clamp(9.5px, 0.68vw + 0.2vh, 11px);
+  font-size: clamp(11px, 0.68vw + 0.2vh, 12px);
   font-weight: 800;
   letter-spacing: 0.05em;
   color: var(--text-secondary);
@@ -254,15 +254,15 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 14px;
-  height: 13px;
+  min-width: 16px;
+  height: 15px;
   padding: 0 3px;
   border-radius: 2px;
   background: rgba(0, 240, 255, 0.14);
   border: 1px solid rgba(0, 240, 255, 0.42);
   color: var(--accent);
   font-family: var(--font-mono);
-  font-size: 8.5px;
+  font-size: 11px;
   font-weight: 900;
   line-height: 1;
   letter-spacing: 0.02em;

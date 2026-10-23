@@ -2,20 +2,23 @@ import React, { useState, useEffect } from 'react';
 import {
   useDawStore,
   DAWTrack,
-  isTrackMixerModified,
-  isTrackFxModified,
 } from '../../lib/daw/store';
 import { dawEngine } from '../../lib/daw/engine';
 import { Tooltip } from './Tooltip';
-import { Play, Sliders, Volume2 } from 'lucide-react';
-import { getStemColor, formatTrackBadgeCode } from '../../lib/daw/palette';
+import { Volume2 } from 'lucide-react';
+import { getStemColor, formatTrackBadgeFull } from '../../lib/daw/palette';
 
 interface HorizontalChannelDeckProps {
   track: DAWTrack;
   isMaster?: boolean;
+  onCycleChannel?: () => void;
 }
 
-const HorizontalChannelDeck: React.FC<HorizontalChannelDeckProps> = ({ track, isMaster = false }) => {
+const HorizontalChannelDeck: React.FC<HorizontalChannelDeckProps> = ({
+  track,
+  isMaster = false,
+  onCycleChannel,
+}) => {
   const updateTrackMixer = useDawStore((s) => s.updateTrackMixer);
   const updateTrackFx = useDawStore((s) => s.updateTrackFx);
   const selection = useDawStore((s) => s.selection);
@@ -48,9 +51,6 @@ const HorizontalChannelDeck: React.FC<HorizontalChannelDeckProps> = ({ track, is
     return () => cancelAnimationFrame(frame);
   }, [track.id, isPlaying, auditionId]);
 
-  const selectionStart = selection?.start ?? null;
-  const selectionEnd = selection?.end ?? null;
-
   // Sync local EQ & filter state when track changes
   const [eqLow, setEqLow] = useState<number>(track.fx?.eq?.low ?? 0);
   const [eqMid, setEqMid] = useState<number>(track.fx?.eq?.mid ?? 0);
@@ -66,8 +66,6 @@ const HorizontalChannelDeck: React.FC<HorizontalChannelDeckProps> = ({ track, is
 
   const vol = track.mixer?.volume ?? 1.0;
   const pan = track.mixer?.pan ?? 0.0;
-  const isMuted = track.mixer?.muted ?? false;
-  const isSoloed = track.mixer?.solo ?? false;
 
   const accentColor = isMaster ? '#00ffff' : getStemColor(track.name);
 
@@ -107,12 +105,6 @@ const HorizontalChannelDeck: React.FC<HorizontalChannelDeckProps> = ({ track, is
     updateTrackMixer(track.id, { pan: val });
   };
 
-  const handleAudition = () => {
-    const start = selectionStart ?? 0;
-    const end = selectionEnd ?? undefined;
-    dawEngine.auditionTrack(track.id, start, end);
-  };
-
   const volDb = vol > 0.0001 ? (20 * Math.log10(vol)).toFixed(1) : '-inf';
   const meterPct = Math.min(100, Math.max(0, ((level + 60) / 60) * 100));
   const isSectionMode = Boolean(isMaster && selection);
@@ -126,47 +118,26 @@ const HorizontalChannelDeck: React.FC<HorizontalChannelDeckProps> = ({ track, is
       className={`mixer-horizontal-deck ${isMaster ? 'mixer-deck-master' : ''}`}
       style={{ '--accent-color': accentColor } as React.CSSProperties}
     >
-      {/* Row 1: Channel Identity + M/S/Audition Actions + Horizontal Fader & Live Meter */}
+      {/* Row 1: Channel Identity + Horizontal Fader & Live Meter */}
       <div className="mixer-horiz-fader-row">
         <div className="mixer-horiz-identity">
-          <span className="mixer-strip-badge daw-badge">
-            {isMaster ? (selection ? 'MST•SEC' : 'MST') : formatTrackBadgeCode(track)}
-          </span>
-          <span className="mixer-strip-title" title={track.name}>
-            {isMaster && selection
-              ? `Master (${selection.start.toFixed(1)}s–${selection.end.toFixed(1)}s)`
-              : track.name}
-          </span>
-        </div>
-
-        <div className="mixer-button-cluster">
-          <Tooltip title={isSoloed ? 'Unsolo Track (S)' : 'Solo Track (S)'}>
+          <Tooltip
+            title={`Mixer Target: ${track.name}`}
+            description="Click to cycle channel or pick any stem on the left"
+          >
             <button
               type="button"
-              className={`mixer-action-btn mixer-btn-solo ${isSoloed ? 'active' : ''}`}
-              onClick={() => updateTrackMixer(track.id, { solo: !isSoloed })}
+              onClick={onCycleChannel}
+              className="mixer-strip-badge daw-badge"
             >
-              S
+              {isMaster ? (selection ? 'MASTER•SEC' : 'MASTER') : formatTrackBadgeFull(track)}
             </button>
           </Tooltip>
-          <Tooltip title={isMuted ? 'Unmute Track (M)' : 'Mute Track (M)'}>
-            <button
-              type="button"
-              className={`mixer-action-btn mixer-btn-mute ${isMuted ? 'active' : ''}`}
-              onClick={() => updateTrackMixer(track.id, { muted: !isMuted })}
-            >
-              M
-            </button>
-          </Tooltip>
-          <Tooltip title="Audition Track in Isolation">
-            <button
-              type="button"
-              className="mixer-action-btn mixer-btn-audition"
-              onClick={handleAudition}
-            >
-              <Play size={11} />
-            </button>
-          </Tooltip>
+          {isMaster && selection && (
+            <span className="mixer-strip-title" title={track.name}>
+              {`${selection.start.toFixed(1)}s–${selection.end.toFixed(1)}s`}
+            </span>
+          )}
         </div>
 
         <div className="mixer-horiz-fader-well" title="Double-click fader to reset to 0.0 dB">
@@ -342,7 +313,6 @@ export const Mixer: React.FC = () => {
   const tracks = useDawStore((s) => s.tracks);
   const selectedTrackId = useDawStore((s) => s.selectedTrackId);
   const setSelectedTrackId = useDawStore((s) => s.setSelectedTrackId);
-  const selection = useDawStore((s) => s.selection);
 
   const masterTrack = tracks.find((t) => t.id === 'master') ?? tracks[0];
   if (!masterTrack) return null;
@@ -354,62 +324,20 @@ export const Mixer: React.FC = () => {
     allChannels.find((t) => t.id === selectedTrackId) || masterTrack;
   const isActiveMaster = activeTrack.id === 'master';
 
+  const cycleChannel = () => {
+    if (allChannels.length <= 1) return;
+    const idx = allChannels.findIndex((t) => t.id === activeTrack.id);
+    const next = allChannels[(idx + 1) % allChannels.length];
+    if (next) setSelectedTrackId(next.id);
+  };
+
   return (
     <div className="mixer-console-container">
-      {/* Sub-Navigation Bar below Mixer Tab (FX-style channel selector pills) */}
-      <div className="mixer-subnav-bar" role="tablist" aria-label="Mixer Channels">
-        {allChannels.map((track) => {
-          const isMaster = track.id === 'master';
-          const isSelected = activeTrack.id === track.id;
-          const color = isMaster ? 'var(--accent)' : getStemColor(track.name);
-          const isMuted = track.mixer?.muted ?? false;
-          const isSoloed = track.mixer?.solo ?? false;
-          const isModified = isTrackMixerModified(track) || isTrackFxModified(track);
-          const shortCode = isMaster
-            ? selection
-              ? 'MST•SEC'
-              : 'MST'
-            : formatTrackBadgeCode(track);
-
-          return (
-            <Tooltip
-              key={track.id}
-              title={
-                isMaster
-                  ? selection
-                    ? `Master Bus + Section Trim (${selection.start.toFixed(1)}s–${selection.end.toFixed(1)}s)`
-                    : 'Master Bus Channel'
-                  : `${track.name} Channel${isSoloed ? ' [SOLO]' : ''}${isMuted ? ' [MUTED]' : ''}${isModified ? ' • Modified' : ''}`
-              }
-            >
-              <button
-                type="button"
-                role="tab"
-                aria-selected={isSelected}
-                className={`mixer-subnav-pill ${isSelected ? 'active' : ''} ${isMuted ? 'is-muted' : ''} ${isSoloed ? 'is-solo' : ''} ${isModified ? 'is-modified' : ''}`}
-                style={{ '--channel-color': color } as React.CSSProperties}
-                onClick={() => setSelectedTrackId(track.id)}
-              >
-                <span className="mixer-subnav-dot" />
-                <span className="mixer-subnav-code">{shortCode}</span>
-                {isModified && <span className="mixer-subnav-dirty-dot" title="Modified Mixer / FX" />}
-                {isSoloed && <span className="mixer-subnav-status-tag solo">S</span>}
-                {isMuted && <span className="mixer-subnav-status-tag mute">M</span>}
-              </button>
-            </Tooltip>
-          );
-        })}
-
-        {stemTracks.length === 0 && (
-          <span className="mixer-subnav-hint">
-            <Sliders size={10} />
-            <span>Extract stems or add synth lanes for multi-channel mixing</span>
-          </span>
-        )}
-      </div>
-
-      {/* Selected Channel Horizontal Mixer Deck */}
-      <HorizontalChannelDeck track={activeTrack} isMaster={isActiveMaster} />
+      <HorizontalChannelDeck
+        track={activeTrack}
+        isMaster={isActiveMaster}
+        onCycleChannel={cycleChannel}
+      />
     </div>
   );
 };

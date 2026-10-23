@@ -8,6 +8,7 @@ export interface Props {
   isOpen: boolean;
   onClose: () => void;
   title: string;
+  headerMeta?: React.ReactNode;
   children: React.ReactNode;
   size?: 'sm' | 'md' | 'lg' | 'xl';
   className?: string;
@@ -18,6 +19,7 @@ export const Modal: React.FC<Props> = ({
   isOpen,
   onClose,
   title,
+  headerMeta,
   children,
   size = 'md',
   className = '',
@@ -47,8 +49,9 @@ export const Modal: React.FC<Props> = ({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="modal-inner-card">
-          <div className="modal-header-row">
+          <div className={`modal-header-row ${headerMeta ? 'has-header-meta' : ''}`.trim()}>
             <h3 className="modal-title-text">{title}</h3>
+            {headerMeta && <div className="modal-header-meta">{headerMeta}</div>}
             <Tooltip title="Close" description="ESC" position="bottom">
               <Button
                 variant="ghost"

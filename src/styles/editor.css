@@ -5,9 +5,8 @@
   height: 100%;
   display: flex;
   flex-direction: column;
-  padding: clamp(6px, 1vw, 12px);
-  padding-bottom: 0;
-  gap: clamp(6px, 0.8vw, 10px);
+  padding: clamp(5px, 0.75vw, 10px);
+  gap: clamp(5px, 0.65vw, 8px);
   box-sizing: border-box;
   overflow: hidden;
   position: relative;
@@ -15,86 +14,166 @@
 }
 
 /* ==========================================================================
-   EDITOR HEADER BAR (Compact, Responsive & High-Contrast)
+   ROW 1: EDITOR HEADER BAR ([BACK] | [TITLE] | [CONTROLLERS] | [SESSION+PROFILE])
    ========================================================================== */
 .editor-header-bar {
-  display: flex;
-  align-items: stretch;
-  justify-content: space-between;
-  flex-wrap: nowrap;
-  gap: clamp(0.45rem, 1.1vw, 0.9rem);
-  padding-bottom: 0.35rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: clamp(6px, 0.9vw, 12px);
+  padding: 2px 4px 5px;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+  min-width: 0;
 }
 
 .editor-header-left {
   display: flex;
   align-items: center;
-  gap: clamp(0.45rem, 1vw, 0.75rem);
+  gap: clamp(6px, 0.75vw, 10px);
   min-width: 0;
-  flex: 0 1 auto;
-  overflow: visible;
+  overflow: hidden;
 }
 
 .editor-header-text {
   min-width: 0;
-  flex: 0 1 auto;
-  overflow: visible;
+  flex: 1 1 0;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 0.14rem;
+  gap: 1px;
 }
 
 .editor-title-row {
   display: flex;
   align-items: center;
-  gap: clamp(0.4rem, 1vw, 0.75rem);
+  gap: 6px;
   min-width: 0;
   flex-wrap: nowrap;
 }
 
 .editor-track-title {
-  font-size: clamp(0.84rem, 1.35vw, 1.125rem);
+  font-size: clamp(12px, 1.25vw, 15px);
   font-weight: 900;
   color: var(--primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
-  flex: 0 1 auto;
+  flex: 1 1 0;
   letter-spacing: -0.01em;
 }
 
-/* Prominent dual-row height LED Playback Counter positioned to the right towards the center */
-.editor-header-time {
-  align-self: stretch;
+/* Unified Master Transport Deck in the center of the Editor Header */
+.editor-transport-deck {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: clamp(4px, 0.55vw, 7px);
+  padding: 3px clamp(5px, 0.65vw, 8px);
+  background: linear-gradient(180deg, rgba(16, 22, 18, 0.96) 0%, rgba(8, 12, 10, 0.98) 100%);
+  border: 1px solid rgba(0, 255, 65, 0.34);
+  border-radius: 6px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 2px 10px rgba(0, 0, 0, 0.42);
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.editor-transport-deck.is-playing {
+  border-color: var(--primary);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 65, 0.14), 0 0 16px rgba(0, 255, 65, 0.22);
+}
+
+.editor-transport-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: clamp(3px, 0.4vw, 5px);
+}
+
+.editor-transport-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: clamp(4px, 0.55vw, 7px);
-  margin-left: auto;
-  margin-right: clamp(6px, 2.2vw, 22px);
-  min-height: clamp(32px, 4.4vh, 42px);
+  width: clamp(26px, 2.4vw, 30px);
+  height: clamp(24px, 2.2vw, 28px);
+  padding: 0;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.14s ease;
+  flex-shrink: 0;
+}
+
+.editor-transport-btn:hover {
+  color: var(--text);
+  border-color: rgba(0, 255, 65, 0.45);
+  background: rgba(0, 255, 65, 0.08);
+}
+
+.editor-transport-btn.active {
+  color: #050a07;
+  background: var(--primary);
+  border-color: var(--primary);
+  box-shadow: 0 0 10px rgba(0, 255, 65, 0.35);
+}
+
+.editor-transport-play-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: clamp(24px, 2.2vw, 28px);
+  padding: 0 clamp(8px, 1vw, 12px);
+  border-radius: 4px;
+  border: 1px solid rgba(0, 255, 65, 0.65);
+  background: rgba(0, 255, 65, 0.16);
+  color: var(--primary);
   font-family: var(--font-mono);
-  font-size: clamp(12px, 1.45vw, 16px);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: all 0.14s ease;
+  flex-shrink: 0;
+}
+
+.editor-transport-play-btn:hover {
+  background: rgba(0, 255, 65, 0.28);
+  border-color: var(--primary);
+  box-shadow: 0 0 12px rgba(0, 255, 65, 0.28);
+}
+
+.editor-transport-play-btn.active {
+  background: var(--primary);
+  color: #040906;
+  border-color: var(--primary);
+  box-shadow: 0 0 14px rgba(0, 255, 65, 0.48);
+}
+
+.editor-header-time {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(3px, 0.4vw, 5px);
+  font-family: var(--font-mono);
+  font-size: clamp(11px, 1.15vw, 14px);
   font-weight: 900;
   font-variant-numeric: tabular-nums;
   color: var(--text);
-  background: linear-gradient(180deg, rgba(0, 255, 65, 0.12) 0%, rgba(0, 255, 65, 0.05) 100%);
-  border: 1px solid rgba(0, 255, 65, 0.42);
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(0, 255, 65, 0.26);
   border-radius: 4px;
-  padding: clamp(3px, 0.45vh, 5px) clamp(8px, 1.3vw, 14px);
+  padding: clamp(2px, 0.3vh, 4px) clamp(6px, 0.8vw, 10px);
   white-space: nowrap;
   flex-shrink: 0;
-  letter-spacing: 0.03em;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 0 14px rgba(0, 255, 65, 0.14);
+  letter-spacing: 0.02em;
 }
 
 .editor-header-time.playing {
   border-color: var(--primary);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 0 18px rgba(0, 255, 65, 0.32);
 }
 
 .editor-header-time-current {
@@ -108,7 +187,7 @@
 }
 
 .editor-header-time-total {
-  color: var(--text);
+  color: var(--text-secondary);
 }
 
 .editor-track-sub {
@@ -153,7 +232,7 @@
 
 .editor-bpm-trigger-unit {
   color: var(--text-secondary);
-  font-size: 0.92em;
+  font-size: 11px;
   letter-spacing: 0.04em;
 }
 
@@ -210,7 +289,7 @@
 
 .editor-bpm-typer-unit {
   font-family: var(--font-mono);
-  font-size: clamp(10px, 1vw, 12px);
+  font-size: clamp(11px, 1vw, 12px);
   font-weight: 800;
   color: var(--text-secondary);
   letter-spacing: 0.05em;
@@ -255,7 +334,7 @@
 }
 
 .editor-bpm-preset-tag {
-  font-size: clamp(9.5px, 0.7vw, 11px);
+  font-size: 11px;
   color: var(--text-dim);
   letter-spacing: 0.03em;
 }
@@ -284,13 +363,26 @@
 .editor-header-actions {
   display: flex;
   align-items: center;
-  gap: clamp(0.25rem, 0.7vw, 0.5rem);
+  justify-content: flex-end;
+  gap: clamp(4px, 0.55vw, 8px);
   flex-shrink: 0;
 }
 
-/* Unified Multi-Track Board Viewport Wrapper */
+/* Rows 2 & 3: Unified Board + Middle Split (Stems Left | Manual Toolbox Right) */
 .editor-board-wrapper {
   flex: 1 1 0;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Row 4: Standalone AI Studio Bento Deck (SELECTED AI Left | [AI ICON] x 6 Right) */
+.editor-studio-wrapper {
+  flex: 0 0 clamp(148px, 23dvh, 204px);
+  height: clamp(148px, 23dvh, 204px);
   min-height: 0;
   width: 100%;
   display: flex;
@@ -357,14 +449,98 @@
   gap: 6px;
 }
 
-@media (max-width: 768px) {
-  .editor-btn-label {
+/* ==========================================================================
+   MOBILE & TABLET MISSION-CONTROL ARCHITECTURE (<= 960px, Zero Switcher)
+   ========================================================================== */
+@media (max-width: 960px) {
+  .editor-container {
+    padding: 4px 6px calc(4px + var(--sab));
+    gap: 4px;
+  }
+
+  .editor-header-bar {
+    gap: 5px;
+    padding: 2px 2px 4px;
+  }
+
+  .editor-header-left {
+    gap: 5px;
+  }
+
+  .editor-track-title {
+    font-size: 12px;
+  }
+
+  .editor-btn-label,
+  .editor-transport-play-label,
+  .editor-header-time-sep,
+  .editor-header-time-total {
     display: none;
   }
 
-  .editor-back-btn,
-  .editor-commit-btn {
-    padding: 4px 8px;
+  .editor-back-btn {
+    padding: 4px 6px;
+    min-height: 26px;
+    height: 26px;
+    flex-shrink: 0;
+  }
+
+  .editor-transport-deck {
+    gap: 4px;
+    padding: 2px 5px;
+  }
+
+  .editor-transport-controls {
+    gap: 3px;
+  }
+
+  .editor-transport-btn {
+    width: 24px;
+    height: 24px;
+  }
+
+  .editor-transport-play-btn {
+    height: 24px;
+    padding: 0 7px;
+  }
+
+  .editor-header-time {
+    font-size: 11px;
+    padding: 2px 6px;
+  }
+
+  .editor-bpm-trigger {
+    min-height: 22px;
+    height: 22px;
+    padding: 0 6px;
+  }
+
+  .editor-track-sub {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 2px;
+  }
+
+  .editor-track-sub > span:nth-child(-n+4) {
+    display: none;
+  }
+
+  /* Maintain Desktop-aligned vertical proportions on Mobile:
+     Both Board (Selected Lane + Unselected Lanes + Manual Toolbox) and AI Studio remain open simultaneously */
+  .editor-board-wrapper {
+    flex: 76 1 0%;
+    min-height: 0;
+  }
+
+  .editor-studio-wrapper {
+    flex: 24 1 0%;
+    height: auto;
+    min-height: 106px;
+    max-height: 124px;
   }
 }
+
+
+
 

@@ -417,9 +417,8 @@ const LyricsHighlightedCanvas: React.FC<LyricsHighlightedCanvasProps> = ({
           <span>EDIT</span>
         </Tooltip>
         <span
-          className={`toolbox-lyrics-footer-time ${
-            isPlaying ? 'is-active' : selection ? 'is-segment' : ''
-          }`}
+          className={`toolbox-lyrics-footer-time ${isPlaying ? 'is-active' : selection ? 'is-segment' : ''
+            }`}
         >
           {footerTimeLabel}
         </span>
@@ -555,8 +554,8 @@ export const Canvas: React.FC<CanvasProps> = ({
 
   const isLyricsExtracted = Boolean(
     lyrics.trim().length > 0 &&
-      ((lyricsAlignment && Array.isArray(lyricsAlignment.lines) && lyricsAlignment.lines.length > 0) ||
-        hasExistingLyrics),
+    ((lyricsAlignment && Array.isArray(lyricsAlignment.lines) && lyricsAlignment.lines.length > 0) ||
+      hasExistingLyrics),
   );
 
   const pendingEditTargetRef = useRef<{
@@ -889,7 +888,7 @@ export const Canvas: React.FC<CanvasProps> = ({
     const target = e.currentTarget;
     try {
       target.setPointerCapture(e.pointerId);
-    } catch {}
+    } catch { }
     const startX = e.clientX;
     const startW = dockRef.current?.offsetWidth || 190;
 
@@ -905,7 +904,7 @@ export const Canvas: React.FC<CanvasProps> = ({
         if (target.hasPointerCapture(upEv.pointerId)) {
           target.releasePointerCapture(upEv.pointerId);
         }
-      } catch {}
+      } catch { }
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
       window.removeEventListener('pointercancel', onUp);
@@ -919,7 +918,7 @@ export const Canvas: React.FC<CanvasProps> = ({
   return (
     <aside
       ref={dockRef}
-      className={`board-canvas-dock toolbox-lyrics-sidepanel ${mode === 'overlay' ? 'is-overlay-mode' : ''}`}
+      className={`toolbox-lyrics-sidepanel ${mode === 'overlay' ? 'is-overlay-mode' : 'board-canvas-dock'}`}
       aria-label="Lyrics Canvas"
     >
       {mode === 'dock' && (
@@ -932,62 +931,94 @@ export const Canvas: React.FC<CanvasProps> = ({
       <div className="toolbox-lyrics-sidepanel-header">
         <div className="toolbox-lyrics-sidepanel-title-wrap">
           <span className="toolbox-lyrics-sidepanel-title">
-            {mode === 'overlay' ? 'VOCAL LYRICS & STRUCTURE EDITOR' : 'CANVAS'}
+            {mode === 'overlay' ? 'LYRICS & STRUCTURE' : 'CANVAS'}
           </span>
-          {selection && mode === 'overlay' && (
-            <span className="toolbox-lyrics-selection-badge">
-              TARGET [{formatSyncTimestamp(selection.start)} – {formatSyncTimestamp(selection.end)}]
-            </span>
-          )}
         </div>
         <div className="toolbox-lyrics-sidepanel-actions">
-          <Tooltip title="Select vocal language">
-            <button
-              type="button"
-              className="toolbox-lyrics-lang-pill"
-              onClick={(e) => {
-                e.stopPropagation();
-                setIsLanguageModalOpen(true);
-              }}
-              aria-label="Select vocal language"
-            >
-              {(vocalLanguage || 'en').toUpperCase()}
-            </button>
-          </Tooltip>
-          {renderUnifiedLyricsSyncIcon()}
-          {displayAlignment && (
-            <Tooltip title={isShowingLyricsEditor ? 'Switch to synced timeline view' : 'Edit lyrics text'}>
-              <button
-                type="button"
-                className={`toolbox-lyrics-mode-btn ${mode === 'overlay' ? 'is-overlay-toggle' : 'is-icon-btn'} ${isShowingLyricsEditor ? 'active' : ''}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (isShowingLyricsEditor) {
+          {mode === 'overlay' ? (
+            <>
+              <Tooltip title={isShowingLyricsEditor ? 'Switch to synced timeline view' : 'Edit lyrics text'}>
+                <button
+                  type="button"
+                  className={`toolbox-lyrics-mode-btn is-overlay-toggle ${isShowingLyricsEditor ? 'active' : ''}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (isShowingLyricsEditor && displayAlignment) {
+                      finishEditingLyrics();
+                    } else {
+                      startEditingLyrics();
+                    }
+                  }}
+                  aria-label="Edit lyrics"
+                >
+                  <Pencil size={12} />
+                  <span>EDIT</span>
+                </button>
+              </Tooltip>
+              <Tooltip title="Save & finish editing">
+                <button
+                  type="button"
+                  className="toolbox-lyrics-mode-btn is-overlay-done"
+                  onClick={(e) => {
+                    e.stopPropagation();
                     finishEditingLyrics();
-                  } else {
-                    startEditingLyrics();
-                  }
-                }}
-                aria-label={isShowingLyricsEditor ? 'Done editing' : 'Edit lyrics'}
-              >
-                {isShowingLyricsEditor ? <Check size={13} /> : <Pencil size={12} />}
-                {mode === 'overlay' && (
-                  <span>{isShowingLyricsEditor ? 'SYNCED VIEW' : 'EDIT TEXT'}</span>
-                )}
-              </button>
-            </Tooltip>
-          )}
-          {onClose && mode === 'dock' && (
-            <Tooltip title="Close Canvas">
-              <button
-                type="button"
-                className="toolbox-lyrics-close-btn"
-                onClick={onClose}
-                aria-label="Close Canvas"
-              >
-                <X size={12} />
-              </button>
-            </Tooltip>
+                    if (onClose) onClose();
+                  }}
+                  aria-label="Done editing"
+                >
+                  <Check size={12} />
+                  <span>DONE</span>
+                </button>
+              </Tooltip>
+            </>
+          ) : (
+            <>
+              <Tooltip title="Select vocal language">
+                <button
+                  type="button"
+                  className="toolbox-lyrics-lang-pill"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsLanguageModalOpen(true);
+                  }}
+                  aria-label="Select vocal language"
+                >
+                  {(vocalLanguage || 'en').toUpperCase()}
+                </button>
+              </Tooltip>
+              {renderUnifiedLyricsSyncIcon()}
+              {displayAlignment && (
+                <Tooltip title={isShowingLyricsEditor ? 'Switch to synced timeline view' : 'Edit lyrics text'}>
+                  <button
+                    type="button"
+                    className={`toolbox-lyrics-mode-btn is-icon-btn ${isShowingLyricsEditor ? 'active' : ''}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (isShowingLyricsEditor) {
+                        finishEditingLyrics();
+                      } else {
+                        startEditingLyrics();
+                      }
+                    }}
+                    aria-label={isShowingLyricsEditor ? 'Done editing' : 'Edit lyrics'}
+                  >
+                    {isShowingLyricsEditor ? <Check size={13} /> : <Pencil size={12} />}
+                  </button>
+                </Tooltip>
+              )}
+              {onClose && (
+                <Tooltip title="Close Canvas">
+                  <button
+                    type="button"
+                    className="toolbox-lyrics-close-btn"
+                    onClick={onClose}
+                    aria-label="Close Canvas"
+                  >
+                    <X size={12} />
+                  </button>
+                </Tooltip>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -1030,35 +1061,6 @@ export const Canvas: React.FC<CanvasProps> = ({
             onLyricsChange(e.target.value);
           }}
         />
-      )}
-
-      {mode === 'overlay' && (
-        <div className="toolbox-lyrics-overlay-footer">
-          <span className="toolbox-lyrics-overlay-hint">
-            Tip: Use section tags like [Verse] or [Chorus] to guide vocal phrasing for your selected region.
-          </span>
-          <div className="toolbox-lyrics-overlay-actions">
-            {isLyricsDirty && onAlignLyrics && lyrics.trim().length > 0 && (
-              <button
-                type="button"
-                className="btn-base btn-variant-secondary btn-size-sm"
-                onClick={() => onAlignLyrics(lyrics)}
-              >
-                SYNC TIMELINE
-              </button>
-            )}
-            <button
-              type="button"
-              className="btn-base btn-variant-primary btn-size-sm"
-              onClick={() => {
-                finishEditingLyrics();
-                if (onClose) onClose();
-              }}
-            >
-              SAVE & DONE
-            </button>
-          </div>
-        </div>
       )}
 
       <Languages

@@ -12,8 +12,6 @@ import {
   Square,
   RotateCcw,
   Volume2,
-  ChevronDown,
-  ChevronUp,
   Plus,
   Split,
   Check,
@@ -27,11 +25,14 @@ import {
   FilePenLine,
   Music,
   Code,
+  Undo2,
+  Redo2,
+  GitCommit,
 } from 'lucide-react';
 import { Song, Task } from '../../lib/schema';
 import { toast } from 'sonner';
 import { TrackType } from '../../lib/daw/store';
-import { getStemColor, formatTrackBadgeCode } from '../../lib/daw/palette';
+import { getStemColor, formatTrackBadgeCode, formatTrackBadgeFull } from '../../lib/daw/palette';
 import { isBase, mounted, preview, interval, pending, masterArrangement, taskLabel, isLayerTake, layerTrackName, isFullSongRestyleTake } from '../../lib/daw/takes';
 
 export interface BoardProps {
@@ -58,6 +59,12 @@ export interface BoardProps {
   instrument?: string;
   processing?: boolean;
   reveal?: number;
+  toolboxSlot?: React.ReactNode;
+  canUndo?: boolean;
+  canRedo?: boolean;
+  onUndo?: () => void;
+  onRedo?: () => void;
+  onOpenCommitModal?: () => void;
 }
 
 const BoardPlayheadLine: React.FC<{ totalDuration: number; showCap?: boolean }> = ({
@@ -118,6 +125,12 @@ export const Board: React.FC<BoardProps> = ({
   instrument,
   processing = false,
   reveal: _reveal,
+  toolboxSlot,
+  canUndo = false,
+  canRedo = false,
+  onUndo,
+  onRedo,
+  onOpenCommitModal,
 }) => {
   const tracks = useDawStore((s) => s.tracks);
   const duration = useDawStore((s) => s.duration);
@@ -152,11 +165,12 @@ export const Board: React.FC<BoardProps> = ({
   const resetTrackSculpt = useDawStore((s) => s.resetTrackSculpt);
 
   const [masterExpanded, setMasterExpanded] = useState(true);
-  const [lanesExpanded, setLanesExpanded] = useState<boolean>(true);
-  const [extractedExpanded, setExtractedExpanded] = useState<boolean>(true);
   const [isCanvasOpen, setIsCanvasOpen] = useState<boolean>(false);
   const [isAddMenuOpen, setIsAddMenuOpen] = useState<boolean>(false);
+  const [isVaultOpen, setIsVaultOpen] = useState<boolean>(false);
+  const [mruIds, setMruIds] = useState<string[]>([]);
   const addMenuRef = useRef<HTMLDivElement | null>(null);
+  const vaultMenuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!isAddMenuOpen) return;
@@ -168,6 +182,22 @@ export const Board: React.FC<BoardProps> = ({
     window.addEventListener('pointerdown', handlePointerDownOutside);
     return () => window.removeEventListener('pointerdown', handlePointerDownOutside);
   }, [isAddMenuOpen]);
+
+  useEffect(() => {
+    if (!isVaultOpen) return;
+    const handlePointerDownOutside = (e: PointerEvent) => {
+      if (vaultMenuRef.current && !vaultMenuRef.current.contains(e.target as Node)) {
+        setIsVaultOpen(false);
+      }
+    };
+    window.addEventListener('pointerdown', handlePointerDownOutside);
+    return () => window.removeEventListener('pointerdown', handlePointerDownOutside);
+  }, [isVaultOpen]);
+
+  useEffect(() => {
+    if (!selectedTrackId || selectedTrackId === 'master') return;
+    setMruIds((prev) => [selectedTrackId, ...prev.filter((id) => id !== selectedTrackId)]);
+  }, [selectedTrackId]);
 
   const hasVocalStem = tracks.some(
     (t) =>
@@ -210,8 +240,7 @@ export const Board: React.FC<BoardProps> = ({
   const selectedTake = takes.find(take => take.id === selectedOverlay?.id);
 
   // Group takes by task category & track active take per category
-  const [activeCategoryTakeId, setActiveCategoryTakeId] = useState<Record<string, string>>({});
-  const [expandedCategoryAccordion, setExpandedCategoryAccordion] = useState<Record<string, boolean>>({});
+  const [, setActiveCategoryTakeId] = useState<Record<string, string>>({});
 
   const takesByCategory = React.useMemo(() => {
     const groups: Record<string, typeof takes> = {};
@@ -257,7 +286,6 @@ export const Board: React.FC<BoardProps> = ({
   // Group tracks into: Master, Lanes (stems + custom tracks), and Extracted (Takes / isolates)
   const masterTrack = tracks.find((t) => t.id === 'master') || tracks[0];
   const laneTracks = tracks.filter((t) => t.id !== 'master' && t.id !== t.activeTakeId);
-  const orderedLanes = [...laneTracks].sort((a, b) => Number(b.id === selectedTrackId) - Number(a.id === selectedTrackId));
   const positions = useRef(new Map<string, number>());
   const movements = useRef(new Map<string, Animation>());
   useLayoutEffect(() => () => {
@@ -324,12 +352,27 @@ export const Board: React.FC<BoardProps> = ({
     const ratio = rect.width > 0 ? Math.max(0, Math.min(1, clickX / rect.width)) : 0;
     const targetTime = ratio * totalDuration;
     if (startIfPaused) {
-      onSelectTrack('master');
-      clearNonMasterSolos();
-      dawEngine.stopAuditionTake(true);
-      dawEngine.seek(targetTime);
-      setPlayhead(targetTime);
-      void dawEngine.startTransport(false);
+      const focusedLane = laneTracks.find((t) => t.id === selectedTrackId);
+      const focusedTake = takes.find((t) => t.id === selectedTrackId);
+      if (focusedLane) {
+        setPlayhead(targetTime);
+        dawEngine.auditionTrack(focusedLane.id, targetTime);
+      } else if (focusedTake && focusedTake.url) {
+        const takeRange = interval(focusedTake, totalDuration || 60);
+        const range = preview(focusedTake);
+        const segDur = Math.max(0, takeRange.end - takeRange.start);
+        const offsetInSeg =
+          segDur > 0 ? Math.max(0, Math.min(Math.max(0, segDur - 0.05), targetTime - takeRange.start)) : 0;
+        const timelineStart = takeRange.start + offsetInSeg;
+        setPlayhead(timelineStart);
+        dawEngine.auditionTake(focusedTake.url, range.start + offsetInSeg, range.end, timelineStart);
+        useDawStore.setState({ auditionId: focusedTake.id });
+      } else {
+        dawEngine.stopAuditionTake(true);
+        dawEngine.seek(targetTime);
+        setPlayhead(targetTime);
+        void dawEngine.startTransport(false);
+      }
     } else {
       dawEngine.seek(targetTime);
       setPlayhead(targetTime);
@@ -343,7 +386,7 @@ export const Board: React.FC<BoardProps> = ({
   const playExtractedTakeAtClick = (take: typeof takes[number], e?: React.MouseEvent<HTMLElement>) => {
     onSelectTrack(take.id);
     if (!take.url) return;
-    const takeRange = interval(take, duration);
+    const takeRange = interval(take, totalDuration || 60);
     const rowDuration = Math.max(totalDuration, takeRange.end);
     const range = preview(take);
     let offsetInSeg = 0;
@@ -377,418 +420,583 @@ export const Board: React.FC<BoardProps> = ({
   const hasActiveMasterTake = takes.some((t) => t.is_active);
   const canRevertMaster = isMasterSculpted || hasActiveMasterTake;
 
-  return (
-    <div className="board-container">
-      {/* Board Timeline Utility & Track Creation Bar (Master Transport lives in Bottom Controller Deck) */}
-      <div className="board-transport">
-        <div className="board-transport-cluster">
-          <div className="board-add-dropdown" ref={addMenuRef}>
-            <Tooltip title="Add Lane / Tool" description="Add an instrument lane or open a generator tool in the Controller below">
-              <button
-                type="button"
-                className={`board-transport-btn board-add-trigger ${isAddMenuOpen ? 'active' : ''}`}
-                onClick={() => setIsAddMenuOpen((prev) => !prev)}
-                aria-expanded={isAddMenuOpen}
-                aria-haspopup="menu"
-                aria-label="Add track or tool"
-              >
-                <Plus size={12} />
-              </button>
-            </Tooltip>
+  type StageItem =
+    | { kind: 'master'; id: 'master' }
+    | { kind: 'lane'; id: string; track: (typeof laneTracks)[number] }
+    | {
+        kind: 'extracted';
+        id: string;
+        category: string;
+        catTakes: typeof takes;
+        currentTake: (typeof takes)[number];
+      };
 
-            {isAddMenuOpen && (
-              <div className="board-add-menu" role="menu" aria-label="Add lane or tool">
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="board-add-menu-item"
-                  onClick={() => {
-                    setIsAddMenuOpen(false);
-                    onOpenTool?.('studio', 'lego');
-                  }}
-                >
-                  <Sparkles size={12} />
-                  <span>AI LAYER</span>
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="board-add-menu-item"
-                  onClick={() => {
-                    setIsAddMenuOpen(false);
-                    onAddTrack('pianoroll');
-                  }}
-                >
-                  <KeyIcon size={12} />
-                  <span>KEYS SYNTH</span>
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="board-add-menu-item"
-                  onClick={() => {
-                    setIsAddMenuOpen(false);
-                    onAddTrack('sequencer');
-                  }}
-                >
-                  <Drum size={12} />
-                  <span>DRUM SEQ</span>
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="board-add-menu-item"
-                  onClick={() => {
-                    setIsAddMenuOpen(false);
-                    onAddTrack('sample');
-                  }}
-                >
-                  <Music size={12} />
-                  <span>SAMPLER</span>
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="board-add-menu-item"
-                  onClick={() => {
-                    setIsAddMenuOpen(false);
-                    onAddTrack('strudel');
-                  }}
-                >
-                  <Code size={12} />
-                  <span>LIVE CODE</span>
-                </button>
-              </div>
-            )}
-          </div>
+  const resolveStageItem = (id: string | null | undefined): StageItem | null => {
+    if (!id || id === 'master') return { kind: 'master', id: 'master' };
+    const lane = laneTracks.find((t) => t.id === id);
+    if (lane) return { kind: 'lane', id: lane.id, track: lane };
+    for (const [category, catTakes] of Object.entries(takesByCategory)) {
+      const found = catTakes.find((t) => t.id === id);
+      if (found) {
+        return { kind: 'extracted', id: found.id, category, catTakes, currentTake: found };
+      }
+    }
+    return null;
+  };
 
-          {!selection ? (
-            <Tooltip title="Select Section" description="Enable section selector on Master timeline">
-              <button
-                type="button"
-                className="board-transport-btn"
-                aria-label="Select Section"
-                onClick={() => {
-                  const currentPlayhead = useDawStore.getState().playhead;
-                  const start = Math.max(0, Math.min(currentPlayhead, Math.max(0, totalDuration - 5)));
-                  const end = Math.min(totalDuration, Math.max(start + 5, start + 15));
-                  useDawStore.getState().setSelection({ start, end });
-                }}
-              >
-                <Scissors size={11} />
-                <span className="board-btn-label">SECTION</span>
-              </button>
-            </Tooltip>
-          ) : (
-            <>
-              <Tooltip title="Audition Section" description="Play only the selected time range once">
-                <button
-                  type="button"
-                  className="board-transport-btn active"
-                  aria-label="Audition Section"
-                  onClick={() => dawEngine.auditionSection(selection.start, selection.end, false)}
-                >
-                  <Play size={11} />
-                  <span className="board-btn-label">AUDITION</span>
-                </button>
-              </Tooltip>
+  // Stage 1: Primary Focus (selected 'lane' / 'extracted' / 'master')
+  const focusItem: StageItem = resolveStageItem(selectedTrackId) ?? { kind: 'master', id: 'master' };
 
-              <Tooltip title="Extract Section" description="Extract selected section as a new take in Extracted">
-                <button
-                  type="button"
-                  className="board-transport-btn"
-                  aria-label="Extract Section"
-                  onClick={() => {
-                    void extractCurrentSection();
-                  }}
-                >
-                  <Scissors size={11} />
-                  <span className="board-btn-label">EXTRACT</span>
-                </button>
-              </Tooltip>
-
-              {onReworkSection && (
-                <Tooltip title="Rework Section" description="Focus studio generator on this time section">
-                  <button
-                    type="button"
-                    className="board-transport-btn board-transport-btn-accent"
-                    aria-label="Rework Section"
-                    onClick={onReworkSection}
-                  >
-                    <Sparkles size={11} />
-                    <span className="board-btn-label">REWORK</span>
-                  </button>
-                </Tooltip>
-              )}
-            </>
-          )}
-        </div>
-
-        {/* Global 3D Wave Sculpt Light-Switcher + Song Lyrics Document Icon Toggle */}
-        <div className="board-transport-time">
-          <Tooltip
-            title={sculptMode === 'granular' ? 'Wave Mode: Granular (Spiky)' : 'Wave Mode: Smooth Curve (Timer)'}
-            description="Switch wave sculpting between Granular Peak Mode (left) and Smooth Time-Envelope Mode (right)"
-          >
-            <div className="wave-rocker-switch" role="radiogroup" aria-label="Wave sculpt mode">
-              <button
-                type="button"
-                role="radio"
-                className={`rocker-half rocker-left ${sculptMode === 'granular' ? 'is-pressed' : 'is-raised'}`}
-                aria-checked={sculptMode === 'granular'}
-                aria-label="Granular wave mode"
-                onClick={() => setSculptMode('granular')}
-              >
-                <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M1.5 8h2l1.8-4.5 2.4 9 2.4-7 1.7 2.5h2.7" />
-                </svg>
-              </button>
-              <button
-                type="button"
-                role="radio"
-                className={`rocker-half rocker-right ${sculptMode === 'curve' ? 'is-pressed' : 'is-raised'}`}
-                aria-checked={sculptMode === 'curve'}
-                aria-label="Smooth curve timer mode"
-                onClick={() => setSculptMode('curve')}
-              >
-                <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="8" cy="8.8" r="5.5" />
-                  <path d="M6.2 1.6h3.6M8 1.6v1.7M8 8.8V5.8M8 8.8l2.2 1.5" />
-                </svg>
-              </button>
-            </div>
-          </Tooltip>
-
-          {canShowCanvas && (
-            <Tooltip
-              title="Song Lyrics Document"
-              description="Open or hide the general song lyrics sheet"
-            >
-              <button
-                type="button"
-                className={`board-transport-btn board-canvas-toggle ${isCanvasOpen ? 'active' : ''}`}
-                aria-pressed={isCanvasOpen}
-                aria-label={isCanvasOpen ? 'Hide Song Lyrics Document' : 'Open Song Lyrics Document'}
-                onClick={() => setIsCanvasOpen((prev) => !prev)}
-              >
-                <FilePenLine size={13} />
-              </button>
-            </Tooltip>
-          )}
-        </div>
-      </div>
-
-      {/* Unified DAW Board Viewport + Foldable Right Canvas */}
-      <div
-        className={`board-main-split ${canShowCanvas && isCanvasOpen ? 'with-canvas' : ''}`}
-        data-pocket={canShowCanvas && isCanvasOpen ? 'canvas' : 'tracks'}
+  const renderAddLaneDropdown = () => (
+    <div className="board-add-dropdown" ref={addMenuRef} onClick={(e) => e.stopPropagation()}>
+      <Tooltip
+        title="Add Lane / Tool"
+        description="Add an instrument lane or open a generator tool"
       >
-        <div ref={viewportRef} className="board-viewport">
-          {/* Sticky Time Ruler Header Row */}
-          <div className="board-ruler-row">
-            <div className="board-ruler-corner">
-              <span>TRACK</span>
-              <span>I/O</span>
-            </div>
+        <button
+          type="button"
+          className={`board-transport-btn board-add-trigger ${isAddMenuOpen ? 'active' : ''}`}
+          onClick={() => setIsAddMenuOpen((prev) => !prev)}
+          aria-expanded={isAddMenuOpen}
+          aria-haspopup="menu"
+          aria-label="Add track or tool"
+        >
+          <Plus size={12} />
+        </button>
+      </Tooltip>
 
-          <div
-            className="board-ruler-timeline"
-            onClick={handleTimelineClick}
-            onPointerDown={(e) => {
-              if (e.button !== 0) return;
-              isScrubbingRulerRef.current = true;
-              e.currentTarget.setPointerCapture(e.pointerId);
-              scrubRulerAtClientX(e.currentTarget, e.clientX, false);
-            }}
-            onPointerMove={(e) => {
-              if (!isScrubbingRulerRef.current) return;
-              scrubRulerAtClientX(e.currentTarget, e.clientX, false);
-            }}
-            onPointerUp={(e) => {
-              if (!isScrubbingRulerRef.current) return;
-              isScrubbingRulerRef.current = false;
-              e.currentTarget.releasePointerCapture(e.pointerId);
-            }}
-            onPointerCancel={() => {
-              isScrubbingRulerRef.current = false;
+      {isAddMenuOpen && (
+        <div className="board-add-menu" role="menu" aria-label="Add lane or tool">
+          <button
+            type="button"
+            role="menuitem"
+            className="board-add-menu-item"
+            onClick={() => {
+              setIsAddMenuOpen(false);
+              onOpenTool?.('studio', 'lego');
             }}
           >
-            <div className="board-ruler-ticks">
-              {tickMarkers.map((sec) => (
-                <div
-                  key={sec}
-                  className="board-ruler-marker"
-                  style={{ '--pos-pct': `${(sec / totalDuration) * 100}%` } as React.CSSProperties}
-                >
-                  <span>{formatTime(sec).slice(0, 5)}</span>
-                </div>
-              ))}
-            </div>
-
-            {/* Playhead indicator on ruler */}
-            <BoardPlayheadLine totalDuration={totalDuration} showCap />
-          </div>
+            <Sparkles size={12} />
+            <span>AI LAYER</span>
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="board-add-menu-item"
+            onClick={() => {
+              setIsAddMenuOpen(false);
+              onAddTrack('pianoroll');
+            }}
+          >
+            <KeyIcon size={12} />
+            <span>KEYS SYNTH</span>
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="board-add-menu-item"
+            onClick={() => {
+              setIsAddMenuOpen(false);
+              onAddTrack('sequencer');
+            }}
+          >
+            <Drum size={12} />
+            <span>DRUM SEQ</span>
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="board-add-menu-item"
+            onClick={() => {
+              setIsAddMenuOpen(false);
+              onAddTrack('sample');
+            }}
+          >
+            <Music size={12} />
+            <span>SAMPLER</span>
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="board-add-menu-item"
+            onClick={() => {
+              setIsAddMenuOpen(false);
+              onAddTrack('strudel');
+            }}
+          >
+            <Code size={12} />
+            <span>LIVE CODE</span>
+          </button>
         </div>
+      )}
+    </div>
+  );
 
-        {/* ==================================================================
-            1. MASTER / MAIN MIX TRACK ROW (Exact same row size and left bar)
-            ================================================================== */}
-        <div
-          className={`board-row master selected ${takes.some(take => take.provenance?.region) ? 'expanded' : ''}`}
-          onClick={() => {
+  const renderFocusGlobalUtilities = () => (
+    <div className="board-focus-utilities" onClick={(e) => e.stopPropagation()}>
+      {!selection && (
+        <Tooltip
+          title="Select Section"
+          description="Drop a section selector at the playhead or drag horizontally anywhere on the lane"
+        >
+          <button
+            type="button"
+            className="board-transport-btn board-section-trigger"
+            aria-label="Select Section"
+            onClick={() => {
+              const currentPlayhead = useDawStore.getState().playhead;
+              const start = Math.max(0, Math.min(currentPlayhead, Math.max(0, totalDuration - 5)));
+              const end = Math.min(totalDuration, Math.max(start + 5, start + 15));
+              useDawStore.getState().setSelection({ start, end });
+            }}
+          >
+            <Scissors size={11} />
+            <span className="board-btn-label">SECTION</span>
+          </button>
+        </Tooltip>
+      )}
+
+      <Tooltip
+        title={
+          sculptMode === 'granular'
+            ? 'Wave Mode: Granular (Spiky)'
+            : 'Wave Mode: Smooth Curve (Timer)'
+        }
+        description="Switch wave sculpting between Granular Peak Mode and Smooth Time-Envelope Mode"
+      >
+        <div className="wave-rocker-switch" role="radiogroup" aria-label="Wave sculpt mode">
+          <button
+            type="button"
+            role="radio"
+            className={`rocker-half rocker-left ${sculptMode === 'granular' ? 'is-pressed' : 'is-raised'}`}
+            aria-checked={sculptMode === 'granular'}
+            aria-label="Granular wave mode"
+            onClick={() => setSculptMode('granular')}
+          >
+            <svg
+              width="11"
+              height="11"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M1.5 8h2l1.8-4.5 2.4 9 2.4-7 1.7 2.5h2.7" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            role="radio"
+            className={`rocker-half rocker-right ${sculptMode === 'curve' ? 'is-pressed' : 'is-raised'}`}
+            aria-checked={sculptMode === 'curve'}
+            aria-label="Smooth curve timer mode"
+            onClick={() => setSculptMode('curve')}
+          >
+            <svg
+              width="11"
+              height="11"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <circle cx="8" cy="8.8" r="5.5" />
+              <path d="M6.2 1.6h3.6M8 1.6v1.7M8 8.8V5.8M8 8.8l2.2 1.5" />
+            </svg>
+          </button>
+        </div>
+      </Tooltip>
+
+      {canShowCanvas && (
+        <Tooltip
+          title="Song Lyrics Document"
+          description="Open or hide the general song lyrics sheet"
+        >
+          <button
+            type="button"
+            className={`board-transport-btn board-canvas-toggle ${isCanvasOpen ? 'active' : ''}`}
+            aria-pressed={isCanvasOpen || undefined}
+            aria-label={isCanvasOpen ? 'Hide Song Lyrics Document' : 'Open Song Lyrics Document'}
+            onClick={() => setIsCanvasOpen((prev) => !prev)}
+          >
+            <FilePenLine size={13} />
+          </button>
+        </Tooltip>
+      )}
+
+      {onUndo && (
+        <Tooltip title="Undo" description="Undo last edit (Cmd/Ctrl+Z)">
+          <button
+            type="button"
+            className="board-transport-btn"
+            disabled={!canUndo}
+            aria-label="Undo"
+            onClick={onUndo}
+          >
+            <Undo2 size={12} />
+          </button>
+        </Tooltip>
+      )}
+
+      {onRedo && (
+        <Tooltip title="Redo" description="Redo edit (Cmd/Ctrl+Shift+Z)">
+          <button
+            type="button"
+            className="board-transport-btn"
+            disabled={!canRedo}
+            aria-label="Redo"
+            onClick={onRedo}
+          >
+            <Redo2 size={12} />
+          </button>
+        </Tooltip>
+      )}
+
+      {onOpenCommitModal && (
+        <Tooltip title="Commit Snapshot" description="Save a milestone snapshot of the current arrangement">
+          <button
+            type="button"
+            className="board-transport-btn board-commit-btn"
+            aria-label="Commit Snapshot"
+            onClick={onOpenCommitModal}
+          >
+            <GitCommit size={12} />
+            <span className="board-btn-label">COMMIT</span>
+          </button>
+        </Tooltip>
+      )}
+    </div>
+  );
+
+  const renderEmbeddedMasterHorizon = () => {
+    const isMasterFocused = focusItem.kind === 'master';
+    return (
+      <div
+        className={`board-master-horizon ${isMasterFocused ? 'is-focused' : ''}`}
+        role="button"
+        tabIndex={0}
+        aria-label="Focus Master track"
+        aria-pressed={isMasterFocused}
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          setIsVaultOpen(false);
+          setMasterExpanded(true);
+          onSelectTrack('master');
+          clearNonMasterSolos();
+          dawEngine.stopAuditionTake(true);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            e.stopPropagation();
+            setIsVaultOpen(false);
+            setMasterExpanded(true);
             onSelectTrack('master');
             clearNonMasterSolos();
             dawEngine.stopAuditionTake(true);
-            void dawEngine.startTransport(false);
-          }}
+          }
+        }}
+      >
+        <span className="board-master-horizon-tag">MST</span>
+        <Waveform
+          audioUrl={masterTrack?.clips[0]?.url}
+          timelineDuration={totalDuration}
+          segments={masterLayout.segments}
+          interactive={false}
+          showSelection={false}
+          lanes={masterExpanded ? masterLanes : []}
+          selectedTrackId={selectedTrackId}
+          highlighted={highlighted}
+          className="board-master-horizon-wave"
+        />
+      </div>
+    );
+  };
+
+  const laneRangeDragRef = useRef<{
+    mode: 'create' | 'start' | 'end' | 'pan';
+    originSec: number;
+    initialStart: number;
+    initialEnd: number;
+    startClientX: number;
+    width: number;
+    rowDur: number;
+    moved: boolean;
+  } | null>(null);
+
+  const startLaneBackgroundRangeDrag = (
+    e: React.PointerEvent<HTMLElement>,
+    rowDur: number = totalDuration
+  ) => {
+    if (e.button !== 0) return;
+    const laneEl = e.currentTarget;
+    const rect = laneEl.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    const safeDur = Math.max(rowDur, 1);
+    const originRatio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const originSec = originRatio * safeDur;
+    laneRangeDragRef.current = {
+      mode: 'create',
+      originSec,
+      initialStart: originSec,
+      initialEnd: originSec,
+      startClientX: e.clientX,
+      width: rect.width,
+      rowDur: safeDur,
+      moved: false,
+    };
+    const onMove = (ev: PointerEvent) => {
+      const st = laneRangeDragRef.current;
+      if (!st || st.mode !== 'create') return;
+      if (!st.moved && Math.abs(ev.clientX - st.startClientX) < 5) return;
+      st.moved = true;
+      const curRatio = Math.max(0, Math.min(1, (ev.clientX - rect.left) / Math.max(1, st.width)));
+      const curSec = curRatio * st.rowDur;
+      const start = Math.max(0, Math.min(st.originSec, curSec));
+      const end = Math.min(st.rowDur, Math.max(st.originSec, curSec));
+      if (end - start >= 0.25) {
+        setSelection({
+          start: Number(start.toFixed(2)),
+          end: Number(end.toFixed(2)),
+        });
+      }
+    };
+    const onUp = () => {
+      laneRangeDragRef.current = null;
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+  };
+
+  const renderUniversalSelectionHandles = (rowDur: number = totalDuration) => {
+    if (!selection || selection.end <= selection.start) return null;
+    const safeDur = Math.max(rowDur, 1);
+    const selLeftPct = Math.max(0, Math.min(100, (selection.start / safeDur) * 100));
+    const selWidthPct = Math.max(0.5, Math.min(100 - selLeftPct, ((selection.end - selection.start) / safeDur) * 100));
+
+    const startHandleDrag = (
+      e: React.PointerEvent<HTMLElement>,
+      mode: 'start' | 'end' | 'pan'
+    ) => {
+      e.stopPropagation();
+      e.preventDefault();
+      const laneEl = e.currentTarget.closest('.board-lane-waveform-row') as HTMLElement | null;
+      const width = laneEl?.getBoundingClientRect().width || 300;
+      laneRangeDragRef.current = {
+        mode,
+        originSec: selection.start,
+        initialStart: selection.start,
+        initialEnd: selection.end,
+        startClientX: e.clientX,
+        width,
+        rowDur: safeDur,
+        moved: true,
+      };
+      const onMove = (ev: PointerEvent) => {
+        const st = laneRangeDragRef.current;
+        if (!st) return;
+        const deltaSec = ((ev.clientX - st.startClientX) / Math.max(1, st.width)) * st.rowDur;
+        if (st.mode === 'start') {
+          const nextStart = Math.max(0, Math.min(st.initialEnd - 0.5, st.initialStart + deltaSec));
+          setSelection({ start: Number(nextStart.toFixed(2)), end: st.initialEnd });
+        } else if (st.mode === 'end') {
+          const nextEnd = Math.min(st.rowDur, Math.max(st.initialStart + 0.5, st.initialEnd + deltaSec));
+          setSelection({ start: st.initialStart, end: Number(nextEnd.toFixed(2)) });
+        } else if (st.mode === 'pan') {
+          const span = st.initialEnd - st.initialStart;
+          const nextStart = Math.max(0, Math.min(st.rowDur - span, st.initialStart + deltaSec));
+          setSelection({
+            start: Number(nextStart.toFixed(2)),
+            end: Number((nextStart + span).toFixed(2)),
+          });
+        }
+      };
+      const onUp = () => {
+        laneRangeDragRef.current = null;
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+        window.removeEventListener('pointercancel', onUp);
+      };
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+      window.addEventListener('pointercancel', onUp);
+    };
+
+    return (
+      <div
+        className="waveform-selection board-universal-selection"
+        style={
+          {
+            '--range-start': `${selLeftPct}%`,
+            '--range-width': `${selWidthPct}%`,
+          } as React.CSSProperties
+        }
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          type="button"
+          className="waveform-range start"
+          style={{ '--range-left': `${selLeftPct}%` } as React.CSSProperties}
+          onPointerDown={(e) => startHandleDrag(e, 'start')}
+          aria-label="Selection start"
+        />
+        <button
+          type="button"
+          className="waveform-range pan"
+          style={
+            {
+              '--range-left': `${selLeftPct}%`,
+              '--range-width': `${selWidthPct}%`,
+            } as React.CSSProperties
+          }
+          onPointerDown={(e) => startHandleDrag(e, 'pan')}
+          aria-label="Move selection"
+        />
+        <button
+          type="button"
+          className="waveform-range end"
+          style={{ '--range-left': `${selLeftPct + selWidthPct}%` } as React.CSSProperties}
+          onPointerDown={(e) => startHandleDrag(e, 'end')}
+          aria-label="Selection end"
+        />
+      </div>
+    );
+  };
+
+  const renderOnboardingHint = () => {
+    if (selection || isMasterSculpted) return null;
+    return (
+      <div className="board-onboarding-hint" aria-hidden="true">
+        <span>↔ Drag horizontally to select section</span>
+        <span className="board-onboarding-sep">•</span>
+        <span>↕ Drag vertically to sculpt wave</span>
+      </div>
+    );
+  };
+
+  const renderInLaneSegmentHud = (rowDur: number = totalDuration) => {
+    if (!selection || selection.end <= selection.start) return null;
+    const safeDur = Math.max(rowDur, 1);
+    const leftPct = Math.max(0, Math.min(82, (selection.start / safeDur) * 100));
+    const widthPct = Math.max(0, Math.min(100 - leftPct, ((selection.end - selection.start) / safeDur) * 100));
+    return (
+      <div
+        className="board-segment-hud"
+        style={
+          {
+            '--seg-left-pct': `${leftPct}%`,
+            '--seg-width-pct': `${widthPct}%`,
+          } as React.CSSProperties
+        }
+        onClick={(e) => e.stopPropagation()}
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        <span className="board-segment-hud-range">
+          {formatTime(selection.start).slice(0, 5)} – {formatTime(selection.end).slice(0, 5)}
+        </span>
+        <Tooltip title="Audition Section" description="Play only the selected time range once">
+          <button
+            type="button"
+            className="board-segment-hud-btn active"
+            aria-label="Audition Section"
+            onClick={() => dawEngine.auditionSection(selection.start, selection.end, false)}
+          >
+            <Play size={11} />
+            <span className="board-segment-hud-label">AUDITION</span>
+          </button>
+        </Tooltip>
+        <Tooltip title="Extract Section" description="Extract selected section as a new take">
+          <button
+            type="button"
+            className="board-segment-hud-btn"
+            aria-label="Extract Section"
+            onClick={() => {
+              void extractCurrentSection();
+            }}
+          >
+            <Scissors size={11} />
+            <span className="board-segment-hud-label">EXTRACT</span>
+          </button>
+        </Tooltip>
+        {onReworkSection && (
+          <Tooltip title="Rework Section" description="Focus AI Studio on this selected section">
+            <button
+              type="button"
+              className="board-segment-hud-btn accent"
+              aria-label="Rework Section"
+              onClick={onReworkSection}
+            >
+              <Sparkles size={11} />
+              <span className="board-segment-hud-label">REWORK</span>
+            </button>
+          </Tooltip>
+        )}
+        <Tooltip title="Clear Section" description="Dismiss section selector">
+          <button
+            type="button"
+            className="board-segment-hud-btn clear"
+            aria-label="Clear Section"
+            onClick={() => setSelection(null)}
+          >
+            ×
+          </button>
+        </Tooltip>
+      </div>
+    );
+  };
+
+  const renderMasterStage = (role: 'focus' | 'reference') => {
+    const showFullControllers = role === 'focus';
+    return (
+      <div
+        key="stage-master"
+        data-track-id="master"
+        className={`board-row master board-stage-card is-${role} ${takes.some((take) => take.provenance?.region) ? 'expanded' : ''}`}
+        onClick={() => {
+          onSelectTrack('master');
+          clearNonMasterSolos();
+          dawEngine.stopAuditionTake(true);
+          void dawEngine.startTransport(false);
+        }}
+      >
+        {/* Row 1: Full-Width Master Controller Strip */}
+        <div
+          className={`board-track-header board-lane-controller-row ${!showFullControllers ? 'is-compact-ref' : ''}`}
         >
-          {/* Left Track Header */}
-          <div className="board-track-header">
-            <div className="board-track-header-top">
-              <div className="board-track-meta">
-                <Tooltip title="Master" description={song.title}>
-                  <button
-                    type="button"
-                    className={`board-track-badge board-badge-mst board-track-badge-btn ${masterRestyleTakes.length > 0 && (!masterTrack?.activeVersionTakeId || masterTrack.activeVersionTakeId === 'MST') ? 'selected' : ''}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (masterRestyleTakes.length > 0) {
-                        void selectMasterVersion(null);
-                      } else {
-                        onSelectTrack('master');
-                      }
-                      clearNonMasterSolos();
-                      dawEngine.stopAuditionTake(true);
-                      void dawEngine.startTransport(false);
-                    }}
-                  >
-                    MST
-                  </button>
-                </Tooltip>
-              </div>
+          <div className="board-controller-left">
+            {showFullControllers && renderAddLaneDropdown()}
+            <Tooltip title="Master" description={song.title}>
+              <button
+                type="button"
+                className={`board-track-badge board-badge-mst board-track-badge-btn ${masterRestyleTakes.length > 0 && (!masterTrack?.activeVersionTakeId || masterTrack.activeVersionTakeId === 'MST') ? 'selected' : ''}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (masterRestyleTakes.length > 0) {
+                    void selectMasterVersion(null);
+                  } else {
+                    onSelectTrack('master');
+                  }
+                  clearNonMasterSolos();
+                  dawEngine.stopAuditionTake(true);
+                  void dawEngine.startTransport(false);
+                }}
+              >
+                {showFullControllers ? 'MASTER' : 'MST'}
+              </button>
+            </Tooltip>
 
-              <div className="board-track-controls">
-                <Tooltip title={isMasterPlaying ? 'Stop Master' : 'Play Master'} description="Toggle Master track playback (Space)">
-                  <button
-                    type="button"
-                    className={`board-btn-mini play ${isMasterPlaying ? 'active playing' : ''}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onSelectTrack('master');
-                      clearNonMasterSolos();
-                      dawEngine.stopAuditionTake(true);
-                      if (isMasterPlaying) {
-                        dawEngine.pauseTransport();
-                      } else {
-                        void dawEngine.startTransport(false).catch(error => toast.error(error instanceof Error ? error.message : 'Could not play the arrangement'));
-                      }
-                    }}
-                  >
-                    {isMasterPlaying ? <Square size={10} /> : <Play size={10} />}
-                  </button>
-                </Tooltip>
-
-                <Tooltip title="Mute" description="Silence the original recording. Enabled mounted layers keep playing.">
-                  <button
-                    type="button"
-                    className={`board-btn-mini mute ${masterTrack?.muted ? 'active' : ''}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      updateTrackMixer('master', { muted: !masterTrack?.muted });
-                    }}
-                  >
-                    M
-                  </button>
-                </Tooltip>
-
-                <Tooltip title="Solo" description="Solo master output">
-                  <button
-                    type="button"
-                    className={`board-btn-mini solo ${masterTrack?.solo ? 'active' : ''}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      updateTrackMixer('master', { solo: !masterTrack?.solo });
-                    }}
-                  >
-                    S
-                  </button>
-                </Tooltip>
-
-                {canRevertMaster && (
-                  <Tooltip
-                    title="Reset / Revert Master"
-                    description="Reset Master wave edits and restore original mix"
-                  >
-                    <button
-                      type="button"
-                      className="board-btn-mini reset"
-                      aria-label="Reset Master"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (isMasterSculpted) {
-                          resetTrackSculpt('master');
-                        }
-                        if (hasActiveMasterTake) {
-                          revertToOriginalMaster();
-                        }
-                      }}
-                    >
-                      <RotateCcw size={10} />
-                    </button>
-                  </Tooltip>
-                )}
-
-                {masterTrack?.activeVersionTakeId && masterTrack.activeVersionTakeId !== 'MST' && (
-                  <>
-                    <Tooltip title="Merge Restyle" description="Commit this Restyle version as the new Master.">
-                      <button
-                        type="button"
-                        className="board-btn-mini active"
-                        aria-label="Merge Restyle version into Master"
-                        disabled={Boolean(pendingTake)}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (masterTrack.activeVersionTakeId && masterTrack.activeVersionTakeId !== 'MST') {
-                            void activateTake(masterTrack.activeVersionTakeId, 'merge');
-                          }
-                        }}
-                      >
-                        <Check size={11} />
-                      </button>
-                    </Tooltip>
-                    <Tooltip title="Discard Restyle" description="Delete this Restyle version and restore Master.">
-                      <button
-                        type="button"
-                        className="board-btn-mini delete"
-                        aria-label="Discard Restyle version"
-                        disabled={Boolean(pendingTake)}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (masterTrack.activeVersionTakeId && masterTrack.activeVersionTakeId !== 'MST') {
-                            void deleteTake(masterTrack.activeVersionTakeId);
-                          }
-                        }}
-                      >
-                        <Trash2 size={10} />
-                      </button>
-                    </Tooltip>
-                  </>
-                )}
-                <Tooltip title={!hasExtractedStems ? 'Extract stems' : masterExpanded ? 'Compact waveform' : 'Expand stems'} description={!hasExtractedStems ? 'Separate the recording into instruments and vocals.' : masterExpanded ? 'Show the master as one waveform. Keep the extracted lanes.' : 'Show instrument and vocal colors in the master waveform.'}>
-                  <button type="button" className="board-btn-mini" aria-label={!hasExtractedStems ? 'Extract stems' : masterExpanded ? 'Compact waveform' : 'Expand stems'} disabled={isSeparating} onClick={event => {
-                    event.stopPropagation();
-                    if (!hasExtractedStems) { setMasterExpanded(true); onSeparateStems(); }
-                    else { setMasterExpanded(!masterExpanded); if (masterExpanded) onSelectTrack('master'); }
-                  }}>
-                    {hasExtractedStems && masterExpanded ? <Minimize2 size={11} /> : <Split size={11} />}
-                  </button>
-                </Tooltip>
-                <Tooltip title="Merge all" description="Commit all enabled mounted sections to the master.">
-                  <button type="button" className="board-btn-mini" aria-label="Merge all mounted sections" disabled={Boolean(pendingTake) || !audibleOverlays.length} onClick={event => {event.stopPropagation(); void mergeTakes(audibleOverlays.map(track => track.id));}}><Layers size={11} /></button>
-                </Tooltip>
-
-              </div>
-            </div>
+            {role === 'reference' && (
+              <span className="board-master-map-hint">MASTER MAP</span>
+            )}
 
             {masterRestyleTakes.length > 0 && (
               <div className="board-master-badges" aria-label="Restyle version controls">
@@ -816,33 +1024,35 @@ export const Board: React.FC<BoardProps> = ({
                 })}
               </div>
             )}
-            {(separated.length > 0 || overlays.length > 0) && (
-              <div className="board-master-badges" aria-label={overlays.length > 0 ? 'Mounted layer controls' : 'Instrument and mounted layer controls'}>
-                {separated.map(track => (
-                  <Tooltip key={track.id} title={track.name} description={`Select and listen to ${track.name.toLowerCase()} in the master.`}>
-                    <button
-                      type="button"
-                      className={`board-track-badge board-badge-sub board-track-badge-colored ${selectedTrackId === track.id ? 'selected' : ''}`}
-                      style={{ '--track-color': getStemColor(track.stemType || track.name || track.type) } as React.CSSProperties}
-                      aria-label={`Select ${track.name} in master`}
-                      aria-pressed={selectedTrackId === track.id}
-                      onClick={event => { event.stopPropagation(); setMasterExpanded(true); onSelectTrack(track.id); dawEngine.auditionTrack(track.id); }}
-                    >
-                      {formatTrackBadgeCode(track)}
-                    </button>
-                  </Tooltip>
-                ))}
-                {overlays.map(track => {
-                  const take = takes.find(take => take.id === track.id)!;
+
+            {overlays.length > 0 && (
+              <div
+                className="board-master-badges"
+                aria-label="Mounted layer controls"
+              >
+                {overlays.map((track) => {
+                  const take = takes.find((t) => t.id === track.id)!;
                   return (
-                    <Tooltip key={track.id} title={`Take #${take.take_number}`} description="Enable or silence this mounted section. It stays mounted until removed in Extracted.">
+                    <Tooltip
+                      key={track.id}
+                      title={`Take #${take.take_number}`}
+                      description="Enable or silence this mounted section. It stays mounted until removed in Extracted."
+                    >
                       <button
                         type="button"
                         className={`board-track-badge board-badge-sub board-track-badge-colored ${selectedTrackId === track.id ? 'selected' : ''} ${track.muted ? 'is-muted' : ''}`}
                         style={{ '--track-color': track.color } as React.CSSProperties}
                         aria-label={`Toggle Take #${take.take_number} in master`}
                         aria-pressed={!track.muted}
-                        onClick={event => { event.stopPropagation(); updateTrackMixer(track.id, { muted: !track.muted }); setSelection({ start: track.clips[0].startTime, end: track.clips[0].startTime + track.clips[0].duration }); onSelectTrack(track.id); }}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          updateTrackMixer(track.id, { muted: !track.muted });
+                          setSelection({
+                            start: track.clips[0].startTime,
+                            end: track.clips[0].startTime + track.clips[0].duration,
+                          });
+                          onSelectTrack(track.id);
+                        }}
                       >
                         TK#{take.take_number}
                       </button>
@@ -851,8 +1061,10 @@ export const Board: React.FC<BoardProps> = ({
                 })}
               </div>
             )}
+          </div>
 
-            <div className="board-track-header-bottom">
+          <div className="board-track-header-bottom board-controller-right">
+            {showFullControllers && (
               <div className="board-fader-wrap">
                 <Volume2 size={12} color="var(--accent)" />
                 <input
@@ -869,865 +1081,1451 @@ export const Board: React.FC<BoardProps> = ({
                     e.stopPropagation();
                     updateTrackMixer('master', { volume: 1 });
                   }}
-                  onChange={(e) =>
-                    updateTrackMixer('master', { volume: parseFloat(e.target.value) })
-                  }
+                  onChange={(e) => updateTrackMixer('master', { volume: parseFloat(e.target.value) })}
                 />
+                <span className="board-fader-val">{Math.round((masterTrack?.volume ?? 1) * 100)}%</span>
               </div>
-              <span className="board-fader-val">
-                {Math.round((masterTrack?.volume ?? 1) * 100)}%
-              </span>
-            </div>
-          </div>
+            )}
 
-          {/* Right Timeline Lane: Waveform & Selection Pincher */}
-          <div
-            className="board-track-lane"
-            onClick={(e) => {
-              e.stopPropagation();
-            }}
-          >
-            <div className="board-lane-grid" />
-
-            <Waveform
-              audioUrl={masterTrack?.clips[0]?.url}
-              timelineDuration={totalDuration}
-              segments={masterLayout.segments}
-              interactive={true}
-              showSelection={true}
-              onReworkSection={onReworkSection}
-              onSelectTrack={onSelectTrack}
-              lanes={masterExpanded ? masterLanes : []}
-              selectedTrackId={selectedTrackId}
-              highlighted={highlighted}
-              className="board-master-waveform"
-            />
-
-            <div className="board-overlays" aria-label="Mounted sections">
-              {overlays.flatMap(track => track.clips.map(clip => {
-                const take = takes.find(take => take.id === track.activeTakeId)!;
-                const shift = drag?.id === track.id ? drag.shift - (clip.startTime - (clip.origin ?? clip.startTime)) : 0;
-                const start = clip.startTime + shift, end = start + clip.duration;
-                const selected = selectedTrackId === take.id;
-                return <div
-                  key={`${track.id}:${clip.id ?? clip.startTime}`}
-                  className={`board-overlay ${selected ? 'selected' : ''} ${track.muted ? 'muted' : ''}`}
-                  style={{
-                    left: `${start / totalDuration * 100}%`,
-                    width: `${(end - start) / totalDuration * 100}%`,
-                    '--start-pct': `${start / totalDuration * 100}%`,
-                    '--width-pct': `${(end - start) / totalDuration * 100}%`,
-                    '--track-color': track.color,
-                  } as React.CSSProperties}
+            <div className="board-track-controls">
+              <Tooltip
+                title={isMasterPlaying ? 'Stop Master' : 'Play Master'}
+                description="Toggle Master track playback (Space)"
+              >
+                <button
+                  type="button"
+                  className={`board-btn-mini play ${isMasterPlaying ? 'active playing' : ''}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSelectTrack('master');
+                    clearNonMasterSolos();
+                    dawEngine.stopAuditionTake(true);
+                    if (isMasterPlaying) {
+                      dawEngine.pauseTransport();
+                    } else {
+                      void dawEngine
+                        .startTransport(false)
+                        .catch((error) =>
+                          toast.error(
+                            error instanceof Error ? error.message : 'Could not play the arrangement'
+                          )
+                        );
+                    }
+                  }}
                 >
-                  <button type="button" className="board-overlay-wave" aria-label={`Select Take #${take.take_number} section`} aria-pressed={selected}
-                    onPointerDown={event => {
-                      if (event.button !== 0 || pendingTake) return;
-                      event.stopPropagation(); didDrag.current = false;
-                      const width = event.currentTarget.closest('.board-track-lane')!.getBoundingClientRect().width;
-                      const origins = track.clips.map(part => part.origin ?? part.startTime);
-                      const shift = clip.startTime - (clip.origin ?? clip.startTime);
-                      dragging.current = {id:track.id,x:event.clientX,shift,width,minimum:-Math.min(...origins),maximum:totalDuration-Math.max(...track.clips.map((part,index)=>origins[index]+part.duration)),current:shift};
-                      event.currentTarget.setPointerCapture(event.pointerId);
-                    }}
-                    onPointerMove={event => {
-                      const state = dragging.current;
-                      if (!state || state.id !== track.id || Math.abs(event.clientX - state.x) < 3 && !didDrag.current) return;
-                      didDrag.current = true;
-                      state.current = Math.max(state.minimum,Math.min(state.maximum,state.shift + (event.clientX - state.x) / state.width * totalDuration));
-                      setDrag({id:state.id,shift:state.current});
-                    }}
-                    onPointerUp={event => {
-                      const state = dragging.current; dragging.current = null; setDrag(null);
-                      if (didDrag.current && state) { event.stopPropagation(); void moveTake(track.id,state.current); onSelectTrack(track.id); }
-                    }}
-                    onPointerCancel={() => {dragging.current = null;setDrag(null);}}
-                    onClick={event => {
-                      event.stopPropagation();
-                      if (didDrag.current) { didDrag.current = false; return; }
-                      setSelection({ start, end });
-                      onSelectTrack(take.id);
-                      const laneRect = event.currentTarget.closest('.board-track-lane')?.getBoundingClientRect();
-                      const ratio = laneRect && laneRect.width > 0 ? Math.max(0, Math.min(1, (event.clientX - laneRect.left) / laneRect.width)) : start / totalDuration;
-                      const clickTime = Math.max(start, Math.min(Math.max(start, end - 0.05), ratio * totalDuration));
-                      setPlayhead(clickTime);
-                      if (!track.muted) {
-                        void dawEngine.auditionLayer(['master', track.id], clickTime, end);
-                      } else {
-                        dawEngine.auditionTake(clip.url, (clip.offset ?? 0) + (clickTime - start), (clip.offset ?? 0) + clip.duration, clickTime);
-                        useDawStore.setState({ auditionId: take.id });
+                  {isMasterPlaying ? <Square size={10} /> : <Play size={10} />}
+                </button>
+              </Tooltip>
+
+              {showFullControllers && (
+                <>
+                  <Tooltip
+                    title="Mute"
+                    description="Silence the original recording. Enabled mounted layers keep playing."
+                  >
+                    <button
+                      type="button"
+                      className={`board-btn-mini mute ${masterTrack?.muted ? 'active' : ''}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        updateTrackMixer('master', { muted: !masterTrack?.muted });
+                      }}
+                    >
+                      M
+                    </button>
+                  </Tooltip>
+
+                  <Tooltip title="Solo" description="Solo master output">
+                    <button
+                      type="button"
+                      className={`board-btn-mini solo ${masterTrack?.solo ? 'active' : ''}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        updateTrackMixer('master', { solo: !masterTrack?.solo });
+                      }}
+                    >
+                      S
+                    </button>
+                  </Tooltip>
+                </>
+              )}
+
+              {canRevertMaster && (
+                <Tooltip
+                  title="Reset / Revert Master"
+                  description="Reset Master wave edits and restore original mix"
+                >
+                  <button
+                    type="button"
+                    className="board-btn-mini reset"
+                    aria-label="Reset Master"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (isMasterSculpted) {
+                        resetTrackSculpt('master');
+                      }
+                      if (hasActiveMasterTake) {
+                        revertToOriginalMaster();
                       }
                     }}
-                  ><Clip clip={clip} color={track.color} trackId={track.id} /></button>
-                </div>;
-              }))}
-              {selectedOverlay && selectedClip && <div
-                className="board-overlay-actions"
-                style={{ '--actions-left': `${selectedClip.startTime / totalDuration * 100}%` } as React.CSSProperties}
-                onClick={event => event.stopPropagation()}
-              >
-                <div className="board-overlay-player">
-                  <Tooltip title="Play section" description="Play the selected original and take audio for this segment."><button type="button" aria-label={`Play selected audio for Take #${selectedTake!.take_number}`} disabled={!originalEnabled && selectedOverlay.muted} onClick={() => { void dawEngine.auditionLayer(['master',selectedOverlay.id],selectedClip.startTime,selectedClip.startTime + selectedClip.duration).catch(error => toast.error(error instanceof Error ? error.message : 'Could not play the section')); }}><Play size={10}/></button></Tooltip>
-                  <div className="board-overlay-choices">
-                    <Tooltip title="Original section" description="Enable or silence the original audio underneath this layer."><button type="button" aria-label="Toggle original section" aria-pressed={originalEnabled} onClick={() => toggleOriginal({start:selectedClip.startTime,end:selectedClip.startTime + selectedClip.duration})}>ORG</button></Tooltip>
-                    <Tooltip title={`Take #${selectedTake!.take_number}`} description="Enable or silence this edited section."><button type="button" aria-label={`Toggle Take #${selectedTake!.take_number} section`} aria-pressed={!selectedOverlay.muted} onClick={() => updateTrackMixer(selectedOverlay.id,{muted:!selectedOverlay.muted})}>TK#</button></Tooltip>
-                  </div>
-                </div>
-                <Tooltip title="Merge" description="Commit this enabled section at its current position."><button type="button" aria-label={`Merge Take #${takes.find(take => take.id === selectedOverlay.id)!.take_number}`} disabled={Boolean(pendingTake) || !audibleOverlays.includes(selectedOverlay)} onClick={() => void mergeTakes([selectedOverlay.id], selection && selection.start >= selectedClip.startTime && selection.end <= selectedClip.startTime + selectedClip.duration ? selection : {start:selectedClip.startTime,end:selectedClip.startTime + selectedClip.duration})}><Check size={13}/></button></Tooltip>
-                <Tooltip title="Discard" description="Remove this pending take and its mounted sections."><button type="button" aria-label={`Discard Take #${takes.find(take => take.id === selectedOverlay.id)!.take_number}`} disabled={Boolean(pendingTake)} onClick={() => void deleteTake(selectedOverlay.id)}><Trash2 size={13}/></button></Tooltip>
-                <Tooltip title="Reset" description="Return this layer to its original timeline position."><button type="button" aria-label={`Reset Take #${takes.find(take => take.id === selectedOverlay.id)!.take_number} position`} disabled={Boolean(pendingTake)} onClick={() => void moveTake(selectedOverlay.id,0)}><RotateCcw size={13}/></button></Tooltip>
-              </div>}
+                  >
+                    <RotateCcw size={10} />
+                  </button>
+                </Tooltip>
+              )}
+
+              {masterTrack?.activeVersionTakeId && masterTrack.activeVersionTakeId !== 'MST' && (
+                <>
+                  <Tooltip title="Merge Restyle" description="Commit this Restyle version as the new Master.">
+                    <button
+                      type="button"
+                      className="board-btn-mini active"
+                      aria-label="Merge Restyle version into Master"
+                      disabled={Boolean(pendingTake)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (
+                          masterTrack.activeVersionTakeId &&
+                          masterTrack.activeVersionTakeId !== 'MST'
+                        ) {
+                          void activateTake(masterTrack.activeVersionTakeId, 'merge');
+                        }
+                      }}
+                    >
+                      <Check size={11} />
+                    </button>
+                  </Tooltip>
+                  <Tooltip
+                    title="Discard Restyle"
+                    description="Delete this Restyle version and restore Master."
+                  >
+                    <button
+                      type="button"
+                      className="board-btn-mini delete"
+                      aria-label="Discard Restyle version"
+                      disabled={Boolean(pendingTake)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (
+                          masterTrack.activeVersionTakeId &&
+                          masterTrack.activeVersionTakeId !== 'MST'
+                        ) {
+                          void deleteTake(masterTrack.activeVersionTakeId);
+                        }
+                      }}
+                    >
+                      <Trash2 size={10} />
+                    </button>
+                  </Tooltip>
+                </>
+              )}
+
+              {showFullControllers && (
+                <Tooltip
+                  title={!hasExtractedStems ? 'Extract stems' : masterExpanded ? 'Compact waveform' : 'Expand stems'}
+                  description={
+                    !hasExtractedStems
+                      ? 'Separate the recording into instruments and vocals.'
+                      : masterExpanded
+                        ? 'Show the master as one waveform. Keep the extracted lanes.'
+                        : 'Show instrument and vocal colors in the master waveform.'
+                  }
+                >
+                  <button
+                    type="button"
+                    className="board-btn-mini"
+                    aria-label={
+                      !hasExtractedStems
+                        ? 'Extract stems'
+                        : masterExpanded
+                          ? 'Compact waveform'
+                          : 'Expand stems'
+                    }
+                    disabled={isSeparating}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      if (!hasExtractedStems) {
+                        setMasterExpanded(true);
+                        onSeparateStems();
+                      } else {
+                        setMasterExpanded(!masterExpanded);
+                        if (masterExpanded) onSelectTrack('master');
+                      }
+                    }}
+                  >
+                    {hasExtractedStems && masterExpanded ? <Minimize2 size={11} /> : <Split size={11} />}
+                  </button>
+                </Tooltip>
+              )}
+
+              <Tooltip title="Merge all" description="Commit all enabled mounted sections to the master.">
+                <button
+                  type="button"
+                  className="board-btn-mini"
+                  aria-label="Merge all mounted sections"
+                  disabled={Boolean(pendingTake) || !audibleOverlays.length}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void mergeTakes(audibleOverlays.map((track) => track.id));
+                  }}
+                >
+                  <Layers size={11} />
+                </button>
+              </Tooltip>
             </div>
 
+            {showFullControllers && renderFocusGlobalUtilities()}
+          </div>
+        </div>
+
+        {/* Row 2: 100%-Width Master Waveform & Overlays Row */}
+        <div
+          className="board-track-lane board-lane-waveform-row"
+          onClick={(e) => {
+            if (role === 'reference') {
+              onSelectTrack('master');
+              return;
+            }
+            e.stopPropagation();
+          }}
+        >
+          <div className="board-lane-grid" />
+
+          <Waveform
+            audioUrl={masterTrack?.clips[0]?.url}
+            timelineDuration={totalDuration}
+            segments={masterLayout.segments}
+            interactive={role === 'focus'}
+            showSelection={true}
+            onReworkSection={onReworkSection}
+            onSelectTrack={onSelectTrack}
+            lanes={masterExpanded ? masterLanes : []}
+            selectedTrackId={selectedTrackId}
+            highlighted={highlighted}
+            className="board-master-waveform"
+          />
+
+          {showFullControllers && renderEmbeddedMasterHorizon()}
+          {showFullControllers && renderInLaneSegmentHud(totalDuration)}
+          {showFullControllers && renderOnboardingHint()}
+
+          <div className="board-overlays" aria-label="Mounted sections">
+            {overlays.flatMap((track) =>
+              track.clips.map((clip) => {
+                const take = takes.find((t) => t.id === track.activeTakeId)!;
+                const shift =
+                  drag?.id === track.id
+                    ? drag.shift - (clip.startTime - (clip.origin ?? clip.startTime))
+                    : 0;
+                const start = clip.startTime + shift,
+                  end = start + clip.duration;
+                const selected = selectedTrackId === take.id;
+                return (
+                  <div
+                    key={`${track.id}:${clip.id ?? clip.startTime}`}
+                    className={`board-overlay ${selected ? 'selected' : ''} ${track.muted ? 'muted' : ''}`}
+                    style={
+                      {
+                        left: `${(start / totalDuration) * 100}%`,
+                        width: `${((end - start) / totalDuration) * 100}%`,
+                        '--start-pct': `${(start / totalDuration) * 100}%`,
+                        '--width-pct': `${((end - start) / totalDuration) * 100}%`,
+                        '--track-color': track.color,
+                      } as React.CSSProperties
+                    }
+                  >
+                    <button
+                      type="button"
+                      className="board-overlay-wave"
+                      aria-label={`Select Take #${take.take_number} section`}
+                      aria-pressed={selected}
+                      onPointerDown={(event) => {
+                        if (event.button !== 0 || pendingTake) return;
+                        event.stopPropagation();
+                        didDrag.current = false;
+                        const width = event.currentTarget
+                          .closest('.board-track-lane')!
+                          .getBoundingClientRect().width;
+                        const origins = track.clips.map((part) => part.origin ?? part.startTime);
+                        const curShift = clip.startTime - (clip.origin ?? clip.startTime);
+                        dragging.current = {
+                          id: track.id,
+                          x: event.clientX,
+                          shift: curShift,
+                          width,
+                          minimum: -Math.min(...origins),
+                          maximum:
+                            totalDuration -
+                            Math.max(
+                              ...track.clips.map((part, index) => origins[index] + part.duration)
+                            ),
+                          current: curShift,
+                        };
+                        event.currentTarget.setPointerCapture(event.pointerId);
+                      }}
+                      onPointerMove={(event) => {
+                        const state = dragging.current;
+                        if (
+                          !state ||
+                          state.id !== track.id ||
+                          (Math.abs(event.clientX - state.x) < 3 && !didDrag.current)
+                        )
+                          return;
+                        didDrag.current = true;
+                        state.current = Math.max(
+                          state.minimum,
+                          Math.min(
+                            state.maximum,
+                            state.shift + ((event.clientX - state.x) / state.width) * totalDuration
+                          )
+                        );
+                        setDrag({ id: state.id, shift: state.current });
+                      }}
+                      onPointerUp={(event) => {
+                        const state = dragging.current;
+                        dragging.current = null;
+                        setDrag(null);
+                        if (didDrag.current && state) {
+                          event.stopPropagation();
+                          void moveTake(track.id, state.current);
+                          onSelectTrack(track.id);
+                        }
+                      }}
+                      onPointerCancel={() => {
+                        dragging.current = null;
+                        setDrag(null);
+                      }}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        if (didDrag.current) {
+                          didDrag.current = false;
+                          return;
+                        }
+                        setSelection({ start, end });
+                        onSelectTrack(take.id);
+                        const laneRect = event.currentTarget
+                          .closest('.board-track-lane')
+                          ?.getBoundingClientRect();
+                        const ratio =
+                          laneRect && laneRect.width > 0
+                            ? Math.max(
+                                0,
+                                Math.min(1, (event.clientX - laneRect.left) / laneRect.width)
+                              )
+                            : start / totalDuration;
+                        const clickTime = Math.max(
+                          start,
+                          Math.min(Math.max(start, end - 0.05), ratio * totalDuration)
+                        );
+                        setPlayhead(clickTime);
+                        if (!track.muted) {
+                          void dawEngine.auditionLayer(['master', track.id], clickTime, end);
+                        } else {
+                          dawEngine.auditionTake(
+                            clip.url,
+                            (clip.offset ?? 0) + (clickTime - start),
+                            (clip.offset ?? 0) + clip.duration,
+                            clickTime
+                          );
+                          useDawStore.setState({ auditionId: take.id });
+                        }
+                      }}
+                    >
+                      <Clip clip={clip} color={track.color} trackId={track.id} />
+                    </button>
+                  </div>
+                );
+              })
+            )}
+            {selectedOverlay && selectedClip && (
+              <div
+                className="board-overlay-actions"
+                style={
+                  {
+                    '--actions-left': `${(selectedClip.startTime / totalDuration) * 100}%`,
+                  } as React.CSSProperties
+                }
+                onClick={(event) => event.stopPropagation()}
+              >
+                <div className="board-overlay-player">
+                  <Tooltip
+                    title="Play section"
+                    description="Play the selected original and take audio for this segment."
+                  >
+                    <button
+                      type="button"
+                      aria-label={`Play selected audio for Take #${selectedTake!.take_number}`}
+                      disabled={!originalEnabled && selectedOverlay.muted}
+                      onClick={() => {
+                        void dawEngine
+                          .auditionLayer(
+                            ['master', selectedOverlay.id],
+                            selectedClip.startTime,
+                            selectedClip.startTime + selectedClip.duration
+                          )
+                          .catch((error) =>
+                            toast.error(
+                              error instanceof Error ? error.message : 'Could not play the section'
+                            )
+                          );
+                      }}
+                    >
+                      <Play size={10} />
+                    </button>
+                  </Tooltip>
+                  <div className="board-overlay-choices">
+                    <Tooltip
+                      title="Original section"
+                      description="Enable or silence the original audio underneath this layer."
+                    >
+                      <button
+                        type="button"
+                        aria-label="Toggle original section"
+                        aria-pressed={originalEnabled}
+                        onClick={() =>
+                          toggleOriginal({
+                            start: selectedClip.startTime,
+                            end: selectedClip.startTime + selectedClip.duration,
+                          })
+                        }
+                      >
+                        ORG
+                      </button>
+                    </Tooltip>
+                    <Tooltip
+                      title={`Take #${selectedTake!.take_number}`}
+                      description="Enable or silence this edited section."
+                    >
+                      <button
+                        type="button"
+                        aria-label={`Toggle Take #${selectedTake!.take_number} section`}
+                        aria-pressed={!selectedOverlay.muted}
+                        onClick={() =>
+                          updateTrackMixer(selectedOverlay.id, { muted: !selectedOverlay.muted })
+                        }
+                      >
+                        TK#
+                      </button>
+                    </Tooltip>
+                  </div>
+                </div>
+                <Tooltip
+                  title="Merge"
+                  description="Commit this enabled section at its current position."
+                >
+                  <button
+                    type="button"
+                    aria-label={`Merge Take #${takes.find((t) => t.id === selectedOverlay.id)!.take_number}`}
+                    disabled={Boolean(pendingTake) || !audibleOverlays.includes(selectedOverlay)}
+                    onClick={() =>
+                      void mergeTakes(
+                        [selectedOverlay.id],
+                        selection &&
+                          selection.start >= selectedClip.startTime &&
+                          selection.end <= selectedClip.startTime + selectedClip.duration
+                          ? selection
+                          : {
+                              start: selectedClip.startTime,
+                              end: selectedClip.startTime + selectedClip.duration,
+                            }
+                      )
+                    }
+                  >
+                    <Check size={13} />
+                  </button>
+                </Tooltip>
+                <Tooltip
+                  title="Discard"
+                  description="Remove this pending take and its mounted sections."
+                >
+                  <button
+                    type="button"
+                    aria-label={`Discard Take #${takes.find((t) => t.id === selectedOverlay.id)!.take_number}`}
+                    disabled={Boolean(pendingTake)}
+                    onClick={() => void deleteTake(selectedOverlay.id)}
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </Tooltip>
+                <Tooltip
+                  title="Reset"
+                  description="Return this layer to its original timeline position."
+                >
+                  <button
+                    type="button"
+                    aria-label={`Reset Take #${takes.find((t) => t.id === selectedOverlay.id)!.take_number} position`}
+                    disabled={Boolean(pendingTake)}
+                    onClick={() => void moveTake(selectedOverlay.id, 0)}
+                  >
+                    <RotateCcw size={13} />
+                  </button>
+                </Tooltip>
+              </div>
+            )}
+          </div>
+
+          <BoardPlayheadLine totalDuration={totalDuration} />
+        </div>
+      </div>
+    );
+  };
+
+  const renderLaneStage = (trackItem: (typeof laneTracks)[number], role: 'focus' | 'reference') => {
+    const isSelected = selectedTrackId === trackItem.id;
+    const anySoloed = tracks.some((t) => t.solo);
+    const isDimmed =
+      (anySoloed && !trackItem.solo) ||
+      (laneTracks.some((track) => track.id === selectedTrackId) && !isSelected && !anySoloed);
+    const isLego = legoContextTrackIds.includes(trackItem.id);
+    const clip = trackItem.clips[0];
+    const isTrackPlaying = playingTakeId === trackItem.id;
+
+    const brandColor = getStemColor(trackItem.name);
+    const normalizedLaneName = (trackItem.layerName || trackItem.name)
+      .toLowerCase()
+      .replace(/\s+/g, '_');
+    const laneLayerTakes = takes
+      .filter(
+        (t) =>
+          isLayerTake(t) &&
+          !t.provenance?.mergedInto &&
+          !t.is_active &&
+          (layerTrackName(t) ?? 'other') === normalizedLaneName
+      )
+      .sort((a, b) => a.take_number - b.take_number);
+    const activeLayerTakeId =
+      trackItem.activeVersionTakeId && trackItem.activeVersionTakeId !== 'ORG'
+        ? trackItem.activeVersionTakeId
+        : null;
+    const hasOriginal =
+      trackItem.type === 'stem' &&
+      trackItem.hasOriginalStem !== false &&
+      !trackItem.id.startsWith('layer-');
+    const isSynthTrack =
+      trackItem.type === 'pianoroll' ||
+      trackItem.type === 'sequencer' ||
+      trackItem.type === 'strudel';
+    const hasSynthVersions =
+      isSynthTrack || Boolean(trackItem.versions && trackItem.versions.length > 0);
+    const synthVersions = hasSynthVersions
+      ? trackItem.versions && trackItem.versions.length > 0
+        ? trackItem.versions
+        : [{ id: '1', number: 1, createdAt: 0 }]
+      : [];
+    const activeSynthVerId = isSynthTrack
+      ? trackItem.activeVersionId || synthVersions[synthVersions.length - 1]?.id || '1'
+      : trackItem.activeVersionId || null;
+    const isSynthVersionActiveOnStem =
+      trackItem.type === 'stem' && Boolean(activeSynthVerId && trackItem.sequencerVoices?.length);
+    const isTrackSculpted = !isIdentityWaveSculpt(trackItem.sculpt);
+    const canDeleteLaneOrTake =
+      Boolean(activeLayerTakeId) || !hasOriginal || laneLayerTakes.length > 0;
+    const showFullControllers = role === 'focus';
+
+    return (
+      <div
+        key={`stage-lane-${trackItem.id}`}
+        data-track-id={trackItem.id}
+        className={`board-row board-stage-card is-${role} ${laneLayerTakes.length > 0 || hasSynthVersions ? 'has-versions' : ''} ${isSelected ? 'selected' : ''} ${isDimmed ? 'dimmed' : ''}`}
+        onClick={() => {
+          onSelectTrack(trackItem.id);
+          dawEngine.auditionTrack(trackItem.id);
+        }}
+      >
+        {/* Row 1: Separated Horizontal Controller Strip */}
+        <div
+          className={`board-track-header board-lane-controller-row ${!showFullControllers ? 'is-compact-ref' : ''}`}
+        >
+          <div className="board-controller-left">
+            {showFullControllers && renderAddLaneDropdown()}
+            <Tooltip title={trackItem.name} description={`Stem channel: ${trackItem.name}`}>
+              <span
+                className="board-track-badge board-badge-track board-track-badge-colored"
+                style={{ '--track-color': brandColor } as React.CSSProperties}
+              >
+                {showFullControllers ? formatTrackBadgeFull(trackItem) : formatTrackBadgeCode(trackItem)}
+              </span>
+            </Tooltip>
+
+            {showFullControllers && (hasSynthVersions || laneLayerTakes.length > 0) && (
+              <div className="board-category-badges-row" onClick={(e) => e.stopPropagation()}>
+                <div className="board-category-badges-list">
+                  {hasOriginal && (
+                    <Tooltip title="Original Stem" description={`Original ${trackItem.name} stem`}>
+                      <button
+                        type="button"
+                        aria-pressed={!activeLayerTakeId && !activeSynthVerId}
+                        className={`board-take-badge-pill board-badge-sub ${!activeLayerTakeId && !activeSynthVerId ? 'selected mix-active' : ''}`}
+                        onClick={() => {
+                          if (hasSynthVersions) {
+                            selectSynthVersion(trackItem.id, 'ORG');
+                          }
+                          void selectLaneVersion(trackItem.id, null);
+                        }}
+                      >
+                        ORG
+                      </button>
+                    </Tooltip>
+                  )}
+                  {laneLayerTakes.map((take, idx) => {
+                    const isVersionActive = activeLayerTakeId === take.id && !activeSynthVerId;
+                    return (
+                      <Tooltip
+                        key={take.id}
+                        title={`${trackItem.name} Layer #${idx + 1}`}
+                        description={take.prompt || `Layer Take #${take.take_number}`}
+                      >
+                        <button
+                          type="button"
+                          aria-pressed={isVersionActive}
+                          className={`board-take-badge-pill board-badge-sub ${isVersionActive ? 'selected mix-active' : ''}`}
+                          onClick={() => {
+                            if (hasSynthVersions) {
+                              selectSynthVersion(trackItem.id, 'ORG');
+                            }
+                            void selectLaneVersion(trackItem.id, take.id);
+                          }}
+                        >
+                          #{idx + 1}
+                        </button>
+                      </Tooltip>
+                    );
+                  })}
+                  {synthVersions.map((ver) => {
+                    const isVerActive = activeSynthVerId === ver.id;
+                    return (
+                      <Tooltip
+                        key={ver.id}
+                        title={`${trackItem.name} #${ver.number}`}
+                        description={`Switch to version #${ver.number}`}
+                      >
+                        <button
+                          type="button"
+                          aria-pressed={isVerActive}
+                          className={`board-take-badge-pill board-badge-sub ${isVerActive ? 'selected mix-active' : ''}`}
+                          onClick={() => selectSynthVersion(trackItem.id, ver.id)}
+                        >
+                          #{ver.number}
+                        </button>
+                      </Tooltip>
+                    );
+                  })}
+                  {hasSynthVersions && (
+                    <Tooltip
+                      title={`New ${trackItem.name} Version`}
+                      description={`Create version #${synthVersions.length + 1} on this lane`}
+                    >
+                      <button
+                        type="button"
+                        className="board-take-badge-pill board-badge-sub add"
+                        aria-label={`Create new ${trackItem.name} version`}
+                        onClick={() => addSynthVersion(trackItem.id)}
+                      >
+                        +
+                      </button>
+                    </Tooltip>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Expanded Controllers shown when lane is Selected (Stage 1 Focus) */}
+          {showFullControllers ? (
+            <div className="board-controller-right">
+              <div className="board-fader-wrap">
+                <Volume2 size={12} color={brandColor} />
+                <input
+                  type="range"
+                  name={`track-volume-${trackItem.id}`}
+                  aria-label={`${trackItem.name} Volume`}
+                  className="board-slider"
+                  min="0"
+                  max="1.2"
+                  step="0.01"
+                  value={trackItem.volume}
+                  onClick={(e) => e.stopPropagation()}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    updateTrackMixer(trackItem.id, { volume: 1 });
+                  }}
+                  title="Double-click to reset volume to 100%"
+                  onChange={(e) =>
+                    updateTrackMixer(trackItem.id, { volume: parseFloat(e.target.value) })
+                  }
+                />
+                <span className="board-fader-val">{Math.round(trackItem.volume * 100)}%</span>
+              </div>
+
+              <div className="board-track-controls">
+                <Tooltip
+                  title={isTrackPlaying ? 'Stop track' : 'Audition track'}
+                  description={`Solo audition of ${trackItem.name}`}
+                >
+                  <button
+                    type="button"
+                    className={`board-btn-mini play ${isTrackPlaying ? 'active playing' : ''}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (isTrackPlaying) {
+                        dawEngine.pauseTransport();
+                      } else {
+                        onSelectTrack(trackItem.id);
+                        dawEngine.auditionTrack(trackItem.id);
+                      }
+                    }}
+                  >
+                    {isTrackPlaying ? <Square size={10} /> : <Play size={10} />}
+                  </button>
+                </Tooltip>
+
+                <Tooltip title="Mute Track" description={`Mute ${trackItem.name}`}>
+                  <button
+                    type="button"
+                    className={`board-btn-mini mute ${trackItem.muted ? 'active' : ''}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      updateTrackMixer(trackItem.id, { muted: !trackItem.muted });
+                    }}
+                  >
+                    M
+                  </button>
+                </Tooltip>
+
+                <Tooltip title="Solo Track" description={`Solo ${trackItem.name}`}>
+                  <button
+                    type="button"
+                    className={`board-btn-mini solo ${trackItem.solo ? 'active' : ''}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      updateTrackMixer(trackItem.id, { solo: !trackItem.solo });
+                    }}
+                  >
+                    S
+                  </button>
+                </Tooltip>
+
+                <Tooltip
+                  title="Layer Guide Context"
+                  description="Use as harmonic reference guide when generating new stems"
+                >
+                  <button
+                    type="button"
+                    className={`board-btn-mini arm ${isLego ? 'active' : ''}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleLegoContext(trackItem.id);
+                    }}
+                  >
+                    L
+                  </button>
+                </Tooltip>
+
+                {(isTrackSculpted ||
+                  activeLayerTakeId ||
+                  (trackItem.type === 'stem' && activeSynthVerId)) && (
+                  <Tooltip
+                    title={`Reset ${trackItem.name}`}
+                    description={`Revert wave-sculpt edits and return ${trackItem.name} to original`}
+                  >
+                    <button
+                      type="button"
+                      className="board-btn-mini reset"
+                      aria-label={`Reset ${trackItem.name}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        resetTrackSculpt(trackItem.id);
+                        if (activeLayerTakeId) {
+                          void selectLaneVersion(trackItem.id, null);
+                        }
+                        if (trackItem.type === 'stem' && activeSynthVerId) {
+                          selectSynthVersion(trackItem.id, 'ORG');
+                        }
+                        toast.success(`${trackItem.name} reset to original`);
+                      }}
+                    >
+                      <RotateCcw size={10} />
+                    </button>
+                  </Tooltip>
+                )}
+
+                {activeLayerTakeId && (
+                  <Tooltip
+                    title="Merge Layer"
+                    description={`Commit this layer take into the ${trackItem.name} lane`}
+                  >
+                    <button
+                      type="button"
+                      className="board-btn-mini active"
+                      aria-label={`Merge Layer into ${trackItem.name}`}
+                      disabled={Boolean(pendingTake)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void activateTake(activeLayerTakeId, 'merge');
+                      }}
+                    >
+                      <Check size={10} />
+                    </button>
+                  </Tooltip>
+                )}
+
+                {canDeleteLaneOrTake && (
+                  <Tooltip
+                    title={
+                      activeLayerTakeId || laneLayerTakes.length > 0
+                        ? 'Discard Layer'
+                        : `Delete ${trackItem.name}`
+                    }
+                    description={
+                      activeLayerTakeId || laneLayerTakes.length > 0
+                        ? 'Remove unmerged layer take'
+                        : `Delete ${trackItem.name} lane`
+                    }
+                  >
+                    <button
+                      type="button"
+                      className="board-btn-mini delete"
+                      aria-label={
+                        activeLayerTakeId || laneLayerTakes.length > 0
+                          ? `Discard Layer take`
+                          : `Delete ${trackItem.name} lane`
+                      }
+                      disabled={Boolean(pendingTake)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (activeLayerTakeId) {
+                          void deleteTake(activeLayerTakeId);
+                        } else if (laneLayerTakes.length > 0) {
+                          void deleteTake(laneLayerTakes[laneLayerTakes.length - 1].id);
+                        } else {
+                          removeTrack(trackItem.id);
+                        }
+                      }}
+                    >
+                      <Trash2 size={10} />
+                    </button>
+                  </Tooltip>
+                )}
+              </div>
+
+              {renderFocusGlobalUtilities()}
+            </div>
+          ) : (
+            <div className="board-controller-right">
+              <div className="board-track-controls">
+                <Tooltip
+                  title={isTrackPlaying ? 'Stop track' : 'Audition track'}
+                  description={`Quick audition of ${trackItem.name}`}
+                >
+                  <button
+                    type="button"
+                    className={`board-btn-mini play ${isTrackPlaying ? 'active playing' : ''}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (isTrackPlaying) {
+                        dawEngine.pauseTransport();
+                      } else {
+                        dawEngine.auditionTrack(trackItem.id);
+                      }
+                    }}
+                  >
+                    {isTrackPlaying ? <Square size={10} /> : <Play size={10} />}
+                  </button>
+                </Tooltip>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Row 2: 100%-Width Waveform & Notes Row */}
+        <div
+          className="board-track-lane board-lane-waveform-row"
+          onPointerDown={(e) => {
+            if (showFullControllers) {
+              startLaneBackgroundRangeDrag(e, totalDuration);
+            }
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            const rect = e.currentTarget.getBoundingClientRect();
+            const ratio =
+              rect.width > 0 ? Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)) : 0;
+            const targetTime = ratio * totalDuration;
+            onSelectTrack(trackItem.id);
+            setPlayhead(targetTime);
+            dawEngine.auditionTrack(trackItem.id, targetTime);
+          }}
+        >
+          <div className="board-lane-grid" />
+
+          {showFullControllers && renderEmbeddedMasterHorizon()}
+
+          {(isSynthTrack || isSynthVersionActiveOnStem) && (
+            <Notes track={trackItem} bpm={bpm} duration={totalDuration} color={brandColor} />
+          )}
+
+          {!isSynthVersionActiveOnStem && clip && clip.url && (
+            <div
+              className="board-clip-container"
+              style={
+                {
+                  '--start-pct': `${(clip.startTime / totalDuration) * 100}%`,
+                  '--width-pct': `${(clip.duration / totalDuration) * 100}%`,
+                } as React.CSSProperties
+              }
+            >
+              <Clip
+                clip={clip}
+                color={brandColor}
+                trackId={trackItem.id}
+                enableSelection={showFullControllers}
+              />
+            </div>
+          )}
+
+          {showFullControllers && (isSynthTrack || isSynthVersionActiveOnStem) && renderUniversalSelectionHandles(totalDuration)}
+          {showFullControllers && renderInLaneSegmentHud(totalDuration)}
+          {showFullControllers && renderOnboardingHint()}
+
+          <BoardPlayheadLine totalDuration={totalDuration} />
+        </div>
+      </div>
+    );
+  };
+
+  const renderExtractedStage = (
+    category: string,
+    catTakes: typeof takes,
+    currentTake: (typeof takes)[number],
+    role: 'focus' | 'reference'
+  ) => {
+    const categoryTitle = taskLabel(category);
+    const isCurrentActive = mounted(currentTake, tracks, takes);
+    const isTakePlaying = playingTakeId === currentTake.id;
+    const isSelected = selectedTrackId === currentTake.id;
+    const showFullControllers = role === 'focus';
+    const rowDuration = Math.max(totalDuration, interval(currentTake, totalDuration || 60).end);
+
+    return (
+      <div
+        key={`stage-take-${currentTake.id}`}
+        data-track-id={currentTake.id}
+        className={`board-row board-stage-card is-${role} ${isSelected ? 'selected' : ''} ${isCurrentActive ? 'active-take' : ''}`}
+        onClick={() => {
+          playExtractedTakeAtClick(currentTake);
+        }}
+      >
+        {/* Row 1: Separated Horizontal Controller Strip */}
+        <div
+          className={`board-track-header board-lane-controller-row ${!showFullControllers ? 'is-compact-ref' : ''}`}
+        >
+          <div className="board-controller-left">
+            {showFullControllers && renderAddLaneDropdown()}
+            <Tooltip
+              title={categoryTitle}
+              description={`Take #${currentTake.take_number} • ${currentTake.prompt || 'Session take'}`}
+            >
+              <span
+                className={`board-track-badge board-badge-track board-track-badge-category ${isCurrentActive ? 'active' : ''}`}
+                aria-label={`Category: ${categoryTitle}, Take #${currentTake.take_number}`}
+              >
+                {categoryTitle}
+              </span>
+            </Tooltip>
+
+            <span className="board-take-interval-label">
+              #{currentTake.take_number}{' '}
+              {currentTake.repainting_start != null && currentTake.repainting_end != null
+                ? `[${formatTime(currentTake.repainting_start)} ➔ ${formatTime(currentTake.repainting_end)}]`
+                : ''}
+            </span>
+            <span className="board-section-badge">{pendingCount} TAKES</span>
+
+            {showFullControllers && (
+              <div className="board-category-badges-row" onClick={(e) => e.stopPropagation()}>
+                <div className="board-category-badges-list">
+                  {catTakes.map((take) => {
+                    const isTakeSelected = selectedTrackId === take.id;
+                    const isTakeMixActive = mounted(take, tracks, takes);
+                    return (
+                      <button
+                        key={take.id}
+                        type="button"
+                        aria-pressed={isTakeSelected}
+                        className={`board-take-badge-pill board-badge-sub ${isTakeSelected ? 'selected' : ''} ${isTakeMixActive ? 'mix-active' : ''}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setActiveCategoryTakeId((prev) => ({ ...prev, [category]: take.id }));
+                          playExtractedTakeAtClick(take);
+                        }}
+                        title={`Take #${take.take_number}${isTakeMixActive ? ' · Base' : ''}`}
+                      >
+                        #{take.take_number}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="board-controller-right">
+            <div className="board-track-controls">
+              <Tooltip
+                title={isTakePlaying ? 'Stop playback' : 'Play take'}
+                description={`Preview Take #${currentTake.take_number}`}
+              >
+                <button
+                  type="button"
+                  className={`board-btn-mini play ${isTakePlaying ? 'active playing' : ''}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (isTakePlaying) {
+                      dawEngine.stopAuditionTake();
+                    } else {
+                      onSelectTrack(currentTake.id);
+                      const range = preview(currentTake);
+                      dawEngine.auditionTake(
+                        currentTake.url,
+                        range.start,
+                        range.end,
+                        range.timelineStart
+                      );
+                      useDawStore.setState({ auditionId: currentTake.id });
+                    }
+                  }}
+                >
+                  {isTakePlaying ? <Square size={10} /> : <Play size={10} />}
+                </button>
+              </Tooltip>
+
+              <Tooltip
+                title={isCurrentActive ? 'Unmount take' : 'Set as Base'}
+                description={
+                  isCurrentActive
+                    ? 'Remove this take from playback. Keep the other mounted takes.'
+                    : 'Mount this take alongside the current arrangement.'
+                }
+              >
+                <button
+                  type="button"
+                  aria-label={
+                    isCurrentActive
+                      ? `Unmount Take #${currentTake.take_number}`
+                      : `Use Take #${currentTake.take_number} as base`
+                  }
+                  aria-pressed={isCurrentActive}
+                  disabled={Boolean(pendingTake)}
+                  className={`board-btn-mini solo ${isCurrentActive ? 'active' : ''}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setActiveCategoryTakeId((prev) => ({
+                      ...prev,
+                      [category]: currentTake.id,
+                    }));
+                    toggleTake(currentTake.id);
+                  }}
+                >
+                  {isCurrentActive ? <Check size={11} /> : 'BASE'}
+                </button>
+              </Tooltip>
+
+              <Tooltip
+                title="Delete Take"
+                description={`Permanently remove Take #${currentTake.take_number}`}
+              >
+                <button
+                  type="button"
+                  className="board-btn-mini delete"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    deleteTake(currentTake.id);
+                  }}
+                >
+                  <Trash2 size={10} />
+                </button>
+              </Tooltip>
+            </div>
+
+            {showFullControllers && renderFocusGlobalUtilities()}
+          </div>
+        </div>
+
+        {/* Row 2: 100%-Width Extracted Take Waveform Row */}
+        <div
+          className="board-track-lane board-lane-waveform-row"
+          onPointerDown={(e) => {
+            if (showFullControllers) {
+              startLaneBackgroundRangeDrag(e, rowDuration);
+            }
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            playExtractedTakeAtClick(currentTake, e);
+          }}
+        >
+          <div className="board-lane-grid" />
+
+          {showFullControllers && renderEmbeddedMasterHorizon()}
+
+          {currentTake.url
+            ? (() => {
+                const takeRange = interval(currentTake, totalDuration || 60);
+                return (
+                  <div
+                    className="board-clip-container"
+                    style={
+                      {
+                        left: `${(takeRange.start / rowDuration) * 100}%`,
+                        width: `${((takeRange.end - takeRange.start) / rowDuration) * 100}%`,
+                        '--start-pct': `${(takeRange.start / rowDuration) * 100}%`,
+                        '--width-pct': `${((takeRange.end - takeRange.start) / rowDuration) * 100}%`,
+                      } as React.CSSProperties
+                    }
+                  >
+                    <Clip
+                      clip={{
+                        id: currentTake.id,
+                        name: `Take #${currentTake.take_number}`,
+                        url: currentTake.url,
+                        startTime: takeRange.start,
+                        duration: takeRange.end - takeRange.start,
+                        offset: preview(currentTake).start,
+                      }}
+                      color={isCurrentActive ? '#00ff41' : '#00ccff'}
+                      enableSelection={showFullControllers}
+                    />
+                  </div>
+                );
+              })()
+            : null}
+
+          {showFullControllers && !currentTake.url && renderUniversalSelectionHandles(rowDuration)}
+          {showFullControllers && renderInLaneSegmentHud(rowDuration)}
+          {showFullControllers && renderOnboardingHint()}
+
+          <BoardPlayheadLine totalDuration={rowDuration} />
+        </div>
+      </div>
+    );
+  };
+
+  const renderStageItem = (item: StageItem, role: 'focus' | 'reference') => {
+    if (item.kind === 'master') return renderMasterStage(role);
+    if (item.kind === 'lane') return renderLaneStage(item.track, role);
+    return renderExtractedStage(item.category, item.catTakes, item.currentTake, role);
+  };
+
+  // Build Row 3 Stem Matrix items ([MST] | [STEM] | [STEM] | [STEM] | [+N])
+  type MatrixEntry =
+    | { kind: 'lane'; id: string; track: (typeof laneTracks)[number] }
+    | { kind: 'take'; id: string; category: string; take: (typeof takes)[number] };
+
+  const rawMatrixEntries: MatrixEntry[] = [
+    ...laneTracks.map((track): MatrixEntry => ({ kind: 'lane', id: track.id, track })),
+    ...Object.entries(takesByCategory).flatMap(([category, catTakes]) =>
+      catTakes.map((take): MatrixEntry => ({ kind: 'take', id: take.id, category, take }))
+    ),
+  ];
+
+  // Order unselected lanes by decreasing "latest-opened" (MRU), excluding focused lane and Master
+  const allMatrixEntries = [...rawMatrixEntries]
+    .filter((entry) => entry.id !== focusItem.id)
+    .sort((a, b) => {
+      const idxA = mruIds.indexOf(a.id);
+      const idxB = mruIds.indexOf(b.id);
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+      if (idxA !== -1) return -1;
+      if (idxB !== -1) return 1;
+      return 0;
+    });
+
+  const MAX_VISIBLE_SQUARES = 3;
+  const visibleMatrixEntries = allMatrixEntries.slice(0, MAX_VISIBLE_SQUARES);
+  const vaultMatrixEntries = allMatrixEntries.slice(MAX_VISIBLE_SQUARES);
+
+  const renderMatrixSquare = (entry: MatrixEntry, inVault = false) => {
+    if (entry.kind === 'lane') {
+      const trackItem = entry.track;
+      const isFocused = focusItem.id === trackItem.id;
+      const brandColor = getStemColor(trackItem.name);
+      const clip = trackItem.clips[0];
+      const isTrackPlaying = playingTakeId === trackItem.id;
+      const isSynthTrack =
+        trackItem.type === 'pianoroll' ||
+        trackItem.type === 'sequencer' ||
+        trackItem.type === 'strudel';
+      return (
+        <div
+          key={`${inVault ? 'vault' : 'matrix'}-lane-${trackItem.id}`}
+          data-track-id={!isFocused ? trackItem.id : undefined}
+          data-matrix-id={trackItem.id}
+          className={`board-mini-square ${inVault ? 'in-vault' : ''} ${isFocused ? 'is-selected' : ''} ${trackItem.muted ? 'is-muted' : ''} ${trackItem.solo ? 'is-solo' : ''} ${isTrackPlaying ? 'is-playing' : ''}`}
+          style={{ '--track-color': brandColor } as React.CSSProperties}
+          role="button"
+          tabIndex={0}
+          aria-label={`Focus ${trackItem.name} lane`}
+          aria-pressed={isFocused}
+          onClick={() => {
+            setIsVaultOpen(false);
+            onSelectTrack(trackItem.id);
+            dawEngine.auditionTrack(trackItem.id);
+          }}
+        >
+          <div className="board-mini-square-top">
+            <span
+              className="board-track-badge board-badge-track board-track-badge-colored"
+              style={{ '--track-color': brandColor } as React.CSSProperties}
+            >
+              {formatTrackBadgeCode(trackItem)}
+            </span>
+            <button
+              type="button"
+              className={`board-mini-square-play ${isTrackPlaying ? 'active playing' : ''}`}
+              aria-label={isTrackPlaying ? `Stop ${trackItem.name}` : `Audition ${trackItem.name}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (isTrackPlaying) {
+                  dawEngine.pauseTransport();
+                } else {
+                  dawEngine.auditionTrack(trackItem.id);
+                }
+              }}
+            >
+              {isTrackPlaying ? <Square size={10} /> : <Play size={10} />}
+            </button>
+          </div>
+          <div className="board-mini-square-wave">
+            {isSynthTrack ? (
+              <Notes track={trackItem} bpm={bpm} duration={totalDuration} color={brandColor} />
+            ) : clip && clip.url ? (
+              <Clip clip={clip} color={brandColor} />
+            ) : null}
             <BoardPlayheadLine totalDuration={totalDuration} />
           </div>
         </div>
+      );
+    }
 
-        {/* ==================================================================
-            2. LANES SEPARATOR (Multitrack Instruments & Vocals)
-            ================================================================== */}
-        <div
-          className={`board-section-separator ${!lanesExpanded ? 'collapsed' : ''}`}
-          onClick={() => setLanesExpanded(!lanesExpanded)}
-        >
-          <div className="board-section-left">
-            <span className="board-section-chevron">
-              <ChevronDown size={14} />
-            </span>
-            <span>LANES</span>
-            <span className="board-section-badge">{laneTracks.length} TRACKS</span>
-          </div>
+    const { category, take } = entry;
+    const isFocused = focusItem.id === take.id;
+    const categoryTitle = taskLabel(category);
+    const isTakeMounted = mounted(take, tracks, takes);
+    const isTakePlaying = playingTakeId === take.id;
+    const takeRange = interval(take, totalDuration || 60);
+    const rowDuration = Math.max(totalDuration, takeRange.end);
+    return (
+      <div
+        key={`${inVault ? 'vault' : 'matrix'}-take-${take.id}`}
+        data-track-id={!isFocused ? take.id : undefined}
+        data-matrix-id={take.id}
+        className={`board-mini-square is-take ${inVault ? 'in-vault' : ''} ${isFocused ? 'is-selected' : ''} ${isTakeMounted ? 'is-mounted' : ''} ${isTakePlaying ? 'is-playing' : ''}`}
+        style={{ '--track-color': isTakeMounted ? '#00ff41' : '#00ccff' } as React.CSSProperties}
+        role="button"
+        tabIndex={0}
+        aria-label={`Focus ${categoryTitle} Take #${take.take_number}`}
+        aria-pressed={isFocused}
+        onClick={() => {
+          setIsVaultOpen(false);
+          setActiveCategoryTakeId((prev) => ({ ...prev, [category]: take.id }));
+          playExtractedTakeAtClick(take);
+        }}
+      >
+        <div className="board-mini-square-top">
+          <span
+            className={`board-track-badge board-badge-track board-track-badge-category ${isTakeMounted ? 'active' : ''}`}
+            aria-label={`Category: ${categoryTitle}, Take #${take.take_number}`}
+          >
+            {categoryTitle.slice(0, 3)} #{take.take_number}
+          </span>
+          <button
+            type="button"
+            className={`board-mini-square-play ${isTakePlaying ? 'active playing' : ''}`}
+            aria-label={
+              isTakePlaying
+                ? `Stop Take #${take.take_number}`
+                : `Audition Take #${take.take_number}`
+            }
+            onClick={(e) => {
+              e.stopPropagation();
+              if (isTakePlaying) {
+                dawEngine.stopAuditionTake();
+              } else if (take.url) {
+                const range = preview(take);
+                dawEngine.auditionTake(take.url, range.start, range.end, range.timelineStart);
+                useDawStore.setState({ auditionId: take.id });
+              }
+            }}
+          >
+            {isTakePlaying ? <Square size={10} /> : <Play size={10} />}
+          </button>
         </div>
+        <div className="board-mini-square-wave">
+          {take.url && (
+            <div
+              className="board-clip-container"
+              style={
+                {
+                  left: `${(takeRange.start / rowDuration) * 100}%`,
+                  width: `${((takeRange.end - takeRange.start) / rowDuration) * 100}%`,
+                  '--start-pct': `${(takeRange.start / rowDuration) * 100}%`,
+                  '--width-pct': `${((takeRange.end - takeRange.start) / rowDuration) * 100}%`,
+                } as React.CSSProperties
+              }
+            >
+              <Clip
+                clip={{
+                  id: take.id,
+                  name: `Take #${take.take_number}`,
+                  url: take.url,
+                  startTime: takeRange.start,
+                  duration: Math.max(0.5, takeRange.end - takeRange.start),
+                  offset: preview(take).start,
+                }}
+                color={isTakeMounted ? '#00ff41' : '#00ccff'}
+              />
+            </div>
+          )}
+          <BoardPlayheadLine totalDuration={rowDuration} />
+        </div>
+      </div>
+    );
+  };
 
-        {/* Folded Overview Bar when collapsed */}
-        {!lanesExpanded && (
-          <div className="board-folded-preview">
-            <span>
-              {laneTracks.length > 0
-                ? `${laneTracks.length} Track lanes active: ${laneTracks.map((t) => t.name).join(', ')}`
-                : 'No track lanes added yet. Click Separate Tracks or + Add Track.'}
-            </span>
-          </div>
-        )}
-
-        {/* Track Rows (when unfolded) */}
-        {lanesExpanded &&
-          orderedLanes.map((trackItem) => {
-            const isSelected = selectedTrackId === trackItem.id;
-            const anySoloed = tracks.some((t) => t.solo);
-            const isDimmed = (anySoloed && !trackItem.solo) || (laneTracks.some(track => track.id === selectedTrackId) && !isSelected && !anySoloed);
-            const isLego = legoContextTrackIds.includes(trackItem.id);
-            const clip = trackItem.clips[0];
-            const isTrackPlaying = playingTakeId === trackItem.id;
-
-            // Centralized stem color token
-            const brandColor = getStemColor(trackItem.name);
-            const normalizedLaneName = (trackItem.layerName || trackItem.name).toLowerCase().replace(/\s+/g, '_');
-            const laneLayerTakes = takes
-              .filter(t => isLayerTake(t) && !t.provenance?.mergedInto && !t.is_active && (layerTrackName(t) ?? 'other') === normalizedLaneName)
-              .sort((a, b) => a.take_number - b.take_number);
-            const activeLayerTakeId =
-              trackItem.activeVersionTakeId && trackItem.activeVersionTakeId !== 'ORG'
-                ? trackItem.activeVersionTakeId
-                : null;
-            const hasOriginal =
-              trackItem.type === 'stem' &&
-              trackItem.hasOriginalStem !== false &&
-              !trackItem.id.startsWith('layer-');
-            const isSynthTrack =
-              trackItem.type === 'pianoroll' ||
-              trackItem.type === 'sequencer' ||
-              trackItem.type === 'strudel';
-            const hasSynthVersions =
-              isSynthTrack || Boolean(trackItem.versions && trackItem.versions.length > 0);
-            const synthVersions = hasSynthVersions
-              ? trackItem.versions && trackItem.versions.length > 0
-                ? trackItem.versions
-                : [{ id: '1', number: 1, createdAt: 0 }]
-              : [];
-            const activeSynthVerId = isSynthTrack
-              ? trackItem.activeVersionId || synthVersions[synthVersions.length - 1]?.id || '1'
-              : trackItem.activeVersionId || null;
-            const isSynthVersionActiveOnStem =
-              trackItem.type === 'stem' && Boolean(activeSynthVerId && trackItem.sequencerVoices?.length);
-            const isTrackSculpted = !isIdentityWaveSculpt(trackItem.sculpt);
-            const canDeleteLaneOrTake = Boolean(activeLayerTakeId) || !hasOriginal || laneLayerTakes.length > 0;
-
-            return (
+  return (
+    <div className="board-container">
+      {/* Unified DAW Board Viewport + Foldable Right Canvas */}
+      <div
+        className={`board-main-split ${canShowCanvas && isCanvasOpen ? 'with-canvas' : ''}`}
+        data-pocket={canShowCanvas && isCanvasOpen ? 'canvas' : 'tracks'}
+      >
+        <div ref={viewportRef} className="board-viewport">
+          {/* ROW 2: SELECTED LANE (Time Ruler + Focused Lane with Embedded Master Horizon) */}
+          <div className="board-stage-focus" aria-label="Selected Lane">
+            <div className="board-ruler-row">
               <div
-                key={trackItem.id}
-                data-track-id={trackItem.id}
-                className={`board-row ${laneLayerTakes.length > 0 || hasSynthVersions ? 'has-versions' : ''} ${isSelected ? 'selected' : ''} ${isDimmed ? 'dimmed' : ''}`}
-                onClick={() => {
-                  onSelectTrack(trackItem.id);
-                  dawEngine.auditionTrack(trackItem.id);
+                className="board-ruler-timeline"
+                onClick={handleTimelineClick}
+                onPointerDown={(e) => {
+                  if (e.button !== 0) return;
+                  isScrubbingRulerRef.current = true;
+                  e.currentTarget.setPointerCapture(e.pointerId);
+                  scrubRulerAtClientX(e.currentTarget, e.clientX, false);
+                }}
+                onPointerMove={(e) => {
+                  if (!isScrubbingRulerRef.current) return;
+                  scrubRulerAtClientX(e.currentTarget, e.clientX, false);
+                }}
+                onPointerUp={(e) => {
+                  if (!isScrubbingRulerRef.current) return;
+                  isScrubbingRulerRef.current = false;
+                  e.currentTarget.releasePointerCapture(e.pointerId);
+                }}
+                onPointerCancel={() => {
+                  isScrubbingRulerRef.current = false;
                 }}
               >
-                {/* Left Track Header */}
-                <div className="board-track-header">
-                  <div className="board-track-header-top">
-                    <div className="board-track-meta">
-                      <Tooltip title={trackItem.name} description={`Stem channel: ${trackItem.name}`}>
-                        <span
-                          className="board-track-badge board-badge-track board-track-badge-colored"
-                          style={{ '--track-color': brandColor } as React.CSSProperties}
-                        >
-                          {formatTrackBadgeCode(trackItem)}
-                        </span>
-                      </Tooltip>
-                    </div>
-
-                    <div className="board-track-controls">
-                      <Tooltip title={isTrackPlaying ? 'Stop track' : 'Audition track'} description={`Solo audition of ${trackItem.name}`}>
-                        <button
-                          type="button"
-                          className={`board-btn-mini play ${isTrackPlaying ? 'active playing' : ''}`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (isTrackPlaying) {
-                              dawEngine.pauseTransport();
-                            } else {
-                              onSelectTrack(trackItem.id);
-                              dawEngine.auditionTrack(trackItem.id);
-                            }
-                          }}
-                        >
-                          {isTrackPlaying ? <Square size={10} /> : <Play size={10} />}
-                        </button>
-                      </Tooltip>
-
-                      <Tooltip title="Mute Track" description={`Mute ${trackItem.name}`}>
-                        <button
-                          type="button"
-                          className={`board-btn-mini mute ${trackItem.muted ? 'active' : ''}`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            updateTrackMixer(trackItem.id, { muted: !trackItem.muted });
-                          }}
-                        >
-                          M
-                        </button>
-                      </Tooltip>
-
-                      <Tooltip title="Solo Track" description={`Solo ${trackItem.name}`}>
-                        <button
-                          type="button"
-                          className={`board-btn-mini solo ${trackItem.solo ? 'active' : ''}`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            updateTrackMixer(trackItem.id, { solo: !trackItem.solo });
-                          }}
-                        >
-                          S
-                        </button>
-                      </Tooltip>
-
-                      <Tooltip title="Layer Guide Context" description="Use as harmonic reference guide when generating new stems">
-                        <button
-                          type="button"
-                          className={`board-btn-mini arm ${isLego ? 'active' : ''}`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            toggleLegoContext(trackItem.id);
-                          }}
-                        >
-                          L
-                        </button>
-                      </Tooltip>
-
-                      {(isTrackSculpted || activeLayerTakeId || (trackItem.type === 'stem' && activeSynthVerId)) && (
-                        <Tooltip
-                          title={`Reset ${trackItem.name}`}
-                          description={`Revert wave-sculpt edits and return ${trackItem.name} to original`}
-                        >
-                          <button
-                            type="button"
-                            className="board-btn-mini reset"
-                            aria-label={`Reset ${trackItem.name}`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              resetTrackSculpt(trackItem.id);
-                              if (activeLayerTakeId) {
-                                void selectLaneVersion(trackItem.id, null);
-                              }
-                              if (trackItem.type === 'stem' && activeSynthVerId) {
-                                selectSynthVersion(trackItem.id, 'ORG');
-                              }
-                              toast.success(`${trackItem.name} reset to original`);
-                            }}
-                          >
-                            <RotateCcw size={10} />
-                          </button>
-                        </Tooltip>
-                      )}
-
-                      {activeLayerTakeId && (
-                        <Tooltip title="Merge Layer" description={`Commit this layer take into the ${trackItem.name} lane`}>
-                          <button
-                            type="button"
-                            className="board-btn-mini active"
-                            aria-label={`Merge Layer into ${trackItem.name}`}
-                            disabled={Boolean(pendingTake)}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              void activateTake(activeLayerTakeId, 'merge');
-                            }}
-                          >
-                            <Check size={10} />
-                          </button>
-                        </Tooltip>
-                      )}
-
-                      {canDeleteLaneOrTake && (
-                        <Tooltip
-                          title={activeLayerTakeId || laneLayerTakes.length > 0 ? 'Discard Layer' : `Delete ${trackItem.name}`}
-                          description={
-                            activeLayerTakeId || laneLayerTakes.length > 0
-                              ? 'Remove unmerged layer take'
-                              : `Delete ${trackItem.name} lane`
-                          }
-                        >
-                          <button
-                            type="button"
-                            className="board-btn-mini delete"
-                            aria-label={
-                              activeLayerTakeId || laneLayerTakes.length > 0
-                                ? `Discard Layer take`
-                                : `Delete ${trackItem.name} lane`
-                            }
-                            disabled={Boolean(pendingTake)}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (activeLayerTakeId) {
-                                void deleteTake(activeLayerTakeId);
-                              } else if (laneLayerTakes.length > 0) {
-                                void deleteTake(laneLayerTakes[laneLayerTakes.length - 1].id);
-                              } else {
-                                removeTrack(trackItem.id);
-                              }
-                            }}
-                          >
-                            <Trash2 size={10} />
-                          </button>
-                        </Tooltip>
-                      )}
-                    </div>
-                  </div>
-
-                  {(hasSynthVersions || laneLayerTakes.length > 0) && (
-                    <div className="board-category-badges-row" onClick={(e) => e.stopPropagation()}>
-                      <div className="board-category-badges-list">
-                        {hasOriginal && (
-                          <Tooltip title="Original Stem" description={`Original ${trackItem.name} stem`}>
-                            <button
-                              type="button"
-                              aria-pressed={!activeLayerTakeId && !activeSynthVerId}
-                              className={`board-take-badge-pill board-badge-sub ${!activeLayerTakeId && !activeSynthVerId ? 'selected mix-active' : ''}`}
-                              onClick={() => {
-                                if (hasSynthVersions) {
-                                  selectSynthVersion(trackItem.id, 'ORG');
-                                }
-                                void selectLaneVersion(trackItem.id, null);
-                              }}
-                            >
-                              ORG
-                            </button>
-                          </Tooltip>
-                        )}
-                        {laneLayerTakes.map((take, idx) => {
-                          const isVersionActive = activeLayerTakeId === take.id && !activeSynthVerId;
-                          return (
-                            <Tooltip
-                              key={take.id}
-                              title={`${trackItem.name} Layer #${idx + 1}`}
-                              description={take.prompt || `Layer Take #${take.take_number}`}
-                            >
-                              <button
-                                type="button"
-                                aria-pressed={isVersionActive}
-                                className={`board-take-badge-pill board-badge-sub ${isVersionActive ? 'selected mix-active' : ''}`}
-                                onClick={() => {
-                                  if (hasSynthVersions) {
-                                    selectSynthVersion(trackItem.id, 'ORG');
-                                  }
-                                  void selectLaneVersion(trackItem.id, take.id);
-                                }}
-                              >
-                                #{idx + 1}
-                              </button>
-                            </Tooltip>
-                          );
-                        })}
-                        {synthVersions.map((ver) => {
-                          const isVerActive = activeSynthVerId === ver.id;
-                          return (
-                            <Tooltip
-                              key={ver.id}
-                              title={`${trackItem.name} #${ver.number}`}
-                              description={`Switch to version #${ver.number}`}
-                            >
-                              <button
-                                type="button"
-                                aria-pressed={isVerActive}
-                                className={`board-take-badge-pill board-badge-sub ${isVerActive ? 'selected mix-active' : ''}`}
-                                onClick={() => selectSynthVersion(trackItem.id, ver.id)}
-                              >
-                                #{ver.number}
-                              </button>
-                            </Tooltip>
-                          );
-                        })}
-                        {hasSynthVersions && (
-                          <Tooltip
-                            title={`New ${trackItem.name} Version`}
-                            description={`Create version #${synthVersions.length + 1} on this lane`}
-                          >
-                            <button
-                              type="button"
-                              className="board-take-badge-pill board-badge-sub add"
-                              aria-label={`Create new ${trackItem.name} version`}
-                              onClick={() => addSynthVersion(trackItem.id)}
-                            >
-                              +
-                            </button>
-                          </Tooltip>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="board-track-header-bottom">
-                    <div className="board-fader-wrap">
-                      <Volume2 size={12} color={brandColor} />
-                      <input
-                        type="range"
-                        name={`track-volume-${trackItem.id}`}
-                        aria-label={`${trackItem.name} Volume`}
-                        className="board-slider"
-                        min="0"
-                        max="1.2"
-                        step="0.01"
-                        value={trackItem.volume}
-                        onClick={(e) => e.stopPropagation()}
-                        onDoubleClick={(e) => {
-                          e.stopPropagation();
-                          updateTrackMixer(trackItem.id, { volume: 1 });
-                        }}
-                        title="Double-click to reset volume to 100%"
-                        onChange={(e) =>
-                          updateTrackMixer(trackItem.id, { volume: parseFloat(e.target.value) })
-                        }
-                      />
-                    </div>
-                    <span className="board-fader-val">
-                      {Math.round(trackItem.volume * 100)}%
-                    </span>
-                  </div>
-                </div>
-
-                {/* Right Timeline Lane */}
-                <div
-                  className="board-track-lane"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    const rect = e.currentTarget.getBoundingClientRect();
-                    const ratio = rect.width > 0 ? Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)) : 0;
-                    const targetTime = ratio * totalDuration;
-                    onSelectTrack(trackItem.id);
-                    setPlayhead(targetTime);
-                    dawEngine.auditionTrack(trackItem.id, targetTime);
-                  }}
-                >
-                  <div className="board-lane-grid" />
-
-                  {(isSynthTrack || isSynthVersionActiveOnStem) && (
-                    <Notes track={trackItem} bpm={bpm} duration={totalDuration} color={brandColor} />
-                  )}
-
-                  {!isSynthVersionActiveOnStem && clip && clip.url && (
+                <div className="board-ruler-ticks">
+                  {tickMarkers.map((sec) => (
                     <div
-                      className="board-clip-container"
-                      style={{
-                        '--start-pct': `${(clip.startTime / totalDuration) * 100}%`,
-                        '--width-pct': `${(clip.duration / totalDuration) * 100}%`,
-                      } as React.CSSProperties}
+                      key={sec}
+                      className="board-ruler-marker"
+                      style={{ '--pos-pct': `${(sec / totalDuration) * 100}%` } as React.CSSProperties}
                     >
-                      <Clip clip={clip} color={brandColor} trackId={trackItem.id} />
+                      <span>{formatTime(sec).slice(0, 5)}</span>
                     </div>
-                  )}
-
-                  {/* Playhead needle */}
-                  <BoardPlayheadLine totalDuration={totalDuration} />
+                  ))}
                 </div>
+
+                <BoardPlayheadLine totalDuration={totalDuration} showCap />
               </div>
-            );
-          })}
+            </div>
 
-        {/* ==================================================================
-            3. EXTRACTED SEPARATOR (Takes, AI Overdubs & Isolates)
-            ================================================================== */}
-        <div
-          className={`board-section-separator ${!extractedExpanded ? 'collapsed' : ''}`}
-          onClick={() => setExtractedExpanded(!extractedExpanded)}
-        >
-          <div className="board-section-left">
-            <span className="board-section-chevron">
-              <ChevronDown size={14} />
-            </span>
-            <span>EXTRACTED</span>
-            <span className="board-section-badge">{pendingCount} TAKES</span>
+            {renderStageItem(focusItem, 'focus')}
           </div>
-        </div>
 
-        {!extractedExpanded && (
-          <div className="board-folded-preview">
-            <span>
-              {pendingCount > 0
-                ? `${pendingCount} Takes and extractions stored in session history.`
-                : 'No takes or extractions generated yet.'}
-            </span>
-          </div>
-        )}
+          {/* ROW 3: MIDDLE SPLIT (Left: Stems Matrix [MST | STEM x 3 | +N] • Right: Standalone Toolbox) */}
+          <div className="board-middle-split">
+            <div className="board-stems-card" aria-label="Stems Matrix">
+              <div className="board-stage-matrix">
+                {visibleMatrixEntries.map((entry) => renderMatrixSquare(entry, false))}
 
-        {operations.map(operation => <div key={operation.id} className="board-operation" role={operation.status === 'error' ? 'alert' : 'status'} aria-live="polite">
-          <span>{taskLabel(operation.task)}</span>
-          <span>{operation.status === 'submitting' ? 'SUBMITTING' : operation.status === 'pending' ? 'QUEUED' : operation.status.toUpperCase()}{operation.progress === undefined ? '' : ` ${operation.progress}%`}</span>
-          {operation.error && <span>{operation.error}</span>}
-        </div>)}
-        {/* Extracted Take Rows (grouped by category with badge swapping & accordion) */}
-        {extractedExpanded &&
-          Object.entries(takesByCategory).map(([category, catTakes]) => {
-            const currentTake =
-              catTakes.find((t) => t.id === selectedTrackId) ||
-              catTakes.find((t) => t.id === activeCategoryTakeId[category]) ||
-              catTakes.find((t) => mounted(t, tracks, takes)) ||
-              catTakes[0];
-
-            const categoryTitle = taskLabel(category);
-            const isCatExpanded = Boolean(expandedCategoryAccordion[category]);
-            const isCurrentActive = mounted(currentTake, tracks, takes);
-            const isTakePlaying = playingTakeId === currentTake.id;
-            const isSelected = selectedTrackId === currentTake.id;
-            const isDimmed = selectedTrackId && selectedTrackId !== 'master' && !isSelected;
-
-            return (
-              <React.Fragment key={category}>
-                {/* Category Main Row (collapsed single lane with badge switcher) */}
-                <div
-                  className={`board-row ${isSelected ? 'selected' : ''} ${isCurrentActive ? 'active-take' : ''} ${isDimmed ? 'dimmed' : ''}`}
-                  onClick={() => {
-                    playExtractedTakeAtClick(currentTake);
-                  }}
-                >
-                  {/* Left Track Header */}
-                  <div className="board-track-header">
-                    <div className="board-track-header-top">
-                      <div className="board-track-meta">
-                        <Tooltip
-                          title={categoryTitle}
-                          description={`Take #${currentTake.take_number} • ${currentTake.prompt || 'Session take'}`}
-                        ><span
-                          className={`board-track-badge board-badge-track board-track-badge-category ${isCurrentActive ? 'active' : ''}`}
-                          aria-label={`Category: ${categoryTitle}, Take #${currentTake.take_number}`}
-                        >
-                          {categoryTitle}
-                        </span></Tooltip>
-                      </div>
-
-                      <div className="board-track-controls">
-                        <Tooltip
-                          title={isTakePlaying ? 'Stop playback' : 'Play take'}
-                          description={`Preview Take #${currentTake.take_number}`}
-                        >
-                          <button
-                            type="button"
-                            className={`board-btn-mini play ${isTakePlaying ? 'active playing' : ''}`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (isTakePlaying) {
-                                dawEngine.stopAuditionTake();
-                              } else {
-                                onSelectTrack(currentTake.id);
-                                const range = preview(currentTake);
-                                dawEngine.auditionTake(currentTake.url, range.start, range.end, range.timelineStart);
-                                useDawStore.setState({ auditionId: currentTake.id });
-                              }
-                            }}
-                          >
-                            {isTakePlaying ? <Square size={10} /> : <Play size={10} />}
-                          </button>
-                        </Tooltip>
-
-                        <Tooltip
-                          title={
-                            isCurrentActive
-                              ? 'Unmount take'
-                              : 'Set as Base'
-                          }
-                          description={
-                            isCurrentActive
-                              ? 'Remove this take from playback. Keep the other mounted takes.'
-                              : 'Mount this take alongside the current arrangement.'
-                          }
-                        >
-                          <button
-                            type="button"
-                            aria-label={isCurrentActive ? `Unmount Take #${currentTake.take_number}` : `Use Take #${currentTake.take_number} as base`}
-                            aria-pressed={isCurrentActive}
-                            disabled={Boolean(pendingTake)}
-                            className={`board-btn-mini solo ${isCurrentActive ? 'active' : ''}`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setActiveCategoryTakeId(prev => ({ ...prev, [category]: currentTake.id }));
-                              toggleTake(currentTake.id);
-                            }}
-                          >
-                            {isCurrentActive ? <Check size={11} /> : 'BASE'}
-                          </button>
-                        </Tooltip>
-
-                        <Tooltip title="Delete Take" description={`Permanently remove Take #${currentTake.take_number}`}>
-                          <button
-                            type="button"
-                            className="board-btn-mini delete"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              deleteTake(currentTake.id);
-                            }}
-                          >
-                            <Trash2 size={10} />
-                          </button>
-                        </Tooltip>
-                      </div>
-                    </div>
-
-                    {/* Bottom Row: Badges List for quick swapping + Accordion Toggle */}
-                    <div className="board-category-badges-row">
-                      <div className="board-category-badges-list">
-                        {catTakes.map((take) => {
-                          const isTakeSelected = selectedTrackId === take.id;
-                          const isTakeMixActive = mounted(take, tracks, takes);
-                          return (
-                            <button
-                              key={take.id}
-                              type="button"
-                              aria-pressed={isTakeSelected}
-                              className={`board-take-badge-pill board-badge-sub ${isTakeSelected ? 'selected' : ''} ${isTakeMixActive ? 'mix-active' : ''}`}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setActiveCategoryTakeId((prev) => ({ ...prev, [category]: take.id }));
-                                playExtractedTakeAtClick(take);
-                              }}
-                              title={`Take #${take.take_number}${isTakeMixActive ? ' · Base' : ''}`}
-                            >
-                              #{take.take_number}
-                            </button>
-                          );
-                        })}
-                      </div>
-
-                      {/* Down-Arrow to view all takes one below the other */}
-                      <button
-                        type="button"
-                        className={`board-category-chevron-btn ${isCatExpanded ? 'expanded' : ''}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setExpandedCategoryAccordion((prev) => ({
-                            ...prev,
-                            [category]: !prev[category],
-                          }));
-                        }}
-                        title={isCatExpanded ? 'Collapse to single lane' : 'Expand all takes in category'}
-                      >
-                        {isCatExpanded ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Right Timeline Lane */}
-                  <div
-                    className="board-track-lane"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      playExtractedTakeAtClick(currentTake, e);
+                {!hasExtractedStems && visibleMatrixEntries.length < 3 && (
+                  <button
+                    type="button"
+                    className="board-mini-square board-extract-cta"
+                    disabled={isSeparating}
+                    onClick={() => {
+                      setMasterExpanded(true);
+                      onSeparateStems();
                     }}
                   >
-                    <div className="board-lane-grid" />
+                    <Split size={14} />
+                    <span>{isSeparating ? 'SPLITTING...' : 'SPLIT STEMS'}</span>
+                  </button>
+                )}
 
-                    {currentTake.url ? (() => {
-                      const takeRange = interval(currentTake, duration);
-                      const rowDuration = Math.max(totalDuration, takeRange.end);
-                      return (
-                        <div
-                          className="board-clip-container"
-                          style={{
-                            left: `${(takeRange.start / rowDuration) * 100}%`,
-                            width: `${((takeRange.end - takeRange.start) / rowDuration) * 100}%`,
-                            '--start-pct': `${(takeRange.start / rowDuration) * 100}%`,
-                            '--width-pct': `${((takeRange.end - takeRange.start) / rowDuration) * 100}%`,
-                          } as React.CSSProperties}
-                        >
-                          <Clip
-                            clip={{
-                              id: currentTake.id,
-                              name: `Take #${currentTake.take_number}`,
-                              url: currentTake.url,
-                              startTime: takeRange.start,
-                              duration: takeRange.end - takeRange.start,
-                              offset: preview(currentTake).start,
-                            }}
-                            color={isCurrentActive ? '#00ff41' : '#00ccff'}
-                          />
-                        </div>
-                      );
-                    })() : null}
-
-                    {/* Playhead needle */}
-                    <BoardPlayheadLine totalDuration={Math.max(totalDuration, interval(currentTake, duration).end)} />
-                  </div>
-                </div>
-
-                {/* Expanded Takes Accordion (Rendered one below the other slightly in-lined) */}
-                {isCatExpanded &&
-                  catTakes.filter(take => take.id !== currentTake.id).map((take) => {
-                    const isTakeCurrentActive = mounted(take, tracks, takes);
-                    const isRowTakePlaying = playingTakeId === take.id;
-                    const isRowSelected = selectedTrackId === take.id;
-                    const isRowDimmed = selectedTrackId && selectedTrackId !== 'master' && !isRowSelected;
-
-                    return (
-                      <div
-                        key={take.id}
-                        className={`board-row board-take-indented-row ${isRowSelected ? 'selected' : ''} ${isTakeCurrentActive ? 'active-take' : ''} ${isRowDimmed ? 'dimmed' : ''}`}
-                        onClick={() => {
-                          playExtractedTakeAtClick(take);
+                {vaultMatrixEntries.length > 0 && (
+                  <div className="board-vault-wrap" ref={vaultMenuRef}>
+                    <Tooltip
+                      title="Track & Take Vault"
+                      description={`View ${vaultMatrixEntries.length} more stems and session takes`}
+                    >
+                      <button
+                        type="button"
+                        className={`board-vault-trigger ${isVaultOpen ? 'active' : ''}`}
+                        aria-label={`Open track vault (${vaultMatrixEntries.length} more)`}
+                        aria-expanded={isVaultOpen}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setIsVaultOpen((prev) => !prev);
                         }}
                       >
-                        {/* Indented Left Header */}
-                        <div className="board-track-header">
-                          <div className="board-track-header-top">
-                            <div className="board-track-meta">
-                              <Tooltip title={`${categoryTitle} · Take #${take.take_number}`} description={take.prompt || 'Session take'}><span
-                                className={`board-track-badge board-badge-track board-track-badge-take ${isTakeCurrentActive ? 'active' : ''}`}
-                                aria-label={`Category: ${categoryTitle}, Take #${take.take_number}`}
-                              >
-                                #{take.take_number}
-                              </span></Tooltip>
-                              <span className="board-track-name board-track-name-compact">
-                                {take.repainting_start != null && take.repainting_end != null
-                                  ? `[${formatTime(take.repainting_start)} ➔ ${formatTime(take.repainting_end)}]`
-                                  : 'Full Mix'}
-                              </span>
-                            </div>
+                        <Layers size={13} />
+                        <span>+{vaultMatrixEntries.length}</span>
+                      </button>
+                    </Tooltip>
 
-                            <div className="board-track-controls">
-                              <Tooltip
-                                title={isRowTakePlaying ? 'Stop playback' : 'Play take'}
-                                description={`Preview Take #${take.take_number}`}
-                              >
-                                <button
-                                  type="button"
-                                  className={`board-btn-mini play ${isRowTakePlaying ? 'active playing' : ''}`}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    if (isRowTakePlaying) {
-                                      dawEngine.stopAuditionTake();
-                                    } else {
-                                      onSelectTrack(take.id);
-                                      const range = preview(take);
-                                      dawEngine.auditionTake(take.url, range.start, range.end, range.timelineStart);
-                                      useDawStore.setState({ auditionId: take.id });
-                                    }
-                                  }}
-                                >
-                                  {isRowTakePlaying ? <Square size={10} /> : <Play size={10} />}
-                                </button>
-                              </Tooltip>
-
-                              <Tooltip
-                                title={isTakeCurrentActive ? 'Unmount take' : 'Set as Base'}
-                                description={
-                                  isTakeCurrentActive
-                                    ? 'Remove this take from playback. Keep the other mounted takes.'
-                                    : 'Mount this take alongside the current arrangement.'
-                                }
-                              >
-                                <button
-                                  type="button"
-                                  aria-label={isTakeCurrentActive ? `Unmount Take #${take.take_number}` : `Use Take #${take.take_number} as base`}
-                                  aria-pressed={isTakeCurrentActive}
-                                  disabled={Boolean(pendingTake)}
-                                  className={`board-btn-mini solo ${isTakeCurrentActive ? 'active' : ''}`}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setActiveCategoryTakeId(prev => ({ ...prev, [category]: take.id }));
-                                    toggleTake(take.id);
-                                  }}
-                                >
-                                  {isTakeCurrentActive ? <Check size={11} /> : 'BASE'}
-                                </button>
-                              </Tooltip>
-
-                              <Tooltip title="Delete Take" description={`Permanently remove Take #${take.take_number}`}>
-                                <button
-                                  type="button"
-                                  className="board-btn-mini delete"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    deleteTake(take.id);
-                                  }}
-                                >
-                                  <Trash2 size={10} />
-                                </button>
-                              </Tooltip>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Indented Right Lane */}
-                        <div
-                          className="board-track-lane"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            playExtractedTakeAtClick(take, e);
-                          }}
-                        >
-                          <div className="board-lane-grid" />
-                          {take.url ? (() => {
-                            const takeRange = interval(take, duration);
-                            const rowDuration = Math.max(totalDuration, takeRange.end);
-                            return (
-                              <div
-                                className="board-clip-container"
-                                style={{
-                                  left: `${(takeRange.start / rowDuration) * 100}%`,
-                                  width: `${((takeRange.end - takeRange.start) / rowDuration) * 100}%`,
-                                  '--start-pct': `${(takeRange.start / rowDuration) * 100}%`,
-                                  '--width-pct': `${((takeRange.end - takeRange.start) / rowDuration) * 100}%`,
-                                } as React.CSSProperties}
-                              >
-                                <Clip
-                                  clip={{
-                                    id: take.id,
-                                    name: `Take #${take.take_number}`,
-                                    url: take.url,
-                                    startTime: takeRange.start,
-                                    duration: takeRange.end - takeRange.start,
-                                    offset: preview(take).start,
-                                  }}
-                                  color={isTakeCurrentActive ? '#00ff41' : '#00ccff'}
-                                />
-                              </div>
-                            );
-                          })() : null}
-                          <BoardPlayheadLine totalDuration={Math.max(totalDuration, interval(take, duration).end)} />
-                        </div>
+                    <div
+                      className={`board-vault-popover ${isVaultOpen ? 'is-open' : ''}`}
+                      role="dialog"
+                      aria-label="Overflow Track and Take Vault"
+                      hidden={!isVaultOpen}
+                    >
+                      <div className="board-vault-header">
+                        <span>OTHER STEMS & TAKES ({vaultMatrixEntries.length})</span>
                       </div>
-                    );
-                  })}
-              </React.Fragment>
-            );
-          })}
+                      <div className="board-vault-grid">
+                        {vaultMatrixEntries.map((entry) => renderMatrixSquare(entry, true))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {operations.map((operation) => (
+                  <div
+                    key={operation.id}
+                    className="board-mini-square board-operation"
+                    role={operation.status === 'error' ? 'alert' : 'status'}
+                    aria-live="polite"
+                  >
+                    <span>{taskLabel(operation.task)}</span>
+                    <span>
+                      {operation.status === 'submitting'
+                        ? 'SUBMITTING'
+                        : operation.status === 'pending'
+                          ? 'QUEUED'
+                          : operation.status.toUpperCase()}
+                      {operation.progress === undefined ? '' : ` ${operation.progress}%`}
+                    </span>
+                    {operation.error && <span>{operation.error}</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {toolboxSlot && <div className="board-toolbox-slot">{toolboxSlot}</div>}
+          </div>
         </div>
 
         {canShowCanvas && isCanvasOpen && (

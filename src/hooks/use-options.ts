@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
-import { sdk } from '@/lib/sdk';
-import type { Task } from '@/lib/schema';
+import { sdk } from '../lib/sdk';
+import type { Task } from '../lib/schema';
 
 export interface Choice { id: string; label: string }
 export interface ReworkPreset {
