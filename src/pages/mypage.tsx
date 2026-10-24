@@ -107,7 +107,15 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
   useEffect(() => {
     if (!menuOpenId) return;
     const closeMenu = (e: MouseEvent) => {
-      if ((e.target as HTMLElement).closest('.mypage-menu-wrap')) return;
+      const target = e.target as HTMLElement | null;
+      if (
+        target?.closest('.mypage-menu-wrap') ||
+        target?.closest('.guide-card') ||
+        target?.closest('.guide-layer') ||
+        target?.closest('.guide-popover') ||
+        target?.closest('.guide-overlay-root')
+      )
+        return;
       setMenuOpenId(null);
     };
     window.addEventListener('click', closeMenu);
@@ -183,7 +191,27 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
     };
   }, [activeAddress]);
 
-  // Fetch Albums
+  // Sync with interactive Guide steps on /mypage
+  useEffect(() => {
+    const onGuideAction = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail || detail.type !== 'mypage-state') return;
+      setSongsOpen(true);
+      if (detail.openSongMenu) {
+        const groups = groupSongs(state.songs);
+        if (groups.length > 0) {
+          const versions = groups[0];
+          const family = versions[0].family ?? versions[0].id;
+          const firstSong = versions.find((s) => s.id === selected[family]) ?? versions[0];
+          setMenuOpenId(firstSong.id);
+        }
+      } else if (detail.closeSongMenu) {
+        setMenuOpenId(null);
+      }
+    };
+    window.addEventListener('rawchunks:guide-action', onGuideAction);
+    return () => window.removeEventListener('rawchunks:guide-action', onGuideAction);
+  }, [state.songs, selected]);
   useEffect(() => {
     if (!activeAddress) {
       setAlbums([]);
@@ -378,7 +406,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
       </div>
 
       {/* SECTION (ii): My Songs */}
-      <div className="mypage-section">
+      <div className="mypage-section" data-guide="mypage-sections">
         <div
           className={`board-section-separator ${!songsOpen ? 'collapsed' : ''}`}
           onClick={toggleSongs}
@@ -709,12 +737,12 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
                     {(voice.error ||
                       voice.availability.turbo.error ||
                       voice.availability.sft.error) && (
-                      <div className="studio-voice-detail" role="alert">
-                        {voice.error ||
-                          voice.availability.turbo.error ||
-                          voice.availability.sft.error}
-                      </div>
-                    )}
+                        <div className="studio-voice-detail" role="alert">
+                          {voice.error ||
+                            voice.availability.turbo.error ||
+                            voice.availability.sft.error}
+                        </div>
+                      )}
                     <div className="mypage-item-footer">
                       <span>{new Date(voice.created_at).toLocaleDateString()}</span>
                       {voice.sample_url && (

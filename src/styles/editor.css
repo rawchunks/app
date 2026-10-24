@@ -14,15 +14,27 @@
 }
 
 /* ==========================================================================
-   ROW 1: EDITOR HEADER BAR ([BACK] | [TITLE] | [CONTROLLERS] | [SESSION+PROFILE])
+   ROW 1: EDITOR HEADER BAR ([BACK] | [TITLE] | [GUIDE+SESSION+PROFILE])
    ========================================================================== */
 .editor-header-bar {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: clamp(6px, 0.9vw, 12px);
-  padding: 2px 4px 5px;
+  padding: 2px 4px 4px;
   border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+/* ==========================================================================
+   ROW 1B: DEDICATED TRANSPORT ROW ([RTZ | PLAY | LOOP | TIME | SCRUBBER | UNDO/REDO | SNAP])
+   ========================================================================== */
+.editor-transport-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
   flex-shrink: 0;
   min-width: 0;
 }
@@ -460,7 +472,15 @@
 
   .editor-header-bar {
     gap: 5px;
-    padding: 2px 2px 4px;
+    padding: 2px 2px 3px;
+  }
+
+  .editor-transport-row {
+    justify-content: center;
+  }
+
+  .editor-transport-row .editor-transport-deck {
+    max-width: 100%;
   }
 
   .editor-header-left {

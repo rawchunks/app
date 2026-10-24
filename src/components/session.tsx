@@ -558,6 +558,7 @@ export function SessionControl() {
       >
         <button
           type="button"
+          data-guide="session"
           aria-label={
             session.active
               ? `Session active: ${creditLabel(session.budgetRemaining)}`

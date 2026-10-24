@@ -1,0 +1,433 @@
+/* ==========================================================================
+   Interactive Spotlight Guide (GuideTour)
+   ========================================================================== */
+
+.guide-portal-root {
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  pointer-events: none;
+  font-family: var(--font-sans, 'Inter', -apple-system, BlinkMacSystemFont, sans-serif);
+}
+
+.guide-spotlight-svg {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  z-index: 9998;
+}
+
+.guide-spotlight-svg rect {
+  transition:
+    x 0.24s cubic-bezier(0.22, 1, 0.36, 1),
+    y 0.24s cubic-bezier(0.22, 1, 0.36, 1),
+    width 0.24s cubic-bezier(0.22, 1, 0.36, 1),
+    height 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.guide-cutout-ring {
+  position: fixed;
+  z-index: 9999;
+  pointer-events: none;
+  border-radius: 10px;
+  border: 1.5px solid rgba(129, 140, 248, 0.85);
+  box-shadow:
+    0 0 0 3px rgba(99, 102, 241, 0.18),
+    0 0 24px rgba(99, 102, 241, 0.35);
+  transition:
+    left 0.24s cubic-bezier(0.22, 1, 0.36, 1),
+    top 0.24s cubic-bezier(0.22, 1, 0.36, 1),
+    width 0.24s cubic-bezier(0.22, 1, 0.36, 1),
+    height 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+  animation: guideRingPulse 2.4s ease-in-out infinite;
+}
+
+@keyframes guideRingPulse {
+  0%, 100% {
+    border-color: rgba(129, 140, 248, 0.85);
+    box-shadow:
+      0 0 0 3px rgba(99, 102, 241, 0.18),
+      0 0 22px rgba(99, 102, 241, 0.32);
+  }
+  50% {
+    border-color: rgba(165, 180, 252, 1);
+    box-shadow:
+      0 0 0 5px rgba(99, 102, 241, 0.28),
+      0 0 30px rgba(99, 102, 241, 0.48);
+  }
+}
+
+/* Floating Guide Card */
+.guide-card {
+  position: fixed;
+  z-index: 10000;
+  pointer-events: auto;
+  background: rgba(13, 16, 24, 0.96);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(129, 140, 248, 0.32);
+  border-radius: 14px;
+  padding: 16px 18px 14px;
+  color: #f3f4f6;
+  box-shadow:
+    0 18px 48px rgba(0, 0, 0, 0.72),
+    0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+  transition:
+    left 0.22s cubic-bezier(0.22, 1, 0.36, 1),
+    top 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.guide-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.guide-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.guide-flow-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #a5b4fc;
+  background: rgba(99, 102, 241, 0.14);
+  border: 1px solid rgba(99, 102, 241, 0.28);
+  padding: 3px 8px;
+  border-radius: 999px;
+}
+
+.guide-step-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #34d399;
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.28);
+  padding: 2px 7px;
+  border-radius: 999px;
+}
+
+.guide-close-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  color: #9ca3af;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.guide-close-btn:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.guide-card-title {
+  margin: 0 0 6px;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: #ffffff;
+  line-height: 1.3;
+}
+
+.guide-card-desc {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #d1d5db;
+}
+
+.guide-card-bullets {
+  margin: 8px 0 0;
+  padding-left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.guide-card-bullets li {
+  font-size: 12px;
+  line-height: 1.42;
+  color: #cbd5e1;
+}
+
+.guide-card-bullets li strong {
+  color: #f8fafc;
+  font-weight: 600;
+}
+
+.guide-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 11px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.guide-progress-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.guide-step-counter {
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: #94a3b8;
+}
+
+.guide-dots {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.guide-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  border: none;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.18);
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.guide-dot.done {
+  background: rgba(129, 140, 248, 0.5);
+}
+
+.guide-dot.active {
+  width: 16px;
+  background: #818cf8;
+}
+
+.guide-nav-btns {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.guide-skip-btn {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 11.5px;
+  font-weight: 500;
+  padding: 5px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.guide-skip-btn:hover {
+  color: #f1f5f9;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.guide-arrow-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: #e2e8f0;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.guide-arrow-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.guide-arrow-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.guide-next-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 11px;
+  border-radius: 7px;
+  border: 1px solid rgba(129, 140, 248, 0.5);
+  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-shadow: 0 2px 10px rgba(99, 102, 241, 0.32);
+}
+
+.guide-next-btn:hover {
+  filter: brightness(1.1);
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.45);
+}
+
+/* Header "?" Guide Trigger Button & Dropdown */
+.guide-trigger-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.guide-trigger-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: #cbd5e1;
+  cursor: pointer;
+  transition: all 0.16s ease;
+  flex-shrink: 0;
+}
+
+.guide-trigger-btn.compact {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+}
+
+.guide-trigger-btn:hover,
+.guide-trigger-btn.active {
+  color: #ffffff;
+  border-color: rgba(129, 140, 248, 0.55);
+  background: rgba(99, 102, 241, 0.18);
+  box-shadow: 0 0 12px rgba(99, 102, 241, 0.25);
+}
+
+.guide-trigger-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 260px;
+  background: rgba(14, 17, 26, 0.98);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  padding: 6px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.65);
+  z-index: 9500;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.guide-trigger-menu-header {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #64748b;
+  padding: 5px 8px 3px;
+  text-transform: uppercase;
+}
+
+.guide-trigger-menu-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #e2e8f0;
+  cursor: pointer;
+  transition: all 0.14s ease;
+}
+
+.guide-trigger-menu-item svg {
+  margin-top: 2px;
+  color: #818cf8;
+  flex-shrink: 0;
+}
+
+.guide-trigger-menu-item.primary {
+  background: rgba(99, 102, 241, 0.1);
+  border-color: rgba(99, 102, 241, 0.22);
+}
+
+.guide-trigger-menu-item:hover {
+  background: rgba(99, 102, 241, 0.2);
+  border-color: rgba(129, 140, 248, 0.38);
+}
+
+.guide-trigger-menu-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.guide-trigger-menu-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #f8fafc;
+}
+
+.guide-trigger-menu-sub {
+  font-size: 10.5px;
+  color: #94a3b8;
+}
+
+@media (max-width: 900px) {
+  .guide-card {
+    padding: 13px 14px 12px;
+    border-radius: 12px;
+  }
+
+  .guide-card-title {
+    font-size: 14px;
+  }
+
+  .guide-card-desc {
+    font-size: 12px;
+  }
+
+  .guide-card-bullets li {
+    font-size: 11.5px;
+  }
+
+  .guide-trigger-menu {
+    right: -8px;
+    width: 245px;
+  }
+}
