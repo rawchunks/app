@@ -23,6 +23,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/button";
 import { Badge } from "@/components/badge";
 import { useSelectedUserAddress } from "@/hooks/use-address";
+import { store } from "@/lib/store";
+import { writeSongs } from "@/lib/cache";
 import { toast } from "sonner";
 
 export const DISCLAIMER_POLICY_VERSION = "1.0.0";
@@ -136,6 +138,33 @@ export function DisclaimerModal({
       await queryClient.invalidateQueries({
         queryKey: ["user-consent"],
       });
+
+      const lookupAddress = evmAddress || activeAddress;
+      try {
+        const songsRes = await sdk.fetch(
+          `/api/songs?creator=${encodeURIComponent(lookupAddress)}`,
+          { userAddress: lookupAddress }
+        );
+        if (songsRes.ok) {
+          const data = await songsRes.json();
+          if (Array.isArray(data)) {
+            const mapped = data.map((s: any) => ({
+              ...s,
+              tags: s.tags ?? [],
+              public: s.public ?? false,
+              image: s.image || "/hero.png",
+              licenses: Number(s.licenses ?? 0),
+              stream_price: Number(s.stream_price ?? 0.01),
+              license_price: Number(s.license_price ?? 5),
+              url: s.url ?? "",
+            }));
+            store.setSongs(mapped);
+            writeSongs(mapped, lookupAddress);
+          }
+        }
+      } catch {
+        // Ignore song refresh errors after consent
+      }
 
       toast.success("Disclaimer signed and recorded", {
         description: `Recorded for ${activeAddress.slice(0, 6)}...${activeAddress.slice(-4)}.`,

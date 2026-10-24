@@ -6,6 +6,7 @@ import { store } from '../lib/store';
 import { NetworkSelector } from './network';
 import { SessionControl } from './session';
 import { WalletConnector } from './connector';
+import { GuideTrigger } from './guide/Tour';
 import { useSelectedUserAddress } from '../hooks/use-address';
 import { useChain } from '../contexts/Network';
 import { attachWallet } from '../lib/sdk';
@@ -74,11 +75,12 @@ export const Layout: React.FC<Props> = ({ current, onNavigate, children }) => {
             })}
           </nav>
 
-          {/* Network Selector, Session Control, and Smart Account Connector */}
+          {/* Network Selector, Session Control, Smart Account Connector, and Interactive Guide */}
           <div className="header-actions">
             <NetworkSelector />
             <SessionControl />
             <WalletConnector compact />
+            <GuideTrigger />
           </div>
         </header>
       )}

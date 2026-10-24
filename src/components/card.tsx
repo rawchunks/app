@@ -212,7 +212,7 @@ export const CoverArt: React.FC<{
           : undefined;
 
     return (
-      <div className="market-card-media">
+      <div className="market-card-media" data-guide="market-card-play">
         {coverSrc ? (
           <img
             src={coverSrc}
@@ -402,6 +402,7 @@ export const Card: React.FC<CardProps> = ({
                 <button
                   type="button"
                   className="mypage-card-more-btn"
+                  data-guide="mypage-card-menu"
                   onClick={(e) => {
                     e.stopPropagation();
                     onToggleMenu();
@@ -423,6 +424,7 @@ export const Card: React.FC<CardProps> = ({
             <button
               type="button"
               className="mypage-menu-item mypage-item-details"
+              data-guide="mypage-card-details"
               onClick={() => onEditDetails(song)}
             >
               <Sliders size={11} />
@@ -433,6 +435,7 @@ export const Card: React.FC<CardProps> = ({
             <button
               type="button"
               className="mypage-menu-item mypage-item-edit"
+              data-guide="mypage-card-editor"
               onClick={() => onEditInStudio(song)}
             >
               <Pencil size={11} />
@@ -573,7 +576,7 @@ export const Card: React.FC<CardProps> = ({
         )}
 
         {/* Row 6: Actions Toolbar (Icon + Tooltip) */}
-        <div className="market-card-actions">
+        <div className="market-card-actions" data-guide={variant === 'market' ? 'market-card-license' : undefined}>
           <Tooltip
             title={isPlayingThis ? 'Pause' : 'Stream'}
             description={
@@ -617,7 +620,7 @@ export const Card: React.FC<CardProps> = ({
               />
             </div>
           ) : (
-            <div className="mypage-private-action-wrap">
+            <div className="mypage-private-action-wrap" data-guide="mypage-card-publish">
               <Badge variant="muted" className="mypage-status-badge">
                 PRIVATE
               </Badge>

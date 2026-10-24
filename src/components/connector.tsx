@@ -318,6 +318,7 @@ export function WalletConnector({ className, compact = true }: WalletConnectorPr
       <button
         type="button"
         disabled={isModalConnecting}
+        data-guide="connect"
         onClick={() => {
           void openConnectModal({
             client: thirdwebClient,
@@ -398,6 +399,7 @@ export function WalletConnector({ className, compact = true }: WalletConnectorPr
             <button
               type="button"
               aria-label={`Wallet ${displayName}`}
+              data-guide="profile"
               data-reconnecting={isReconnecting || undefined}
               className={cn("btn btn-ghost connect", isReconnecting && "connect-dim", className)}
             >

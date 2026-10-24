@@ -692,7 +692,7 @@ export const useDawStore = create<DAWState>((set, get) => ({
         tracks: saved,
         selectedTrackId: 'master',
         selection: get().selection ?? { start: 0, end: Math.min(15, dur) },
-        operations: project.session.operations.filter(operation => operation.status !== 'submitting'),
+        operations: project.session.operations.filter(operation => operation.status !== 'submitting' && operation.status !== 'error'),
       });
       if (project.stems.length) get().syncStems(project.stems);
       const finalTracks = consolidateCanonicalTracks(get().tracks, true);

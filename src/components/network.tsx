@@ -26,7 +26,7 @@ export function NetworkSelector({ className, bare = false }: NetworkSelectorProp
   const currentBalance = balances?.find((b) => b.network === selectedNetwork);
 
   const trigger = (
-    <SelectTrigger bare={bare} className={cn(!bare && "header-network-trigger", className)} aria-label="Network">
+    <SelectTrigger bare={bare} data-guide="network" className={cn(!bare && "header-network-trigger", className)} aria-label="Network">
       <NetworkGlyph network={selectedNetwork} name={current?.name} />
       {!bare && current?.name ? <span className="network-trigger-name">{current.name}</span> : null}
     </SelectTrigger>

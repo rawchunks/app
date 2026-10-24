@@ -75,6 +75,23 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
   // Single-expanded accordion section (strictly one open at a time)
   const [activeSection, setActiveSection] = useState<'details' | 'params' | 'financials'>('details');
 
+  useEffect(() => {
+    const onGuideAction = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail || detail.type !== 'studio-section') return;
+      setMobilePocket('create');
+      if (detail.section === 'core' || detail.section === 'details') {
+        setActiveSection('details');
+      } else if (detail.section === 'params') {
+        setActiveSection('params');
+      } else if (detail.section === 'financials') {
+        setActiveSection('financials');
+      }
+    };
+    window.addEventListener('rawchunks:guide-action', onGuideAction);
+    return () => window.removeEventListener('rawchunks:guide-action', onGuideAction);
+  }, []);
+
   // Selectable parameters modal state
   const [activeModal, setActiveModal] = useState<'duration' | 'bpm' | 'key' | 'voice' | 'language' | 'lyrics' | null>(null);
   const [audioDurationSeconds, setAudioDurationSeconds] = useState<number | null>(null);

@@ -2510,11 +2510,11 @@ export const Board: React.FC<BoardProps> = ({
                   </div>
                 )}
 
-                {operations.map((operation) => (
+                {operations.filter((operation) => operation.status !== 'error').map((operation) => (
                   <div
                     key={operation.id}
                     className="board-mini-square board-operation"
-                    role={operation.status === 'error' ? 'alert' : 'status'}
+                    role="status"
                     aria-live="polite"
                   >
                     <span>{taskLabel(operation.task)}</span>
@@ -2526,7 +2526,6 @@ export const Board: React.FC<BoardProps> = ({
                           : operation.status.toUpperCase()}
                       {operation.progress === undefined ? '' : ` ${operation.progress}%`}
                     </span>
-                    {operation.error && <span>{operation.error}</span>}
                   </div>
                 ))}
               </div>

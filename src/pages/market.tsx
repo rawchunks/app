@@ -166,7 +166,7 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
       </div>
 
       {/* Filter and Search Bar */}
-      <div className="market-filter-bar">
+      <div className="market-filter-bar" data-guide="market-toolbar">
         {/* Search input */}
         <div className="market-filter-search">
           <Search size={13} className="market-search-icon" />

@@ -20,6 +20,7 @@ import { ArrowLeft, Play, Pause, Square, SkipBack, Repeat } from 'lucide-react';
 import { source, sourceInterval, interval, isLayerTake, layerTrackName, isFullSongRestyleTake } from '../lib/daw/takes';
 import { readProject, writeProject } from '../lib/cache';
 import { useQueryClient } from '@tanstack/react-query';
+import { GuideTrigger } from '../components/guide/Tour';
 
 export interface Props {
   song: Song;
@@ -395,6 +396,19 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
     }
     return 'toolbox';
   });
+
+  // Sync with interactive Guide steps on /editor
+  useEffect(() => {
+    const onGuideAction = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail || detail.type !== 'editor-focus') return;
+      if (detail.editorFocus === 'studio' || detail.editorFocus === 'toolbox') {
+        setMobileFocus(detail.editorFocus);
+      }
+    };
+    window.addEventListener('rawchunks:guide-action', onGuideAction);
+    return () => window.removeEventListener('rawchunks:guide-action', onGuideAction);
+  }, []);
 
   // Client-side Undo / Redo History Stack
   const historyRef = useRef<{
@@ -978,7 +992,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
           await showResult(data);
           useDawStore.setState(state => ({ operations: state.operations.filter(item => item.id !== job.taskId) }));
         } else {
-          pollTimersRef.current.set(job.taskId, setTimeout(poll, 2000));
+          pollTimersRef.current.set(job.taskId, setTimeout(poll, 1000));
         }
       } catch (error) {
         if (scope !== scopeRef.current) return;
@@ -986,11 +1000,11 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
         const remaining = useDawStore.getState().operations.filter(item => item.id !== job.taskId && (item.status === 'pending' || item.status === 'processing' || item.status === 'submitting')).length;
         if (remaining === 0) setProcessing(false);
         const message = error instanceof Error ? error.message : 'Failed to check audio status';
-        useDawStore.setState(state => ({ operations: state.operations.map(item => item.id === job.taskId ? { ...item, status: 'error', error: message } : item) }));
+        useDawStore.setState(state => ({ operations: state.operations.filter(item => item.id !== job.taskId) }));
         toast.error(message);
       }
     };
-    pollTimersRef.current.set(job.taskId, setTimeout(poll, 2000));
+    pollTimersRef.current.set(job.taskId, setTimeout(poll, 600));
   };
 
   useEffect(() => {
@@ -1185,7 +1199,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
     } catch (err: any) {
       if (scope !== scopeRef.current) return;
       setProcessing(false);
-      useDawStore.setState(state => ({ operations: state.operations.map(item => item.id === operation ? { ...item, status: 'error', error: err.message } : item) }));
+      useDawStore.setState(state => ({ operations: state.operations.filter(item => item.id !== operation) }));
       toast.error(err.message || 'Stem isolation failed');
     }
   };
@@ -1454,11 +1468,23 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
           coverNoiseStrength: parameters.coverNoiseStrength,
         };
       } else if (task === 'extract') {
-        endpoint = '/api/editing/separate';
-        payload = {
-          ...payload,
-          stemType,
-        };
+        const demucsStems = new Set(['all', 'vocals', 'drums', 'bass', 'other', 'instrumental']);
+        const normalizedStem = (stemType || 'all').trim().toLowerCase();
+        if (demucsStems.has(normalizedStem)) {
+          endpoint = '/api/editing/separate';
+          payload = {
+            ...payload,
+            stemType: normalizedStem,
+          };
+        } else {
+          endpoint = '/api/editing/apply';
+          payload = {
+            ...payload,
+            task: 'extract',
+            trackName: normalizedStem,
+            modelQuality: 'base',
+          };
+        }
       }
 
       const res = await sdk.fetch(endpoint, {
@@ -1496,7 +1522,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
     } catch (err: any) {
       if (scope !== scopeRef.current) return;
       setProcessing(false);
-      useDawStore.setState(state => ({ operations: state.operations.map(item => item.id === operation ? { ...item, status: 'error', error: err.message } : item) }));
+      useDawStore.setState(state => ({ operations: state.operations.filter(item => item.id !== operation) }));
       toast.error(err.message || 'Failed to process audio');
     }
   };
@@ -1566,12 +1592,16 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
           </div>
         </div>
 
-        <EditorTransportDeck fallbackDuration={song.duration} />
-
         <div className="editor-header-actions">
+          <GuideTrigger compact />
           <SessionControl />
           <WalletConnector compact />
         </div>
+      </div>
+
+      {/* Row 1B: Dedicated Transport Row */}
+      <div className="editor-transport-row">
+        <EditorTransportDeck fallbackDuration={song.duration} />
       </div>
 
       {/* Rows 2 & 3: Selected Lane (with Embedded Master Horizon) + Middle Split (Stems Matrix | Manual Toolbox) */}

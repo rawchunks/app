@@ -45,6 +45,26 @@ export function writeCachedProfile(address: string, profile: { nickname?: string
     } catch {}
 }
 
+export function readCachedGuides(address?: string | null): string[] | null {
+    if (typeof window === "undefined" || !address) return null;
+    try {
+        const raw = localStorage.getItem(`guides:${address.toLowerCase()}`);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) && parsed.every((id): id is string => typeof id === "string") ? parsed : null;
+    } catch {
+        return null;
+    }
+}
+
+export function writeCachedGuides(address: string, guides: string[]): void {
+    if (typeof window === "undefined" || !address) return;
+    try {
+        const unique = Array.from(new Set(guides.filter((id): id is string => typeof id === "string" && id.trim().length > 0)));
+        localStorage.setItem(`guides:${address.toLowerCase()}`, JSON.stringify(unique));
+    } catch {}
+}
+
 export function cachedAddress(account: CachedAccount | null, network: string, isEvm: boolean, status: string): string | null {
     if (!account || account.network !== network || (status !== 'unknown' && status !== 'connecting')) return null;
     return isEvm ? account.address : account.svmAddress ?? null;
@@ -63,12 +83,27 @@ export function readProject(songId: string, address: string): Project | null {
         const raw = localStorage.getItem(`project:${address}:${songId}`);
         if (!raw) return null;
         const project = JSON.parse(raw) as Project;
-        return project.song?.id === songId && Array.isArray(project.stems) && Array.isArray(project.takes) && Array.isArray(project.commits) ? project : null;
+        if (!(project.song?.id === songId && Array.isArray(project.stems) && Array.isArray(project.takes) && Array.isArray(project.commits))) return null;
+        if (project.session?.operations) {
+            project.session.operations = project.session.operations.filter(op => op.status !== 'error');
+        }
+        return project;
     } catch { return null; }
 }
 
 export function writeProject(project: Project, address: string): void {
-    try { localStorage.setItem(`project:${address}:${project.song.id}`, JSON.stringify(project)); }
+    try {
+        const sanitized: Project = project.session?.operations
+            ? {
+                ...project,
+                session: {
+                    ...project.session,
+                    operations: project.session.operations.filter(op => op.status !== 'error'),
+                },
+            }
+            : project;
+        localStorage.setItem(`project:${address}:${project.song.id}`, JSON.stringify(sanitized));
+    }
     catch { /* Storage may be unavailable or full. */ }
 }
 
