@@ -852,32 +852,146 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
       <div className="studio-panel-config panel">
         <div className="studio-panel-header">
           <Glitch text="STUDIO_CREATE" />
-          <div className="studio-mode-badge-switch" role="group" aria-label="Generation Mode">
-            {(generation?.modes
-              .slice()
-              .sort((a, b) => Number(b.id === 'turbo') - Number(a.id === 'turbo')) ?? [
-              { id: 'turbo' },
-              { id: 'sft' },
-            ]).map((mode) => {
-              const isFast = mode.id === 'turbo';
-              const isActive = model === mode.id;
-              return (
-                <button
-                  key={mode.id}
-                  type="button"
-                  className={`studio-mode-badge-btn ${isFast ? 'mode-fast' : 'mode-master'} ${isActive ? 'active' : ''}`}
-                  onClick={() => setModel(mode.id)}
-                >
-                  {isFast ? 'FAST' : 'MASTER'}
-                </button>
-              );
-            })}
+          <div className="studio-mode-badge-switch" role="group" aria-label="Studio Flow">
+            <button
+              type="button"
+              className={`studio-mode-badge-btn mode-vibe ${studioFlow === 'vibe' ? 'active' : ''}`}
+              onClick={() => setStudioFlow('vibe')}
+            >
+              VIBE
+            </button>
+            <button
+              type="button"
+              className={`studio-mode-badge-btn mode-control ${studioFlow === 'control' ? 'active' : ''}`}
+              onClick={() => setStudioFlow('control')}
+            >
+              CONTROL
+            </button>
           </div>
         </div>
         {options.error && <span role="alert">{options.error.message}</span>}
+        {isVibing && vibeStep && (
+          <div className="studio-vibe-live-banner" role="status" aria-live="polite">
+            <span className="studio-vibe-live-dot" />
+            <span className="studio-vibe-live-text">{vibeStep}</span>
+          </div>
+        )}
 
-        {/* Self-Contained Accordion (Strictly ONE open at a time) */}
+        {/* Self-Contained Unified Form (VIBE or CONTROL) */}
         <div className="studio-accordion">
+          {studioFlow === 'vibe' ? (
+            <div className="studio-card-section details active">
+              <div className="studio-card-body">
+                <div className="studio-field-group studio-field-group-vibe-prompt">
+                  <label className="studio-field-label">
+                    <span>PROMPT</span>
+                    <span className="studio-field-optional">
+                      {vibeImage ? 'OPTIONAL' : 'REQUIRED (OR IMAGE)'}
+                    </span>
+                  </label>
+                  <textarea
+                    className="cyber-input-field studio-vibe-textarea"
+                    placeholder="Describe your song idea, mood, story, or sonic vibe — or attach an image below..."
+                    value={prompt}
+                    onChange={(e) => setPrompt(e.target.value)}
+                  />
+                </div>
+
+                <div className="studio-field-group studio-vibe-image-group">
+                  <label className="studio-field-label">
+                    <span>IMAGE PROMPT</span>
+                    <span className="studio-field-optional">
+                      {prompt.trim().length >= 2 ? 'OPTIONAL' : 'OR TEXT ABOVE'}
+                    </span>
+                  </label>
+                  <input
+                    type="file"
+                    ref={vibeFileInputRef}
+                    accept="image/*"
+                    className="hidden-file-input"
+                    onChange={handleVibeImageChange}
+                  />
+                  {vibeImage ? (
+                    <div className="studio-vibe-image-card">
+                      <div
+                        className="studio-vibe-image-info"
+                        onClick={() => vibeFileInputRef.current?.click()}
+                      >
+                        <img
+                          src={vibeImage}
+                          alt="Visual vibe prompt"
+                          className="studio-vibe-image-thumb"
+                        />
+                        <div className="studio-vibe-image-meta">
+                          <span className="studio-vibe-image-name">
+                            {vibeImageName || 'IMAGE PROMPT'}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="studio-vibe-image-actions">
+                        <button
+                          type="button"
+                          className="daw-ui-btn"
+                          onClick={() => vibeFileInputRef.current?.click()}
+                        >
+                          SWAP
+                        </button>
+                        <button
+                          type="button"
+                          className="daw-ui-btn studio-vibe-image-clear"
+                          onClick={() => {
+                            setVibeImage(null);
+                            setVibeImageName(null);
+                          }}
+                          title="Remove image prompt"
+                          aria-label="Remove image prompt"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      className={`studio-vibe-dropzone ${isDraggingVibeImage ? 'drag-over' : ''}`}
+                      onClick={() => vibeFileInputRef.current?.click()}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        setIsDraggingVibeImage(true);
+                      }}
+                      onDragLeave={() => setIsDraggingVibeImage(false)}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        setIsDraggingVibeImage(false);
+                        const file = e.dataTransfer.files?.[0];
+                        if (file) void attachVibeImageFile(file);
+                      }}
+                    >
+                      <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="studio-vibe-dropzone-icon"
+                      >
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                        <circle cx="8.5" cy="8.5" r="1.5" />
+                        <polyline points="21 15 16 10 5 21" />
+                      </svg>
+                      <span className="studio-vibe-dropzone-text">
+                        DROP OR UPLOAD IMAGE PROMPT
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <>
+
           {/* 1. DETAILS Section */}
           <div className={`studio-card-section details ${activeSection === 'details' ? 'active' : ''}`}>
             <div
@@ -1311,19 +1425,55 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
               </div>
             )}
           </div>
+        
+            </>
+          )}
         </div>
 
-        {/* Generate Button in Native Rawchunks Button */}
+        {/* Inner FAST | MASTER selector & Main Action Button */}
         <div className="studio-main-action-wrap">
-          <Button
-            variant="primary"
-            size="lg"
-            disabled={state.isGenerating || isGeneratingCover || !prompt.trim() || !generation || !model}
-            onClick={handleGenerate}
-            className="studio-generate-btn"
-          >
-            {state.isGenerating ? 'SYNTHESIZING...' : 'GENERATE AUDIO'}
-          </Button>
+          <div className="studio-inner-mode-switch" role="group" aria-label="Generation Mode">
+            {(generation?.modes
+              .slice()
+              .sort((a, b) => Number(b.id === 'turbo') - Number(a.id === 'turbo')) ?? [
+                { id: 'turbo' },
+                { id: 'sft' },
+              ]).map((mode) => {
+                const isFast = mode.id === 'turbo';
+                const isActive = model === mode.id;
+                return (
+                  <button
+                    key={mode.id}
+                    type="button"
+                    className={`studio-mode-badge-btn ${isFast ? 'mode-fast' : 'mode-master'} ${isActive ? 'active' : ''}`}
+                    onClick={() => setModel(mode.id)}
+                  >
+                    {isFast ? 'FAST' : 'MASTER'}
+                  </button>
+                );
+              })}
+          </div>
+          {studioFlow === 'vibe' ? (
+            <Button
+              variant="primary"
+              size="lg"
+              disabled={isVibing || state.isGenerating || isGeneratingCover || !canSubmitVibe}
+              onClick={handleVibe}
+              className="studio-generate-btn studio-vibe-btn"
+            >
+              {isVibing ? 'VIBING...' : 'VIBE'}
+            </Button>
+          ) : (
+            <Button
+              variant="primary"
+              size="lg"
+              disabled={state.isGenerating || isGeneratingCover || isVibing || !canSubmitGeneration || !generation || !model}
+              onClick={handleGenerate}
+              className="studio-generate-btn"
+            >
+              {isVibing ? 'VIBING...' : state.isGenerating ? 'SYNTHESIZING...' : 'GENERATE AUDIO'}
+            </Button>
+          )}
         </div>
       </div>
 
