@@ -73,7 +73,7 @@ export const sdk: ComposeSDK = new ComposeSDK({
 export const API_BASE_URL = RAWCHUNKS_API_URL;
 
 // Match endpoints that belong to Rawchunks' backend service
-const RAWCHUNKS_PATH_REGEX = /^\/?(?:api\/)?(credits|songs|albums|user|generation|editing|voices?|options|status|sample|format|repaint|layer|extend|remix|separate)(\/|$|\?)/;
+const RAWCHUNKS_PATH_REGEX = /^\/?(?:api\/)?(credits|vibe|songs|albums|user|generation|editing|voices?|options|status|sample|format|repaint|layer|extend|remix|separate)(\/|$|\?)/;
 
 interface CreditRequestContext { userAddress: string; authToken: string; sessionToken?: string | null }
 let creditContext: CreditRequestContext | null = null;
