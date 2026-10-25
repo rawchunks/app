@@ -432,6 +432,171 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
     e.target.value = '';
   };
 
+  const handleVibe = async () => {
+    const trimmedPrompt = prompt.trim();
+    if (isVibing || state.isGenerating || !canSubmitVibe) return;
+
+    if (!userAddr) {
+      toast.error('Connect wallet required to vibe');
+      return;
+    }
+
+    if (!hasConsented) {
+      toast.error('Disclaimer signature required prior to generation');
+      return;
+    }
+
+    if (!session.active) {
+      toast.error('Active session required to run Songwriter. Please create a session.');
+      promptSessionModal();
+      return;
+    }
+
+    const controller = new AbortController();
+    vibeAbortRef.current?.abort();
+    vibeAbortRef.current = controller;
+
+    setIsVibing(true);
+    setVibeStep(vibeImage ? 'Translating image into song prompt...' : 'Starting Songwriter Agent...');
+    setStudioFlow('control');
+    setActiveSection('details');
+
+    try {
+      const res = await sdk.fetch('/api/vibe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        userAddress: userAddr,
+        signal: controller.signal,
+        body: JSON.stringify({
+          prompt: trimmedPrompt || undefined,
+          image: vibeImage || undefined,
+          modelVariant: model === 'sft' ? 'sft' : 'turbo',
+        }),
+      });
+
+      if (!res.ok) {
+        if (res.status === 402) {
+          toast.error('Active session required or session budget exhausted. Please top up your session.');
+          promptSessionModal();
+          return;
+        }
+        const errData = await res.json().catch(() => ({ error: 'Songwriter Agent failed' }));
+        throw new Error(errData.error || 'Songwriter Agent failed');
+      }
+
+      if (!res.body) {
+        throw new Error('Songwriter stream is unavailable');
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      const applyEvent = (event: any) => {
+        if (!event || typeof event !== 'object') return;
+        if (event.type === 'status') {
+          setVibeStep(event.step || event.message || 'Vibing...');
+          return;
+        }
+        if (event.type === 'lyrics_start') {
+          setLyrics('');
+          setVibeStep('Writing lyrics...');
+          return;
+        }
+        if (event.type === 'lyrics_delta' && typeof event.delta === 'string') {
+          setLyrics((prev) => prev + event.delta);
+          return;
+        }
+        if (event.type === 'cover_start') {
+          setIsGeneratingCover(true);
+          return;
+        }
+        if (event.type === 'cover') {
+          setIsGeneratingCover(false);
+          if (typeof event.imageUrl === 'string' && event.imageUrl) {
+            setCoverUrl(event.imageUrl);
+          }
+          return;
+        }
+        if (event.type === 'field') {
+          const { field, value } = event;
+          if (field === 'title' && typeof value === 'string') {
+            setTitle(value);
+          } else if (field === 'prompt' && typeof value === 'string') {
+            setPrompt(value);
+          } else if (field === 'instrumental') {
+            setInstrumental(Boolean(value));
+          } else if (field === 'vocalLanguage') {
+            setSelectedLanguage(value ? String(value) : null);
+          } else if (field === 'lyrics' && typeof value === 'string') {
+            setLyrics(value);
+          } else if (field === 'tags' && Array.isArray(value)) {
+            setActiveTags(value.map((t: unknown) => String(t).toUpperCase()).slice(0, 5));
+          } else if (field === 'bpm') {
+            setBpm(typeof value === 'number' && Number.isFinite(value) ? value : null);
+          } else if (field === 'keyScale' && typeof value === 'string') {
+            setKeyScale(value);
+            const parts = value.trim().split(/\s+/);
+            if (parts[0]) setSelectedRootNote(parts[0]);
+            if (parts[1]) setSelectedScaleMode(parts[1].toLowerCase());
+          } else if (field === 'audioDuration') {
+            setAudioDurationSeconds(typeof value === 'number' && Number.isFinite(value) ? value : null);
+          }
+          return;
+        }
+        if (event.type === 'error') {
+          setIsGeneratingCover(false);
+          toast.error(event.message || 'Songwriter Agent encountered an error');
+          return;
+        }
+        if (event.type === 'done') {
+          setIsGeneratingCover(false);
+          toast.success('Songwriter Agent populated your studio');
+        }
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let newlineIdx: number;
+        while ((newlineIdx = buffer.indexOf('\n')) >= 0) {
+          const line = buffer.slice(0, newlineIdx).trim();
+          buffer = buffer.slice(newlineIdx + 1);
+          if (line) {
+            try {
+              applyEvent(JSON.parse(line));
+            } catch {
+              // ignore malformed partial line
+            }
+          }
+        }
+      }
+
+      const trailing = buffer.trim();
+      if (trailing) {
+        try {
+          applyEvent(JSON.parse(trailing));
+        } catch {
+          // ignore
+        }
+      }
+    } catch (err: any) {
+      if (err?.name !== 'AbortError') {
+        toast.error(err?.message || 'Error running Songwriter Agent');
+      }
+    } finally {
+      setIsVibing(false);
+      setVibeStep(null);
+      setIsGeneratingCover(false);
+      if (vibeAbortRef.current === controller) {
+        vibeAbortRef.current = null;
+      }
+      void refreshSession().catch(() => { });
+      void refreshCredits().catch(() => { });
+    }
+  };
+
   const handleGenerate = () => {
     if (state.isGenerating || isGeneratingCover || isVibing || !canSubmitGeneration) return;
 
