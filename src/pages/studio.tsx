@@ -102,7 +102,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
   }, []);
 
   // Selectable parameters modal state
-  const [activeModal, setActiveModal] = useState<'duration' | 'bpm' | 'key' | 'voice' | 'language' | 'lyrics' | null>(null);
+  const [activeModal, setActiveModal] = useState<'duration' | 'bpm' | 'key' | 'voice' | 'language' | 'lyrics' | 'cover' | null>(null);
   const [audioDurationSeconds, setAudioDurationSeconds] = useState<number | null>(null);
   const [bpm, setBpm] = useState<number | null>(null);
   const [keyScale, setKeyScale] = useState<string>('');
@@ -280,8 +280,9 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
   }, [userAddr]);
 
   const handleGenerateCover = async () => {
-    if (!prompt.trim()) {
-      toast.error('Enter a prompt first to generate cover');
+    const coverPromptSeed = prompt.trim() || lyrics.trim().slice(0, 200) || title.trim();
+    if (!coverPromptSeed) {
+      toast.error('Enter a prompt or lyrics first to generate cover');
       return;
     }
     if (!session.active) {
@@ -295,7 +296,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          prompt: prompt.trim(),
+          prompt: coverPromptSeed,
           title: title.trim() || undefined,
           style: activeTags.length ? activeTags.join(', ') : undefined,
         }),
@@ -2116,6 +2117,22 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
             </div>
           </div>
         </div>
+      </Modal>
+
+      {/* Cover Art Expand Modal */}
+      <Modal
+        isOpen={activeModal === 'cover' && Boolean(coverUrl)}
+        onClose={() => setActiveModal(null)}
+        title={title.trim() || 'COVER ART'}
+        size="sm"
+      >
+        {coverUrl && (
+          <img
+            src={coverUrl}
+            alt={title.trim() || 'Cover art'}
+            className="studio-cover-expanded-img"
+          />
+        )}
       </Modal>
     </div>
   );
