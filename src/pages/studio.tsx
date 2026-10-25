@@ -74,12 +74,21 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
 
   // Single-expanded accordion section (strictly one open at a time)
   const [activeSection, setActiveSection] = useState<'details' | 'params' | 'financials'>('details');
+  const [studioFlow, setStudioFlow] = useState<'vibe' | 'control'>('vibe');
+  const [isVibing, setIsVibing] = useState(false);
+  const [vibeStep, setVibeStep] = useState<string | null>(null);
+  const [vibeImage, setVibeImage] = useState<string | null>(null);
+  const [vibeImageName, setVibeImageName] = useState<string | null>(null);
+  const [isDraggingVibeImage, setIsDraggingVibeImage] = useState(false);
+  const vibeFileInputRef = useRef<HTMLInputElement>(null);
+  const vibeAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     const onGuideAction = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       if (!detail || detail.type !== 'studio-section') return;
       setMobilePocket('create');
+      setStudioFlow('control');
       if (detail.section === 'core' || detail.section === 'details') {
         setActiveSection('details');
       } else if (detail.section === 'params') {
@@ -227,13 +236,13 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
   };
 
   const { userAddress: userAddr, readAddress } = useSelectedUserAddress();
-  const { session } = useSession();
+  const { session, refreshSession, refreshCredits } = useSession();
   const { voices, loading: loadingVoices, error: voicesError, refresh: refreshVoices, remember: rememberVoice } = useVoices(readAddress);
   const voiceOutput = model === 'sft' ? 'sft' : 'turbo';
   const selectedVoice = voices.find(voice => voice.id === selectedVoiceId);
   const canUseVoice = voiceMode === 'reference' ? Boolean(voiceFile) : Boolean(selectedVoice && voiceReady(selectedVoice, voiceOutput));
   const voiceName = voiceMode === 'reference' ? voiceFile?.name : selectedVoice?.name;
-  useEffect(() => { scopeRef.current++; return () => { scopeRef.current++; streamRef.current?.abort(); store.setGenerating(false); }; }, [userAddr]);
+  useEffect(() => { scopeRef.current++; return () => { scopeRef.current++; streamRef.current?.abort(); vibeAbortRef.current?.abort(); store.setGenerating(false); }; }, [userAddr]);
   useEffect(() => {
     uploadedVoice.current = null;
     setUploadedVoiceId(null);
