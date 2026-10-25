@@ -367,8 +367,12 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
     }
   };
 
+  const canSubmitGeneration = instrumental
+    ? prompt.trim().length >= 3
+    : prompt.trim().length >= 3 || lyrics.trim().length >= 3;
+
   const handleGenerate = () => {
-    if (state.isGenerating || isGeneratingCover || !prompt.trim()) return;
+    if (state.isGenerating || isGeneratingCover || isVibing || !canSubmitGeneration) return;
 
     if (!userAddr) {
       toast.error('Connect wallet required to generate');

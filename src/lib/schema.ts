@@ -17,7 +17,7 @@ export type Task = 'repaint' | 'lego' | 'complete' | 'extend' | 'cover' | 'extra
  */
 export interface Create {
   model: 'acestep-v15-xl-turbo' | 'acestep-v15-xl-sft';
-  prompt: string;
+  prompt?: string;
   lyrics?: string;
   tags?: string[];
   duration?: number;
