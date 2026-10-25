@@ -6,9 +6,17 @@ export function promptCardCheckout(intent: CheckoutIntent): void {
   window.dispatchEvent(new CustomEvent('rawchunks:card-checkout', { detail: intent }));
 }
 export interface CreditPack { id: string; amountAtomics: string; usd: string }
+export interface CreditPromoStatus {
+  eligible: boolean;
+  claimed: boolean;
+  remaining: number;
+  amountAtomics: string;
+  reason?: 'claimed' | 'identity_required' | 'exhausted';
+}
 export interface CreditBalance {
   availableAtomics: string; allocatedAtomics: string; reservedAtomics: string; spentAtomics: string; suspendedAtomics: string;
   packs: CreditPack[]; paypalClientId: string; environment: 'sandbox' | 'live';
+  promo?: CreditPromoStatus;
 }
 export interface CreditSession {
   id: string; budgetAtomics: string; remainingAtomics: string; reservedAtomics: string; spentAtomics: string;
@@ -30,6 +38,7 @@ export const zeroCredits: CreditBalance = {
   packs: DEFAULT_CREDIT_PACKS,
   paypalClientId: DEFAULT_PAYPAL_CLIENT_ID,
   environment: 'sandbox',
+  promo: { eligible: false, claimed: false, remaining: 1000, amountAtomics: '1000000' },
 };
 export async function creditsApi<T>(path: string, body?: unknown, idempotencyKey?: string): Promise<T> {
   const response = await sdk.fetch(`/api/credits/${path}`, {

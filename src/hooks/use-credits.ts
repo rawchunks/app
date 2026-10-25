@@ -97,6 +97,13 @@ export function useCreditAccount() {
     setState(previous => ({ ...previous, identity, session: prepaidSession(row, latest.current.userAddress!, latest.current.selectedNetwork), error: null }));
     await refresh(row.id);
   }, [enabled, identity, refresh]);
+  const claimPromo = useCallback(async (durationHours = 6) => {
+    if (!enabled) throw new Error('Connect your account first');
+    const row = await creditsApi<CreditSession>('promo/claim', { durationSeconds: durationHours * 3600 }, crypto.randomUUID());
+    if (latest.current.identity !== identity) throw new Error('The account changed');
+    setState(previous => ({ ...previous, identity, session: prepaidSession(row, latest.current.userAddress!, latest.current.selectedNetwork), error: null }));
+    await refresh(row.id);
+  }, [enabled, identity, refresh]);
   const end = useCallback(async () => {
     const id = sessionRef.current?.keyId;
     if (!id) return;
@@ -107,5 +114,5 @@ export function useCreditAccount() {
     await refresh();
   }, [identity, refresh]);
   return { owner, enabled, balance: current.balance, session: current.session ? { ...current.session, userAddress, network: selectedNetwork } : null,
-    error: current.error, loading, refresh, start, end, completePurchase };
+    error: current.error, loading, refresh, start, claimPromo, end, completePurchase };
 }

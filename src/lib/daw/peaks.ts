@@ -296,17 +296,33 @@ function persistPeakToLocalStorage(
   peaks: BipolarPeaks
 ): void {
   if (typeof localStorage === 'undefined' || typeof localStorage.setItem !== 'function') return;
+  const key = peakStorageKey(url, bins, offset, duration);
+  let payload: string;
   try {
-    const payload = JSON.stringify({
+    payload = JSON.stringify({
       mins: Array.from(peaks.mins),
       maxs: Array.from(peaks.maxs),
       rms: Array.from(peaks.rms),
       bins: peaks.bins,
       duration: peaks.duration,
     });
-    localStorage.setItem(peakStorageKey(url, bins, offset, duration), payload);
   } catch {
-    // Ignore storage quota errors
+    return;
+  }
+  try {
+    localStorage.setItem(key, payload);
+  } catch {
+    try {
+      const waveformKeys: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith('waveform:')) waveformKeys.push(k);
+      }
+      for (const k of waveformKeys) localStorage.removeItem(k);
+      localStorage.setItem(key, payload);
+    } catch {
+      // Ignore storage quota errors
+    }
   }
 }
 

@@ -9,11 +9,65 @@ export const RAWCHUNKS_API_URL = (env.VITE_API_URL || "https://api.rawchunks.spa
 
 const retry = { maxRetries: 2, initialDelayMs: 400, maxDelayMs: 6_000, jitter: true };
 
+const EVICTABLE_PREFIXES = ["waveform:", "project:", "songs:", "rawchunks:wip:v1:"];
+
+export function evictNonEssentialLocalStorage(storage: Storage): void {
+  try {
+    for (const prefix of EVICTABLE_PREFIXES) {
+      const toRemove: string[] = [];
+      for (let i = 0; i < storage.length; i++) {
+        const k = storage.key(i);
+        if (k && k.startsWith(prefix)) toRemove.push(k);
+      }
+      for (const k of toRemove) storage.removeItem(k);
+      if (toRemove.length > 0) return;
+    }
+  } catch { /* Ignore storage enumeration errors */ }
+}
+
+export function setStorageItemWithEviction(storage: Storage, key: string, value: string): void {
+  try {
+    storage.setItem(key, value);
+    return;
+  } catch {
+    evictNonEssentialLocalStorage(storage);
+    storage.setItem(key, value);
+  }
+}
+
+const memoryFallback = new Map<string, string>();
+const sdkStorage = {
+  getItem(key: string): string | null {
+    try {
+      if (typeof localStorage !== "undefined") {
+        const val = localStorage.getItem(key);
+        if (val !== null) return val;
+      }
+    } catch { /* Fallback to memory */ }
+    return memoryFallback.get(key) ?? null;
+  },
+  setItem(key: string, value: string): void {
+    memoryFallback.set(key, value);
+    try {
+      if (typeof localStorage !== "undefined") {
+        setStorageItemWithEviction(localStorage, key, value);
+      }
+    } catch { /* Memory fallback retains the token for the active session */ }
+  },
+  removeItem(key: string): void {
+    memoryFallback.delete(key);
+    try {
+      if (typeof localStorage !== "undefined") localStorage.removeItem(key);
+    } catch { /* Ignore */ }
+  },
+};
+
 // ComposeSDK powers the Facilitator SDK (@compose-market)
 export const sdk: ComposeSDK = new ComposeSDK({
   baseUrl: COMPOSE_API_URL,
   userAgent: "rawchunks-web",
   retry,
+  storage: sdkStorage,
 });
 
 export const API_BASE_URL = RAWCHUNKS_API_URL;

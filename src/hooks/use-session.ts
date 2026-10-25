@@ -32,6 +32,7 @@ export interface SessionContextValue {
   creditOwner: string | null;
   refreshCredits: () => Promise<void>;
   createCreditSession: (budgetAtomics: string, durationHours: number) => Promise<void>;
+  claimPromoSession?: (durationHours?: number) => Promise<void>;
   completeCreditPurchase: (operationId: string) => Promise<void>;
 }
 
@@ -51,9 +52,11 @@ export const emptySession: SessionState = {
   expiresAt: null,
 };
 
-export function promptSessionModal(): void {
+export type SessionModalOption = 'usdc' | 'card' | 'campaign';
+
+export function promptSessionModal(option?: SessionModalOption): void {
   if (typeof window !== "undefined") {
-    window.dispatchEvent(new CustomEvent("rawchunks:open-session"));
+    window.dispatchEvent(new CustomEvent("rawchunks:open-session", { detail: option ?? null }));
   }
 }
 

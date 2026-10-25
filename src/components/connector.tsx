@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { usePayPalScriptReducer } from '@paypal/react-paypal-js';
 import { useSession } from '@/hooks/use-session';
 import { creditLabel, creditsApi, DEFAULT_CREDIT_PACKS, purchaseCacheKey, type CheckoutIntent } from '@/lib/credits';
-import { Modal } from '@/components/modal';
 import { Button } from '@/components/button';
 import { useActiveAccount, useActiveWallet, useAutoConnect, useConnectModal } from "thirdweb/react";
 import { createWallet, inAppWallet } from "thirdweb/wallets";
@@ -93,8 +92,10 @@ async function prepareTempoAccount(input: TempoAccountInput) {
     };
     return { ...transport, request };
   };
-  const relay = createWalletClient({ account: broadcaster, chain: tempoModerato,
-    transport: withRelay(guarded(chain.rpc), guarded("https://sponsor.moderato.tempo.xyz")) });
+  const relay = createWalletClient({
+    account: broadcaster, chain: tempoModerato,
+    transport: withRelay(guarded(chain.rpc), guarded("https://sponsor.moderato.tempo.xyz"))
+  });
   let operationHash: `0x${string}` | undefined;
   const sender: Account = {
     ...admin,
@@ -103,8 +104,10 @@ async function prepareTempoAccount(input: TempoAccountInput) {
       check();
       if (tx.chainId !== chain.id) throw new Error("The Tempo transaction uses another network");
       if (!operationHash || tx.to?.toLowerCase() !== TEMPO_ENTRY_POINT.toLowerCase()) throw new Error("The Tempo smart-account operation is missing");
-      const transactionHash = await relay.sendTransaction({ to: TEMPO_ENTRY_POINT, data: tx.data,
-        gas: tx.gas, feePayer: true });
+      const transactionHash = await relay.sendTransaction({
+        to: TEMPO_ENTRY_POINT, data: tx.data,
+        gas: tx.gas, feePayer: true
+      });
       check();
       const receipt = await rpc.waitForTransactionReceipt({ hash: transactionHash, timeout: 120_000 });
       check();
@@ -118,22 +121,31 @@ async function prepareTempoAccount(input: TempoAccountInput) {
   };
   const prepare = async (callData: `0x${string}`) => {
     check();
-    const nonce = await rpc.readContract({ address: TEMPO_ENTRY_POINT, abi: entryPoint06Abi,
-      functionName: "getNonce", args: [input.accountAddress as `0x${string}`, 0n] });
+    const nonce = await rpc.readContract({
+      address: TEMPO_ENTRY_POINT, abi: entryPoint06Abi,
+      functionName: "getNonce", args: [input.accountAddress as `0x${string}`, 0n]
+    });
     const initCode = deployed ? "0x" as const : TEMPO_ACCOUNT_FACTORY + (await encode(prepareContractCall({
-      contract: factory, method: "function createAccount(address, bytes) returns (address)", params: [admin.address, "0x"] }))).slice(2);
+      contract: factory, method: "function createAccount(address, bytes) returns (address)", params: [admin.address, "0x"]
+    }))).slice(2);
     check();
     // Native ETH prefunding is unavailable on Tempo. Only the outer Tempo
     // envelope has fees; the EntryPoint operation has zero native gas price.
-    const operation = { sender: input.accountAddress as `0x${string}`, nonce, initCode: initCode as `0x${string}`, callData,
+    const operation = {
+      sender: input.accountAddress as `0x${string}`, nonce, initCode: initCode as `0x${string}`, callData,
       callGasLimit: 3_000_000n, verificationGasLimit: 6_000_000n, preVerificationGas: 100_000n,
-      maxFeePerGas: 0n, maxPriorityFeePerGas: 0n, paymasterAndData: "0x" as const, signature: "0x" as `0x${string}` };
-    operationHash = getUserOperationHash({ chainId: chain.id, entryPointAddress: TEMPO_ENTRY_POINT,
-      entryPointVersion: "0.6", userOperation: operation });
+      maxFeePerGas: 0n, maxPriorityFeePerGas: 0n, paymasterAndData: "0x" as const, signature: "0x" as `0x${string}`
+    };
+    operationHash = getUserOperationHash({
+      chainId: chain.id, entryPointAddress: TEMPO_ENTRY_POINT,
+      entryPointVersion: "0.6", userOperation: operation
+    });
     operation.signature = await admin.signMessage({ message: { raw: hexToBytes(operationHash) }, chainId: chain.id });
     check();
-    return prepareTransaction({ client: thirdwebClient, chain, to: TEMPO_ENTRY_POINT,
-      data: encodeFunctionData({ abi: entryPoint06Abi, functionName: "handleOps", args: [[operation], broadcaster.address] }) });
+    return prepareTransaction({
+      client: thirdwebClient, chain, to: TEMPO_ENTRY_POINT,
+      data: encodeFunctionData({ abi: entryPoint06Abi, functionName: "handleOps", args: [[operation], broadcaster.address] })
+    });
   };
   const send = async (transaction: PreparedTransaction) => {
     check();
@@ -155,8 +167,12 @@ export async function prepareTempoTransaction(input: TempoAccountInput, transact
   ]);
   check();
   if (!to) throw new Error("The contract transaction target is missing");
-  return { account: sender, transaction: await prepare(await encode(prepareContractCall({ contract: smart,
-    method: "function execute(address, uint256, bytes)", params: [to, value ?? 0n, data] }))) };
+  return {
+    account: sender, transaction: await prepare(await encode(prepareContractCall({
+      contract: smart,
+      method: "function execute(address, uint256, bytes)", params: [to, value ?? 0n, data]
+    })))
+  };
 }
 
 export async function approveTempoSession(input: TempoAccountInput & { asset: string; spender: string; amount: bigint }): Promise<void> {
@@ -201,19 +217,7 @@ interface WalletConnectorProps {
 }
 
 export function WalletConnector({ className, compact = true }: WalletConnectorProps) {
-  const { credits, creditsEnabled, creditsLoading, creditsError } = useSession();
-  const [buyCredits, setBuyCredits] = useState(false);
-  const [checkoutIntent, setCheckoutIntent] = useState<CheckoutIntent>({ kind: 'balance' });
-  const [checkoutVersion, setCheckoutVersion] = useState(0);
-  useEffect(() => {
-    const open = (event: Event) => {
-      setCheckoutIntent((event as CustomEvent<CheckoutIntent>).detail);
-      setCheckoutVersion(value => value + 1);
-      setBuyCredits(true);
-    };
-    window.addEventListener('rawchunks:card-checkout', open);
-    return () => window.removeEventListener('rawchunks:card-checkout', open);
-  }, []);
+  const { credits, creditsLoading } = useSession();
   const account = useActiveAccount();
   const wallet = useActiveWallet();
   const { connect: openConnectModal, isConnecting: isModalConnecting } = useConnectModal();
@@ -330,7 +334,7 @@ export function WalletConnector({ className, compact = true }: WalletConnectorPr
             titleIcon: "/branding/icon.svg",
             showThirdwebBranding: false,
             theme: thirdwebCustomTheme,
-          }).catch(() => {});
+          }).catch(() => { });
         }}
         className={cn("btn btn-solid connect", className)}
       >
@@ -375,9 +379,6 @@ export function WalletConnector({ className, compact = true }: WalletConnectorPr
 
   return (
     <>
-      <Modal isOpen={buyCredits} onClose={() => setBuyCredits(false)} title="BUY WITH CARD" size="md" keepMounted={Boolean(account && creditsEnabled)}>
-        <CardCheckout intent={checkoutIntent} version={checkoutVersion} onComplete={() => setBuyCredits(false)} onCancel={() => setBuyCredits(false)} />
-      </Modal>
       <DisclaimerModal
         forceOpen={showDisclaimer}
         onOpenChange={setShowDisclaimer}
@@ -419,8 +420,6 @@ export function WalletConnector({ className, compact = true }: WalletConnectorPr
             <span className="label">CREDITS</span>
             <span className="menu-total">{creditsLoading ? '...' : creditLabel(credits.availableAtomics)}</span>
           </div>
-          {creditsEnabled && !creditsError && <DropdownMenuItem onClick={() => { setCheckoutIntent({ kind: 'balance' }); setCheckoutVersion(value => value + 1); setBuyCredits(true); }}>BUY WITH CARD</DropdownMenuItem>}
-          {creditsError && <div className="menu-head" role="alert">{creditsError}</div>}
           <div className="menu-head">
             <span className="menu-chain">
               <NetworkGlyph network={paymentNetwork} name={chainInfo?.name || "Unknown network"} />
@@ -606,7 +605,7 @@ export function PayPalCardFields({
   const numberSlotRef = useRef<HTMLDivElement | null>(null);
   const expirySlotRef = useRef<HTMLDivElement | null>(null);
   const cvvSlotRef = useRef<HTMLDivElement | null>(null);
-  const cardFieldsRef = useRef< NonNullable<NonNullable<Window['paypal']>['CardFields']> extends (...args: any[]) => infer R ? R | null : null >(null);
+  const cardFieldsRef = useRef<NonNullable<NonNullable<Window['paypal']>['CardFields']> extends (...args: any[]) => infer R ? R | null : null>(null);
   const [fieldsReady, setFieldsReady] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
@@ -739,7 +738,7 @@ export function PayPalCardFields({
       cardFieldsRef.current = null;
       setFieldsReady(false);
       for (const field of renderedFields) {
-        void field.close().catch(() => {});
+        void field.close().catch(() => { });
       }
       nameSlot.replaceChildren();
       numberSlot.replaceChildren();
@@ -833,7 +832,7 @@ export function PayPalCardFields({
   );
 }
 
-export function CardCheckout({ intent, version = 0, onComplete, onCancel }: { intent: CheckoutIntent; version?: number; onComplete: () => void; onCancel: () => void }) {
+export function CardCheckout({ intent, version = 0, cancelLabel = 'CANCEL', onComplete, onCancel }: { intent: CheckoutIntent; version?: number; cancelLabel?: string; onComplete: () => void; onCancel: () => void }) {
   const { credits, creditsLoading, creditOwner, completeCreditPurchase } = useSession();
   const packs = credits.packs.length > 0 ? credits.packs : DEFAULT_CREDIT_PACKS;
   const [packId, setPackId] = useState(packs[0]?.id ?? 'usd-10');
@@ -917,6 +916,7 @@ export function CardCheckout({ intent, version = 0, onComplete, onCancel }: { in
           }}
           onError={setError}
           onCancel={onCancel}
+          cancelLabel={cancelLabel}
           submitLabel={`PAY $${Number(pack.usd)}`}
           error={error}
         />
@@ -928,7 +928,7 @@ export function CardCheckout({ intent, version = 0, onComplete, onCancel }: { in
             <div className="connector-card-status" role="status">CONNECT WALLET TO PURCHASE CREDITS...</div>
           )}
           <div className="session-actions-footer">
-            <Button variant="ghost" size="sm" onClick={onCancel}>CANCEL</Button>
+            <Button variant="ghost" size="sm" onClick={onCancel}>{cancelLabel}</Button>
           </div>
         </>
       )}

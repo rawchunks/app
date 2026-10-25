@@ -16,6 +16,11 @@ import {
   Wallet,
   Copy,
   Check,
+  CreditCard,
+  CircleDollarSign,
+  Sparkles,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import { PayPalScriptProvider } from '@paypal/react-paypal-js';
@@ -46,9 +51,9 @@ import {
   getChainObject,
 } from "@/lib/chains";
 import { sdk } from "@/lib/sdk";
-import { approveTempoSession } from "@/components/connector";
+import { approveTempoSession, CardCheckout } from "@/components/connector";
 import { useCreditAccount } from "@/hooks/use-credits";
-import { creditLabel, formatCredits, promptCardCheckout, type CheckoutIntent } from "@/lib/credits";
+import { creditLabel, formatCredits } from "@/lib/credits";
 import { Modal } from "@/components/modal";
 import { Button } from "@/components/button";
 import { Badge } from "@/components/badge";
@@ -90,14 +95,33 @@ export function readSession(storage: Storage, scope: SessionScope): SessionState
 }
 export function writeSession(storage: Storage, scope: SessionScope, value: SessionState): void {
   try {
-    if (sameScope(value, scope) && value.active && value.token) storage.setItem(sessionCacheKey(scope), JSON.stringify(value));
-    else storage.removeItem(sessionCacheKey(scope));
+    if (sameScope(value, scope) && value.active && value.token) {
+      const k = sessionCacheKey(scope);
+      const raw = JSON.stringify(value);
+      try {
+        storage.setItem(k, raw);
+      } catch {
+        for (const prefix of ["waveform:", "project:", "songs:", "rawchunks:wip:v1:"]) {
+          const keys: string[] = [];
+          for (let i = 0; i < storage.length; i++) {
+            const key = storage.key(i);
+            if (key && key.startsWith(prefix)) keys.push(key);
+          }
+          for (const key of keys) storage.removeItem(key);
+        }
+        storage.setItem(k, raw);
+      }
+    } else {
+      storage.removeItem(sessionCacheKey(scope));
+    }
   } catch { /* Persistence is optional. */ }
 }
 export function sessionFromKey(scope: SessionScope, key: KeyCreateResponse): SessionState {
   if (key.network !== scope.network) throw new Error("The session response belongs to another network");
-  return { fundingSource: 'wallet', active: true, userAddress: scope.address, network: scope.network, keyId: key.keyId, token: key.token,
-    budgetLimit: key.budgetLimit, budgetUsed: key.budgetUsed, budgetLocked: "0", budgetRemaining: key.budgetRemaining, expiresAt: key.expiresAt };
+  return {
+    fundingSource: 'wallet', active: true, userAddress: scope.address, network: scope.network, keyId: key.keyId, token: key.token,
+    budgetLimit: key.budgetLimit, budgetUsed: key.budgetUsed, budgetLocked: "0", budgetRemaining: key.budgetRemaining, expiresAt: key.expiresAt
+  };
 }
 export function requireSessionSupport(support: FacilitatorSupportedResponse, network: NetworkId) {
   const kind = support.kinds.find(k => k.x402Version === 2 && k.network === network && k.scheme === "upto");
@@ -229,7 +253,8 @@ export function SessionProvider({ children, userAddress: propUserAddress }: Sess
     const disposers = [
       sdk.events.on("budget", event => {
         if (!matches(event)) return;
-        setSession(previous => sameScope(previous, scope) ? { ...previous,
+        setSession(previous => sameScope(previous, scope) ? {
+          ...previous,
           budgetLimit: event.snapshot.limitWei ?? previous.budgetLimit,
           budgetUsed: event.snapshot.usedWei ?? previous.budgetUsed,
           budgetLocked: event.snapshot.lockedWei ?? previous.budgetLocked,
@@ -238,7 +263,8 @@ export function SessionProvider({ children, userAddress: propUserAddress }: Sess
       }),
       sdk.events.on("sessionActive", event => {
         if (!matches(event)) return;
-        setSession(previous => sameScope(previous, scope) ? { ...previous, active: true,
+        setSession(previous => sameScope(previous, scope) ? {
+          ...previous, active: true,
           budgetLimit: event.budgetLimit ?? previous.budgetLimit, budgetUsed: event.budgetUsed ?? previous.budgetUsed,
           budgetLocked: event.budgetLocked ?? previous.budgetLocked, budgetRemaining: event.budgetRemaining ?? previous.budgetRemaining,
           expiresAt: event.expiresAt ?? previous.expiresAt,
@@ -300,8 +326,10 @@ export function SessionProvider({ children, userAddress: propUserAddress }: Sess
         if (network === "eip155:42431") {
           const admin = adminWallet?.getAccount();
           if (!adminWallet || !admin || admin.address !== evmSignerAddress) throw new Error("The admin signer is not ready");
-          await approveTempoSession({ chain, admin, adminWallet, accountAddress: scope.address,
-            asset: config.assetAddress, spender, amount, assertCurrent });
+          await approveTempoSession({
+            chain, admin, adminWallet, accountAddress: scope.address,
+            asset: config.assetAddress, spender, amount, assertCurrent
+          });
           assertCurrent();
         } else if (approved < amount) {
           const result = await sendTransaction({ account, transaction: approve({ contract, spender: spender as `0x${string}`, amountWei: amount }) });
@@ -347,8 +375,10 @@ export function SessionProvider({ children, userAddress: propUserAddress }: Sess
       const response = await sdk.fetch("/api/keys", {
         method: "POST", key: null, userAddress: scope.address, network,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ budgetLimit: budgetWei, expiresAt: Date.now() + durationHours * 60 * 60 * 1_000,
-          network, purpose: "session", name: `Session ${new Date().toISOString().slice(0, 10)}` }),
+        body: JSON.stringify({
+          budgetLimit: budgetWei, expiresAt: Date.now() + durationHours * 60 * 60 * 1_000,
+          network, purpose: "session", name: `Session ${new Date().toISOString().slice(0, 10)}`
+        }),
       });
       if (!response.ok) {
         const body = await response.json().catch(() => null);
@@ -409,10 +439,12 @@ export function SessionProvider({ children, userAddress: propUserAddress }: Sess
     [paypalClientId],
   );
 
-  return <SessionContext.Provider value={{ session, isCreating: creation.key === key && creation.generation === generation && creation.pending,
+  return <SessionContext.Provider value={{
+    session, isCreating: creation.key === key && creation.generation === generation && creation.pending,
     error: creation.key === key && creation.generation === generation ? creation.error : null, createSession, refreshSession, clearSession, endSession,
     credits: credits.balance, creditsLoading: credits.loading, creditsError: credits.error, creditsEnabled: credits.enabled, creditOwner: credits.owner,
-    refreshCredits: credits.refresh, createCreditSession: credits.start, completeCreditPurchase: credits.completePurchase }}>
+    refreshCredits: credits.refresh, createCreditSession: credits.start, completeCreditPurchase: credits.completePurchase, claimPromoSession: credits.claimPromo
+  }}>
     <PayPalScriptProvider key={paypalClientId || "pending"} options={paypalOptions} deferLoading={!paypalReady}>{children}</PayPalScriptProvider>
   </SessionContext.Provider>;
 }
@@ -452,17 +484,44 @@ const DURATION_PRESETS = [
 export { promptSessionModal } from "../hooks/use-session";
 
 export function SessionControl() {
-  const { session, isCreating, error, createSession, refreshSession, endSession, credits, creditsLoading, creditsError, creditsEnabled, createCreditSession } = useSession();
+  const { session, isCreating, error, createSession, refreshSession, endSession, credits, creditsLoading, creditsError, creditsEnabled, createCreditSession, claimPromoSession } = useSession();
   const { evmAddress, svmAddress, readAddress, userAddress } = useSelectedUserAddress();
   const { selectedNetwork, getChainByNetworkId } = useChain();
   const { data: balances, isLoading: balanceLoading } = useMultiChainBalance({ evmAddress, svmAddress });
 
   const [open, setOpen] = useState(false);
-  const setCheckout = (intent: CheckoutIntent) => { setOpen(false); promptCardCheckout(intent); };
+  const [step, setStep] = useState<'select' | 'usdc' | 'card'>('select');
+  const [campaignExpanded, setCampaignExpanded] = useState(false);
+  const [topupOpen, setTopupOpen] = useState(false);
   const [usingCredits, setUsingCredits] = useState(false);
+  const [claimingPromo, setClaimingPromo] = useState(false);
+
+  const promoClaimed = Boolean(credits.promo?.claimed);
+  const promoRemaining = credits.promo?.remaining ?? 1000;
+  const promoEligible = creditsEnabled && !promoClaimed && promoRemaining > 0;
+
+  const closeModal = () => {
+    setOpen(false);
+    setTopupOpen(false);
+    setStep('select');
+    setCampaignExpanded(false);
+  };
 
   useEffect(() => {
-    const handleOpen = () => setOpen(true);
+    const handleOpen = (event: Event) => {
+      const detail = (event as CustomEvent<{ option?: 'usdc' | 'card' | 'campaign' } | undefined>).detail;
+      if (detail?.option === 'usdc' || detail?.option === 'card') {
+        setStep(detail.option);
+        setCampaignExpanded(false);
+      } else if (detail?.option === 'campaign') {
+        setStep('select');
+        setCampaignExpanded(true);
+      } else {
+        setStep('select');
+        setCampaignExpanded(false);
+      }
+      setOpen(true);
+    };
     window.addEventListener("rawchunks:open-session", handleOpen);
     return () => window.removeEventListener("rawchunks:open-session", handleOpen);
   }, []);
@@ -483,6 +542,7 @@ export function SessionControl() {
     ? Math.floor(Math.max(0, parseFloat(customBudget) || 0) * 10_000).toString()
     : selectedBudgetPreset;
   const prepaid = session.fundingSource === 'prepaid';
+  const hasAvailableCredits = BigInt(credits.availableAtomics || '0') > 0n;
 
   const remainingNum = Number(session.budgetRemaining || 0);
   const limitNum = Number(session.budgetLimit || 1);
@@ -515,7 +575,7 @@ export function SessionControl() {
     try {
       await createSession(effectiveBudgetWei, duration);
       toast.success("Session activated successfully");
-      setOpen(false);
+      closeModal();
     } catch (cause) {
       const msg = cause instanceof Error ? cause.message : "Failed to activate session";
       toast.error(msg);
@@ -527,18 +587,39 @@ export function SessionControl() {
     try {
       await endSession();
       toast.success("Session ended");
-      setOpen(false);
+      closeModal();
     } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : "Failed to end session");
     } finally {
       setIsEnding(false);
     }
   };
+
   const handleUseCredits = async () => {
     setUsingCredits(true);
-    try { await createCreditSession(effectiveBudgetWei, duration); setOpen(false); }
-    catch (cause) { toast.error(cause instanceof Error ? cause.message : 'Could not start session'); }
-    finally { setUsingCredits(false); }
+    try {
+      await createCreditSession(credits.availableAtomics, duration);
+      toast.success("Credit session activated");
+      closeModal();
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : 'Could not start session');
+    } finally {
+      setUsingCredits(false);
+    }
+  };
+
+  const handleClaimPromo = async () => {
+    if (!claimPromoSession) return;
+    setClaimingPromo(true);
+    try {
+      await claimPromoSession();
+      toast.success("100 Campaign Credits claimed & session activated!");
+      closeModal();
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "Failed to claim Campaign Credits");
+    } finally {
+      setClaimingPromo(false);
+    }
   };
 
   return (
@@ -547,12 +628,16 @@ export function SessionControl() {
         title={
           session.active
             ? `SESSION ACTIVE // ${creditLabel(session.budgetRemaining)}`
-            : "SESSION CONTROLS"
+            : promoEligible
+              ? "CLAIM 100 FREE CREDITS!"
+              : "SESSION CONTROLS"
         }
         description={
           session.active
             ? `${percentRemaining}% budget remaining · Click to manage`
-            : "Enable one-click micropayments"
+            : promoEligible
+              ? `Limited welcome campaign (${promoRemaining.toLocaleString()} / 1,000 left) · Click to claim`
+              : "Enable one-click micropayments & Credits"
         }
         position="bottom"
       >
@@ -568,6 +653,7 @@ export function SessionControl() {
             "header-session-trigger",
             session.active && "active",
             isCreating && "is-creating",
+            !session.active && promoEligible && "session-trigger-promo-flicker",
           )}
           onClick={() => setOpen(true)}
         >
@@ -583,7 +669,13 @@ export function SessionControl() {
         </button>
       </Tooltip>
 
-      <Modal isOpen={open} onClose={() => setOpen(false)} title="SESSION CONTROLS" size="md">
+      <Modal
+        isOpen={open}
+        onClose={closeModal}
+        title="SESSION CONTROLS"
+        size="md"
+        className="session-modal"
+      >
         {!displayAddress ? (
           <div className="session-modal-content">
             <div className="session-info-strip">
@@ -591,167 +683,185 @@ export function SessionControl() {
               <div className="session-info-text">
                 <span className="session-info-title">WALLET NOT CONNECTED</span>
                 <span className="session-info-desc">
-                  Connect your wallet in the header to activate one-click session keys and instant studio workflows.
+                  Connect your wallet in the header to activate one-click session keys, purchase Credits, or claim 100 free Campaign Credits.
                 </span>
               </div>
             </div>
             <div className="session-actions-footer">
-              <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
+              <Button variant="ghost" size="sm" onClick={closeModal}>
                 CLOSE
               </Button>
             </div>
           </div>
         ) : session.active ? (
-          <div className="session-modal-content">
-            {/* Active Session Card */}
-            <div className="session-hud-card">
-              <div className="session-hud-header">
-                <div className="session-hud-badges">
-                  <Badge variant="secondary">
-                    <span className="session-active-indicator" /> ACTIVE SESSION
-                  </Badge>
-                  <Badge variant="outline">
-                    {!prepaid && <NetworkGlyph network={session.network} name={chainInfo?.name} />}
-                    <span>{prepaid ? 'CREDITS' : chainInfo?.name || session.network}</span>
-                  </Badge>
+          topupOpen && session.keyId ? (
+            <CardCheckout
+              intent={{ kind: 'topup', sessionId: session.keyId }}
+              cancelLabel="BACK"
+              onComplete={closeModal}
+              onCancel={() => setTopupOpen(false)}
+            />
+          ) : (
+            <div className="session-modal-content">
+              {/* Active Session Card */}
+              <div className="session-hud-card">
+                <div className="session-hud-header">
+                  <div className="session-hud-badges">
+                    <Badge variant="secondary">
+                      <span className="session-active-indicator" /> ACTIVE SESSION
+                    </Badge>
+                    <Badge variant="outline">
+                      {!prepaid && <NetworkGlyph network={session.network} name={chainInfo?.name} />}
+                      <span>{prepaid ? 'CREDITS' : chainInfo?.name || session.network}</span>
+                    </Badge>
+                  </div>
+                  <Tooltip title="Refresh Budget" position="bottom">
+                    <button
+                      type="button"
+                      className="session-hud-refresh-btn"
+                      onClick={() => void refreshSession()}
+                      aria-label="Refresh live budget"
+                    >
+                      <RefreshCw size={12} />
+                    </button>
+                  </Tooltip>
                 </div>
-                <Tooltip title="Refresh Budget" position="bottom">
-                  <button
-                    type="button"
-                    className="session-hud-refresh-btn"
-                    onClick={() => void refreshSession()}
-                    aria-label="Refresh live budget"
-                  >
-                    <RefreshCw size={12} />
-                  </button>
-                </Tooltip>
-              </div>
 
-              <div className="session-hud-budget-block">
-                <span className="session-hud-label">AVAILABLE SESSION BUDGET</span>
-                <div className="session-hud-main-stat">
-                  <span className="session-hud-number">{formatCredits(session.budgetRemaining)}</span>
-                  <span className="session-hud-unit">CREDITS</span>
-                </div>
-                <span className="session-hud-cap">
-                  Limit: {creditLabel(session.budgetLimit)} · Used: {formatCredits(session.budgetUsed)} · Reserved: {formatCredits(session.budgetLocked)}
-                </span>
-              </div>
-
-              {/* Meter Bar */}
-              <div className="session-meter-container">
-                <div
-                  className="session-meter-track"
-                  role="progressbar"
-                  aria-valuenow={percentRemaining}
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                >
-                  <div
-                    className="session-meter-fill"
-                    style={{ "--meter-pct": `${percentRemaining}%` } as React.CSSProperties}
-                  />
-                </div>
-                <div className="session-meter-footer">
-                  <span>REMAINING: {percentRemaining}%</span>
-                  <span>SPENT: {formatCredits(session.budgetUsed)}</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Session Metadata Grid */}
-            <div className="session-grid">
-              <div className="session-grid-item">
-                <div className="session-grid-item-head">
-                  <Clock className="session-grid-item-icon" size={12} />
-                  <span>EXPIRATION</span>
-                </div>
-                <span className="session-grid-item-value">{formatExpiry(session.expiresAt)}</span>
-                <span className="session-grid-item-sub">{formatTimeRemaining(session.expiresAt)}</span>
-              </div>
-
-              <div className="session-grid-item">
-                <div className="session-grid-item-head">
-                  <Zap className="session-grid-item-icon" size={12} />
-                  <span>ONE-CLICK FLOW</span>
-                </div>
-                <span className="session-grid-item-value session-grid-item-value-primary">
-                  ENABLED
-                </span>
-                <span className="session-grid-item-sub">Zero wallet signature prompts</span>
-              </div>
-
-              <div className="session-grid-item">
-                <div className="session-grid-item-head">
-                  <ShieldCheck className="session-grid-item-icon" size={12} />
-                  <span>{prepaid ? 'AVAILABLE CREDITS' : 'NETWORK'}</span>
-                </div>
-                <span className="session-grid-item-value">{prepaid ? creditLabel(credits.availableAtomics) : chainInfo?.name || session.network}</span>
-                <span className="session-grid-item-sub">{prepaid ? '1 Credit = $0.01' : 'Scoped to this chain'}</span>
-              </div>
-
-              <div className="session-grid-item">
-                <div className="session-grid-item-head">
-                  <Key className="session-grid-item-icon" size={12} />
-                  <span>SESSION KEY ID</span>
-                </div>
-                <div className="session-key-row">
-                  <span className="session-grid-item-value">
-                    {session.keyId ? `${session.keyId.slice(0, 6)}...${session.keyId.slice(-4)}` : "—"}
+                <div className="session-hud-budget-block">
+                  <span className="session-hud-label">AVAILABLE SESSION BUDGET</span>
+                  <div className="session-hud-main-stat">
+                    <span className="session-hud-number">{formatCredits(session.budgetRemaining)}</span>
+                    <span className="session-hud-unit">CREDITS</span>
+                  </div>
+                  <span className="session-hud-cap">
+                    Limit: {creditLabel(session.budgetLimit)} · Used: {formatCredits(session.budgetUsed)} · Reserved: {formatCredits(session.budgetLocked)}
                   </span>
-                  {session.keyId && (
-                    <Tooltip title="Copy Key ID" position="top">
-                      <button
-                        type="button"
-                        className="session-icon-action-btn"
-                        onClick={handleCopyKey}
-                        aria-label="Copy Key ID"
-                      >
-                        {copiedKey ? <Check size={12} className="session-grid-item-value-primary" /> : <Copy size={12} />}
-                      </button>
-                    </Tooltip>
-                  )}
                 </div>
-                <span className="session-grid-item-sub">{prepaid ? 'Credit session' : 'Compose authorization token'}</span>
+
+                {/* Meter Bar */}
+                <div className="session-meter-container">
+                  <div
+                    className="session-meter-track"
+                    role="progressbar"
+                    aria-valuenow={percentRemaining}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                  >
+                    <div
+                      className="session-meter-fill"
+                      style={{ "--meter-pct": `${percentRemaining}%` } as React.CSSProperties}
+                    />
+                  </div>
+                  <div className="session-meter-footer">
+                    <span>REMAINING: {percentRemaining}%</span>
+                    <span>SPENT: {formatCredits(session.budgetUsed)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Session Metadata Grid */}
+              <div className="session-grid">
+                <div className="session-grid-item">
+                  <div className="session-grid-item-head">
+                    <Clock className="session-grid-item-icon" size={12} />
+                    <span>EXPIRATION</span>
+                  </div>
+                  <span className="session-grid-item-value">{formatExpiry(session.expiresAt)}</span>
+                  <span className="session-grid-item-sub">{formatTimeRemaining(session.expiresAt)}</span>
+                </div>
+
+                <div className="session-grid-item">
+                  <div className="session-grid-item-head">
+                    <Zap className="session-grid-item-icon" size={12} />
+                    <span>ONE-CLICK FLOW</span>
+                  </div>
+                  <span className="session-grid-item-value session-grid-item-value-primary">
+                    ENABLED
+                  </span>
+                  <span className="session-grid-item-sub">Zero wallet signature prompts</span>
+                </div>
+
+                <div className="session-grid-item">
+                  <div className="session-grid-item-head">
+                    <ShieldCheck className="session-grid-item-icon" size={12} />
+                    <span>{prepaid ? 'AVAILABLE CREDITS' : 'NETWORK'}</span>
+                  </div>
+                  <span className="session-grid-item-value">{prepaid ? creditLabel(credits.availableAtomics) : chainInfo?.name || session.network}</span>
+                  <span className="session-grid-item-sub">{prepaid ? '1 Credit = $0.01' : 'Scoped to this chain'}</span>
+                </div>
+
+                <div className="session-grid-item">
+                  <div className="session-grid-item-head">
+                    <Key className="session-grid-item-icon" size={12} />
+                    <span>SESSION KEY ID</span>
+                  </div>
+                  <div className="session-key-row">
+                    <span className="session-grid-item-value">
+                      {session.keyId ? `${session.keyId.slice(0, 6)}...${session.keyId.slice(-4)}` : "—"}
+                    </span>
+                    {session.keyId && (
+                      <Tooltip title="Copy Key ID" position="top">
+                        <button
+                          type="button"
+                          className="session-icon-action-btn"
+                          onClick={handleCopyKey}
+                          aria-label="Copy Key ID"
+                        >
+                          {copiedKey ? <Check size={12} className="session-grid-item-value-primary" /> : <Copy size={12} />}
+                        </button>
+                      </Tooltip>
+                    )}
+                  </div>
+                  <span className="session-grid-item-sub">{prepaid ? 'Credit session' : 'Compose authorization token'}</span>
+                </div>
+              </div>
+
+              {/* Active Actions Footer */}
+              <div className="session-actions-footer">
+                {prepaid && (
+                  <Button variant="outline" size="sm" onClick={() => setTopupOpen(true)}>
+                    TOP UP
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="btn-danger"
+                  disabled={isEnding}
+                  onClick={() => void handleEndSession()}
+                >
+                  <LogOut size={13} />
+                  {isEnding ? "ENDING..." : "END SESSION"}
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={closeModal}
+                >
+                  DONE
+                </Button>
               </div>
             </div>
-
-            {/* Active Actions Footer */}
-            <div className="session-actions-footer">
-              {prepaid && <Button variant="outline" size="sm" onClick={() => setCheckout({ kind: 'topup', sessionId: session.keyId! })}>TOP UP</Button>}
-              <Button
-                variant="outline"
-                size="sm"
-                className="btn-danger"
-                disabled={isEnding}
-                onClick={() => void handleEndSession()}
-              >
-                <LogOut size={13} />
-                {isEnding ? "ENDING..." : "END SESSION"}
-              </Button>
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={() => setOpen(false)}
-              >
-                DONE
-              </Button>
-            </div>
-          </div>
-        ) : (
+          )
+        ) : step === 'card' ? (
+          <CardCheckout
+            intent={{ kind: 'start', durationSeconds: duration * 3600 }}
+            cancelLabel="BACK"
+            onComplete={closeModal}
+            onCancel={() => setStep('select')}
+          />
+        ) : step === 'usdc' ? (
           <div className="session-modal-content">
-            {/* Explainer strip */}
             <div className="session-info-strip">
-              <Zap className="session-info-icon" size={18} />
+              <CircleDollarSign className="session-info-icon" size={18} />
               <div className="session-info-text">
-                <span className="session-info-title">ONE-CLICK CREATIVE WORKFLOW</span>
+                <span className="session-info-title">ON-CHAIN USDC SESSION</span>
                 <span className="session-info-desc">
-                  Pre-authorize a spending budget cap. Song creations, stem branching, and track streaming micropayments execute seamlessly without repetitive wallet popups.
+                  Authorize a temporary spending cap so you can generate songs, separate stems, and stream tracks without signing every transaction.
                 </span>
               </div>
             </div>
 
-            {/* Current Chain & Balance */}
             <div className="session-balance-strip">
               <div className="session-balance-chain">
                 <NetworkGlyph network={selectedNetwork} name={chainInfo?.name} />
@@ -761,9 +871,7 @@ export function SessionControl() {
                 {balanceLoading ? "CHECKING..." : `AVAILABLE: $${currentBalance} ${assetSymbol}`}
               </div>
             </div>
-            {creditsEnabled && <div className="session-balance-strip"><span>CREDITS</span><span className="session-balance-val">{creditsLoading ? 'CHECKING...' : creditLabel(credits.availableAtomics)}</span></div>}
 
-            {/* Budget Presets & Custom */}
             <div className="session-section">
               <div className="session-section-head">
                 <span className="session-section-label">BUDGET CAP</span>
@@ -803,7 +911,6 @@ export function SessionControl() {
               </div>
             </div>
 
-            {/* Duration Selector */}
             <div className="session-section">
               <span className="session-section-label">SESSION DURATION</span>
               <div className="session-duration-pills">
@@ -824,28 +931,20 @@ export function SessionControl() {
               </div>
             </div>
 
-            {/* Notice */}
             <div className="session-notice-strip">
               <ShieldCheck className="session-notice-icon" size={14} />
-              <span>1 Credit = $0.01. Unspent prepaid Credits return to your balance when the session ends.</span>
+              <span>Your funds remain in your wallet. You can revoke or end the session at any time.</span>
             </div>
 
-            {/* Error */}
             {error && (
               <div className="session-error-strip" role="alert">
                 <span>{error}</span>
               </div>
             )}
-            {creditsError && <div className="session-error-strip" role="alert">{creditsError}</div>}
 
-            {/* Inactive Actions Footer */}
             <div className="session-actions-footer">
-              <Button variant="ghost" size="sm" onClick={() => setOpen(false)} disabled={isCreating}>
-                CANCEL
-              </Button>
-              <Button variant="outline" size="sm" disabled={!creditsEnabled || creditsLoading || usingCredits || isCreating || Boolean(creditsError)}
-                onClick={() => BigInt(credits.availableAtomics) > 0n ? void handleUseCredits() : setCheckout({ kind: 'start', durationSeconds: duration * 3600 })}>
-                {usingCredits ? 'STARTING...' : BigInt(credits.availableAtomics) > 0n ? 'USE CREDITS' : 'BUY WITH CARD'}
+              <Button variant="ghost" size="sm" onClick={() => setStep('select')} disabled={isCreating}>
+                BACK
               </Button>
               <Button
                 variant="primary"
@@ -854,6 +953,184 @@ export function SessionControl() {
                 onClick={() => void handleStartSession()}
               >
                 {isCreating ? "STARTING SESSION..." : "START SESSION"}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="session-modal-content">
+            {/* Explainer strip */}
+            <div className="session-info-strip">
+              <Zap className="session-info-icon" size={18} />
+              <div className="session-info-text">
+                <span className="session-info-title">ONE-STOP SESSION & CREDITS</span>
+                <span className="session-info-desc">
+                  Choose a funding method below to activate one-click AI generation, stem editing, and streaming without wallet popups.
+                </span>
+              </div>
+            </div>
+
+            {/* Available Credits Strip (with 1-click resume if user already has unspent Credits) */}
+            {creditsEnabled && (
+              <div className="session-balance-strip">
+                <span className="session-balance-chain">AVAILABLE CREDITS</span>
+                <div className="session-balance-actions">
+                  <span className="session-balance-val">
+                    {creditsLoading ? 'CHECKING...' : creditLabel(credits.availableAtomics)}
+                  </span>
+                  {hasAvailableCredits && (
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      disabled={usingCredits || creditsLoading}
+                      onClick={() => void handleUseCredits()}
+                    >
+                      {usingCredits ? 'STARTING...' : 'USE CREDITS'}
+                    </Button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* 3 Unified Options: (i) USDC -> step 2, (ii) CREDIT CARD -> step 2, (iii) CAMPAIGN -> inline extension */}
+            <div className="session-options-list">
+              {/* Option (i): USDC */}
+              <div className="session-option-card">
+                <button
+                  type="button"
+                  className="session-option-header"
+                  onClick={() => setStep('usdc')}
+                >
+                  <div className="session-option-main">
+                    <div className="session-option-title-row">
+                      <CircleDollarSign size={14} className="session-option-lead-icon" />
+                      <span className="session-option-title">USDC</span>
+                      <div className="session-option-icons" aria-label="Supported networks: Base, Tempo, Solana">
+                        <img src="/networks/base.png" alt="Base" className="session-option-net-icon" />
+                        <img src="/networks/tempo.png" alt="Tempo" className="session-option-net-icon" />
+                        <img src="/networks/solana.jpeg" alt="Solana" className="session-option-net-icon" />
+                      </div>
+                    </div>
+                    <span className="session-option-desc">
+                      Authorize an on-chain stablecoin spending cap on Base, Tempo, or Solana.
+                    </span>
+                  </div>
+                  <ChevronRight className="session-option-chevron" size={15} />
+                </button>
+              </div>
+
+              {/* Option (ii): CREDIT CARD */}
+              <div className="session-option-card">
+                <button
+                  type="button"
+                  className="session-option-header"
+                  onClick={() => setStep('card')}
+                >
+                  <div className="session-option-main">
+                    <div className="session-option-title-row">
+                      <CreditCard size={14} className="session-option-lead-icon" />
+                      <span className="session-option-title">CREDIT CARD</span>
+                      <div className="session-option-icons" aria-label="Supported payment methods: Visa, Mastercard, PayPal">
+                        <span className="session-payment-badge">VISA</span>
+                        <span className="session-payment-badge session-payment-badge-mc" title="Mastercard">
+                          <span className="mc-dot mc-dot-red" />
+                          <span className="mc-dot mc-dot-amber" />
+                        </span>
+                        <span className="session-payment-badge">
+                          <img src="/icons/paypal.webp" alt="PayPal" className="session-payment-paypal" />
+                        </span>
+                      </div>
+                    </div>
+                    <span className="session-option-desc">
+                      Instant prepaid Credits checkout via Visa, Mastercard, or PayPal. No crypto needed.
+                    </span>
+                  </div>
+                  <ChevronRight className="session-option-chevron" size={15} />
+                </button>
+              </div>
+
+              {/* Option (iii): CAMPAIGN */}
+              <div
+                className={cn(
+                  "session-option-card",
+                  campaignExpanded && "expanded",
+                  promoEligible && "session-option-card-promo-flicker",
+                  !promoEligible && "session-option-card-disabled",
+                )}
+              >
+                <button
+                  type="button"
+                  className="session-option-header"
+                  disabled={!promoEligible}
+                  onClick={() => promoEligible && setCampaignExpanded((prev) => !prev)}
+                  aria-expanded={campaignExpanded}
+                >
+                  <div className="session-option-main">
+                    <div className="session-option-title-row">
+                      <Sparkles size={14} className="session-option-lead-icon session-promo-sparkle" />
+                      <span className="session-option-title">CAMPAIGN</span>
+                      <span className={cn("session-promo-pill", promoEligible ? "live" : "done")}>
+                        {promoClaimed
+                          ? "CLAIMED"
+                          : promoRemaining <= 0
+                            ? "1,000 / 1,000 CLAIMED"
+                            : `100 FREE CREDITS · ${promoRemaining.toLocaleString()} LEFT`}
+                      </span>
+                    </div>
+                    <span className="session-option-desc">
+                      {promoClaimed
+                        ? "You have already claimed your 100 welcome Campaign Credits."
+                        : promoRemaining <= 0
+                          ? "All 1,000 welcome packs have been claimed."
+                          : "First 1,000 new users get 100 free Credits ($1.00) for AI song generation & stem editing."}
+                    </span>
+                  </div>
+                  {promoEligible && (
+                    <ChevronDown className={cn("session-option-chevron", campaignExpanded && "rotated")} size={15} />
+                  )}
+                </button>
+
+                {campaignExpanded && promoEligible && (
+                  <div className="session-option-body">
+                    <div className="session-notice-strip">
+                      <ShieldCheck className="session-notice-icon" size={14} />
+                      <span>
+                        Campaign Credits apply to bilateral studio actions (AI song generation & stem editing). Requires a verified social, email, or passkey login.
+                      </span>
+                    </div>
+
+                    {creditsError && (
+                      <div className="session-error-strip" role="alert">
+                        <span>{creditsError}</span>
+                      </div>
+                    )}
+
+                    <div className="session-campaign-cta-row">
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        className="session-promo-claim-btn"
+                        disabled={claimingPromo || creditsLoading}
+                        onClick={() => void handleClaimPromo()}
+                      >
+                        <Sparkles size={13} />
+                        {claimingPromo ? "CLAIMING..." : "CLAIM 100 CREDITS!"}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Notice */}
+            <div className="session-notice-strip">
+              <ShieldCheck className="session-notice-icon" size={14} />
+              <span>1 Credit = $0.01. Unspent prepaid Credits return to your balance when the session ends.</span>
+            </div>
+
+            {/* First Screen Footer: CANCEL only */}
+            <div className="session-actions-footer">
+              <Button variant="ghost" size="sm" onClick={closeModal}>
+                CANCEL
               </Button>
             </div>
           </div>
