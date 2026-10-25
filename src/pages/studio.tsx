@@ -372,6 +372,66 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
     ? prompt.trim().length >= 3
     : prompt.trim().length >= 3 || lyrics.trim().length >= 3;
 
+  const canSubmitVibe = prompt.trim().length >= 2 || Boolean(vibeImage);
+
+  const attachVibeImageFile = (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please select a valid image file');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onerror = () => toast.error('Could not read image file');
+    reader.onload = () => {
+      const dataUrl = typeof reader.result === 'string' ? reader.result : '';
+      if (!dataUrl) return;
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const maxEdge = 768;
+          let { width, height } = img;
+          if (width > maxEdge || height > maxEdge) {
+            if (width >= height) {
+              height = Math.max(1, Math.round((height * maxEdge) / width));
+              width = maxEdge;
+            } else {
+              width = Math.max(1, Math.round((width * maxEdge) / height));
+              height = maxEdge;
+            }
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            setVibeImage(dataUrl);
+            setVibeImageName(file.name);
+            return;
+          }
+          ctx.drawImage(img, 0, 0, width, height);
+          setVibeImage(canvas.toDataURL('image/jpeg', 0.82));
+          setVibeImageName(file.name);
+        } catch {
+          setVibeImage(dataUrl);
+          setVibeImageName(file.name);
+        }
+      };
+      img.onerror = () => {
+        setVibeImage(dataUrl);
+        setVibeImageName(file.name);
+      };
+      img.src = dataUrl;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleVibeImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      attachVibeImageFile(file);
+    }
+    e.target.value = '';
+  };
+
   const handleGenerate = () => {
     if (state.isGenerating || isGeneratingCover || isVibing || !canSubmitGeneration) return;
 
