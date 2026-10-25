@@ -12,8 +12,6 @@ import { Network, useNetwork, type NetworkValue } from "@/hooks/use-network";
 import { cn } from "@/lib/utils";
 
 export const NETWORK_LOGOS: Record<string, string> = {
-  "eip155:42161": "/networks/arbitrum.png",
-  "eip155:421614": "/networks/arbitrum.png",
   "eip155:8453": "/networks/base.png",
   "eip155:84532": "/networks/baseSepolia.png",
   "eip155:4217": "/networks/tempo.png",
@@ -147,9 +145,9 @@ export function ChainProvider({ children }: { children: ReactNode }) {
         setRegistry(visible);
       },
     ).catch((cause: unknown) => {
-        if (!current) return;
-        setError(cause instanceof Error ? cause : new Error("Failed to fetch networks"));
-      }).finally(() => globalThis.clearTimeout(timeout));
+      if (!current) return;
+      setError(cause instanceof Error ? cause : new Error("Failed to fetch networks"));
+    }).finally(() => globalThis.clearTimeout(timeout));
     return () => {
       current = false;
       globalThis.clearTimeout(timeout);

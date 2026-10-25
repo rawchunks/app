@@ -46,7 +46,7 @@ export const GUIDE_FLOWS: Record<GuideFlowId, GuideFlow> = {
         title: 'Active Network',
         badge: 'NETWORKS',
         description:
-          'Switch between supported networks (Base, Avalanche, Arbitrum). Your active network sets where songs are minted and where onchain USDC transactions settle.',
+          'Switch between supported networks (Base, Avalanche, Tempo). Your active network sets where songs are minted and where onchain USDC transactions settle.',
         selector: '[data-guide="network"], .header-network-trigger',
         placement: 'bottom',
       },

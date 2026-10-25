@@ -64,8 +64,6 @@ export const resolveNetworkName = (network?: string | null): string => {
   if (!network) return '';
   if (network.includes('84532')) return 'Base Sepolia';
   if (network.includes('8453')) return 'Base';
-  if (network.includes('421614')) return 'Arbitrum Sepolia';
-  if (network.includes('42161')) return 'Arbitrum';
   if (network.includes('42431')) return 'Tempo Moderato';
   if (network.includes('4217')) return 'Tempo';
   if (network.includes('EtWTRABZaYq6iMfeYKouRu166VU2xqa1')) return 'Solana Devnet';
