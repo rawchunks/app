@@ -991,441 +991,447 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
             </div>
           ) : (
             <>
-
-          {/* 1. DETAILS Section */}
-          <div className={`studio-card-section details ${activeSection === 'details' ? 'active' : ''}`}>
-            <div
-              className="studio-card-header"
-              onClick={() => setActiveSection('details')}
-            >
-              <div className="studio-card-header-left">
-                <span className="studio-card-icon">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#00ccff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="4" y="4" width="16" height="16" rx="2" />
-                    <rect x="9" y="9" width="6" height="6" />
-                    <line x1="9" y1="1" x2="9" y2="4" />
-                    <line x1="15" y1="1" x2="15" y2="4" />
-                    <line x1="9" y1="20" x2="9" y2="23" />
-                    <line x1="15" y1="20" x2="15" y2="23" />
-                    <line x1="20" y1="9" x2="23" y2="9" />
-                    <line x1="20" y1="14" x2="23" y2="14" />
-                    <line x1="1" y1="9" x2="4" y2="9" />
-                    <line x1="1" y1="14" x2="4" y2="14" />
-                  </svg>
-                </span>
-                <span className="studio-card-title">DETAILS</span>
-                <span className="studio-card-badge">CORE</span>
-              </div>
-              <span className="studio-card-chevron">▲</span>
-            </div>
-
-            {activeSection === 'details' && (
-              <div className="studio-card-body">
-                {/* Aligned Identity Inputs & Avatar Upload Frame */}
-                <div className="studio-identity-grid">
-                  <div className="studio-identity-inputs">
-                    <div className="studio-field-group">
-                      <label className="studio-field-label">
-                        <span>TITLE</span>
-                        <span className="studio-field-optional">OPTIONAL</span>
-                      </label>
-                      <input
-                        type="text"
-                        className="cyber-input-field"
-                        placeholder="Untitled"
-                        value={title}
-                        onChange={(e) => setTitle(e.target.value)}
-                      />
-                    </div>
-
-                    <div className="studio-field-group">
-                      <label className="studio-field-label">
-                        <span>ALBUM</span>
-                        <span className="studio-field-optional">OPTIONAL</span>
-                      </label>
-                      <select
-                        className="cyber-input-field"
-                        value={selectedAlbumId}
-                        onChange={(e) => {
-                          if (e.target.value === '__NEW__') {
-                            setShowNewAlbumModal(true);
-                          } else {
-                            setSelectedAlbumId(e.target.value);
-                          }
-                        }}
-                      >
-                        <option value="">NONE</option>
-                        {albums.map((a) => (
-                          <option key={a.id} value={a.id}>
-                            {a.title}
-                          </option>
-                        ))}
-                        <option value="__NEW__">+ NEW ALBUM...</option>
-                      </select>
-                    </div>
+              {/* 1. DETAILS Section */}
+              <div className={`studio-card-section details ${activeSection === 'details' ? 'active' : ''}`}>
+                <div
+                  className="studio-card-header"
+                  onClick={() => setActiveSection('details')}
+                >
+                  <div className="studio-card-header-left">
+                    <span className="studio-card-icon">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#00ccff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="4" y="4" width="16" height="16" rx="2" />
+                        <rect x="9" y="9" width="6" height="6" />
+                        <line x1="9" y1="1" x2="9" y2="4" />
+                        <line x1="15" y1="1" x2="15" y2="4" />
+                        <line x1="9" y1="20" x2="9" y2="23" />
+                        <line x1="15" y1="20" x2="15" y2="23" />
+                        <line x1="20" y1="9" x2="23" y2="9" />
+                        <line x1="20" y1="14" x2="23" y2="14" />
+                        <line x1="1" y1="9" x2="4" y2="9" />
+                        <line x1="1" y1="14" x2="4" y2="14" />
+                      </svg>
+                    </span>
+                    <span className="studio-card-title">DETAILS</span>
+                    <span className="studio-card-badge">CORE</span>
                   </div>
+                  <span className="studio-card-chevron">▲</span>
+                </div>
 
-                  <div className={`studio-avatar-box ${coverUrl ? 'has-image' : ''}`}>
-                    <input
-                      type="file"
-                      ref={coverFileInputRef}
-                      accept="image/*"
-                      className="hidden-file-input"
-                      onChange={handleCoverFileUpload}
-                    />
-                    {coverUrl ? (
-                      <>
-                        <img
-                          src={coverUrl}
-                          alt="Cover preview"
-                          className="studio-avatar-preview"
-                          onClick={() => coverFileInputRef.current?.click()}
-                        />
-                        <button
-                          type="button"
-                          className="studio-avatar-remove"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setCoverUrl(null);
-                          }}
-                          title="Remove cover"
-                        >
-                          ✕
-                        </button>
-                        <button
-                          type="button"
-                          className="studio-avatar-sparkle-btn"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleGenerateCover();
-                          }}
-                          disabled={isGeneratingCover || !prompt.trim()}
-                          title="Regenerate Cover with AI"
-                        >
-                          {isGeneratingCover ? '...' : (
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
-                            </svg>
-                          )}
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <div
-                          className="studio-avatar-upload-trigger"
-                          onClick={() => coverFileInputRef.current?.click()}
-                        >
-                          <span className="studio-avatar-upload-icon">
-                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#00ccff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                              <polyline points="17 8 12 3 7 8" />
-                              <line x1="12" y1="3" x2="12" y2="15" />
-                            </svg>
-                          </span>
-                          <span className="studio-avatar-label">UPLOAD COVER</span>
+                {activeSection === 'details' && (
+                  <div className="studio-card-body">
+                    {/* Aligned Identity Inputs & Avatar Upload Frame */}
+                    <div className="studio-identity-grid">
+                      <div className="studio-identity-inputs">
+                        <div className="studio-field-group">
+                          <label className="studio-field-label">
+                            <span>TITLE</span>
+                            <span className="studio-field-optional">OPTIONAL</span>
+                          </label>
+                          <input
+                            type="text"
+                            className="cyber-input-field"
+                            placeholder="Untitled"
+                            value={title}
+                            onChange={(e) => setTitle(e.target.value)}
+                          />
                         </div>
-                        <button
-                          type="button"
-                          className="studio-avatar-sparkle-btn"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleGenerateCover();
-                          }}
-                          disabled={isGeneratingCover || !prompt.trim()}
-                          title="Generate Cover with AI"
-                        >
-                          {isGeneratingCover ? '...' : (
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
-                            </svg>
-                          )}
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </div>
 
-                {/* Prompt Input */}
-                <div className="studio-field-group studio-field-group-prompt">
-                  <label className="studio-field-label">
-                    <span>PROMPT</span>
-                    <span className="studio-field-optional">REQUIRED</span>
-                  </label>
-                  <textarea
-                    className="cyber-input-field"
-                    placeholder="Describe style, rhythm, soundscapes, instruments..."
-                    value={prompt}
-                    onChange={(e) => setPrompt(e.target.value)}
-                  />
-                </div>
+                        <div className="studio-field-group">
+                          <label className="studio-field-label">
+                            <span>ALBUM</span>
+                            <span className="studio-field-optional">OPTIONAL</span>
+                          </label>
+                          <select
+                            className="cyber-input-field"
+                            value={selectedAlbumId}
+                            onChange={(e) => {
+                              if (e.target.value === '__NEW__') {
+                                setShowNewAlbumModal(true);
+                              } else {
+                                setSelectedAlbumId(e.target.value);
+                              }
+                            }}
+                          >
+                            <option value="">NONE</option>
+                            {albums.map((a) => (
+                              <option key={a.id} value={a.id}>
+                                {a.title}
+                              </option>
+                            ))}
+                            <option value="__NEW__">+ NEW ALBUM...</option>
+                          </select>
+                        </div>
+                      </div>
 
-                {/* Lyrics Input */}
-                <div className="studio-field-group studio-field-group-lyrics">
-                  <div className="studio-lyrics-row">
-                    <label className="studio-field-label studio-field-label-flush">
-                      <span>LYRICS</span>
-                      <span className="studio-field-optional">(OPTIONAL)</span>
-                    </label>
-                    <div className="studio-lyrics-toggles">
-                      <label className={`studio-checkbox-label ${instrumental ? 'disabled' : ''}`}>
+                      <div className={`studio-avatar-box ${coverUrl ? 'has-image' : ''}`}>
                         <input
-                          type="checkbox"
-                          checked={instrumental}
-                          onChange={(e) => {
-                            const checked = e.target.checked;
-                            setInstrumental(checked);
-                          }}
-                          className="cyber-checkbox"
+                          type="file"
+                          ref={coverFileInputRef}
+                          accept="image/*"
+                          className="hidden-file-input"
+                          onChange={handleCoverFileUpload}
                         />
-                        <span>INSTRUMENTAL</span>
-                      </label>
+                        {coverUrl ? (
+                          <>
+                            <img
+                              src={coverUrl}
+                              alt="Cover preview"
+                              className="studio-avatar-preview"
+                              onClick={() => setActiveModal('cover')}
+                              title="Expand cover"
+                            />
+                            <button
+                              type="button"
+                              className="studio-avatar-remove"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setCoverUrl(null);
+                                if (coverFileInputRef.current) {
+                                  coverFileInputRef.current.value = '';
+                                }
+                              }}
+                              title="Remove cover"
+                            >
+                              ✕
+                            </button>
+                            <button
+                              type="button"
+                              className="studio-avatar-sparkle-btn"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleGenerateCover();
+                              }}
+                              disabled={isGeneratingCover || (!prompt.trim() && !lyrics.trim() && !title.trim())}
+                              title="Regenerate Cover with AI"
+                            >
+                              {isGeneratingCover ? '...' : (
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
+                                </svg>
+                              )}
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <div
+                              className="studio-avatar-upload-trigger"
+                              onClick={() => coverFileInputRef.current?.click()}
+                            >
+                              <span className="studio-avatar-upload-icon">
+                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#00ccff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                  <polyline points="17 8 12 3 7 8" />
+                                  <line x1="12" y1="3" x2="12" y2="15" />
+                                </svg>
+                              </span>
+                              <span className="studio-avatar-label">UPLOAD COVER</span>
+                            </div>
+                            <button
+                              type="button"
+                              className="studio-avatar-sparkle-btn"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleGenerateCover();
+                              }}
+                              disabled={isGeneratingCover || (!prompt.trim() && !lyrics.trim() && !title.trim())}
+                              title="Generate Cover with AI"
+                            >
+                              {isGeneratingCover ? '...' : (
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
+                                </svg>
+                              )}
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
 
-                      <button
-                        type="button"
-                        disabled={instrumental}
-                        className={`studio-param-pill-mini ${selectedLanguage ? 'configured' : ''}`}
-                        onClick={() => setActiveModal('language')}
-                        title="Configure Vocal Language"
-                      >
-                        <span className="studio-param-pill-label">LANGUAGE:</span>
-                        <span className="studio-param-pill-val">
-                          {instrumental ? 'MUTED' : selectedLanguage ? selectedLanguage.toUpperCase() : 'AUTO'}
+                    {/* Prompt Input */}
+                    <div className="studio-field-group studio-field-group-prompt">
+                      <label className="studio-field-label">
+                        <span>PROMPT</span>
+                        <span className="studio-field-optional">
+                          {instrumental ? 'REQUIRED' : lyrics.trim().length >= 3 ? 'OPTIONAL' : 'OR LYRICS'}
                         </span>
-                        <span className="studio-param-pill-icon">⚙</span>
-                      </button>
+                      </label>
+                      <textarea
+                        className="cyber-input-field"
+                        placeholder="Describe style, rhythm, soundscapes, instruments..."
+                        value={prompt}
+                        onChange={(e) => setPrompt(e.target.value)}
+                      />
+                    </div>
+
+                    {/* Lyrics Input */}
+                    <div className="studio-field-group studio-field-group-lyrics">
+                      <div className="studio-lyrics-row">
+                        <label className="studio-field-label studio-field-label-flush">
+                          <span>LYRICS</span>
+                          <span className="studio-field-optional">
+                            {instrumental ? '(MUTED)' : prompt.trim().length >= 3 ? '(OPTIONAL)' : '(OR PROMPT)'}
+                          </span>
+                        </label>
+                        <div className="studio-lyrics-toggles">
+                          <label className={`studio-checkbox-label ${instrumental ? 'disabled' : ''}`}>
+                            <input
+                              type="checkbox"
+                              checked={instrumental}
+                              onChange={(e) => {
+                                const checked = e.target.checked;
+                                setInstrumental(checked);
+                              }}
+                              className="cyber-checkbox"
+                            />
+                            <span>INSTRUMENTAL</span>
+                          </label>
+
+                          <button
+                            type="button"
+                            disabled={instrumental}
+                            className={`studio-param-pill-mini ${selectedLanguage ? 'configured' : ''}`}
+                            onClick={() => setActiveModal('language')}
+                            title="Configure Vocal Language"
+                          >
+                            <span className="studio-param-pill-label">LANGUAGE:</span>
+                            <span className="studio-param-pill-val">
+                              {instrumental ? 'MUTED' : selectedLanguage ? selectedLanguage.toUpperCase() : 'AUTO'}
+                            </span>
+                            <span className="studio-param-pill-icon">⚙</span>
+                          </button>
+                        </div>
+                      </div>
+                      {instrumental ? (
+                        <div className="studio-instrumental-strip">
+                          INSTRUMENTAL ONLY — VOCAL SYNTHESIS MUTED
+                        </div>
+                      ) : (
+                        <div className="studio-lyrics-box-wrap">
+                          <textarea
+                            className="cyber-input-field studio-lyrics-box-textarea"
+                            placeholder="Enter custom lyrics or leave empty for auto-generated lyrics..."
+                            value={lyrics}
+                            onChange={(e) => setLyrics(e.target.value)}
+                          />
+                          <button
+                            type="button"
+                            className={`studio-lyrics-box-expand-btn ${lyrics.trim() ? 'configured' : ''}`}
+                            onClick={handleOpenLyricsModal}
+                            title="Expand Structured Lyrics Canvas"
+                            aria-label="Expand Structured Lyrics Canvas"
+                          >
+                            <svg
+                              width="12"
+                              height="12"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2.2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <polyline points="15 3 21 3 21 9" />
+                              <polyline points="9 21 3 21 3 15" />
+                              <line x1="21" y1="3" x2="14" y2="10" />
+                              <line x1="3" y1="21" x2="10" y2="14" />
+                            </svg>
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
-                  {instrumental ? (
-                    <div className="studio-instrumental-strip">
-                      INSTRUMENTAL ONLY — VOCAL SYNTHESIS MUTED
+                )}
+              </div>
+
+              {/* 2. PARAMETERS Section */}
+              <div className={`studio-card-section params ${activeSection === 'params' ? 'active' : ''}`}>
+                <div
+                  className="studio-card-header"
+                  onClick={() => setActiveSection('params')}
+                >
+                  <div className="studio-card-header-left">
+                    <span className="studio-card-icon">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#00ff41" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <line x1="4" y1="21" x2="4" y2="14" />
+                        <line x1="4" y1="10" x2="4" y2="3" />
+                        <line x1="12" y1="21" x2="12" y2="12" />
+                        <line x1="12" y1="8" x2="12" y2="3" />
+                        <line x1="20" y1="21" x2="20" y2="16" />
+                        <line x1="20" y1="12" x2="20" y2="3" />
+                        <line x1="1" y1="14" x2="7" y2="14" />
+                        <line x1="9" y1="8" x2="15" y2="8" />
+                        <line x1="17" y1="16" x2="23" y2="16" />
+                      </svg>
+                    </span>
+                    <span className="studio-card-title">GLOBAL PARAMETERS</span>
+                    <span className="studio-card-badge">{activeTags.length} TAGS</span>
+                  </div>
+                  <span className="studio-card-chevron">▲</span>
+                </div>
+
+                {activeSection === 'params' && (
+                  <div className="studio-card-body">
+                    {/* Tags Selection */}
+                    <div className="studio-field-group">
+                      <label className="studio-field-label">
+                        <span>STYLE TAGS</span>
+                        <span className="studio-field-optional">({activeTags.length}/5 SELECTED)</span>
+                      </label>
+                      <div className="studio-tags-container">
+                        {(options.data?.editing?.promptTags ?? []).map((rawTag) => {
+                          const t = rawTag.toUpperCase();
+                          const isSelected = activeTags.includes(t);
+                          return (
+                            <Badge
+                              key={t}
+                              clickable
+                              active={isSelected}
+                              variant={isSelected ? 'primary' : 'muted'}
+                              onClick={() => toggleTag(t)}
+                            >
+                              {t}
+                            </Badge>
+                          );
+                        })}
+                      </div>
                     </div>
-                  ) : (
-                    <div className="studio-lyrics-box-wrap">
-                      <textarea
-                        className="cyber-input-field studio-lyrics-box-textarea"
-                        placeholder="Enter custom lyrics or leave empty for auto-generated lyrics..."
-                        value={lyrics}
-                        onChange={(e) => setLyrics(e.target.value)}
-                      />
+
+                    {/* 2x2 Parameter Trigger Cards (Modals) */}
+                    <div className="studio-params-pills-grid">
                       <button
                         type="button"
-                        className={`studio-lyrics-box-expand-btn ${lyrics.trim() ? 'configured' : ''}`}
-                        onClick={handleOpenLyricsModal}
-                        title="Expand Structured Lyrics Canvas"
-                        aria-label="Expand Structured Lyrics Canvas"
+                        className={`studio-param-pill ${audioDurationSeconds ? 'configured' : ''}`}
+                        onClick={() => setActiveModal('duration')}
                       >
-                        <svg
-                          width="12"
-                          height="12"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2.2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <polyline points="15 3 21 3 21 9" />
-                          <polyline points="9 21 3 21 3 15" />
-                          <line x1="21" y1="3" x2="14" y2="10" />
-                          <line x1="3" y1="21" x2="10" y2="14" />
-                        </svg>
+                        <div className="studio-param-pill-header">
+                          <span className="studio-param-pill-label">DURATION</span>
+                          <span className="studio-param-pill-icon">⚙</span>
+                        </div>
+                        <div className="studio-param-pill-val">
+                          {audioDurationSeconds ? `${audioDurationSeconds}s` : '120s (DEFAULT)'}
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        className={`studio-param-pill ${bpm ? 'configured' : ''}`}
+                        onClick={() => setActiveModal('bpm')}
+                      >
+                        <div className="studio-param-pill-header">
+                          <span className="studio-param-pill-label">TEMPO (BPM)</span>
+                          <span className="studio-param-pill-icon">⚙</span>
+                        </div>
+                        <div className="studio-param-pill-val">
+                          {bpm ? `${bpm} BPM` : 'AUTO'}
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        className={`studio-param-pill ${keyScale ? 'configured' : ''}`}
+                        onClick={() => setActiveModal('key')}
+                      >
+                        <div className="studio-param-pill-header">
+                          <span className="studio-param-pill-label">KEY & SCALE</span>
+                          <span className="studio-param-pill-icon">⚙</span>
+                        </div>
+                        <div className="studio-param-pill-val">
+                          {keyScale || 'AUTO'}
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        className={`studio-param-pill ${useVoice && voiceName ? 'configured' : ''}`}
+                        onClick={() => setActiveModal('voice')}
+                      >
+                        <div className="studio-param-pill-header">
+                          <span className="studio-param-pill-label">VOICE</span>
+                          <span className="studio-param-pill-icon">⚙</span>
+                        </div>
+                        <div className="studio-param-pill-val">
+                          {useVoice && voiceName ? voiceName : 'DEFAULT'}
+                        </div>
                       </button>
                     </div>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* 2. PARAMETERS Section */}
-          <div className={`studio-card-section params ${activeSection === 'params' ? 'active' : ''}`}>
-            <div
-              className="studio-card-header"
-              onClick={() => setActiveSection('params')}
-            >
-              <div className="studio-card-header-left">
-                <span className="studio-card-icon">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#00ff41" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <line x1="4" y1="21" x2="4" y2="14" />
-                    <line x1="4" y1="10" x2="4" y2="3" />
-                    <line x1="12" y1="21" x2="12" y2="12" />
-                    <line x1="12" y1="8" x2="12" y2="3" />
-                    <line x1="20" y1="21" x2="20" y2="16" />
-                    <line x1="20" y1="12" x2="20" y2="3" />
-                    <line x1="1" y1="14" x2="7" y2="14" />
-                    <line x1="9" y1="8" x2="15" y2="8" />
-                    <line x1="17" y1="16" x2="23" y2="16" />
-                  </svg>
-                </span>
-                <span className="studio-card-title">GLOBAL PARAMETERS</span>
-                <span className="studio-card-badge">{activeTags.length} TAGS</span>
-              </div>
-              <span className="studio-card-chevron">▲</span>
-            </div>
-
-            {activeSection === 'params' && (
-              <div className="studio-card-body">
-                {/* Tags Selection */}
-                <div className="studio-field-group">
-                  <label className="studio-field-label">
-                    <span>STYLE TAGS</span>
-                    <span className="studio-field-optional">({activeTags.length}/5 SELECTED)</span>
-                  </label>
-                  <div className="studio-tags-container">
-                    {(options.data?.editing?.promptTags ?? []).map((rawTag) => {
-                      const t = rawTag.toUpperCase();
-                      const isSelected = activeTags.includes(t);
-                      return (
-                        <Badge
-                          key={t}
-                          clickable
-                          active={isSelected}
-                          variant={isSelected ? 'primary' : 'muted'}
-                          onClick={() => toggleTag(t)}
-                        >
-                          {t}
-                        </Badge>
-                      );
-                    })}
                   </div>
+                )}
+              </div>
+
+              {/* 3. FINANCIALS Section */}
+              <div className={`studio-card-section financials ${activeSection === 'financials' ? 'active' : ''}`}>
+                <div
+                  className="studio-card-header"
+                  onClick={() => setActiveSection('financials')}
+                >
+                  <div className="studio-card-header-left">
+                    <span className="studio-card-icon">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#ff00a0" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="12" cy="12" r="10" />
+                        <line x1="12" y1="8" x2="12" y2="12" />
+                        <line x1="12" y1="16" x2="12.01" y2="16" />
+                      </svg>
+                    </span>
+                    <span className="studio-card-title">FINANCIALS</span>
+                    <span className="studio-card-badge">RATES</span>
+                  </div>
+                  <span className="studio-card-chevron">▲</span>
                 </div>
 
-                {/* 2x2 Parameter Trigger Cards (Modals) */}
-                <div className="studio-params-pills-grid">
-                  <button
-                    type="button"
-                    className={`studio-param-pill ${audioDurationSeconds ? 'configured' : ''}`}
-                    onClick={() => setActiveModal('duration')}
-                  >
-                    <div className="studio-param-pill-header">
-                      <span className="studio-param-pill-label">DURATION</span>
-                      <span className="studio-param-pill-icon">⚙</span>
+                {activeSection === 'financials' && (
+                  <div className="studio-card-body">
+                    <div className="studio-pricing-grid">
+                      <div className="studio-pricing-input-wrap">
+                        <label className="studio-field-label">
+                          STREAM ($/MIN)
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={streamPrice.toString()}
+                          onChange={(e) => {
+                            const parsed = parseFloat(e.target.value);
+                            if (!isNaN(parsed) && parsed > 0) setStreamPrice(parsed);
+                          }}
+                          className="cyber-input-field"
+                        />
+                      </div>
+                      <div className="studio-pricing-input-wrap">
+                        <label className="studio-field-label">
+                          LICENSE ($)
+                        </label>
+                        <input
+                          type="number"
+                          step="1"
+                          value={licensePrice.toString()}
+                          onChange={(e) => {
+                            const parsed = parseFloat(e.target.value);
+                            if (!isNaN(parsed) && parsed > 0) setLicensePrice(parsed);
+                          }}
+                          className="cyber-input-field"
+                        />
+                      </div>
+                      <div className="studio-pricing-input-wrap">
+                        <label className="studio-field-label">
+                          LICENSES
+                        </label>
+                        <input
+                          type="number"
+                          step="1"
+                          min="1"
+                          value={licenses.toString()}
+                          onChange={(e) => {
+                            const parsed = parseInt(e.target.value, 10);
+                            if (!isNaN(parsed) && parsed >= 0) setLicenses(parsed);
+                          }}
+                          className="cyber-input-field"
+                        />
+                      </div>
                     </div>
-                    <div className="studio-param-pill-val">
-                      {audioDurationSeconds ? `${audioDurationSeconds}s` : '120s (DEFAULT)'}
-                    </div>
-                  </button>
-
-                  <button
-                    type="button"
-                    className={`studio-param-pill ${bpm ? 'configured' : ''}`}
-                    onClick={() => setActiveModal('bpm')}
-                  >
-                    <div className="studio-param-pill-header">
-                      <span className="studio-param-pill-label">TEMPO (BPM)</span>
-                      <span className="studio-param-pill-icon">⚙</span>
-                    </div>
-                    <div className="studio-param-pill-val">
-                      {bpm ? `${bpm} BPM` : 'AUTO'}
-                    </div>
-                  </button>
-
-                  <button
-                    type="button"
-                    className={`studio-param-pill ${keyScale ? 'configured' : ''}`}
-                    onClick={() => setActiveModal('key')}
-                  >
-                    <div className="studio-param-pill-header">
-                      <span className="studio-param-pill-label">KEY & SCALE</span>
-                      <span className="studio-param-pill-icon">⚙</span>
-                    </div>
-                    <div className="studio-param-pill-val">
-                      {keyScale || 'AUTO'}
-                    </div>
-                  </button>
-
-                  <button
-                    type="button"
-                    className={`studio-param-pill ${useVoice && voiceName ? 'configured' : ''}`}
-                    onClick={() => setActiveModal('voice')}
-                  >
-                    <div className="studio-param-pill-header">
-                      <span className="studio-param-pill-label">VOICE</span>
-                      <span className="studio-param-pill-icon">⚙</span>
-                    </div>
-                    <div className="studio-param-pill-val">
-                      {useVoice && voiceName ? voiceName : 'DEFAULT'}
-                    </div>
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* 3. FINANCIALS Section */}
-          <div className={`studio-card-section financials ${activeSection === 'financials' ? 'active' : ''}`}>
-            <div
-              className="studio-card-header"
-              onClick={() => setActiveSection('financials')}
-            >
-              <div className="studio-card-header-left">
-                <span className="studio-card-icon">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#ff00a0" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="12" cy="12" r="10" />
-                    <line x1="12" y1="8" x2="12" y2="12" />
-                    <line x1="12" y1="16" x2="12.01" y2="16" />
-                  </svg>
-                </span>
-                <span className="studio-card-title">FINANCIALS</span>
-                <span className="studio-card-badge">RATES</span>
-              </div>
-              <span className="studio-card-chevron">▲</span>
-            </div>
-
-            {activeSection === 'financials' && (
-              <div className="studio-card-body">
-                <div className="studio-pricing-grid">
-                  <div className="studio-pricing-input-wrap">
-                    <label className="studio-field-label">
-                      STREAM ($/MIN)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={streamPrice.toString()}
-                      onChange={(e) => {
-                        const parsed = parseFloat(e.target.value);
-                        if (!isNaN(parsed) && parsed > 0) setStreamPrice(parsed);
-                      }}
-                      className="cyber-input-field"
-                    />
                   </div>
-                  <div className="studio-pricing-input-wrap">
-                    <label className="studio-field-label">
-                      LICENSE ($)
-                    </label>
-                    <input
-                      type="number"
-                      step="1"
-                      value={licensePrice.toString()}
-                      onChange={(e) => {
-                        const parsed = parseFloat(e.target.value);
-                        if (!isNaN(parsed) && parsed > 0) setLicensePrice(parsed);
-                      }}
-                      className="cyber-input-field"
-                    />
-                  </div>
-                  <div className="studio-pricing-input-wrap">
-                    <label className="studio-field-label">
-                      LICENSES
-                    </label>
-                    <input
-                      type="number"
-                      step="1"
-                      min="1"
-                      value={licenses.toString()}
-                      onChange={(e) => {
-                        const parsed = parseInt(e.target.value, 10);
-                        if (!isNaN(parsed) && parsed >= 0) setLicenses(parsed);
-                      }}
-                      className="cyber-input-field"
-                    />
-                  </div>
-                </div>
+                )}
               </div>
-            )}
-          </div>
-        
             </>
           )}
         </div>
