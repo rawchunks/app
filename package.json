@@ -6,7 +6,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test:payments": "vitest run --config tests/payments/vitest.config.ts"
+    "test:payments": "vitest run --config tests/payments/vitest.config.ts",
+    "test:disclaimer": "vitest run tests/disclaimer-consent.test.ts tests/disclaimer-routing.test.ts"
   },
   "dependencies": {
     "@compose-market/sdk": "^0.8.37",
