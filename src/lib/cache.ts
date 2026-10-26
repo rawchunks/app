@@ -1,13 +1,90 @@
 import type { Song, Stem, Voice } from './schema';
 import type { Take, Commit, DAWState } from './daw/store';
+import type { CreditBalance } from './credits';
 
 // Cached addresses support display and project reads. Signing requires the live account.
 
 const LAST_ACCOUNT_KEY = "last_account";
+const PAYPAL_CONFIG_KEY = "rawchunks:paypal-config";
+
+export type FundingSource = 'usdc' | 'card' | 'promo';
+
+export interface CachedCreditsSnapshot {
+    balance: CreditBalance;
+    updatedAt: number;
+}
+
+export function readCachedCredits(address?: string | null): CachedCreditsSnapshot | null {
+    if (typeof window === "undefined" || !address) return null;
+    try {
+        const raw = localStorage.getItem(`credits:${address.toLowerCase()}`);
+        if (!raw) return null;
+        return JSON.parse(raw) as CachedCreditsSnapshot;
+    } catch {
+        return null;
+    }
+}
+
+export function writeCachedCredits(address: string, balance: CreditBalance): void {
+    if (typeof window === "undefined" || !address) return;
+    try {
+        localStorage.setItem(`credits:${address.toLowerCase()}`, JSON.stringify({
+            balance,
+            updatedAt: Date.now(),
+        } satisfies CachedCreditsSnapshot));
+        if (balance.paypalClientId) {
+            writeCachedPayPalClientId(balance.paypalClientId, balance.environment);
+        }
+    } catch { }
+}
+
+export function readPreferredFundingSource(owner?: string | null): FundingSource | null {
+    if (typeof window === "undefined" || !owner) return null;
+    try {
+        const val = localStorage.getItem(`rawchunks:funding-source:${owner.toLowerCase()}`);
+        return val === 'usdc' || val === 'card' || val === 'promo' ? val : null;
+    } catch {
+        return null;
+    }
+}
+
+export function writePreferredFundingSource(owner: string | null | undefined, source: FundingSource): void {
+    if (typeof window === "undefined" || !owner) return;
+    try {
+        localStorage.setItem(`rawchunks:funding-source:${owner.toLowerCase()}`, source);
+    } catch { }
+}
+
+export function readCachedPayPalClientId(): { paypalClientId: string; environment: 'sandbox' | 'live' } | null {
+    if (typeof window === "undefined") return null;
+    try {
+        const raw = localStorage.getItem(PAYPAL_CONFIG_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        if (typeof parsed?.paypalClientId === "string" && parsed.paypalClientId.length > 0) {
+            return {
+                paypalClientId: parsed.paypalClientId,
+                environment: parsed.environment === "live" ? "live" : "sandbox",
+            };
+        }
+        return null;
+    } catch {
+        return null;
+    }
+}
+
+export function writeCachedPayPalClientId(paypalClientId: string, environment: 'sandbox' | 'live' = 'sandbox'): void {
+    if (typeof window === "undefined" || !paypalClientId) return;
+    try {
+        localStorage.setItem(PAYPAL_CONFIG_KEY, JSON.stringify({ paypalClientId, environment }));
+    } catch { }
+}
 
 export interface CachedAccount {
     /** EVM smart account address (useActiveAccount().address). */
     address: string;
+    /** Underlying admin signer address (useAdminWallet().getAccount().address). */
+    adminAddress?: string;
     /** Solana Swig wallet PDA, if it had resolved in a previous session. */
     svmAddress?: string;
     /** Payment network selected when the cache was written. */
@@ -15,11 +92,13 @@ export interface CachedAccount {
     updatedAt: number;
     nickname?: string | null;
     avatar?: string | null;
+    bio?: string | null;
 }
 
 export interface CachedProfile {
     nickname?: string | null;
     avatar?: string | null;
+    bio?: string | null;
     updatedAt: number;
 }
 
