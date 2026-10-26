@@ -81,6 +81,22 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
   const [vibeImageName, setVibeImageName] = useState<string | null>(null);
   const [isDraggingVibeImage, setIsDraggingVibeImage] = useState(false);
   const vibeFileInputRef = useRef<HTMLInputElement>(null);
+  const [vibeAudio, setVibeAudio] = useState<string | null>(null);
+  const [vibeAudioDuration, setVibeAudioDuration] = useState<number>(0);
+  const [isRecordingVibeAudio, setIsRecordingVibeAudio] = useState(false);
+  const [vibeRecordingSeconds, setVibeRecordingSeconds] = useState(0);
+  const [isPlayingVibeAudio, setIsPlayingVibeAudio] = useState(false);
+  const vibeAudioRecRef = useRef<{
+    stream: MediaStream;
+    ctx: AudioContext;
+    processor: ScriptProcessorNode;
+    source: MediaStreamAudioSourceNode;
+    chunks: Float32Array[];
+    sampleRate: number;
+    timer: number;
+    startedAt: number;
+  } | null>(null);
+  const vibeAudioPlayerRef = useRef<HTMLAudioElement | null>(null);
   const vibeAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -242,7 +258,31 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
   const selectedVoice = voices.find(voice => voice.id === selectedVoiceId);
   const canUseVoice = voiceMode === 'reference' ? Boolean(voiceFile) : Boolean(selectedVoice && voiceReady(selectedVoice, voiceOutput));
   const voiceName = voiceMode === 'reference' ? voiceFile?.name : selectedVoice?.name;
-  useEffect(() => { scopeRef.current++; return () => { scopeRef.current++; streamRef.current?.abort(); vibeAbortRef.current?.abort(); store.setGenerating(false); }; }, [userAddr]);
+  useEffect(() => {
+    scopeRef.current++;
+    return () => {
+      scopeRef.current++;
+      streamRef.current?.abort();
+      vibeAbortRef.current?.abort();
+      if (vibeAudioRecRef.current) {
+        window.clearInterval(vibeAudioRecRef.current.timer);
+        try {
+          vibeAudioRecRef.current.processor.disconnect();
+          vibeAudioRecRef.current.source.disconnect();
+        } catch {
+          // ignore
+        }
+        vibeAudioRecRef.current.stream.getTracks().forEach((t) => t.stop());
+        void vibeAudioRecRef.current.ctx.close().catch(() => { });
+        vibeAudioRecRef.current = null;
+      }
+      if (vibeAudioPlayerRef.current) {
+        vibeAudioPlayerRef.current.pause();
+        vibeAudioPlayerRef.current = null;
+      }
+      store.setGenerating(false);
+    };
+  }, [userAddr]);
   useEffect(() => {
     uploadedVoice.current = null;
     setUploadedVoiceId(null);
@@ -372,7 +412,197 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
     ? prompt.trim().length >= 3
     : prompt.trim().length >= 3 || lyrics.trim().length >= 3;
 
-  const canSubmitVibe = prompt.trim().length >= 2 || Boolean(vibeImage);
+  const canSubmitVibe =
+    prompt.trim().length >= 2 || Boolean(vibeImage) || Boolean(vibeAudio) || isRecordingVibeAudio;
+
+  const encodeWav16kMonoDataUrl = (chunks: Float32Array[], sourceRate: number): { dataUrl: string; durationSec: number } => {
+    const totalLength = chunks.reduce((acc, c) => acc + c.length, 0);
+    const merged = new Float32Array(totalLength);
+    let offset = 0;
+    for (const c of chunks) {
+      merged.set(c, offset);
+      offset += c.length;
+    }
+
+    const targetRate = 16000;
+    const ratio = sourceRate / targetRate;
+    const outLength = Math.max(1, Math.round(totalLength / ratio));
+    const resampled = new Float32Array(outLength);
+    for (let i = 0; i < outLength; i++) {
+      const srcIdx = i * ratio;
+      const idx0 = Math.floor(srcIdx);
+      const idx1 = Math.min(totalLength - 1, idx0 + 1);
+      const frac = srcIdx - idx0;
+      resampled[i] = merged[idx0] * (1 - frac) + merged[idx1] * frac;
+    }
+
+    const buffer = new ArrayBuffer(44 + outLength * 2);
+    const view = new DataView(buffer);
+    const writeAscii = (pos: number, str: string) => {
+      for (let i = 0; i < str.length; i++) view.setUint8(pos + i, str.charCodeAt(i));
+    };
+
+    writeAscii(0, 'RIFF');
+    view.setUint32(4, 36 + outLength * 2, true);
+    writeAscii(8, 'WAVE');
+    writeAscii(12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true); // PCM
+    view.setUint16(22, 1, true); // Mono
+    view.setUint32(24, targetRate, true);
+    view.setUint32(28, targetRate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    writeAscii(36, 'data');
+    view.setUint32(40, outLength * 2, true);
+
+    for (let i = 0; i < outLength; i++) {
+      const s = Math.max(-1, Math.min(1, resampled[i]));
+      view.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    }
+
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    const chunkSize = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+    }
+    const base64 = btoa(binary);
+    return {
+      dataUrl: `data:audio/wav;base64,${base64}`,
+      durationSec: Math.max(1, Math.round(outLength / targetRate)),
+    };
+  };
+
+  const stopVibeAudioRecording = (): { dataUrl: string; durationSec: number } | null => {
+    const rec = vibeAudioRecRef.current;
+    if (!rec) {
+      setIsRecordingVibeAudio(false);
+      return null;
+    }
+    vibeAudioRecRef.current = null;
+    window.clearInterval(rec.timer);
+    try {
+      rec.processor.disconnect();
+      rec.source.disconnect();
+    } catch {
+      // ignore
+    }
+    rec.stream.getTracks().forEach((t) => t.stop());
+    void rec.ctx.close().catch(() => { });
+    setIsRecordingVibeAudio(false);
+
+    if (rec.chunks.length === 0) return null;
+    const encoded = encodeWav16kMonoDataUrl(rec.chunks, rec.sampleRate);
+    setVibeAudio(encoded.dataUrl);
+    setVibeAudioDuration(encoded.durationSec);
+    return encoded;
+  };
+
+  const startVibeAudioRecording = async () => {
+    if (isRecordingVibeAudio) {
+      stopVibeAudioRecording();
+      return;
+    }
+    if (vibeAudioPlayerRef.current) {
+      vibeAudioPlayerRef.current.pause();
+      vibeAudioPlayerRef.current = null;
+      setIsPlayingVibeAudio(false);
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: true,
+        },
+      });
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      const ctx: AudioContext = new AudioCtx();
+      const source = ctx.createMediaStreamSource(stream);
+      const processor = ctx.createScriptProcessor(4096, 1, 1);
+      const chunks: Float32Array[] = [];
+
+      processor.onaudioprocess = (ev) => {
+        const input = ev.inputBuffer.getChannelData(0);
+        chunks.push(new Float32Array(input));
+      };
+
+      source.connect(processor);
+      processor.connect(ctx.destination);
+
+      const startedAt = Date.now();
+      setVibeRecordingSeconds(0);
+      setIsRecordingVibeAudio(true);
+
+      const timer = window.setInterval(() => {
+        const elapsed = Math.floor((Date.now() - startedAt) / 1000);
+        setVibeRecordingSeconds(elapsed);
+        if (elapsed >= 30) {
+          stopVibeAudioRecording();
+        }
+      }, 250);
+
+      vibeAudioRecRef.current = {
+        stream,
+        ctx,
+        processor,
+        source,
+        chunks,
+        sampleRate: ctx.sampleRate || 44100,
+        timer,
+        startedAt,
+      };
+    } catch {
+      toast.error('Microphone access is required to record a hum or voice prompt');
+    }
+  };
+
+  const togglePlayVibeAudio = () => {
+    if (!vibeAudio) return;
+    if (isPlayingVibeAudio && vibeAudioPlayerRef.current) {
+      vibeAudioPlayerRef.current.pause();
+      vibeAudioPlayerRef.current = null;
+      setIsPlayingVibeAudio(false);
+      return;
+    }
+    const audioEl = new Audio(vibeAudio);
+    vibeAudioPlayerRef.current = audioEl;
+    setIsPlayingVibeAudio(true);
+    audioEl.onended = () => {
+      setIsPlayingVibeAudio(false);
+      vibeAudioPlayerRef.current = null;
+    };
+    audioEl.onerror = () => {
+      setIsPlayingVibeAudio(false);
+      vibeAudioPlayerRef.current = null;
+    };
+    void audioEl.play().catch(() => {
+      setIsPlayingVibeAudio(false);
+      vibeAudioPlayerRef.current = null;
+    });
+  };
+
+  const clearVibeAudio = () => {
+    if (isRecordingVibeAudio) {
+      stopVibeAudioRecording();
+    }
+    if (vibeAudioPlayerRef.current) {
+      vibeAudioPlayerRef.current.pause();
+      vibeAudioPlayerRef.current = null;
+    }
+    setIsPlayingVibeAudio(false);
+    setVibeAudio(null);
+    setVibeAudioDuration(0);
+    setVibeRecordingSeconds(0);
+  };
+
+  const formatShortSec = (sec: number) => {
+    const s = Math.max(0, Math.floor(sec));
+    const m = Math.floor(s / 60);
+    const rem = s % 60;
+    return `${m}:${rem < 10 ? '0' : ''}${rem}`;
+  };
 
   const attachVibeImageFile = (file: File) => {
     if (!file.type.startsWith('image/')) {
@@ -436,6 +666,14 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
     const trimmedPrompt = prompt.trim();
     if (isVibing || state.isGenerating || !canSubmitVibe) return;
 
+    let activeAudio = vibeAudio;
+    if (isRecordingVibeAudio) {
+      const finalized = stopVibeAudioRecording();
+      activeAudio = finalized?.dataUrl || activeAudio;
+    }
+
+    if (trimmedPrompt.length < 2 && !vibeImage && !activeAudio) return;
+
     if (!userAddr) {
       toast.error('Connect wallet required to vibe');
       return;
@@ -457,7 +695,15 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
     vibeAbortRef.current = controller;
 
     setIsVibing(true);
-    setVibeStep(vibeImage ? 'Translating image into song prompt...' : 'Starting Songwriter Agent...');
+    setVibeStep(
+      vibeImage && activeAudio
+        ? 'Analyzing image and voice/hum vibe...'
+        : activeAudio
+          ? 'Analyzing voice/hum rhythm, mood, and words...'
+          : vibeImage
+            ? 'Translating image into song prompt...'
+            : 'Starting Songwriter Agent...'
+    );
     setStudioFlow('control');
     setActiveSection('details');
 
@@ -470,6 +716,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
         body: JSON.stringify({
           prompt: trimmedPrompt || undefined,
           image: vibeImage || undefined,
+          audio: activeAudio || undefined,
           modelVariant: model === 'sft' ? 'sft' : 'turbo',
         }),
       });
@@ -886,106 +1133,181 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                   <label className="studio-field-label">
                     <span>PROMPT</span>
                     <span className="studio-field-optional">
-                      {vibeImage ? 'OPTIONAL' : 'REQUIRED (OR IMAGE)'}
+                      {vibeImage || vibeAudio || isRecordingVibeAudio
+                        ? 'OPTIONAL'
+                        : 'REQUIRED (OR IMAGE / HUM)'}
                     </span>
                   </label>
                   <textarea
                     className="cyber-input-field studio-vibe-textarea"
-                    placeholder="Describe your song idea, mood, story, or sonic vibe — or attach an image below..."
+                    placeholder="Describe your song idea/vibe/story — or attach an image or record a hum/voice below..."
                     value={prompt}
                     onChange={(e) => setPrompt(e.target.value)}
                   />
                 </div>
 
-                <div className="studio-field-group studio-vibe-image-group">
-                  <label className="studio-field-label">
-                    <span>IMAGE PROMPT</span>
-                    <span className="studio-field-optional">
-                      {prompt.trim().length >= 2 ? 'OPTIONAL' : 'OR TEXT ABOVE'}
-                    </span>
-                  </label>
-                  <input
-                    type="file"
-                    ref={vibeFileInputRef}
-                    accept="image/*"
-                    className="hidden-file-input"
-                    onChange={handleVibeImageChange}
-                  />
-                  {vibeImage ? (
-                    <div className="studio-vibe-image-card">
-                      <div
-                        className="studio-vibe-image-info"
-                        onClick={() => vibeFileInputRef.current?.click()}
-                      >
-                        <img
-                          src={vibeImage}
-                          alt="Visual vibe prompt"
-                          className="studio-vibe-image-thumb"
-                        />
-                        <div className="studio-vibe-image-meta">
-                          <span className="studio-vibe-image-name">
-                            {vibeImageName || 'IMAGE PROMPT'}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="studio-vibe-image-actions">
-                        <button
-                          type="button"
-                          className="daw-ui-btn"
+                <div className="studio-vibe-media-grid">
+                  <div className="studio-field-group studio-vibe-image-group">
+                    <label className="studio-field-label">
+                      <span>IMAGE PROMPT</span>
+                      <span className="studio-field-optional">OPTIONAL</span>
+                    </label>
+                    <input
+                      type="file"
+                      ref={vibeFileInputRef}
+                      accept="image/*"
+                      className="hidden-file-input"
+                      onChange={handleVibeImageChange}
+                    />
+                    {vibeImage ? (
+                      <div className="studio-vibe-image-card">
+                        <div
+                          className="studio-vibe-image-info"
                           onClick={() => vibeFileInputRef.current?.click()}
                         >
-                          SWAP
-                        </button>
-                        <button
-                          type="button"
-                          className="daw-ui-btn studio-vibe-image-clear"
-                          onClick={() => {
-                            setVibeImage(null);
-                            setVibeImageName(null);
-                          }}
-                          title="Remove image prompt"
-                          aria-label="Remove image prompt"
-                        >
-                          ✕
-                        </button>
+                          <img
+                            src={vibeImage}
+                            alt="Visual vibe prompt"
+                            className="studio-vibe-image-thumb"
+                          />
+                          <div className="studio-vibe-image-meta">
+                            <span className="studio-vibe-image-name">
+                              {vibeImageName || 'IMAGE'}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="studio-vibe-image-actions">
+                          <button
+                            type="button"
+                            className="daw-ui-btn studio-vibe-image-clear"
+                            onClick={() => {
+                              setVibeImage(null);
+                              setVibeImageName(null);
+                            }}
+                            title="Remove image prompt"
+                            aria-label="Remove image prompt"
+                          >
+                            ✕
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  ) : (
-                    <div
-                      className={`studio-vibe-dropzone ${isDraggingVibeImage ? 'drag-over' : ''}`}
-                      onClick={() => vibeFileInputRef.current?.click()}
-                      onDragOver={(e) => {
-                        e.preventDefault();
-                        setIsDraggingVibeImage(true);
-                      }}
-                      onDragLeave={() => setIsDraggingVibeImage(false)}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        setIsDraggingVibeImage(false);
-                        const file = e.dataTransfer.files?.[0];
-                        if (file) void attachVibeImageFile(file);
-                      }}
-                    >
-                      <svg
-                        width="16"
-                        height="16"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        className="studio-vibe-dropzone-icon"
+                    ) : (
+                      <div
+                        className={`studio-vibe-dropzone ${isDraggingVibeImage ? 'drag-over' : ''}`}
+                        onClick={() => vibeFileInputRef.current?.click()}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          setIsDraggingVibeImage(true);
+                        }}
+                        onDragLeave={() => setIsDraggingVibeImage(false)}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          setIsDraggingVibeImage(false);
+                          const file = e.dataTransfer.files?.[0];
+                          if (file) void attachVibeImageFile(file);
+                        }}
                       >
-                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                        <circle cx="8.5" cy="8.5" r="1.5" />
-                        <polyline points="21 15 16 10 5 21" />
-                      </svg>
-                      <span className="studio-vibe-dropzone-text">
-                        DROP OR UPLOAD IMAGE PROMPT
-                      </span>
-                    </div>
-                  )}
+                        <svg
+                          width="15"
+                          height="15"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          className="studio-vibe-dropzone-icon"
+                        >
+                          <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                          <circle cx="8.5" cy="8.5" r="1.5" />
+                          <polyline points="21 15 16 10 5 21" />
+                        </svg>
+                        <span className="studio-vibe-dropzone-text">
+                          UPLOAD IMAGE
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="studio-field-group studio-vibe-image-group">
+                    <label className="studio-field-label">
+                      <span>HUM / VOICE</span>
+                      <span className="studio-field-optional">OPTIONAL</span>
+                    </label>
+                    {isRecordingVibeAudio ? (
+                      <button
+                        type="button"
+                        className="studio-vibe-dropzone studio-vibe-audio-recording"
+                        onClick={() => stopVibeAudioRecording()}
+                      >
+                        <span className="studio-vibe-rec-dot" />
+                        <span className="studio-vibe-dropzone-text">
+                          STOP · {formatShortSec(vibeRecordingSeconds)}
+                        </span>
+                      </button>
+                    ) : vibeAudio ? (
+                      <div className="studio-vibe-image-card studio-vibe-audio-card">
+                        <div
+                          className="studio-vibe-image-info"
+                          onClick={togglePlayVibeAudio}
+                          title={isPlayingVibeAudio ? 'Pause preview' : 'Play preview'}
+                        >
+                          <span className="studio-vibe-audio-play-badge">
+                            {isPlayingVibeAudio ? '❚❚' : '▶'}
+                          </span>
+                          <div className="studio-vibe-image-meta">
+                            <span className="studio-vibe-image-name">
+                              HUM · {formatShortSec(vibeAudioDuration)}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="studio-vibe-image-actions">
+                          <button
+                            type="button"
+                            className="daw-ui-btn"
+                            onClick={() => void startVibeAudioRecording()}
+                            title="Re-record hum or voice"
+                          >
+                            MIC
+                          </button>
+                          <button
+                            type="button"
+                            className="daw-ui-btn studio-vibe-image-clear"
+                            onClick={clearVibeAudio}
+                            title="Remove voice/hum prompt"
+                            aria-label="Remove voice/hum prompt"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        className="studio-vibe-dropzone studio-vibe-audio-trigger"
+                        onClick={() => void startVibeAudioRecording()}
+                      >
+                        <svg
+                          width="15"
+                          height="15"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          className="studio-vibe-dropzone-icon"
+                        >
+                          <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                          <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                          <line x1="12" y1="19" x2="12" y2="22" />
+                        </svg>
+                        <span className="studio-vibe-dropzone-text">
+                          RECORD HUM / VOICE
+                        </span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
