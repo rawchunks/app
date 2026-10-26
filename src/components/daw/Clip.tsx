@@ -441,7 +441,8 @@ export const Clip: React.FC<ClipProps> = ({
       let best: GranularPeakAnchor | null = null;
       let bestDist = Infinity;
       for (const a of anchors) {
-        const effPos = Math.max(0, Math.min(1, a.position + (a.timeShift ?? 0) * 0.35));
+        const r = Math.max(0.015, Math.min(0.35, a.radius || 0.075));
+        const effPos = Math.max(0, Math.min(1, a.position + (a.timeShift ?? 0) * r * 0.45));
         const d = Math.abs(effPos - xRatio);
         if (d < bestDist) {
           bestDist = d;

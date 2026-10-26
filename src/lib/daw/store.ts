@@ -2057,21 +2057,44 @@ export const useDawStore = create<DAWState>((set, get) => ({
           anchors: patch.anchors ? [...patch.anchors].sort((a, b) => a.position - b.position) : base.anchors,
         };
         if (next.mode === 'granular' && patch.anchors) {
-          const prevMap = new Map((base.anchors ?? []).map((a) => [a.id, a]));
-          let minNorm = 1;
-          let maxNorm = 0;
-          for (const a of next.anchors ?? []) {
-            const p = prevMap.get(a.id);
-            if (!p || p.position !== a.position || p.gainDb !== a.gainDb || p.timeShift !== a.timeShift || p.bend !== a.bend || p.radius !== a.radius || p.smash !== a.smash || p.smooth !== a.smooth || p.sharpen !== a.sharpen) {
-              const r = Math.max(0.04, a.radius ?? 0.075, p?.radius ?? 0.075) * 1.65;
-              const lo = Math.min(a.position, p?.position ?? a.position) - r;
-              const hi = Math.max(a.position, p?.position ?? a.position) + r;
-              if (lo < minNorm) minNorm = lo;
-              if (hi > maxNorm) maxNorm = hi;
+          const prevAnchors = base.anchors ?? [];
+          const nextAnchors = next.anchors ?? [];
+          if (nextAnchors.length === 0 && prevAnchors.length > 0) {
+            dirtyRange = undefined;
+          } else {
+            const prevMap = new Map(prevAnchors.map((a) => [a.id, a]));
+            const nextMap = new Map(nextAnchors.map((a) => [a.id, a]));
+            let minNorm = 1;
+            let maxNorm = 0;
+            const expandForPair = (a: (typeof nextAnchors)[number], other?: (typeof nextAnchors)[number]) => {
+              if (
+                !other ||
+                other.position !== a.position ||
+                other.gainDb !== a.gainDb ||
+                other.timeShift !== a.timeShift ||
+                other.bend !== a.bend ||
+                other.radius !== a.radius ||
+                other.smash !== a.smash ||
+                other.smooth !== a.smooth ||
+                other.sharpen !== a.sharpen
+              ) {
+                const baseR = Math.max(0.04, a.radius ?? 0.075, other?.radius ?? 0.075);
+                const maxBend = Math.max(Math.abs(a.bend || 0), Math.abs(other?.bend || 0));
+                const maxShift = Math.max(Math.abs(a.timeShift || 0), Math.abs(other?.timeShift || 0));
+                const r = baseR * (1 + maxBend * 0.7 + maxShift * 0.5) * 1.65;
+                const lo = Math.min(a.position, other?.position ?? a.position) - r;
+                const hi = Math.max(a.position, other?.position ?? a.position) + r;
+                if (lo < minNorm) minNorm = lo;
+                if (hi > maxNorm) maxNorm = hi;
+              }
+            };
+            for (const a of nextAnchors) expandForPair(a, prevMap.get(a.id));
+            for (const p of prevAnchors) {
+              if (!nextMap.has(p.id)) expandForPair(p, undefined);
             }
-          }
-          if (maxNorm > minNorm) {
-            dirtyRange = [Math.max(0, minNorm), Math.min(1, maxNorm)];
+            if (maxNorm > minNorm) {
+              dirtyRange = [Math.max(0, minNorm), Math.min(1, maxNorm)];
+            }
           }
         }
         return {
@@ -2101,21 +2124,44 @@ export const useDawStore = create<DAWState>((set, get) => ({
             anchors: patch.anchors ? [...patch.anchors].sort((a, b) => a.position - b.position) : base.anchors,
           };
           if (next.mode === 'granular' && patch.anchors) {
-            const prevMap = new Map((base.anchors ?? []).map((a) => [a.id, a]));
-            let minNorm = 1;
-            let maxNorm = 0;
-            for (const a of next.anchors ?? []) {
-              const p = prevMap.get(a.id);
-              if (!p || p.position !== a.position || p.gainDb !== a.gainDb || p.timeShift !== a.timeShift || p.bend !== a.bend || p.radius !== a.radius || p.smash !== a.smash || p.smooth !== a.smooth || p.sharpen !== a.sharpen) {
-                const r = Math.max(0.04, a.radius ?? 0.075, p?.radius ?? 0.075) * 1.65;
-                const lo = Math.min(a.position, p?.position ?? a.position) - r;
-                const hi = Math.max(a.position, p?.position ?? a.position) + r;
-                if (lo < minNorm) minNorm = lo;
-                if (hi > maxNorm) maxNorm = hi;
+            const prevAnchors = base.anchors ?? [];
+            const nextAnchors = next.anchors ?? [];
+            if (nextAnchors.length === 0 && prevAnchors.length > 0) {
+              dirtyRange = undefined;
+            } else {
+              const prevMap = new Map(prevAnchors.map((a) => [a.id, a]));
+              const nextMap = new Map(nextAnchors.map((a) => [a.id, a]));
+              let minNorm = 1;
+              let maxNorm = 0;
+              const expandForPair = (a: (typeof nextAnchors)[number], other?: (typeof nextAnchors)[number]) => {
+                if (
+                  !other ||
+                  other.position !== a.position ||
+                  other.gainDb !== a.gainDb ||
+                  other.timeShift !== a.timeShift ||
+                  other.bend !== a.bend ||
+                  other.radius !== a.radius ||
+                  other.smash !== a.smash ||
+                  other.smooth !== a.smooth ||
+                  other.sharpen !== a.sharpen
+                ) {
+                  const baseR = Math.max(0.04, a.radius ?? 0.075, other?.radius ?? 0.075);
+                  const maxBend = Math.max(Math.abs(a.bend || 0), Math.abs(other?.bend || 0));
+                  const maxShift = Math.max(Math.abs(a.timeShift || 0), Math.abs(other?.timeShift || 0));
+                  const r = baseR * (1 + maxBend * 0.7 + maxShift * 0.5) * 1.65;
+                  const lo = Math.min(a.position, other?.position ?? a.position) - r;
+                  const hi = Math.max(a.position, other?.position ?? a.position) + r;
+                  if (lo < minNorm) minNorm = lo;
+                  if (hi > maxNorm) maxNorm = hi;
+                }
+              };
+              for (const a of nextAnchors) expandForPair(a, prevMap.get(a.id));
+              for (const p of prevAnchors) {
+                if (!nextMap.has(p.id)) expandForPair(p, undefined);
               }
-            }
-            if (maxNorm > minNorm) {
-              dirtyRange = [Math.max(0, minNorm), Math.min(1, maxNorm)];
+              if (maxNorm > minNorm) {
+                dirtyRange = [Math.max(0, minNorm), Math.min(1, maxNorm)];
+              }
             }
           }
           updatedSculpt = next;

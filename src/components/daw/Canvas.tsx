@@ -3,14 +3,63 @@ import { useDawStore, type LyricsAlignment, type AlignedLine, type AlignedWord }
 import { dawEngine } from '../../lib/daw/engine';
 import {
   DEFAULT_WAVE_SCULPT,
+  composeWaveSculpts,
+  getTrackOwnSculpt,
+  isIdentityWaveSculpt,
   mapPlayheadTimeToSourceTime,
   mapSourceTimeToPlayheadTime,
+  type WaveSculptState,
 } from '../../lib/daw/peaks';
 import { CheckCircle2, Check, Pencil, Loader2, X } from 'lucide-react';
 import { Tooltip } from './Tooltip';
 import { Languages } from '../languages';
 
 const SECTION_TAGS = ['[Intro]', '[Verse]', '[Pre-Chorus]', '[Chorus]', '[Bridge]', '[Hook]', '[Outro]'];
+
+function isBracketOnlyLine(text: string): boolean {
+  return /^\s*(?:\[[^\]]*\]\s*)+$/.test(text);
+}
+
+function resolveEffectiveLyricsSculpt(tracks: ReturnType<typeof useDawStore.getState>['tracks']): {
+  sculpt: WaveSculptState;
+  clipStart: number;
+  clipDuration: number;
+} {
+  const masterTrack = tracks.find((t) => t.id === 'master');
+  const vocalTrack = tracks.find(
+    (t) =>
+      ['vocals', 'backing_vocals'].includes((t.stemType || t.name || '').toLowerCase()) &&
+      t.clips.length > 0,
+  );
+  const primaryTrack = vocalTrack || masterTrack || tracks[0];
+  const masterSculpt = getTrackOwnSculpt(masterTrack);
+  const vocalSculpt = getTrackOwnSculpt(vocalTrack);
+  let effectiveSculpt = composeWaveSculpts(masterSculpt, vocalSculpt);
+
+  if (isIdentityWaveSculpt(effectiveSculpt)) {
+    const anySculptedTrack = tracks.find((t) => {
+      if (t.muted || t.mixer?.muted) return false;
+      const own = getTrackOwnSculpt(t);
+      return Boolean(own && !isIdentityWaveSculpt(own));
+    });
+    const fallbackOwn = getTrackOwnSculpt(anySculptedTrack);
+    if (fallbackOwn) {
+      effectiveSculpt = fallbackOwn;
+    }
+  }
+
+  const clipStart = primaryTrack?.clips[0]?.startTime ?? masterTrack?.clips[0]?.startTime ?? 0;
+  const clipDuration =
+    masterTrack?.clips[0]?.duration ||
+    primaryTrack?.clips[0]?.duration ||
+    0;
+
+  return {
+    sculpt: effectiveSculpt || DEFAULT_WAVE_SCULPT,
+    clipStart,
+    clipDuration,
+  };
+}
 
 function formatSyncTimestamp(sec: number | null | undefined): string {
   const safe = Math.max(0, typeof sec === 'number' && Number.isFinite(sec) ? sec : 0);
@@ -51,92 +100,44 @@ function sanitizeAlignedLineWords(rawWords: AlignedWord[]): AlignedWord[] {
   return words;
 }
 
-function splitWordsIntoAlignedPhrases(rawWords: AlignedWord[]): AlignedWord[][] {
-  const words = sanitizeAlignedLineWords(rawWords);
-  if (words.length === 0) return [];
-  const chunks: AlignedWord[][] = [];
-  let current: AlignedWord[] = [];
-
-  for (let i = 0; i < words.length; i++) {
-    const w = words[i];
-    const next = words[i + 1] ?? null;
-    const next2 = words[i + 2] ?? null;
-    current.push(w);
-
-    if (!next) {
-      chunks.push(sanitizeAlignedLineWords(current));
-      current = [];
-      break;
-    }
-
-    const pauseAfter = next.start - w.end;
-    const wordDur = w.end - w.start;
-    const endsSentence = /[.!?…。！？]['"’)\]]*$/.test(w.text);
-    const endsClause = /[,;:—–،、-]$/.test(w.text);
-
-    const pauseAfterNext = next2 ? next2.start - next.end : Infinity;
-    const nextEndsPhrase =
-      /[.!?…。！？]['"’)\]]*$/.test(next.text) || pauseAfterNext >= 0.55;
-    const pauseAfterNext2 = words[i + 3] ? words[i + 3].start - (next2?.end ?? 0) : Infinity;
-    const next2EndsPhrase =
-      next2 !== null &&
-      !nextEndsPhrase &&
-      (/[.!?…。！？]['"’)\]]*$/.test(next2.text) || pauseAfterNext2 >= 0.55);
-
-    const shouldFlush =
-      (endsSentence && (current.length >= 2 || pauseAfter >= 0.35)) ||
-      pauseAfter >= 0.55 ||
-      (wordDur >= 1.8 && current.length >= 2 && !nextEndsPhrase) ||
-      (endsClause && current.length >= 4 && !nextEndsPhrase && !next2EndsPhrase) ||
-      (current.length >= 8 && !nextEndsPhrase && !next2EndsPhrase && (pauseAfter >= 0.14 || current.length >= 10));
-
-    if (shouldFlush) {
-      chunks.push(sanitizeAlignedLineWords(current));
-      current = [];
-    }
-  }
-
-  if (current.length > 0) {
-    chunks.push(sanitizeAlignedLineWords(current));
-  }
-
-  return chunks;
-}
-
 function normalizeAlignmentLines(alignment: LyricsAlignment): LyricsAlignment {
   const normalizedLines: AlignedLine[] = [];
 
   for (const line of alignment.lines) {
-    if (line.isTag || !line.words || line.words.length === 0) {
+    const isTag = Boolean(line.isTag || isBracketOnlyLine(line.text));
+    if (isTag || !line.words || line.words.length === 0) {
       normalizedLines.push({
         ...line,
+        isTag,
         index: normalizedLines.length,
       });
       continue;
     }
 
-    const phraseChunks = splitWordsIntoAlignedPhrases(line.words);
-    if (phraseChunks.length === 1) {
-      const chunk = phraseChunks[0];
-      normalizedLines.push({
-        index: normalizedLines.length,
-        text: line.text,
-        isTag: false,
-        start: chunk[0].start,
-        end: chunk[chunk.length - 1].end,
-        words: chunk,
-      });
-    } else {
-      for (const chunk of phraseChunks) {
-        normalizedLines.push({
-          index: normalizedLines.length,
-          text: chunk.map((w) => w.text).join(' '),
-          isTag: false,
-          start: chunk[0].start,
-          end: chunk[chunk.length - 1].end,
-          words: chunk,
-        });
-      }
+    const cleanWords = sanitizeAlignedLineWords(line.words);
+    normalizedLines.push({
+      index: normalizedLines.length,
+      text: line.text,
+      isTag: false,
+      start: cleanWords[0]?.start ?? line.start,
+      end: cleanWords[cleanWords.length - 1]?.end ?? line.end,
+      words: cleanWords,
+    });
+  }
+
+  for (let i = 0; i < normalizedLines.length; i++) {
+    const line = normalizedLines[i];
+    if (!line.isTag || line.start !== null) continue;
+    const nextTimed = normalizedLines.slice(i + 1).find((l) => !l.isTag && l.start !== null);
+    const prevTimed = [...normalizedLines.slice(0, i)].reverse().find((l) => !l.isTag && l.end !== null);
+    if (nextTimed && nextTimed.start !== null) {
+      const prevEnd = prevTimed?.end ?? 0;
+      const tagStart = Math.max(prevEnd, Math.max(0, nextTimed.start - 0.25));
+      line.start = Number(tagStart.toFixed(3));
+      line.end = Number(nextTimed.start.toFixed(3));
+    } else if (prevTimed && prevTimed.end !== null) {
+      line.start = prevTimed.end;
+      line.end = prevTimed.end;
     }
   }
 
@@ -177,20 +178,11 @@ const LyricsHighlightedCanvas: React.FC<LyricsHighlightedCanvasProps> = ({
 
   const totalTimelineDuration = duration > 0 ? duration : maxAlignedEnd;
 
-  const vocalTrack = useMemo(
-    () =>
-      tracks.find(
-        (t) =>
-          ['vocals', 'backing_vocals'].includes((t.stemType || t.name || '').toLowerCase()) &&
-          t.clips.length > 0,
-      ) ||
-      tracks.find((t) => t.id === 'master') ||
-      tracks[0],
+  const { sculpt: activeSculpt, clipStart, clipDuration: rawClipDuration } = useMemo(
+    () => resolveEffectiveLyricsSculpt(tracks),
     [tracks],
   );
-  const activeSculpt = vocalTrack?.sculpt || DEFAULT_WAVE_SCULPT;
-  const clipStart = vocalTrack?.clips[0]?.startTime ?? 0;
-  const clipDuration = vocalTrack?.clips[0]?.duration || totalTimelineDuration || 60;
+  const clipDuration = totalTimelineDuration || rawClipDuration || 60;
   const sourcePlayhead = useMemo(
     () => mapPlayheadTimeToSourceTime(playhead, clipStart, clipDuration, activeSculpt),
     [playhead, clipStart, clipDuration, activeSculpt],
@@ -400,13 +392,15 @@ const LyricsHighlightedCanvas: React.FC<LyricsHighlightedCanvasProps> = ({
                   </span>
                 )}
               </div>
-              <span
-                className="toolbox-lyrics-sync-timestamp"
-                onClick={() => handleSeek(line.start)}
-                title={`Seek playhead to ${formatSyncTimestamp(line.start !== null ? mapSourceTimeToPlayheadTime(line.start, clipStart, clipDuration, activeSculpt) : null)}`}
-              >
-                {formatSyncTimestamp(line.start !== null ? mapSourceTimeToPlayheadTime(line.start, clipStart, clipDuration, activeSculpt) : null)}
-              </span>
+              {line.start !== null && (
+                <span
+                  className="toolbox-lyrics-sync-timestamp"
+                  onClick={() => handleSeek(line.start)}
+                  title={`Seek playhead to ${formatSyncTimestamp(mapSourceTimeToPlayheadTime(line.start, clipStart, clipDuration, activeSculpt))}`}
+                >
+                  {formatSyncTimestamp(mapSourceTimeToPlayheadTime(line.start, clipStart, clipDuration, activeSculpt))}
+                </span>
+              )}
             </div>
           );
         })}
@@ -471,7 +465,7 @@ export const Canvas: React.FC<CanvasProps> = ({
   const isLyricsDirty = useMemo(() => {
     if (!lyricsAlignment?.lines || lyricsAlignment.lines.length === 0) return false;
     const alignedText = lyricsAlignment.lines
-      .filter((l) => !l.isTag)
+      .filter((l) => !l.isTag && !isBracketOnlyLine(l.text))
       .map((l) => l.text.trim())
       .filter(Boolean)
       .join(' ')
@@ -480,7 +474,7 @@ export const Canvas: React.FC<CanvasProps> = ({
     const currentNonTagText = lyrics
       .split(/\r?\n/)
       .map((l) => l.trim())
-      .filter((l) => Boolean(l) && !/^\[[^\]]+\]$/.test(l))
+      .filter((l) => Boolean(l) && !isBracketOnlyLine(l))
       .join(' ')
       .replace(/\s+/g, ' ')
       .trim();
@@ -493,13 +487,17 @@ export const Canvas: React.FC<CanvasProps> = ({
         ? normalizeAlignmentLines(lyricsAlignment)
         : null;
 
+    if (!baseNorm || !baseNorm.lines.some((l) => typeof l.start === 'number')) {
+      return null;
+    }
+
     const rawLines = lyrics
       .split(/\r?\n/)
       .map((l) => l.trim())
       .filter(Boolean);
 
-    if (baseNorm && !isLyricsDirty) {
-      const hasCustomTags = rawLines.some((l) => /^\[[^\]]+\]$/.test(l));
+    if (!isLyricsDirty) {
+      const hasCustomTags = rawLines.some((l) => isBracketOnlyLine(l));
       const baseHasTags = baseNorm.lines.some((l) => l.isTag);
       if (!hasCustomTags || baseHasTags) {
         return baseNorm;
@@ -510,12 +508,12 @@ export const Canvas: React.FC<CanvasProps> = ({
       return baseNorm;
     }
 
-    const baseSungLines = baseNorm ? baseNorm.lines.filter((l) => !l.isTag) : [];
-    const totalRawSung = Math.max(1, rawLines.filter((l) => !/^\[[^\]]+\]$/.test(l)).length);
+    const baseSungLines = baseNorm.lines.filter((l) => !l.isTag);
+    const totalRawSung = Math.max(1, rawLines.filter((l) => !isBracketOnlyLine(l)).length);
     let sungCounter = 0;
 
     const mergedLines: AlignedLine[] = rawLines.map((lineText, idx) => {
-      if (/^\[[^\]]+\]$/.test(lineText)) {
+      if (isBracketOnlyLine(lineText)) {
         return {
           index: idx,
           text: lineText,
@@ -544,9 +542,25 @@ export const Canvas: React.FC<CanvasProps> = ({
       };
     });
 
+    for (let i = 0; i < mergedLines.length; i++) {
+      const line = mergedLines[i];
+      if (!line.isTag || line.start !== null) continue;
+      const nextTimed = mergedLines.slice(i + 1).find((l) => !l.isTag && l.start !== null);
+      const prevTimed = [...mergedLines.slice(0, i)].reverse().find((l) => !l.isTag && l.end !== null);
+      if (nextTimed && nextTimed.start !== null) {
+        const prevEnd = prevTimed?.end ?? 0;
+        const tagStart = Math.max(prevEnd, Math.max(0, nextTimed.start - 0.25));
+        line.start = Number(tagStart.toFixed(3));
+        line.end = Number(nextTimed.start.toFixed(3));
+      } else if (prevTimed && prevTimed.end !== null) {
+        line.start = prevTimed.end;
+        line.end = prevTimed.end;
+      }
+    }
+
     return {
-      source: baseNorm?.source ?? 'scribe_v2',
-      updatedAt: baseNorm?.updatedAt ?? new Date().toISOString(),
+      source: baseNorm.source ?? 'scribe_v2',
+      updatedAt: baseNorm.updatedAt ?? new Date().toISOString(),
       lines: mergedLines,
       words: mergedLines.flatMap((l) => l.words),
     };
@@ -644,14 +658,10 @@ export const Canvas: React.FC<CanvasProps> = ({
     const alignLines = activeAlign?.lines ?? [];
 
     const storeState = useDawStore.getState();
-    const vocalOrMaster =
-      storeState.tracks.find((t) => (t.stemType || t.name || '').toLowerCase() === 'vocals' && !t.muted) ||
-      storeState.tracks.find((t) => t.id === 'master') ||
-      storeState.tracks[0];
-    const activeClip = vocalOrMaster?.clips?.[0];
-    const activeSculpt = activeClip?.sculpt || vocalOrMaster?.sculpt;
-    const clipStart = activeClip?.startTime || 0;
-    const clipDuration = activeClip?.duration || storeState.duration || 0;
+    const { sculpt: activeSculpt, clipStart, clipDuration: rawClipDuration } = resolveEffectiveLyricsSculpt(
+      storeState.tracks,
+    );
+    const clipDuration = storeState.duration || rawClipDuration || 0;
 
     if (typeof preferredLineIdx === 'number' && preferredLineIdx >= 0) {
       targetStartIdx = preferredLineIdx;
@@ -735,15 +745,10 @@ export const Canvas: React.FC<CanvasProps> = ({
   const isShowingLyricsEditor = isEditingLyricsCanvas || !displayAlignment;
 
   useEffect(() => {
-    if (
-      mode !== 'overlay' &&
-      lyricsAlignment &&
-      Array.isArray(lyricsAlignment.lines) &&
-      lyricsAlignment.lines.length > 0
-    ) {
+    if (mode !== 'overlay' && displayAlignment) {
       setIsEditingLyricsCanvas(false);
     }
-  }, [lyricsAlignment?.updatedAt, lyricsAlignment?.lines?.length, mode]);
+  }, [displayAlignment, mode]);
 
   const prevIsPlayingRef = useRef(isPlaying);
   useEffect(() => {

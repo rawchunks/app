@@ -1049,7 +1049,7 @@ export function evaluateGranularField(sculpt: WaveSculptState, t: number): Granu
   for (let i = 0; i < anchors.length; i++) {
     const a = anchors[i];
     const r = Math.max(0.015, Math.min(0.35, a.radius || 0.075));
-    const center = Math.max(0.002, Math.min(0.998, (a.position || 0) + (a.timeShift || 0) * 0.35));
+    const center = Math.max(0.002, Math.min(0.998, (a.position || 0) + (a.timeShift || 0) * r * 0.45));
     const rawDelta = t - center;
     const skew = Math.max(-0.68, Math.min(0.68, (a.bend || 0) * 0.65));
     const sideRadius = rawDelta < 0 ? r * (1 + skew) : r * (1 - skew);
@@ -1066,7 +1066,7 @@ export function evaluateGranularField(sculpt: WaveSculptState, t: number): Granu
     if (pol === 'both' || pol === 'lower') {
       lowerDb += gainDb * w;
     }
-    timeShift += (a.timeShift || 0) * w;
+    timeShift += (a.timeShift || 0) * r * 0.45 * w;
     bend += (a.bend || 0) * w;
     smash = Math.max(smash, (a.smash || 0) * w);
     smooth = Math.max(smooth, (a.smooth || 0) * w);
@@ -1081,7 +1081,7 @@ export function evaluateGranularField(sculpt: WaveSculptState, t: number): Granu
     upperGainLinear: Math.pow(10, upperDb / 20),
     lowerGainLinear: Math.pow(10, lowerDb / 20),
     meanGainDb,
-    timeShift: Math.max(-0.12, Math.min(0.12, timeShift)),
+    timeShift: Math.max(-0.08, Math.min(0.08, timeShift)),
     bend: Math.max(-1, Math.min(1, bend)),
     smash: Math.max(0, Math.min(1, smash)),
     smooth: Math.max(0, Math.min(1, smooth)),
@@ -1128,7 +1128,7 @@ export function evaluateSculptField(sculpt: WaveSculptState, t: number): {
   for (let i = 0; i < sorted.length; i++) {
     const node = sorted[i];
     const maxAllowed = 1 - (sorted.length - i) * 0.02;
-    const warpedX = Math.max(prevX, Math.min(maxAllowed, (node.position || 0) + (node.warpOffset || 0)));
+    const warpedX = Math.max(prevX, Math.min(maxAllowed, (node.position || 0) + (node.warpOffset || 0) * 0.45));
     anchors.push({
       x: warpedX,
       db: Math.max(-24, Math.min(12, node.gainDb || 0)),

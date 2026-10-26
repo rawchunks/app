@@ -546,7 +546,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
 
   // Non-blocking background poller for ElevenLabs Scribe vocal stem transcription & forced alignment
   const pollSongLyrics = useCallback((targetSongId: string, attempt = 0) => {
-    if (!readAddress) return;
+    const effectiveAddress = readAddress || song.creator || '';
     if (lyricsPollTimerRef.current) {
       clearTimeout(lyricsPollTimerRef.current);
       lyricsPollTimerRef.current = null;
@@ -556,11 +556,15 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
       try {
         const res = await sdk.fetch(
           `/api/editing/lyrics/${encodeURIComponent(targetSongId)}?language=${encodeURIComponent(vocalLanguage || 'en')}`,
-          { userAddress: readAddress },
+          effectiveAddress ? { userAddress: effectiveAddress } : {},
         );
         if (!res.ok || scope !== scopeRef.current || useDawStore.getState().songId !== targetSongId) return;
         const data = await res.json();
-        if (data.alignment && Array.isArray(data.alignment.lines) && data.alignment.lines.length > 0) {
+        if (
+          data.alignment &&
+          Array.isArray(data.alignment.lines) &&
+          data.alignment.lines.some((l: any) => typeof l?.start === 'number')
+        ) {
           setLyricsAlignment(data.alignment);
         }
         if (typeof data.lyrics === 'string' && data.lyrics.trim() && data.lyrics.trim() !== '[Instrumental]') {
@@ -588,7 +592,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
         setIsAligningLyrics(false);
       }
     })();
-  }, [readAddress, vocalLanguage]);
+  }, [readAddress, song.creator, vocalLanguage]);
 
   const wipHydratedRef = useRef<boolean>(false);
   const lastWipRef = useRef<any>(null);
@@ -645,21 +649,35 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
       const initialAlignment =
         history.takes
           .map((t: Take) => (t.provenance?.parameters as any)?.lyricsAlignment)
-          .find((a: any) => a && Array.isArray(a.lines) && a.lines.length > 0) ?? null;
+          .find((a: any) => a && Array.isArray(a.lines) && a.lines.some((l: any) => typeof l?.start === 'number')) ?? null;
+      const alignmentSource =
+        history.takes
+          .map((t: Take) => (t.provenance?.parameters as any)?.lyricsAlignmentSource)
+          .find((s: any) => s === 'vocals' || s === 'master') ?? null;
       if (initialAlignment) {
         setLyricsAlignment(initialAlignment);
       }
       const hasVocalsStem =
         Array.isArray(history.stems) &&
         history.stems.some((s: any) => String(s.name || s.stem_type || '').toLowerCase() === 'vocals' && s.url);
+      const hasPlayableAudio =
+        Boolean(song.url) ||
+        (Array.isArray(history.stems) && history.stems.some((s: any) => Boolean(s?.url))) ||
+        (Array.isArray(history.takes) && history.takes.some((t: any) => Boolean(t?.url)));
+      const isInstrumentalSong =
+        baseTake?.lyrics === '[Instrumental]' ||
+        Boolean((baseTake?.provenance?.parameters as any)?.submitted?.instrumental);
+      const shouldUpgradeToVocalsAlignment = Boolean(
+        hasVocalsStem && initialAlignment && alignmentSource === 'master',
+      );
       if (initialLyrics) {
         setLyrics(prev => prev || initialLyrics);
         setHasExistingLyrics(true);
         setIsTranscribingLyrics(false);
-        if (!initialAlignment && hasVocalsStem) {
+        if ((!initialAlignment || shouldUpgradeToVocalsAlignment) && hasPlayableAudio && !isInstrumentalSong) {
           pollSongLyrics(song.id);
         }
-      } else if (hasVocalsStem) {
+      } else if (hasPlayableAudio && !isInstrumentalSong) {
         pollSongLyrics(song.id);
       }
       if (baseTake?.provenance?.parameters) {
@@ -756,15 +774,15 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
 
   const autoPolledSongRef = useRef<string>('');
   useEffect(() => {
-    if (!readAddress || lyricsAlignment || isTranscribingLyrics || isAligningLyrics) return;
-    const hasVocalsTrack = tracks.some(
-      t => String(t.stemType || t.name || '').toLowerCase() === 'vocals' && t.clips.length > 0,
+    if (lyricsAlignment || isTranscribingLyrics || isAligningLyrics) return;
+    const hasAudioTrack = tracks.some(
+      t => t.clips.length > 0 && Boolean(t.clips[0]?.url),
     );
-    if (hasVocalsTrack && autoPolledSongRef.current !== song.id) {
+    if (hasAudioTrack && autoPolledSongRef.current !== song.id) {
       autoPolledSongRef.current = song.id;
       pollSongLyrics(song.id);
     }
-  }, [song.id, readAddress, tracks, lyricsAlignment, isTranscribingLyrics, isAligningLyrics, pollSongLyrics]);
+  }, [song.id, tracks, lyricsAlignment, isTranscribingLyrics, isAligningLyrics, pollSongLyrics]);
 
   const synthScheduleSignature = useMemo(() => {
     return tracks

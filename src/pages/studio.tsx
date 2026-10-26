@@ -1133,9 +1133,6 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                   <label className="studio-field-label">
                     <span>PROMPT</span>
                     <span className="studio-field-optional">
-                      {vibeImage || vibeAudio || isRecordingVibeAudio
-                        ? 'OPTIONAL'
-                        : 'REQUIRED (OR IMAGE / HUM)'}
                     </span>
                   </label>
                   <textarea
@@ -1150,7 +1147,6 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                   <div className="studio-field-group studio-vibe-image-group">
                     <label className="studio-field-label">
                       <span>IMAGE PROMPT</span>
-                      <span className="studio-field-optional">OPTIONAL</span>
                     </label>
                     <input
                       type="file"
@@ -1232,7 +1228,6 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                   <div className="studio-field-group studio-vibe-image-group">
                     <label className="studio-field-label">
                       <span>HUM / VOICE</span>
-                      <span className="studio-field-optional">OPTIONAL</span>
                     </label>
                     {isRecordingVibeAudio ? (
                       <button
