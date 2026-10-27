@@ -1,16 +1,25 @@
 import { useState, useEffect, useCallback } from 'react';
-import { readCachedProfile, writeCachedProfile, readCachedAccount, writeCachedAccount } from '@/lib/cache';
+import { readCachedProfile, writeCachedProfile } from '@/lib/cache';
 import { sdk } from '@/lib/sdk';
 import { toast } from 'sonner';
 
 export interface UserProfile {
   nickname: string | null;
   avatar: string | null;
+  bio: string | null;
 }
 
-const inFlightUsers = new Map<string, Promise<{ nickname?: string | null; avatar?: string | null } | null>>();
+export interface WalletPairProfile {
+  evmAddress: string;
+  svmAddress: string;
+  nickname?: string | null;
+  avatar?: string | null;
+  bio?: string | null;
+}
 
-function fetchUserProfile(address: string): Promise<{ nickname?: string | null; avatar?: string | null } | null> {
+const inFlightUsers = new Map<string, Promise<WalletPairProfile | null>>();
+
+function fetchUserProfile(address: string): Promise<WalletPairProfile | null> {
   const normalized = address.toLowerCase();
   const existing = inFlightUsers.get(normalized);
   if (existing) return existing;
@@ -29,52 +38,75 @@ function fetchUserProfile(address: string): Promise<{ nickname?: string | null; 
   return promise;
 }
 
+export async function fetchUserProfilesBatch(addresses: string[]): Promise<WalletPairProfile[]> {
+  const unique = Array.from(new Set(addresses.filter(Boolean).map(a => a.trim())));
+  if (!unique.length) return [];
+  try {
+    const res = await sdk.fetch(`/api/users?addresses=${encodeURIComponent(unique.join(','))}`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    const users: WalletPairProfile[] = Array.isArray(data?.users) ? data.users : [];
+    for (const u of users) {
+      const profile = {
+        nickname: u.nickname ?? null,
+        avatar: u.avatar ?? null,
+        bio: u.bio ?? null,
+      };
+      if (u.evmAddress) {
+        writeCachedProfile(u.evmAddress, profile);
+        window.dispatchEvent(new CustomEvent('rawchunks:profile', { detail: { address: u.evmAddress, ...profile } }));
+      }
+      if (u.svmAddress && !u.svmAddress.startsWith('svm_pending_')) {
+        writeCachedProfile(u.svmAddress, profile);
+        window.dispatchEvent(new CustomEvent('rawchunks:profile', { detail: { address: u.svmAddress, ...profile } }));
+      }
+    }
+    return users;
+  } catch {
+    return [];
+  }
+}
+
 export function useProfile(address?: string | null) {
   const [profile, setProfile] = useState<UserProfile>(() => {
     if (!address) {
-      const cachedAcc = readCachedAccount();
-      return {
-        nickname: cachedAcc?.nickname ?? null,
-        avatar: cachedAcc?.avatar ?? null,
-      };
+      return { nickname: null, avatar: null, bio: null };
     }
     const cached = readCachedProfile(address);
     if (cached) {
       return {
         nickname: cached.nickname ?? null,
         avatar: cached.avatar ?? null,
+        bio: cached.bio ?? null,
       };
     }
-    const cachedAcc = readCachedAccount();
-    if (cachedAcc?.address?.toLowerCase() === address.toLowerCase()) {
-      return {
-        nickname: cachedAcc.nickname ?? null,
-        avatar: cachedAcc.avatar ?? null,
-      };
-    }
-    return { nickname: null, avatar: null };
+    return { nickname: null, avatar: null, bio: null };
   });
 
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!address) return;
+    if (!address) {
+      setProfile({ nickname: null, avatar: null, bio: null });
+      setLoading(false);
+      return;
+    }
 
     // Sync immediately from cache if available for this address
     const cached = readCachedProfile(address);
-    if (cached) {
-      setProfile({
-        nickname: cached.nickname ?? null,
-        avatar: cached.avatar ?? null,
-      });
-    }
+    setProfile({
+      nickname: cached?.nickname ?? null,
+      avatar: cached?.avatar ?? null,
+      bio: cached?.bio ?? null,
+    });
 
     const handler = (e: Event) => {
-      const custom = e as CustomEvent<{ address: string; nickname?: string | null; avatar?: string | null }>;
+      const custom = e as CustomEvent<{ address: string; nickname?: string | null; avatar?: string | null; bio?: string | null }>;
       if (custom.detail?.address?.toLowerCase() === address.toLowerCase()) {
         setProfile({
           nickname: custom.detail.nickname ?? null,
           avatar: custom.detail.avatar ?? null,
+          bio: custom.detail.bio ?? null,
         });
       }
     };
@@ -88,12 +120,12 @@ export function useProfile(address?: string | null) {
         if (!active || !data) return;
         const newNick = data.nickname ?? null;
         const newAv = data.avatar ?? null;
-        setProfile({ nickname: newNick, avatar: newAv });
-        writeCachedProfile(address, { nickname: newNick, avatar: newAv });
-        const cachedAcc = readCachedAccount();
-        if (cachedAcc && cachedAcc.address.toLowerCase() === address.toLowerCase()) {
-          writeCachedAccount(cachedAcc.address, cachedAcc.network, cachedAcc.svmAddress, newNick, newAv);
-        }
+        const newBio = data.bio ?? null;
+        const nextProfile = { nickname: newNick, avatar: newAv, bio: newBio };
+        setProfile(nextProfile);
+        writeCachedProfile(address, nextProfile);
+        if (data.evmAddress) writeCachedProfile(data.evmAddress, nextProfile);
+        if (data.svmAddress && !data.svmAddress.startsWith('svm_pending_')) writeCachedProfile(data.svmAddress, nextProfile);
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -106,23 +138,20 @@ export function useProfile(address?: string | null) {
   }, [address]);
 
   const updateProfile = useCallback(
-    async (next: { nickname?: string | null; avatar?: string | null }) => {
+    async (next: { nickname?: string | null; avatar?: string | null; bio?: string | null }) => {
       if (!address) throw new Error('No active address to update profile');
 
       const prev = { ...profile };
       const nextNick = next.nickname !== undefined ? next.nickname : prev.nickname;
       const nextAv = next.avatar !== undefined ? next.avatar : prev.avatar;
+      const nextBio = next.bio !== undefined ? next.bio : prev.bio;
 
       // Optimistic update
-      setProfile({ nickname: nextNick, avatar: nextAv });
-      writeCachedProfile(address, { nickname: nextNick, avatar: nextAv });
-      const cachedAcc = readCachedAccount();
-      if (cachedAcc && cachedAcc.address.toLowerCase() === address.toLowerCase()) {
-        writeCachedAccount(cachedAcc.address, cachedAcc.network, cachedAcc.svmAddress, nextNick, nextAv);
-      }
+      setProfile({ nickname: nextNick, avatar: nextAv, bio: nextBio });
+      writeCachedProfile(address, { nickname: nextNick, avatar: nextAv, bio: nextBio });
       window.dispatchEvent(
         new CustomEvent('rawchunks:profile', {
-          detail: { address, nickname: nextNick, avatar: nextAv },
+          detail: { address, nickname: nextNick, avatar: nextAv, bio: nextBio },
         })
       );
 
@@ -137,6 +166,7 @@ export function useProfile(address?: string | null) {
             address,
             nickname: nextNick,
             avatar: nextAv,
+            bio: nextBio,
           }),
         });
 
@@ -148,8 +178,9 @@ export function useProfile(address?: string | null) {
         const data = await res.json();
         const serverNick = data.nickname ?? nextNick;
         const serverAv = data.avatar ?? nextAv;
-        setProfile({ nickname: serverNick, avatar: serverAv });
-        writeCachedProfile(address, { nickname: serverNick, avatar: serverAv });
+        const serverBio = data.bio ?? nextBio;
+        setProfile({ nickname: serverNick, avatar: serverAv, bio: serverBio });
+        writeCachedProfile(address, { nickname: serverNick, avatar: serverAv, bio: serverBio });
         toast.success('Profile updated');
         return data;
       } catch (err: any) {
@@ -166,6 +197,7 @@ export function useProfile(address?: string | null) {
   return {
     nickname: profile.nickname,
     avatar: profile.avatar,
+    bio: profile.bio,
     loading,
     updateProfile,
   };

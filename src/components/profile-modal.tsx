@@ -5,6 +5,7 @@ import { sdk } from '@/lib/sdk';
 import { useProfile } from '@/hooks/use-profile';
 import { toast } from 'sonner';
 import { Upload } from 'lucide-react';
+import { Tooltip } from './daw/Tooltip';
 
 export interface ProfileModalProps {
   isOpen: boolean;
@@ -17,9 +18,10 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   onClose,
   address,
 }) => {
-  const { nickname: currentNickname, avatar: currentAvatar, updateProfile } = useProfile(address);
+  const { nickname: currentNickname, avatar: currentAvatar, bio: currentBio, updateProfile } = useProfile(address);
   const [nickname, setNickname] = useState('');
   const [avatar, setAvatar] = useState<string | null>(null);
+  const [bio, setBio] = useState('');
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -28,8 +30,9 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
     if (isOpen) {
       setNickname(currentNickname || '');
       setAvatar(currentAvatar || null);
+      setBio(currentBio || '');
     }
-  }, [isOpen, currentNickname, currentAvatar]);
+  }, [isOpen, currentNickname, currentAvatar, currentBio]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -66,6 +69,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
       await updateProfile({
         nickname: nickname.trim() || null,
         avatar: avatar || null,
+        bio: bio.trim() || null,
       });
       onClose();
     } catch (err) {
@@ -92,6 +96,23 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
         </div>
 
         <div className="cyber-input-wrap">
+          <div className="profile-modal-label-row">
+            <label className="cyber-input-label">BIO</label>
+            <span className={`profile-modal-char-count ${bio.length >= 260 ? 'near-limit' : ''}`}>
+              {bio.length} / 280
+            </span>
+          </div>
+          <textarea
+            className="cyber-input-field profile-modal-bio-input"
+            value={bio}
+            onChange={(e) => setBio(e.target.value.slice(0, 280))}
+            placeholder="TELL LISTENERS ABOUT YOUR SOUND..."
+            maxLength={280}
+            rows={3}
+          />
+        </div>
+
+        <div className="cyber-input-wrap">
           <label className="cyber-input-label">AVATAR IMAGE</label>
           <div className="profile-modal-avatar-row">
             <div className={`studio-avatar-box ${avatar ? 'has-image' : ''}`}>
@@ -110,17 +131,18 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                     className="studio-avatar-preview"
                     onClick={() => fileInputRef.current?.click()}
                   />
-                  <button
-                    type="button"
-                    className="studio-avatar-remove"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setAvatar(null);
-                    }}
-                    title="Remove avatar"
-                  >
-                    ✕
-                  </button>
+                  <Tooltip title="Remove avatar" className="studio-avatar-remove-wrap">
+                    <button
+                      type="button"
+                      className="studio-avatar-remove"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setAvatar(null);
+                      }}
+                    >
+                      ✕
+                    </button>
+                  </Tooltip>
                 </>
               ) : (
                 <div
