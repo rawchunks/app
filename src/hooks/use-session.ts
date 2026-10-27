@@ -2,9 +2,12 @@ import { createContext, useContext } from "react";
 import type { KeyCreateResponse } from "@compose-market/sdk";
 import type { NetworkId } from "@compose-market/sdk/chains";
 import type { CreditBalance } from "../lib/credits";
+import type { FundingSource } from "../lib/sdk";
+
+export type { FundingSource };
 
 export interface SessionState {
-  fundingSource: 'wallet' | 'prepaid';
+  fundingSource: 'wallet';
   active: boolean;
   userAddress: string | null;
   network: NetworkId | null;
@@ -19,6 +22,10 @@ export interface SessionState {
 
 export interface SessionContextValue {
   session: SessionState;
+  activeSource: FundingSource;
+  setActiveSource: (source: FundingSource) => void;
+  hasBudget: boolean;
+  hasStreamBudget: boolean;
   isCreating: boolean;
   error: string | null;
   createSession: (budgetWei: string, durationHours: number) => Promise<KeyCreateResponse>;
@@ -31,8 +38,7 @@ export interface SessionContextValue {
   creditsEnabled: boolean;
   creditOwner: string | null;
   refreshCredits: () => Promise<void>;
-  createCreditSession: (budgetAtomics: string, durationHours: number) => Promise<void>;
-  claimPromoSession?: (durationHours?: number) => Promise<void>;
+  claimPromoCredits: () => Promise<void>;
   completeCreditPurchase: (operationId: string) => Promise<void>;
 }
 
@@ -54,15 +60,8 @@ export const emptySession: SessionState = {
 
 export type SessionModalOption = 'usdc' | 'card' | 'campaign';
 
-export function promptSessionModal(option?: SessionModalOption): void {
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new CustomEvent("rawchunks:open-session", { detail: option ?? null }));
-  }
-}
-
 export function useSession(): SessionContextValue {
   const value = useContext(SessionContext);
   if (!value) throw new Error("useSession must be used within a SessionProvider");
   return value;
 }
-
