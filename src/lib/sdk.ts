@@ -1,6 +1,6 @@
 import { ComposeSDK } from "@compose-market/sdk";
-import type { NetworkId } from "@compose-market/sdk/chains";
-import { promptSessionModal } from "../hooks/use-session";
+import { openGate } from "./gate";
+import { store } from "./store";
 
 const env = (import.meta as any).env ?? {};
 
@@ -9,7 +9,7 @@ export const RAWCHUNKS_API_URL = (env.VITE_API_URL || "https://api.rawchunks.spa
 
 const retry = { maxRetries: 2, initialDelayMs: 400, maxDelayMs: 6_000, jitter: true };
 
-const EVICTABLE_PREFIXES = ["waveform:", "project:", "songs:", "rawchunks:wip:v1:"];
+const EVICTABLE_PREFIXES = ["waveform:", "project:", "songs:", "rawchunks:wip:"];
 
 export function evictNonEssentialLocalStorage(storage: Storage): void {
   try {
@@ -73,12 +73,106 @@ export const sdk: ComposeSDK = new ComposeSDK({
 export const API_BASE_URL = RAWCHUNKS_API_URL;
 
 // Match endpoints that belong to Rawchunks' backend service
-const RAWCHUNKS_PATH_REGEX = /^\/?(?:api\/)?(credits|vibe|songs|albums|user|generation|editing|voices?|options|status|sample|format|repaint|layer|extend|remix|separate)(\/|$|\?)/;
+const RAWCHUNKS_PATH_REGEX = /^\/?(?:api\/)?(credits|vibe|songs|albums|user|generation|editing|voices?|options|status|sample|format|repaint|layer|extend|remix|isolate|reset|separate|stream)(\/|$|\?)/;
+const STREAM_CHECKPOINT_REGEX = /^\/?(?:api\/)?(?:songs\/[^/]+\/stream|stream\/[^/]+)\/checkpoint(\/|$|\?)/;
+const STREAM_AUTH_REGEX = /^\/?(?:api\/)?(?:songs\/[^/]+\/stream|stream\/[^/]+)(\/|$|\?)/;
 
-interface CreditRequestContext { userAddress: string; authToken: string; sessionToken?: string | null }
+export type FundingSource = 'usdc' | 'card' | 'promo';
+
+export interface CreditRequestContext {
+  userAddress: string;
+  authToken: string;
+  preferredSource?: FundingSource;
+  usdcActive?: boolean;
+  cardAvailableAtomics?: string;
+  promoAvailableAtomics?: string;
+  /** Optional explicit override for unit tests */
+  creditSource?: 'promo' | 'card' | null;
+}
+
 let creditContext: CreditRequestContext | null = null;
-export function setCreditRequestContext(value: CreditRequestContext | null): void { creditContext = value; }
-export function hasCreditSession(): boolean { return Boolean(creditContext?.sessionToken); }
+export function setCreditRequestContext(value: CreditRequestContext | null): void {
+  creditContext = value;
+}
+
+function parseAtomics(value?: string | null): bigint {
+  if (!value || !/^\d+$/.test(value)) return 0n;
+  try {
+    return BigInt(value);
+  } catch {
+    return 0n;
+  }
+}
+
+export function hasStreamBudget(): boolean {
+  const hasCard = Boolean(creditContext?.authToken && parseAtomics(creditContext.cardAvailableAtomics) > 0n);
+  const hasUsdc = Boolean(creditContext?.usdcActive || sdk.keys.currentToken());
+  const hasExplicit = creditContext?.creditSource === 'card';
+  return hasCard || hasUsdc || hasExplicit;
+}
+
+export function hasStudioBudget(): boolean {
+  const hasPromo = Boolean(creditContext?.authToken && parseAtomics(creditContext.promoAvailableAtomics) > 0n);
+  const hasExplicitPromo = creditContext?.creditSource === 'promo';
+  return hasPromo || hasExplicitPromo || hasStreamBudget();
+}
+
+export function hasPromoCreditsOnly(): boolean {
+  const hasPromo = Boolean(creditContext?.authToken && parseAtomics(creditContext.promoAvailableAtomics) > 0n);
+  return hasPromo && !hasStreamBudget();
+}
+
+function buildCandidateSources(pathname: string, body?: BodyInit | null): FundingSource[] {
+  // Stream checkpoints must route to the same billing engine that created the paymentIntentId
+  if (STREAM_CHECKPOINT_REGEX.test(pathname)) {
+    if (typeof body === "string") {
+      try {
+        const parsed = JSON.parse(body);
+        if (typeof parsed?.paymentIntentId === "string" && parsed.paymentIntentId.startsWith("crd:")) {
+          return ['card'];
+        }
+      } catch { /* Ignore JSON parse error */ }
+    }
+    return ['usdc'];
+  }
+
+  // Explicit test override
+  if (creditContext?.creditSource === 'promo' || creditContext?.creditSource === 'card') {
+    if (STREAM_AUTH_REGEX.test(pathname) && creditContext.creditSource === 'promo') {
+      // Never send promo on stream requests even if overridden
+    } else {
+      return [creditContext.creditSource];
+    }
+  }
+
+  const hasAuth = Boolean(creditContext?.authToken);
+  const promoAvail = hasAuth ? parseAtomics(creditContext?.promoAvailableAtomics) > 0n : false;
+  const cardAvail = hasAuth ? parseAtomics(creditContext?.cardAvailableAtomics) > 0n : false;
+  const usdcAvail = Boolean(creditContext?.usdcActive || sdk.keys.currentToken());
+  const pref = creditContext?.preferredSource;
+
+  const isStream = STREAM_AUTH_REGEX.test(pathname);
+  const eligibleOrder: FundingSource[] = isStream ? ['card', 'usdc'] : ['promo', 'card', 'usdc'];
+  const fundedMap: Record<FundingSource, boolean> = {
+    promo: !isStream && promoAvail,
+    card: cardAvail,
+    usdc: usdcAvail,
+  };
+
+  const candidates: FundingSource[] = [];
+  if (pref && eligibleOrder.includes(pref) && fundedMap[pref]) {
+    candidates.push(pref);
+  }
+  for (const source of eligibleOrder) {
+    if (fundedMap[source] && !candidates.includes(source)) {
+      candidates.push(source);
+    }
+  }
+  if (candidates.length === 0) {
+    candidates.push('usdc');
+  }
+  return candidates;
+}
 
 const originalFetch = sdk.fetch.bind(sdk);
 
@@ -96,39 +190,94 @@ sdk.fetch = async function patchedFetch(
       target = `${COMPOSE_API_URL}${normalized}`;
     }
   }
-  const headers = new Headers(init?.headers);
+
   const url = new URL(typeof target === "string" ? target : target instanceof URL ? target.href : target.url);
   const rawchunks = url.origin === new URL(RAWCHUNKS_API_URL).origin;
-  const credits = /^\/api\/credits(\/|$)/.test(url.pathname);
-  const prepaid = rawchunks && Boolean(creditContext?.sessionToken);
-  headers.delete("x-wallet-auth-token");
-  headers.delete("x-credit-session-token");
-  if (rawchunks && creditContext && (credits || prepaid)) {
-    headers.set("x-wallet-auth-token", creditContext.authToken);
-    headers.set("x-session-user-address", creditContext.userAddress);
-    if (prepaid && !credits) headers.set("x-credit-session-token", creditContext.sessionToken!);
-  }
-  if (credits || prepaid) {
-    for (const name of ["authorization", "payment-signature", "x-x402-max-amount-wei"]) headers.delete(name);
-  }
-  if (init?.userAddress && !headers.has("x-session-user-address")) {
-    headers.set("x-session-user-address", init.userAddress);
-  }
-  const response = await originalFetch(target, { ...init, headers,
-    ...(credits || prepaid ? { key: null, paymentMode: "key", paymentSignature: undefined } : {}) });
-  if (response.status === 402) {
-    promptSessionModal();
-  }
-  return response;
-};
 
-export function attachWallet(address: string | null, network: NetworkId | null): void {
-  if (address && network) {
-    sdk.wallets.attach({ address, network });
-  } else {
-    sdk.wallets.clear();
+  // Requests to Compose Market (e.g. /api/session, /api/keys) must NEVER be modified or blocked by Rawchunks credit headers
+  if (!rawchunks) {
+    const cleanHeaders = new Headers(init?.headers);
+    cleanHeaders.delete("x-wallet-auth-token");
+    cleanHeaders.delete("x-credit-source");
+    return originalFetch(target, { ...init, headers: cleanHeaders });
   }
-}
+
+  const isCreditsEndpoint = /^\/api\/credits(\/|$)/.test(url.pathname);
+  const effectiveUserAddress = init?.userAddress || creditContext?.userAddress || store.getState().userAddress || "";
+
+  if (isCreditsEndpoint) {
+    const headers = new Headers(init?.headers);
+    headers.delete("x-credit-source");
+    for (const name of ["authorization", "payment-signature", "x-x402-max-amount-wei"]) {
+      headers.delete(name);
+    }
+    if (creditContext?.authToken) {
+      headers.set("x-wallet-auth-token", creditContext.authToken);
+      headers.set("x-session-user-address", creditContext.userAddress);
+    }
+    if (effectiveUserAddress && !headers.has("x-session-user-address")) {
+      headers.set("x-session-user-address", effectiveUserAddress);
+    }
+    return originalFetch(target, {
+      ...init,
+      headers,
+      key: null,
+      paymentMode: "key",
+      paymentSignature: undefined,
+    });
+  }
+
+  const candidates = buildCandidateSources(url.pathname, init?.body);
+  let lastResponse: Response | null = null;
+
+  for (let i = 0; i < candidates.length; i++) {
+    const source = candidates[i];
+    const usePrepaidCredits = (source === 'promo' || source === 'card') && Boolean(creditContext?.authToken);
+    const headers = new Headers(init?.headers);
+    headers.delete("x-wallet-auth-token");
+    headers.delete("x-credit-source");
+
+    if (creditContext?.authToken) {
+      headers.set("x-wallet-auth-token", creditContext.authToken);
+      headers.set("x-session-user-address", creditContext.userAddress);
+    }
+    if (effectiveUserAddress && !headers.has("x-session-user-address")) {
+      headers.set("x-session-user-address", effectiveUserAddress);
+    }
+
+    if (usePrepaidCredits) {
+      headers.set("x-credit-source", source);
+      for (const name of ["authorization", "payment-signature", "x-x402-max-amount-wei"]) {
+        headers.delete(name);
+      }
+    }
+
+    const response = await originalFetch(target, {
+      ...init,
+      headers,
+      ...(usePrepaidCredits ? { key: null, paymentMode: "key", paymentSignature: undefined } : {}),
+    });
+
+    lastResponse = response;
+    if (response.status !== 402 || i === candidates.length - 1) {
+      break;
+    }
+  }
+
+  if (lastResponse && lastResponse.status === 402) {
+    const isStream = STREAM_AUTH_REGEX.test(url.pathname) || STREAM_CHECKPOINT_REGEX.test(url.pathname);
+    void openGate({
+      steps: ['login', 'funding'],
+      action: isStream ? 'stream' : 'studio',
+      reason: isStream && hasPromoCreditsOnly()
+        ? 'Promo credits cannot be used for streaming. Add Card Credits or start an On-Chain USDC Session.'
+        : 'Session or credit budget exhausted',
+      force: true,
+    });
+  }
+
+  return lastResponse!;
+};
 
 export async function watch(
   path: string,
@@ -197,4 +346,16 @@ export async function watch(
       signal.addEventListener("abort", done, { once: true });
     });
   }
+}export function hasCreditSession(): boolean { return Boolean(creditContext?.sessionToken); }
+
+
+export function attachWallet(address: string | null, network: NetworkId | null): void {
+  if (address && network) {
+    sdk.wallets.attach({ address, network });
+  } else {
+    sdk.wallets.clear();
+  }
 }
+
+
+
