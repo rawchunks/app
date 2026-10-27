@@ -34,6 +34,8 @@ import ReactDOM from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ThirdwebProvider } from 'thirdweb/react';
 import { ChainProvider } from '@/contexts/Network';
+import { IdentityProvider } from '@/hooks/use-address';
+import { GateProvider } from '@/contexts/Gate';
 import { SessionProvider } from '@/components/session';
 import { Toaster } from 'sonner';
 import { App } from './App';
@@ -53,10 +55,14 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <QueryClientProvider client={queryClient}>
       <ThirdwebProvider>
         <ChainProvider>
-          <SessionProvider>
-            <App />
-            <Toaster position="bottom-right" theme="dark" />
-          </SessionProvider>
+          <IdentityProvider>
+            <SessionProvider>
+              <GateProvider>
+                <App />
+              </GateProvider>
+              <Toaster position="bottom-right" theme="dark" />
+            </SessionProvider>
+          </IdentityProvider>
         </ChainProvider>
       </ThirdwebProvider>
     </QueryClientProvider>

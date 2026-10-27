@@ -498,16 +498,31 @@ export function PayPalCardFields({
   );
 }
 
-export function CardCheckout({ intent, version = 0, cancelLabel = 'CANCEL', onComplete, onCancel }: { intent: CheckoutIntent; version?: number; cancelLabel?: string; onComplete: () => void; onCancel: () => void }) {
+export function CardCheckout({
+  intent: effectiveIntent = { kind: 'balance' },
+  version = 0,
+  cancelLabel = 'CANCEL',
+  compact = false,
+  onComplete,
+  onCancel,
+}: {
+  intent?: CheckoutIntent;
+  version?: number;
+  cancelLabel?: string;
+  compact?: boolean;
+  onComplete: () => void;
+  onCancel: () => void;
+}) {
   const { credits, creditsLoading, creditOwner, completeCreditPurchase } = useSession();
-  const packs = credits.packs.length > 0 ? credits.packs : DEFAULT_CREDIT_PACKS;
-  const [packId, setPackId] = useState(packs[0]?.id ?? 'usd-10');
+  const packs = credits.packs;
+  const [packId, setPackId] = useState(packs[0]?.id ?? '');
   const pack = packs.find(value => value.id === packId) ?? packs[0];
   const [error, setError] = useState<string | null>(null);
   const operation = useRef<{ operationId: string; orderId: string } | null>(null);
   const requestKey = useRef(crypto.randomUUID());
-  const orderParamsRef = useRef({ packId: pack?.id ?? 'usd-10', intent, creditOwner });
-  orderParamsRef.current = { packId: pack?.id ?? 'usd-10', intent, creditOwner };
+
+  const orderParamsRef = useRef({ packId: pack?.id ?? '', intent: effectiveIntent, creditOwner });
+  orderParamsRef.current = { packId: pack?.id ?? '', intent: effectiveIntent, creditOwner };
 
   useEffect(() => {
     operation.current = null;
@@ -516,45 +531,57 @@ export function CardCheckout({ intent, version = 0, cancelLabel = 'CANCEL', onCo
   }, [version]);
 
   return (
-    <div className="session-modal-content">
-      <div className="session-info-strip">
-        <CreditCard className="session-info-icon" size={18} />
-        <div className="session-info-text">
-          <span className="session-info-title">INSTANT CREDIT TOP-UP</span>
-          <span className="session-info-desc">
-            Prepaid Credits fund AI studio generation, stem separation, and track streaming across any network without wallet popups.
-          </span>
-        </div>
-      </div>
-      <div className="session-balance-strip">
-        <span className="session-balance-chain">AVAILABLE CREDITS</span>
-        <span className="session-balance-val">
-          {creditsLoading ? 'CHECKING...' : creditLabel(credits.availableAtomics)}
-        </span>
-      </div>
+    <div className={cn('session-modal-content', compact && 'is-compact')}>
+      {!compact && (
+        <>
+          <div className="session-info-strip">
+            <CreditCard className="session-info-icon" size={16} />
+            <div className="session-info-text">
+              <span className="session-info-title">INSTANT CREDIT TOP-UP</span>
+              <span className="session-info-desc">
+                Prepaid Credits fund AI studio generation, stem separation, and streaming with zero wallet popups.
+              </span>
+            </div>
+          </div>
+          <div className="session-balance-strip">
+            <span className="session-balance-chain">AVAILABLE CREDITS</span>
+            <span className="session-balance-val">
+              {creditsLoading ? 'CHECKING...' : creditLabel(credits.availableAtomics)}
+            </span>
+          </div>
+        </>
+      )}
       <div className="session-section">
         <div className="session-section-head">
-          <span className="session-section-label">SELECT CREDIT PACK</span>
-          {pack && <span className="session-section-val">${Number(pack.usd)} USD • {creditLabel(pack.amountAtomics)}</span>}
+          <span className="session-section-label">CREDIT PACK</span>
+          {pack && (
+            <span className="session-section-val">
+              {creditLabel(pack.amountAtomics)}
+            </span>
+          )}
         </div>
         <div className="session-pills-row">
-          {packs.map(value => (
-            <button
-              type="button"
-              key={value.id}
-              className={cn('session-pill-btn', pack?.id === value.id && 'active')}
-              disabled={Boolean(operation.current)}
-              onClick={() => {
-                if (pack?.id === value.id) return;
-                setPackId(value.id);
-                operation.current = null;
-                requestKey.current = crypto.randomUUID();
-                setError(null);
-              }}
-            >
-              {creditLabel(value.amountAtomics)}
-            </button>
-          ))}
+          {packs.map(value => {
+            const packSongs = Math.max(1, Math.floor(Number(value.amountAtomics) / 50000));
+            return (
+              <button
+                type="button"
+                key={value.id}
+                className={cn('session-pill-btn session-pack-pill', pack?.id === value.id && 'active')}
+                disabled={Boolean(operation.current)}
+                onClick={() => {
+                  if (pack?.id === value.id) return;
+                  setPackId(value.id);
+                  operation.current = null;
+                  requestKey.current = crypto.randomUUID();
+                  setError(null);
+                }}
+              >
+                <span className="session-pack-pill-top">{creditLabel(value.amountAtomics)}</span>
+                <span className="session-pack-pill-sub">~{packSongs} songs</span>
+              </button>
+            );
+          })}
         </div>
       </div>
       {pack && creditOwner ? (
@@ -583,7 +610,7 @@ export function CardCheckout({ intent, version = 0, cancelLabel = 'CANCEL', onCo
           onError={setError}
           onCancel={onCancel}
           cancelLabel={cancelLabel}
-          submitLabel={`PAY $${Number(pack.usd)}`}
+          submitLabel={`BUY $${Number(pack.usd)} CREDITS`}
           error={error}
         />
       ) : (
@@ -591,294 +618,33 @@ export function CardCheckout({ intent, version = 0, cancelLabel = 'CANCEL', onCo
           {error ? (
             <div className="session-error-strip" role="alert">{error}</div>
           ) : (
-            <div className="connector-card-status" role="status">CONNECT WALLET TO PURCHASE CREDITS...</div>
+            <div className="session-notice-strip">
+              <ShieldCheck className="session-notice-icon" size={14} />
+              <span>Sign in with Google, Email, Passkey, or Wallet to purchase Credits with Card or PayPal.</span>
+            </div>
           )}
           <div className="session-actions-footer">
-            <Button variant="ghost" size="sm" onClick={onCancel}>{cancelLabel}</Button>
+            <div className="connector-paypal-brand">
+              <span>Powered by</span>
+              <img src="https://www.paypalobjects.com/digitalassets/c/website/logo/full-text/pp_fc_hl.svg" alt="PayPal" />
+            </div>
+            <div className="session-actions-btns">
+              <Button variant="ghost" size="sm" onClick={onCancel}>{cancelLabel}</Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => {
+                  onCancel();
+                  void openGate({ steps: ['login', 'terms', 'funding'], funding: 'card', force: true });
+                }}
+              >
+                {pack ? `LOGIN TO BUY $${Number(pack.usd)}` : 'LOGIN TO BUY CREDITS'}
+              </Button>
+            </div>
           </div>
         </>
       )}
     </div>
   );
-}export function WalletConnector({ className, compact = true }: WalletConnectorProps) {
-  const { credits, creditsLoading } = useSession();
-  const account = useActiveAccount();
-  const wallet = useActiveWallet();
-  const { connect: openConnectModal, isConnecting: isModalConnecting } = useConnectModal();
-  const { paymentNetwork, getChainByNetworkId, chains, defaultNetwork } = useChain();
-  const {
-    userAddress,
-    readAddress,
-    isReconnecting: reconnecting,
-    evmAddress,
-    svmAddress,
-    isEvm,
-    isResolving: userAddressResolving,
-    isActivated: solanaActivated,
-    requiredFundingLamports,
-    currentFundingLamports,
-  } = useSelectedUserAddress();
-
-  const displayAddress = userAddress ?? readAddress;
-  const { nickname, avatar } = useProfile(displayAddress);
-
-  const [copied, setCopied] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [showDisclaimer, setShowDisclaimer] = useState(false);
-  const [showProfileModal, setShowProfileModal] = useState(false);
-  const [cachedAccount, setCachedAccount] = useState(() => readCachedAccount());
-  const { hasConsented, isLoading: isConsentLoading } = useDisclaimerConsent();
-
-  useEffect(() => {
-    if (account?.address) {
-      writeCachedAccount(account.address, paymentNetwork, svmAddress, nickname, avatar);
-      setCachedAccount(readCachedAccount());
-    }
-  }, [account?.address, paymentNetwork, svmAddress, nickname, avatar]);
-
-  useEffect(() => {
-    if (account?.address && !isConsentLoading) {
-      setShowDisclaimer(!hasConsented);
-    } else {
-      setShowDisclaimer(false);
-    }
-  }, [account?.address, isConsentLoading, hasConsented]);
-
-  // Payment selection cannot change the chain used to restore the login identity.
-  const [thirdwebNetwork] = useState(() => {
-    const evmChains = chains.filter(chain => isEvmNetwork(chain.network));
-    return evmChains.find(chain => chain.network === defaultNetwork)?.network ?? evmChains[0]?.network;
-  });
-  const thirdwebChainIdValue = thirdwebNetwork && isEvmNetwork(thirdwebNetwork)
-    ? evmChainId(thirdwebNetwork)
-    : undefined;
-
-  const connectChain = useMemo(() => {
-    if (thirdwebChainIdValue == null) return undefined;
-    return getChainObject(thirdwebChainIdValue);
-  }, [thirdwebChainIdValue, chains]);
-  const accountAbstraction = useMemo<SmartWalletOptions | undefined>(() => connectChain
-    ? { chain: connectChain, sponsorGas: true } : undefined, [connectChain]);
-  const autoConnect = useAutoConnect({ client: thirdwebClient, wallets, chain: connectChain, accountAbstraction, timeout: 30000 });
-  const isReconnecting = (reconnecting || Boolean(autoConnect?.isLoading)) && cachedAccount != null;
-
-  const chainInfo = getChainByNetworkId(paymentNetwork);
-
-  const selectedPaymentToken = useMemo(() => {
-    if (thirdwebChainIdValue == null) return undefined;
-    const usdcAddress = getUsdcAddress(thirdwebChainIdValue);
-    if (!usdcAddress) return undefined;
-    const asset = getChainConfig(thirdwebChainIdValue)?.asset ?? "USDC";
-    return {
-      address: usdcAddress,
-      name: asset,
-      symbol: asset,
-    };
-  }, [thirdwebChainIdValue, chains]);
-
-  const displayEvmAddress = evmAddress ?? (isReconnecting ? cachedAccount?.address ?? null : null);
-  const displaySvmAddress = svmAddress ?? (isReconnecting ? cachedAccount?.svmAddress ?? null : null);
-
-  const { formatted: totalBalance, isLoading: balanceLoading } = useTotalBalance({
-    evmAddress: displayEvmAddress,
-    svmAddress: displaySvmAddress,
-  }, {
-    enabled: !!displayEvmAddress || !!displaySvmAddress,
-    deferUntilIdle: !menuOpen,
-  });
-
-  if (!account && !isReconnecting) {
-    if (!connectChain || !selectedPaymentToken) {
-      return (
-        <button
-          type="button"
-          disabled
-          aria-label="Loading wallet"
-          className={cn("btn btn-ghost connect", className)}
-        >
-          <Wallet className="icon" aria-hidden="true" />
-          <span className="connect-address">Loading...</span>
-        </button>
-      );
-    }
-
-    return (
-      <button
-        type="button"
-        disabled={isModalConnecting}
-        data-guide="connect"
-        onClick={() => {
-          void openConnectModal({
-            client: thirdwebClient,
-            wallets,
-            chain: connectChain,
-            accountAbstraction,
-            size: compact ? "compact" : "wide",
-            title: "RAWCHUNKS",
-            titleIcon: "/branding/icon.svg",
-            showThirdwebBranding: false,
-            theme: thirdwebCustomTheme,
-          }).catch(() => { });
-        }}
-        className={cn("btn btn-solid connect", className)}
-      >
-        <Wallet className="icon" aria-hidden="true" />
-        <span className="connect-address">CONNECT</span>
-      </button>
-    );
-  }
-
-  const shortAddress = displayAddress
-    ? `${displayAddress.slice(0, 6)}...${displayAddress.slice(-4)}`
-    : userAddressResolving || isReconnecting ? "Resolving..." : "Unavailable";
-  const displayName = nickname || shortAddress;
-  const accountLabel = isEvm ? "Smart account" : "Solana account";
-  const requiredActivationSol = requiredFundingLamports == null
-    ? null
-    : (Number(requiredFundingLamports) / 1_000_000_000).toFixed(9).replace(/0+$/, "").replace(/\.$/, "");
-  const currentActivationSol = currentFundingLamports == null
-    ? null
-    : (Number(currentFundingLamports) / 1_000_000_000).toFixed(9).replace(/0+$/, "").replace(/\.$/, "");
-  const isActivationFunded = requiredFundingLamports != null
-    && currentFundingLamports != null
-    && currentFundingLamports >= requiredFundingLamports;
-  const selectedExplorerUrl = (() => {
-    if (!displayAddress) return null;
-    const url = getExplorerUrl(paymentNetwork, "address", displayAddress);
-    return url === "#" ? null : url;
-  })();
-
-  const handleCopy = async () => {
-    if (!displayAddress) return;
-    await navigator.clipboard.writeText(displayAddress);
-    setCopied(true);
-    globalThis.setTimeout(() => setCopied(false), 2_000);
-  };
-
-  const handleDisconnect = () => {
-    clearCachedAccount();
-    setCachedAccount(null);
-    wallet?.disconnect();
-  };
-
-  return (
-    <>
-      <DisclaimerModal
-        forceOpen={showDisclaimer}
-        onOpenChange={setShowDisclaimer}
-      />
-
-      <ProfileModal
-        isOpen={showProfileModal}
-        onClose={() => setShowProfileModal(false)}
-        address={displayAddress}
-      />
-
-      <DropdownMenu onOpenChange={setMenuOpen}>
-        <Tooltip
-          title={displayName}
-          description={`${chainInfo?.name || "Unknown network"} • ${balanceLoading ? "..." : `$${totalBalance}`}`}
-          position="bottom"
-        >
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              aria-label={`Wallet ${displayName}`}
-              data-guide="profile"
-              data-reconnecting={isReconnecting || undefined}
-              className={cn("btn btn-ghost connect", isReconnecting && "connect-dim", className)}
-            >
-              {avatar ? (
-                <img src={avatar} alt="" className="connect-avatar" />
-              ) : (
-                <Wallet className="icon" aria-hidden="true" />
-              )}
-              <span className="connect-address">{displayName}</span>
-              <ChevronDown className="icon icon-fold" aria-hidden="true" />
-            </button>
-          </DropdownMenuTrigger>
-        </Tooltip>
-
-        <DropdownMenuContent align="end">
-          <div className="menu-head">
-            <span className="label">CREDITS</span>
-            <span className="menu-total">{creditsLoading ? '...' : creditLabel(credits.availableAtomics)}</span>
-          </div>
-          <div className="menu-head">
-            <span className="menu-chain">
-              <NetworkGlyph network={paymentNetwork} name={chainInfo?.name || "Unknown network"} />
-              <b>{chainInfo?.name || "Unknown network"}</b>
-            </span>
-            <span className="menu-total">
-              {balanceLoading ? "..." : `$${totalBalance}`}
-            </span>
-          </div>
-
-          <div className="menu-head">
-            <span className="label">{accountLabel}</span>
-            <div className="menu-row">
-              <span className="menu-address">{shortAddress}</span>
-              <div className="menu-actions">
-                <Tooltip title={copied ? "COPIED" : "COPY ADDRESS"} description="Copy wallet address to clipboard" position="top">
-                  <button
-                    type="button"
-                    onClick={handleCopy}
-                    disabled={!displayAddress}
-                    aria-label="Copy address"
-                    className="menu-icon-btn"
-                  >
-                    {copied ? <Check className="icon" /> : <Copy className="icon" />}
-                  </button>
-                </Tooltip>
-                {selectedExplorerUrl ? (
-                  <Tooltip title="VIEW ON EXPLORER" description="Open wallet address in block explorer" position="top">
-                    <a
-                      href={selectedExplorerUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      aria-label="View on explorer"
-                      className="menu-icon-btn"
-                    >
-                      <ExternalLink className="icon" />
-                    </a>
-                  </Tooltip>
-                ) : null}
-              </div>
-            </div>
-            {!isEvm && !solanaActivated && requiredActivationSol ? (
-              <p className="menu-note">
-                {isActivationFunded
-                  ? "Ready to activate when you start a session."
-                  : paymentNetwork === "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"
-                    ? `Fund this address with ${requiredActivationSol} SOL or USDC to activate it.`
-                    : `Fund this address with ${requiredActivationSol} SOL to activate it.`}
-              </p>
-            ) : null}
-            {!isEvm && !solanaActivated && requiredActivationSol && currentActivationSol ? (
-              <p className="menu-note">Detected: {currentActivationSol} SOL</p>
-            ) : null}
-          </div>
-
-          <DropdownMenuItem onClick={() => setShowProfileModal(true)}>
-            <User className="icon" />
-            Edit Profile
-          </DropdownMenuItem>
-
-          <DropdownMenuItem onClick={() => setShowDisclaimer(true)}>
-            <ShieldCheck className="icon" />
-            Disclaimer &amp; terms
-          </DropdownMenuItem>
-
-          <DropdownMenuItem onClick={handleDisconnect}>
-            <LogOut className="icon" />
-            Disconnect
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </>
-  );
 }
-
-
-
 
