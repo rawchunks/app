@@ -1,32 +1,33 @@
 import { sdk } from './sdk';
-import type { SessionState } from '../hooks/use-session';
 
-export type CheckoutIntent = { kind: 'balance' } | { kind: 'start'; durationSeconds: number } | { kind: 'topup'; sessionId: string };
-export function promptCardCheckout(intent: CheckoutIntent): void {
-  window.dispatchEvent(new CustomEvent('rawchunks:card-checkout', { detail: intent }));
+export type CheckoutIntent = { kind: 'balance' };
+export function promptCardCheckout(intent: CheckoutIntent = { kind: 'balance' }): void {
+  window.dispatchEvent(new CustomEvent('rawchunks:card-checkout', { detail: { intent } }));
 }
 export interface CreditPack { id: string; amountAtomics: string; usd: string }
 export interface CreditPromoStatus {
   eligible: boolean;
   claimed: boolean;
   remaining: number;
+  maxClaims: number;
   amountAtomics: string;
+  availableAtomics?: string;
+  allocatedAtomics?: string;
+  reservedAtomics?: string;
+  spentAtomics?: string;
   reason?: 'claimed' | 'identity_required' | 'exhausted';
 }
 export interface CreditBalance {
-  availableAtomics: string; allocatedAtomics: string; reservedAtomics: string; spentAtomics: string; suspendedAtomics: string;
-  packs: CreditPack[]; paypalClientId: string; environment: 'sandbox' | 'live';
+  availableAtomics: string;
+  allocatedAtomics: string;
+  reservedAtomics: string;
+  spentAtomics: string;
+  suspendedAtomics: string;
+  packs: CreditPack[];
+  paypalClientId: string;
+  environment: 'sandbox' | 'live';
   promo?: CreditPromoStatus;
 }
-export interface CreditSession {
-  id: string; budgetAtomics: string; remainingAtomics: string; reservedAtomics: string; spentAtomics: string;
-  expiresAt: number; closed: boolean; token?: string; fundingSource: 'prepaid';
-}
-export const DEFAULT_CREDIT_PACKS: CreditPack[] = [
-  { id: 'usd-10', amountAtomics: '10000000', usd: '10.00' },
-  { id: 'usd-25', amountAtomics: '25000000', usd: '25.00' },
-  { id: 'usd-100', amountAtomics: '100000000', usd: '100.00' },
-];
 export const DEFAULT_PAYPAL_CLIENT_ID: string =
   (typeof import.meta !== 'undefined' && import.meta.env?.VITE_PAYPAL_CLIENT_ID) || '';
 export const zeroCredits: CreditBalance = {
@@ -35,10 +36,9 @@ export const zeroCredits: CreditBalance = {
   reservedAtomics: '0',
   spentAtomics: '0',
   suspendedAtomics: '0',
-  packs: DEFAULT_CREDIT_PACKS,
+  packs: [],
   paypalClientId: DEFAULT_PAYPAL_CLIENT_ID,
   environment: 'sandbox',
-  promo: { eligible: false, claimed: false, remaining: 1000, amountAtomics: '1000000' },
 };
 export async function creditsApi<T>(path: string, body?: unknown, idempotencyKey?: string): Promise<T> {
   const response = await sdk.fetch(`/api/credits/${path}`, {
@@ -49,11 +49,6 @@ export async function creditsApi<T>(path: string, body?: unknown, idempotencyKey
   const result = await response.json();
   if (!response.ok) throw new Error(typeof result.error === 'string' ? result.error : result.message || `Credits request failed (${response.status})`);
   return result;
-}
-export function prepaidSession(row: CreditSession, userAddress: string, network: SessionState['network'], token = row.token): SessionState {
-  return { fundingSource: 'prepaid', active: !row.closed && row.expiresAt > Date.now(), userAddress, network,
-    keyId: row.id, token: token ?? null, budgetLimit: row.budgetAtomics, budgetRemaining: row.remainingAtomics,
-    budgetLocked: row.reservedAtomics, budgetUsed: row.spentAtomics, expiresAt: row.expiresAt };
 }
 function compact(value: bigint, unit: bigint, places: number): string {
   const scale = 10n ** BigInt(places);
