@@ -80,6 +80,35 @@ export function writeCachedPayPalClientId(paypalClientId: string, environment: '
     } catch { }
 }
 
+export function purgeUserCaches(): void {
+    if (typeof window === "undefined") return;
+    try {
+        localStorage.removeItem(LAST_ACCOUNT_KEY);
+        const keysToRemove: string[] = [];
+        for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (!k) continue;
+            if (
+                (k.startsWith("songs:") && k !== "songs:public") ||
+                k.startsWith("project:") ||
+                k.startsWith("voices:") ||
+                k.startsWith("credits:") ||
+                k.startsWith("rawchunks:funding-source:") ||
+                k.startsWith("rawchunks:session:v2:") ||
+                k.startsWith("rawchunks:compose-session:") ||
+                k.startsWith("rawchunks:credit-purchase:") ||
+                k === "rawchunks:session" ||
+                k === "rawchunks:playback"
+            ) {
+                keysToRemove.push(k);
+            }
+        }
+        for (const k of keysToRemove) {
+            localStorage.removeItem(k);
+        }
+    } catch { }
+}
+
 export interface CachedAccount {
     /** EVM smart account address (useActiveAccount().address). */
     address: string;
@@ -145,9 +174,9 @@ export function writeCachedGuides(address: string, guides: string[]): void {
     } catch { }
 }
 
-export function cachedAddress(account: CachedAccount | null, network: string, isEvm: boolean, status: string): string | null {
-    if (!account || account.network !== network || (status !== 'unknown' && status !== 'connecting')) return null;
-    return isEvm ? account.address : account.svmAddress ?? null;
+export function cachedAddress(account: CachedAccount | null, _network: string, isEvm: boolean, status: string): string | null {
+    if (!account || (status !== 'unknown' && status !== 'connecting')) return null;
+    return isEvm ? (account.address || account.svmAddress || null) : (account.svmAddress || account.address || null);
 }
 
 export interface Project {
@@ -205,11 +234,12 @@ function voiceOwner(address: string): string {
     return /^0x[0-9a-f]{40}$/i.test(address) ? address.toLowerCase() : address;
 }
 
-export function isVoice(value: unknown, _address?: string): value is Voice {
+export function isVoice(value: unknown, address?: string): value is Voice {
     if (!value || typeof value !== 'object') return false;
     const voice = value as Record<string, unknown>;
     if (typeof voice.id !== 'string' || !voice.id || typeof voice.name !== 'string' ||
         typeof voice.creator !== 'string' || !voice.creator ||
+        (address !== undefined && voiceOwner(voice.creator) !== voiceOwner(address)) ||
         typeof voice.created_at !== 'string' ||
         !['saved', 'extracting', 'queued', 'training', 'ready', 'error'].includes(String(voice.status)) ||
         (voice.sample_url != null && typeof voice.sample_url !== 'string') ||
@@ -255,28 +285,47 @@ export function readCachedAccount(): CachedAccount | null {
         const raw = localStorage.getItem(LAST_ACCOUNT_KEY);
         if (!raw) return null;
         const parsed = JSON.parse(raw) as CachedAccount;
-        if (typeof parsed?.address !== "string" || !parsed.address) return null;
+        if ((!parsed?.address && !parsed?.svmAddress)) return null;
         return parsed;
     } catch {
         return null;
     }
 }
 
-export function writeCachedAccount(address: string, network: string, svmAddress?: string | null, nickname?: string | null, avatar?: string | null): void {
+export function writeCachedAccount(
+    address: string,
+    network: string,
+    svmAddress?: string | null,
+    nickname?: string | null,
+    avatar?: string | null,
+    bio?: string | null,
+    adminAddress?: string | null,
+): void {
     try {
         const existing = readCachedAccount();
-        const profile = readCachedProfile(address);
-        const resolvedNickname = nickname !== undefined ? nickname : (profile?.nickname ?? (existing?.address.toLowerCase() === address.toLowerCase() ? existing.nickname : null));
-        const resolvedAvatar = avatar !== undefined ? avatar : (profile?.avatar ?? (existing?.address.toLowerCase() === address.toLowerCase() ? existing.avatar : null));
+        const sameAccount = Boolean(
+            existing && (
+                (address && existing.address && existing.address.toLowerCase() === address.toLowerCase()) ||
+                (svmAddress && existing.svmAddress && existing.svmAddress === svmAddress)
+            )
+        );
+        const profile = readCachedProfile(address || svmAddress || null);
+        const resolvedSvmAddress = svmAddress || (sameAccount ? existing?.svmAddress : undefined);
+        const resolvedAdminAddress = adminAddress || (sameAccount ? existing?.adminAddress : undefined);
+        const resolvedNickname = nickname !== undefined ? nickname : (profile?.nickname ?? (sameAccount ? existing?.nickname : null));
+        const resolvedAvatar = avatar !== undefined ? avatar : (profile?.avatar ?? (sameAccount ? existing?.avatar : null));
+        const resolvedBio = bio !== undefined ? bio : (profile?.bio ?? (sameAccount ? existing?.bio : null));
         localStorage.setItem(
             LAST_ACCOUNT_KEY,
             JSON.stringify({
-                address,
+                address: address || (sameAccount ? existing?.address || '' : ''),
                 network,
                 updatedAt: Date.now(),
-                ...(svmAddress ? { svmAddress } : {}),
+                ...(resolvedAdminAddress ? { adminAddress: resolvedAdminAddress } : {}),
+                ...(resolvedSvmAddress ? { svmAddress: resolvedSvmAddress } : {}),
                 ...(resolvedNickname ? { nickname: resolvedNickname } : {}),
                 ...(resolvedAvatar ? { avatar: resolvedAvatar } : {}),
+                ...(resolvedBio ? { bio: resolvedBio } : {}),
             } satisfies CachedAccount),
         );
     } catch {
