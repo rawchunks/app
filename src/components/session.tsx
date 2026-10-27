@@ -557,48 +557,30 @@ export interface FundingPanelProps {
 
 type FundingStep = 'compartments' | 'card' | 'usdc';
 
-export function SessionControl() {
-  const { session, isCreating, error, createSession, refreshSession, endSession, credits, creditsLoading, creditsError, creditsEnabled, createCreditSession, claimPromoSession } = useSession();
+export function FundingPanel({ onDone, reason, funding }: FundingPanelProps) {
+  const {
+    session,
+    activeSource,
+    setActiveSource,
+    isCreating,
+    error,
+    createSession,
+    refreshSession,
+    endSession,
+    credits,
+    creditsLoading,
+    creditsError,
+    creditsEnabled,
+    claimPromoCredits,
+  } = useSession();
   const { evmAddress, svmAddress, readAddress, userAddress } = useSelectedUserAddress();
   const { selectedNetwork, getChainByNetworkId } = useChain();
   const { data: balances, isLoading: balanceLoading } = useMultiChainBalance({ evmAddress, svmAddress });
 
-  const [open, setOpen] = useState(false);
-  const [step, setStep] = useState<'select' | 'usdc' | 'card'>('select');
-  const [campaignExpanded, setCampaignExpanded] = useState(false);
-  const [topupOpen, setTopupOpen] = useState(false);
-  const [usingCredits, setUsingCredits] = useState(false);
+  const initialStep: FundingStep =
+    funding === 'card' ? 'card' : funding === 'usdc' ? 'usdc' : 'compartments';
+  const [step, setStep] = useState<FundingStep>(initialStep);
   const [claimingPromo, setClaimingPromo] = useState(false);
-
-  const promoClaimed = Boolean(credits.promo?.claimed);
-  const promoRemaining = credits.promo?.remaining ?? 1000;
-  const promoEligible = creditsEnabled && !promoClaimed && promoRemaining > 0;
-
-  const closeModal = () => {
-    setOpen(false);
-    setTopupOpen(false);
-    setStep('select');
-    setCampaignExpanded(false);
-  };
-
-  useEffect(() => {
-    const handleOpen = (event: Event) => {
-      const detail = (event as CustomEvent<{ option?: 'usdc' | 'card' | 'campaign' } | undefined>).detail;
-      if (detail?.option === 'usdc' || detail?.option === 'card') {
-        setStep(detail.option);
-        setCampaignExpanded(false);
-      } else if (detail?.option === 'campaign') {
-        setStep('select');
-        setCampaignExpanded(true);
-      } else {
-        setStep('select');
-        setCampaignExpanded(false);
-      }
-      setOpen(true);
-    };
-    window.addEventListener("rawchunks:open-session", handleOpen);
-    return () => window.removeEventListener("rawchunks:open-session", handleOpen);
-  }, []);
 
   const [selectedBudgetPreset, setSelectedBudgetPreset] = useState<string>("10000000");
   const [customBudget, setCustomBudget] = useState<string>("");
@@ -606,17 +588,45 @@ export function SessionControl() {
   const [isEnding, setIsEnding] = useState(false);
   const [copiedKey, setCopiedKey] = useState(false);
 
+  useEffect(() => {
+    if (funding === 'card') setStep('card');
+    else if (funding === 'usdc') setStep('usdc');
+    else if (funding === 'campaign') setStep('compartments');
+  }, [funding]);
+
+  const isUsdcSession = Boolean(session.active && BigInt(session.budgetRemaining || '0') > 0n);
+
   const displayAddress = userAddress ?? readAddress;
+  const promo = credits.promo;
+  const promoClaimed = Boolean(promo?.claimed);
+  const promoRemaining = promo?.remaining ?? 0;
+  const promoMaxClaims = promo?.maxClaims ?? 0;
+  const promoAmountAtomics = promo?.amountAtomics ?? '0';
+  const promoBadgeLabel = promo ? `${formatCredits(promoAmountAtomics)} CR ($${formatDollars(promoAmountAtomics)})` : 'CHECKING...';
+  const promoEligible = Boolean(
+    promo &&
+    !promoClaimed &&
+    promoRemaining > 0 &&
+    (Boolean(promo.eligible) || !displayAddress || !creditsEnabled || promo.reason === 'identity_required')
+  );
+  const totalPromoAtomics = promo?.availableAtomics ?? '0';
+  const hasAvailablePromo = BigInt(totalPromoAtomics) > 0n;
+
+  const totalCardAtomics = credits.availableAtomics || '0';
+  const hasAvailableCardCredits = BigInt(totalCardAtomics) > 0n;
+
+  const isPromoSelected = hasAvailablePromo && activeSource === 'promo';
+  const isCardSelected = hasAvailableCardCredits && activeSource === 'card';
+  const isUsdcSelected = isUsdcSession && activeSource === 'usdc';
+
   const activeNetwork = session.active && session.network ? session.network : selectedNetwork;
   const chainInfo = getChainByNetworkId(activeNetwork);
-  const assetSymbol = chainInfo?.asset ?? "stablecoin";
+  const assetSymbol = chainInfo?.asset ?? "USDC";
   const currentBalance = balances?.find((b) => b.network === selectedNetwork)?.formatted ?? "0.00";
 
   const effectiveBudgetWei = customBudget.trim()
     ? Math.floor(Math.max(0, parseFloat(customBudget) || 0) * 10_000).toString()
     : selectedBudgetPreset;
-  const prepaid = session.fundingSource === 'prepaid';
-  const hasAvailableCredits = BigInt(credits.availableAtomics || '0') > 0n;
 
   const remainingNum = Number(session.budgetRemaining || 0);
   const limitNum = Number(session.budgetLimit || 1);
@@ -638,7 +648,13 @@ export function SessionControl() {
 
   const handleStartSession = async () => {
     if (!displayAddress) {
-      toast.error("Connect wallet first");
+      onDone();
+      void openGate({
+        steps: ['login', 'terms', 'funding'],
+        funding: 'usdc',
+        reason: 'Connect your wallet or account to authorize an on-chain USDC Session.',
+        force: true,
+      });
       return;
     }
     const budgetVal = Number(effectiveBudgetWei) / 1_000_000;
@@ -648,8 +664,8 @@ export function SessionControl() {
     }
     try {
       await createSession(effectiveBudgetWei, duration);
-      toast.success("Session activated successfully");
-      closeModal();
+      toast.success("USDC Session activated");
+      onDone();
     } catch (cause) {
       const msg = cause instanceof Error ? cause.message : "Failed to activate session";
       toast.error(msg);
@@ -660,8 +676,7 @@ export function SessionControl() {
     setIsEnding(true);
     try {
       await endSession();
-      toast.success("Session ended");
-      closeModal();
+      toast.success("USDC Session ended");
     } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : "Failed to end session");
     } finally {
@@ -669,124 +684,295 @@ export function SessionControl() {
     }
   };
 
-  const handleUseCredits = async () => {
-    setUsingCredits(true);
-    try {
-      await createCreditSession(credits.availableAtomics, duration);
-      toast.success("Credit session activated");
-      closeModal();
-    } catch (cause) {
-      toast.error(cause instanceof Error ? cause.message : 'Could not start session');
-    } finally {
-      setUsingCredits(false);
-    }
+  const handleSelectSource = (source: FundingSource, label: string) => {
+    setActiveSource(source);
+    toast.success(`${label} selected`);
+    onDone();
   };
 
   const handleClaimPromo = async () => {
-    if (!claimPromoSession) return;
+    const promoGateReason = promo
+      ? `Sign in with Google, Email, or Passkey to claim your ${formatCredits(promoAmountAtomics)} Free Welcome Credits ($${formatDollars(promoAmountAtomics)}).`
+      : 'Sign in with Google, Email, or Passkey to claim your Free Welcome Credits.';
+    if (!displayAddress || !creditsEnabled) {
+      onDone();
+      void openGate({
+        steps: ['login', 'terms', 'funding'],
+        funding: 'campaign',
+        reason: promoGateReason,
+        force: true,
+      });
+      return;
+    }
     setClaimingPromo(true);
     try {
-      await claimPromoSession();
-      toast.success("100 Campaign Credits claimed & session activated!");
-      closeModal();
+      await claimPromoCredits();
+      toast.success(promo ? `${formatCredits(promoAmountAtomics)} Campaign Credits claimed!` : "Campaign Credits claimed!");
+      onDone();
     } catch (cause) {
-      toast.error(cause instanceof Error ? cause.message : "Failed to claim Campaign Credits");
+      const msg = cause instanceof Error ? cause.message : "Failed to claim Campaign Credits";
+      toast.error(msg);
+      if (msg.toLowerCase().includes('verified email or social account')) {
+        onDone();
+        void openGate({
+          steps: ['login', 'terms', 'funding'],
+          funding: 'campaign',
+          reason: promoGateReason,
+          force: true,
+        });
+      }
     } finally {
       setClaimingPromo(false);
     }
   };
 
   return (
-    <>
-      <Tooltip
-        title={
-          session.active
-            ? `SESSION ACTIVE // ${creditLabel(session.budgetRemaining)}`
-            : promoEligible
-              ? "CLAIM 100 FREE CREDITS!"
-              : "SESSION CONTROLS"
-        }
-        description={
-          session.active
-            ? `${percentRemaining}% budget remaining · Click to manage`
-            : promoEligible
-              ? `Limited welcome campaign (${promoRemaining.toLocaleString()} / 1,000 left) · Click to claim`
-              : "Enable one-click micropayments & Credits"
-        }
-        position="bottom"
-      >
-        <button
-          type="button"
-          data-guide="session"
-          aria-label={
-            session.active
-              ? `Session active: ${creditLabel(session.budgetRemaining)}`
-              : "Open session controls"
-          }
-          className={cn(
-            "header-session-trigger",
-            session.active && "active",
-            isCreating && "is-creating",
-            !session.active && promoEligible && "session-trigger-promo-flicker",
-          )}
-          onClick={() => setOpen(true)}
-        >
-          <Zap className="session-trigger-icon" size={13} />
-          {session.active ? (
-            <>
-              <span className="session-trigger-amount">{formatCredits(session.budgetRemaining)}</span>
-              <span className="session-active-indicator" />
-            </>
-          ) : (
-            <span className="session-trigger-label">SESSION</span>
-          )}
-        </button>
-      </Tooltip>
+    <div className="funding-panel">
+      <div className="session-modal-content">
+        {reason && (
+          <div className="session-reason-banner" role="status">
+            <Zap size={13} className="session-info-icon" />
+            <span>{reason}</span>
+          </div>
+        )}
 
-      <Modal
-        isOpen={open}
-        onClose={closeModal}
-        title="SESSION CONTROLS"
-        size="md"
-        className="session-modal"
-      >
-        {!displayAddress ? (
-          <div className="session-modal-content">
-            <div className="session-info-strip">
-              <Wallet className="session-info-icon" size={20} />
-              <div className="session-info-text">
-                <span className="session-info-title">WALLET NOT CONNECTED</span>
-                <span className="session-info-desc">
-                  Connect your wallet in the header to activate one-click session keys, purchase Credits, or claim 100 free Campaign Credits.
-                </span>
+        {/* STEP 1: 3 RECTANGULAR COMPARTMENTS */}
+        {step === 'compartments' && (
+          <div className="session-compartments" role="list" aria-label="Credits and session compartments">
+            {/* COMPARTMENT 1: CAMPAIGN */}
+            <div
+              role="listitem"
+              className={cn(
+                'session-compartment',
+                (promoEligible || hasAvailablePromo) && 'is-promo-live',
+                isPromoSelected && 'is-active',
+              )}
+            >
+              <div className="session-compartment-head">
+                <div className="session-compartment-title-group">
+                  <Sparkles size={14} className="session-promo-sparkle" />
+                  <span className="session-compartment-title">CAMPAIGN</span>
+                  <span className={cn('session-compartment-badge', (promoEligible || hasAvailablePromo) ? 'live' : 'muted')}>
+                    {!promo
+                      ? 'CHECKING...'
+                      : promoEligible
+                        ? promoBadgeLabel
+                        : hasAvailablePromo
+                          ? `${formatCredits(totalPromoAtomics)} CR`
+                          : promoClaimed
+                            ? '0 CR LEFT'
+                            : promoRemaining <= 0
+                              ? 'FULL'
+                              : promoBadgeLabel}
+                  </span>
+                </div>
+
+                <div className="session-compartment-actions">
+                  {!promo ? (
+                    <span className="session-compartment-status-muted">CHECKING...</span>
+                  ) : promoEligible ? (
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      disabled={claimingPromo || creditsLoading}
+                      onClick={() => void handleClaimPromo()}
+                    >
+                      <Sparkles size={12} />
+                      {claimingPromo
+                        ? 'CLAIMING...'
+                        : !displayAddress || !creditsEnabled
+                          ? 'SIGN IN & CLAIM'
+                          : `CLAIM ${formatCredits(promoAmountAtomics)} CR`}
+                    </Button>
+                  ) : isPromoSelected ? (
+                    <span className="session-compartment-active-pill">
+                      <span className="session-active-indicator" />
+                      ACTIVE · {formatCredits(totalPromoAtomics)} CR
+                    </span>
+                  ) : hasAvailablePromo ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleSelectSource('promo', 'Campaign Credits')}
+                    >
+                      USE ({formatCredits(totalPromoAtomics)} CR)
+                    </Button>
+                  ) : (
+                    <span className="session-compartment-status-muted">
+                      {promoClaimed
+                        ? 'CLAIMED'
+                        : `${(promoMaxClaims - promoRemaining).toLocaleString()} / ${promoMaxClaims.toLocaleString()}`}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <p className="session-compartment-desc">
+                {!promo
+                  ? 'Checking welcome campaign availability...'
+                  : promoEligible
+                    ? `Welcome drop (${promoRemaining.toLocaleString()} / ${promoMaxClaims.toLocaleString()} left): claim ${creditLabel(promoAmountAtomics)} for Studio creation and stem editing with zero wallet popups.`
+                    : hasAvailablePromo
+                      ? `You have ${creditLabel(totalPromoAtomics)} in Campaign Credits ready for Studio creation and editing.`
+                      : promoClaimed
+                        ? `All ${formatCredits(promoAmountAtomics)} welcome Campaign Credits have been used.`
+                        : `All ${promoMaxClaims.toLocaleString()} welcome Campaign Credit slots have been claimed.`}
+              </p>
+
+              <div className="session-compartment-note">
+                Promo credits can&apos;t be used for Streaming and Licenses. Use your free credits to generate and edit your songs!
               </div>
             </div>
-            <div className="session-actions-footer">
-              <Button variant="ghost" size="sm" onClick={closeModal}>
-                CLOSE
-              </Button>
+
+            {/* COMPARTMENT 2: CREDIT CARD */}
+            <div
+              role="button"
+              tabIndex={0}
+              className={cn(
+                'session-compartment session-compartment-interactive',
+                isCardSelected && 'is-active',
+              )}
+              onClick={() => setStep('card')}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  setStep('card');
+                }
+              }}
+            >
+              <div className="session-compartment-head">
+                <div className="session-compartment-title-group">
+                  <CreditCard size={14} className="session-compartment-icon" />
+                  <span className="session-compartment-title">CREDIT CARD</span>
+                  <span className="session-tab-icons" aria-hidden="true">
+                    <span className="session-payment-badge">VISA</span>
+                    <img src="/icons/paypal.webp" alt="" className="session-payment-paypal" />
+                  </span>
+                </div>
+
+                <div className="session-compartment-actions">
+                  {isCardSelected ? (
+                    <span className="session-compartment-active-pill">
+                      <span className="session-active-indicator" />
+                      ACTIVE · {formatCredits(totalCardAtomics)} CR
+                    </span>
+                  ) : hasAvailableCardCredits ? (
+                    <span onClick={(e) => e.stopPropagation()}>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleSelectSource('card', 'Card Credits')}
+                      >
+                        USE ({formatCredits(totalCardAtomics)} CR)
+                      </Button>
+                    </span>
+                  ) : null}
+                  <span className="session-compartment-cta">
+                    {hasAvailableCardCredits ? '+ ADD →' : 'BUY CREDITS →'}
+                  </span>
+                </div>
+              </div>
+
+              <p className="session-compartment-desc">
+                Instant prepaid credits for Studio generation, stem edits, streaming, and licenses. Zero wallet popups.
+              </p>
             </div>
+
+            {/* COMPARTMENT 3: ON-CHAIN USDC */}
+            <div
+              role="button"
+              tabIndex={0}
+              className={cn(
+                'session-compartment session-compartment-interactive',
+                isUsdcSelected && 'is-active',
+              )}
+              onClick={() => setStep('usdc')}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  setStep('usdc');
+                }
+              }}
+            >
+              <div className="session-compartment-head">
+                <div className="session-compartment-title-group">
+                  <CircleDollarSign size={14} className="session-compartment-icon" />
+                  <span className="session-compartment-title">ON-CHAIN USDC</span>
+                  <span className="session-tab-icons" aria-hidden="true">
+                    <img src="/networks/base.png" alt="" className="session-option-net-icon" />
+                    <img src="/networks/tempo.png" alt="" className="session-option-net-icon" />
+                    <img src="/networks/solana.jpeg" alt="" className="session-option-net-icon" />
+                  </span>
+                </div>
+
+                <div className="session-compartment-actions">
+                  {isUsdcSelected ? (
+                    <span className="session-compartment-active-pill">
+                      <span className="session-active-indicator" />
+                      ACTIVE · {formatCredits(session.budgetRemaining)} CR
+                    </span>
+                  ) : isUsdcSession ? (
+                    <span onClick={(e) => e.stopPropagation()}>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleSelectSource('usdc', 'On-Chain USDC Session')}
+                      >
+                        USE ({formatCredits(session.budgetRemaining)} CR)
+                      </Button>
+                    </span>
+                  ) : null}
+                  <span className="session-compartment-cta">
+                    {session.active ? 'MANAGE →' : 'START SESSION →'}
+                  </span>
+                </div>
+              </div>
+
+              <p className="session-compartment-desc">
+                Authorize a time-boxed x402 spending cap directly from your Base, Tempo, or Solana wallet. Funds stay in your wallet until spent.
+              </p>
+            </div>
+
+            {creditsError && (
+              <div className="session-error-strip" role="alert">
+                <span>{creditsError}</span>
+              </div>
+            )}
           </div>
-        ) : session.active ? (
-          topupOpen && session.keyId ? (
-            <CardCheckout
-              intent={{ kind: 'topup', sessionId: session.keyId }}
-              cancelLabel="BACK"
-              onComplete={closeModal}
-              onCancel={() => setTopupOpen(false)}
-            />
-          ) : (
-            <div className="session-modal-content">
-              {/* Active Session Card */}
+        )}
+
+        {/* STEP 2A: CREDIT CARD CHECKOUT (pre-mounted so PayPal Hosted Fields iframes warm up immediately) */}
+        <div
+          className="session-tab-panel"
+          aria-hidden={step !== 'card'}
+          style={
+            step !== 'card'
+              ? { position: 'absolute', width: '100%', height: 0, overflow: 'hidden', opacity: 0, pointerEvents: 'none', visibility: 'hidden' }
+              : undefined
+          }
+        >
+          <CardCheckout
+            compact
+            intent={{ kind: 'balance' }}
+            cancelLabel="← BACK"
+            onComplete={onDone}
+            onCancel={() => setStep('compartments')}
+          />
+        </div>
+
+        {/* STEP 2B: ON-CHAIN USDC SESSION */}
+        {step === 'usdc' && (
+          session.active ? (
+            <div className="session-tab-panel">
               <div className="session-hud-card">
                 <div className="session-hud-header">
                   <div className="session-hud-badges">
                     <Badge variant="secondary">
-                      <span className="session-active-indicator" /> ACTIVE SESSION
+                      <span className="session-active-indicator" /> ACTIVE USDC SESSION
                     </Badge>
                     <Badge variant="outline">
-                      {!prepaid && <NetworkGlyph network={session.network} name={chainInfo?.name} />}
-                      <span>{prepaid ? 'CREDITS' : chainInfo?.name || session.network}</span>
+                      <NetworkGlyph network={session.network} name={chainInfo?.name} />
+                      <span>{chainInfo?.name || session.network}</span>
                     </Badge>
                   </div>
                   <Tooltip title="Refresh Budget" position="bottom">
@@ -812,7 +998,6 @@ export function SessionControl() {
                   </span>
                 </div>
 
-                {/* Meter Bar */}
                 <div className="session-meter-container">
                   <div
                     className="session-meter-track"
@@ -833,7 +1018,6 @@ export function SessionControl() {
                 </div>
               </div>
 
-              {/* Session Metadata Grid */}
               <div className="session-grid">
                 <div className="session-grid-item">
                   <div className="session-grid-item-head">
@@ -858,10 +1042,10 @@ export function SessionControl() {
                 <div className="session-grid-item">
                   <div className="session-grid-item-head">
                     <ShieldCheck className="session-grid-item-icon" size={12} />
-                    <span>{prepaid ? 'AVAILABLE CREDITS' : 'NETWORK'}</span>
+                    <span>NETWORK</span>
                   </div>
-                  <span className="session-grid-item-value">{prepaid ? creditLabel(credits.availableAtomics) : chainInfo?.name || session.network}</span>
-                  <span className="session-grid-item-sub">{prepaid ? '1 Credit = $0.01' : 'Scoped to this chain'}</span>
+                  <span className="session-grid-item-value">{chainInfo?.name || session.network}</span>
+                  <span className="session-grid-item-sub">Scoped to this chain</span>
                 </div>
 
                 <div className="session-grid-item">
@@ -886,331 +1070,279 @@ export function SessionControl() {
                       </Tooltip>
                     )}
                   </div>
-                  <span className="session-grid-item-sub">{prepaid ? 'Credit session' : 'Compose authorization token'}</span>
+                  <span className="session-grid-item-sub">Compose authorization token</span>
                 </div>
               </div>
 
-              {/* Active Actions Footer */}
               <div className="session-actions-footer">
-                {prepaid && (
-                  <Button variant="outline" size="sm" onClick={() => setTopupOpen(true)}>
-                    TOP UP
+                <Button variant="ghost" size="sm" onClick={() => setStep('compartments')}>
+                  ← BACK
+                </Button>
+                <div className="session-actions-btns">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="btn-danger"
+                    disabled={isEnding}
+                    onClick={() => void handleEndSession()}
+                  >
+                    <LogOut size={13} />
+                    {isEnding ? "ENDING..." : "END SESSION"}
                   </Button>
-                )}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="btn-danger"
-                  disabled={isEnding}
-                  onClick={() => void handleEndSession()}
-                >
-                  <LogOut size={13} />
-                  {isEnding ? "ENDING..." : "END SESSION"}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="session-tab-panel">
+              <div className="session-balance-strip">
+                <div className="session-balance-chain">
+                  <span>CHAIN</span>
+                  <NetworkSelector />
+                </div>
+                <div className="session-balance-val">
+                  {balanceLoading ? 'CHECKING...' : `$${currentBalance} ${assetSymbol}`}
+                </div>
+              </div>
+
+              <div className="session-section">
+                <div className="session-section-head">
+                  <span className="session-section-label">BUDGET CAP</span>
+                  <span className="session-section-val">
+                    {creditLabel(effectiveBudgetWei)}
+                  </span>
+                </div>
+                <div className="session-pills-row">
+                  {BUDGET_PRESETS.map((preset) => {
+                    const isSelected = !customBudget.trim() && selectedBudgetPreset === preset.value;
+                    return (
+                      <button
+                        key={preset.value}
+                        type="button"
+                        className={cn('session-pill-btn', isSelected && 'active')}
+                        onClick={() => {
+                          setSelectedBudgetPreset(preset.value);
+                          setCustomBudget('');
+                        }}
+                      >
+                        {preset.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="session-custom-row">
+                  <span className="session-custom-prefix">#</span>
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    className="cyber-input-field"
+                    placeholder="Custom Credits amount (100 = $1.00)"
+                    value={customBudget}
+                    onChange={(e) => setCustomBudget(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="session-section">
+                <span className="session-section-label">SESSION DURATION</span>
+                <div className="session-duration-pills">
+                  {DURATION_PRESETS.map((dur) => {
+                    const isSelected = duration === dur.hours;
+                    return (
+                      <Tooltip key={dur.hours} title={dur.desc}>
+                        <button
+                          type="button"
+                          className={cn('session-duration-btn', isSelected && 'active')}
+                          onClick={() => setDuration(dur.hours)}
+                        >
+                          {dur.label}
+                        </button>
+                      </Tooltip>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="session-notice-strip">
+                <ShieldCheck className="session-notice-icon" size={14} />
+                <span>Funds remain in your wallet until spent. Revoke or end the session anytime.</span>
+              </div>
+
+              {error && (
+                <div className="session-error-strip" role="alert">
+                  <span>{error}</span>
+                </div>
+              )}
+
+              <div className="session-actions-footer">
+                <Button variant="ghost" size="sm" onClick={() => setStep('compartments')} disabled={isCreating}>
+                  ← BACK
                 </Button>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={closeModal}
-                >
-                  DONE
-                </Button>
+                <div className="session-actions-btns">
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    disabled={isCreating}
+                    onClick={() => void handleStartSession()}
+                  >
+                    {isCreating ? 'STARTING...' : !displayAddress ? 'LOGIN TO CREATE A SESSION' : 'START SESSION'}
+                  </Button>
+                </div>
               </div>
             </div>
           )
-        ) : step === 'card' ? (
+        )}
+      </div>
+    </div>
+  );
+}
+
+export function Session() {
+  const { session, activeSource, hasBudget, hasStreamBudget, credits } = useSession();
+  const { userAddress } = useSelectedUserAddress();
+  const { hasConsented } = useDisclaimerConsent();
+  const gate = useGate();
+
+  const [manualOpen, setManualOpen] = useState(false);
+  const [checkout, setCheckout] = useState<{ intent: CheckoutIntent; version: number } | null>(null);
+
+  const promo = credits.promo;
+  const promoClaimed = Boolean(promo?.claimed);
+  const promoRemaining = promo?.remaining ?? 0;
+  const promoAmountAtomics = promo?.amountAtomics ?? '0';
+  const promoEligible = Boolean(
+    promo &&
+    !promoClaimed &&
+    promoRemaining > 0 &&
+    (Boolean(promo.eligible) || !userAddress || promo.reason === 'identity_required')
+  );
+  const promoAvailableAtomics = promo?.availableAtomics ?? '0';
+  const hasAvailablePromo = BigInt(promoAvailableAtomics) > 0n;
+  const hasAvailableCardCredits = BigInt(credits.availableAtomics || '0') > 0n;
+  const hasActiveUsdcSession = Boolean(session.active && BigInt(session.budgetRemaining || '0') > 0n);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ intent?: CheckoutIntent }>).detail;
+      setCheckout((current) => ({
+        intent: detail?.intent ?? { kind: 'balance' },
+        version: (current?.version ?? 0) + 1,
+      }));
+    };
+    window.addEventListener('rawchunks:card-checkout', handler);
+    return () => window.removeEventListener('rawchunks:card-checkout', handler);
+  }, []);
+
+  const gateStep = gate.request
+    ? unsatisfiedStep(gate.request, {
+      loggedIn: Boolean(userAddress),
+      consented: hasConsented,
+      funded: gate.request.action === 'stream' ? hasStreamBudget : hasBudget,
+    }) ?? (gate.request.force ? 'funding' : null)
+    : null;
+
+  const isFundingGate = gateStep === 'funding';
+  const modalOpen = manualOpen || isFundingGate || Boolean(checkout);
+
+  const handleCloseModal = () => {
+    setManualOpen(false);
+    setCheckout(null);
+    if (isFundingGate) {
+      gate.cancel();
+    }
+  };
+
+  const handleDone = () => {
+    setManualOpen(false);
+    setCheckout(null);
+    if (isFundingGate) {
+      closeGate(true);
+      gate.cancel();
+    }
+  };
+
+  const handlePillClick = () => {
+    setManualOpen(true);
+  };
+
+  const activeDisplayAtomics =
+    activeSource === 'usdc' && hasActiveUsdcSession
+      ? session.budgetRemaining
+      : activeSource === 'card' && hasAvailableCardCredits
+        ? credits.availableAtomics
+        : activeSource === 'promo' && hasAvailablePromo
+          ? promoAvailableAtomics
+          : hasActiveUsdcSession
+            ? session.budgetRemaining
+            : hasAvailableCardCredits
+              ? credits.availableAtomics
+              : hasAvailablePromo
+                ? promoAvailableAtomics
+                : null;
+
+  return (
+    <>
+      <Tooltip
+        title={
+          activeDisplayAtomics
+            ? `${creditLabel(activeDisplayAtomics)} available (${activeSource.toUpperCase()})`
+            : promoEligible
+              ? `Claim ${formatCredits(promoAmountAtomics)} Free Welcome Credits ($${formatDollars(promoAmountAtomics)})`
+              : 'Manage Studio Credits & Session'
+        }
+        position="bottom"
+      >
+        <button
+          type="button"
+          className={cn(
+            'session-trigger-btn',
+            Boolean(activeDisplayAtomics) && 'active',
+            !activeDisplayAtomics && promoEligible && 'promo',
+          )}
+          onClick={handlePillClick}
+          aria-label="Session and Credits"
+        >
+          {activeDisplayAtomics ? (
+            <>
+              <span className="session-active-indicator" />
+              <span className="session-trigger-val">{formatCredits(activeDisplayAtomics)} CR</span>
+            </>
+          ) : promoEligible ? (
+            <>
+              <Sparkles size={12} className="session-trigger-icon" />
+              <span className="session-trigger-val">FREE ${formatDollars(promoAmountAtomics)}</span>
+            </>
+          ) : (
+            <>
+              <Zap size={12} className="session-trigger-icon" />
+              <span className="session-trigger-val">CREDITS</span>
+            </>
+          )}
+        </button>
+      </Tooltip>
+
+      <Modal
+        isOpen={modalOpen}
+        onClose={handleCloseModal}
+        title={checkout ? 'INSTANT CREDIT TOP-UP' : 'CREDITS & SESSION'}
+        size="md"
+      >
+        {checkout ? (
           <CardCheckout
-            intent={{ kind: 'start', durationSeconds: duration * 3600 }}
-            cancelLabel="BACK"
-            onComplete={closeModal}
-            onCancel={() => setStep('select')}
+            intent={checkout.intent}
+            version={checkout.version}
+            cancelLabel="CANCEL"
+            onComplete={handleDone}
+            onCancel={handleCloseModal}
           />
-        ) : step === 'usdc' ? (
-          <div className="session-modal-content">
-            <div className="session-info-strip">
-              <CircleDollarSign className="session-info-icon" size={18} />
-              <div className="session-info-text">
-                <span className="session-info-title">ON-CHAIN USDC SESSION</span>
-                <span className="session-info-desc">
-                  Authorize a temporary spending cap so you can generate songs, separate stems, and stream tracks without signing every transaction.
-                </span>
-              </div>
-            </div>
-
-            <div className="session-balance-strip">
-              <div className="session-balance-chain">
-                <NetworkGlyph network={selectedNetwork} name={chainInfo?.name} />
-                <span>{chainInfo?.name || selectedNetwork}</span>
-              </div>
-              <div className="session-balance-val">
-                {balanceLoading ? "CHECKING..." : `AVAILABLE: $${currentBalance} ${assetSymbol}`}
-              </div>
-            </div>
-
-            <div className="session-section">
-              <div className="session-section-head">
-                <span className="session-section-label">BUDGET CAP</span>
-                <span className="session-section-val">
-                  {creditLabel(effectiveBudgetWei)}
-                </span>
-              </div>
-              <div className="session-pills-row">
-                {BUDGET_PRESETS.map((preset) => {
-                  const isSelected = !customBudget.trim() && selectedBudgetPreset === preset.value;
-                  return (
-                    <button
-                      key={preset.value}
-                      type="button"
-                      className={cn("session-pill-btn", isSelected && "active")}
-                      onClick={() => {
-                        setSelectedBudgetPreset(preset.value);
-                        setCustomBudget("");
-                      }}
-                    >
-                      {preset.label}
-                    </button>
-                  );
-                })}
-              </div>
-              <div className="session-custom-row">
-                <span className="session-custom-prefix">#</span>
-                <input
-                  type="number"
-                  min="1"
-                  step="1"
-                  className="cyber-input-field"
-                  placeholder="Custom Credits amount"
-                  value={customBudget}
-                  onChange={(e) => setCustomBudget(e.target.value)}
-                />
-              </div>
-            </div>
-
-            <div className="session-section">
-              <span className="session-section-label">SESSION DURATION</span>
-              <div className="session-duration-pills">
-                {DURATION_PRESETS.map((dur) => {
-                  const isSelected = duration === dur.hours;
-                  return (
-                    <button
-                      key={dur.hours}
-                      type="button"
-                      className={cn("session-duration-btn", isSelected && "active")}
-                      onClick={() => setDuration(dur.hours)}
-                      title={dur.desc}
-                    >
-                      {dur.label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="session-notice-strip">
-              <ShieldCheck className="session-notice-icon" size={14} />
-              <span>Your funds remain in your wallet. You can revoke or end the session at any time.</span>
-            </div>
-
-            {error && (
-              <div className="session-error-strip" role="alert">
-                <span>{error}</span>
-              </div>
-            )}
-
-            <div className="session-actions-footer">
-              <Button variant="ghost" size="sm" onClick={() => setStep('select')} disabled={isCreating}>
-                BACK
-              </Button>
-              <Button
-                variant="primary"
-                size="sm"
-                disabled={isCreating}
-                onClick={() => void handleStartSession()}
-              >
-                {isCreating ? "STARTING SESSION..." : "START SESSION"}
-              </Button>
-            </div>
-          </div>
         ) : (
-          <div className="session-modal-content">
-            {/* Explainer strip */}
-            <div className="session-info-strip">
-              <Zap className="session-info-icon" size={18} />
-              <div className="session-info-text">
-                <span className="session-info-title">ONE-STOP SESSION & CREDITS</span>
-                <span className="session-info-desc">
-                  Choose a funding method below to activate one-click AI generation, stem editing, and streaming without wallet popups.
-                </span>
-              </div>
-            </div>
-
-            {/* Available Credits Strip (with 1-click resume if user already has unspent Credits) */}
-            {creditsEnabled && (
-              <div className="session-balance-strip">
-                <span className="session-balance-chain">AVAILABLE CREDITS</span>
-                <div className="session-balance-actions">
-                  <span className="session-balance-val">
-                    {creditsLoading ? 'CHECKING...' : creditLabel(credits.availableAtomics)}
-                  </span>
-                  {hasAvailableCredits && (
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      disabled={usingCredits || creditsLoading}
-                      onClick={() => void handleUseCredits()}
-                    >
-                      {usingCredits ? 'STARTING...' : 'USE CREDITS'}
-                    </Button>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* 3 Unified Options: (i) USDC -> step 2, (ii) CREDIT CARD -> step 2, (iii) CAMPAIGN -> inline extension */}
-            <div className="session-options-list">
-              {/* Option (i): USDC */}
-              <div className="session-option-card">
-                <button
-                  type="button"
-                  className="session-option-header"
-                  onClick={() => setStep('usdc')}
-                >
-                  <div className="session-option-main">
-                    <div className="session-option-title-row">
-                      <CircleDollarSign size={14} className="session-option-lead-icon" />
-                      <span className="session-option-title">USDC</span>
-                      <div className="session-option-icons" aria-label="Supported networks: Base, Tempo, Solana">
-                        <img src="/networks/base.png" alt="Base" className="session-option-net-icon" />
-                        <img src="/networks/tempo.png" alt="Tempo" className="session-option-net-icon" />
-                        <img src="/networks/solana.jpeg" alt="Solana" className="session-option-net-icon" />
-                      </div>
-                    </div>
-                    <span className="session-option-desc">
-                      Authorize an on-chain stablecoin spending cap on Base, Tempo, or Solana.
-                    </span>
-                  </div>
-                  <ChevronRight className="session-option-chevron" size={15} />
-                </button>
-              </div>
-
-              {/* Option (ii): CREDIT CARD */}
-              <div className="session-option-card">
-                <button
-                  type="button"
-                  className="session-option-header"
-                  onClick={() => setStep('card')}
-                >
-                  <div className="session-option-main">
-                    <div className="session-option-title-row">
-                      <CreditCard size={14} className="session-option-lead-icon" />
-                      <span className="session-option-title">CREDIT CARD</span>
-                      <div className="session-option-icons" aria-label="Supported payment methods: Visa, Mastercard, PayPal">
-                        <span className="session-payment-badge">VISA</span>
-                        <span className="session-payment-badge session-payment-badge-mc" title="Mastercard">
-                          <span className="mc-dot mc-dot-red" />
-                          <span className="mc-dot mc-dot-amber" />
-                        </span>
-                        <span className="session-payment-badge">
-                          <img src="/icons/paypal.webp" alt="PayPal" className="session-payment-paypal" />
-                        </span>
-                      </div>
-                    </div>
-                    <span className="session-option-desc">
-                      Instant prepaid Credits checkout via Visa, Mastercard, or PayPal. No crypto needed.
-                    </span>
-                  </div>
-                  <ChevronRight className="session-option-chevron" size={15} />
-                </button>
-              </div>
-
-              {/* Option (iii): CAMPAIGN */}
-              <div
-                className={cn(
-                  "session-option-card",
-                  campaignExpanded && "expanded",
-                  promoEligible && "session-option-card-promo-flicker",
-                  !promoEligible && "session-option-card-disabled",
-                )}
-              >
-                <button
-                  type="button"
-                  className="session-option-header"
-                  disabled={!promoEligible}
-                  onClick={() => promoEligible && setCampaignExpanded((prev) => !prev)}
-                  aria-expanded={campaignExpanded}
-                >
-                  <div className="session-option-main">
-                    <div className="session-option-title-row">
-                      <Sparkles size={14} className="session-option-lead-icon session-promo-sparkle" />
-                      <span className="session-option-title">CAMPAIGN</span>
-                      <span className={cn("session-promo-pill", promoEligible ? "live" : "done")}>
-                        {promoClaimed
-                          ? "CLAIMED"
-                          : promoRemaining <= 0
-                            ? "1,000 / 1,000 CLAIMED"
-                            : `100 FREE CREDITS · ${promoRemaining.toLocaleString()} LEFT`}
-                      </span>
-                    </div>
-                    <span className="session-option-desc">
-                      {promoClaimed
-                        ? "You have already claimed your 100 welcome Campaign Credits."
-                        : promoRemaining <= 0
-                          ? "All 1,000 welcome packs have been claimed."
-                          : "First 1,000 new users get 100 free Credits ($1.00) for AI song generation & stem editing."}
-                    </span>
-                  </div>
-                  {promoEligible && (
-                    <ChevronDown className={cn("session-option-chevron", campaignExpanded && "rotated")} size={15} />
-                  )}
-                </button>
-
-                {campaignExpanded && promoEligible && (
-                  <div className="session-option-body">
-                    <div className="session-notice-strip">
-                      <ShieldCheck className="session-notice-icon" size={14} />
-                      <span>
-                        Campaign Credits apply to bilateral studio actions (AI song generation & stem editing). Requires a verified social, email, or passkey login.
-                      </span>
-                    </div>
-
-                    {creditsError && (
-                      <div className="session-error-strip" role="alert">
-                        <span>{creditsError}</span>
-                      </div>
-                    )}
-
-                    <div className="session-campaign-cta-row">
-                      <Button
-                        variant="primary"
-                        size="sm"
-                        className="session-promo-claim-btn"
-                        disabled={claimingPromo || creditsLoading}
-                        onClick={() => void handleClaimPromo()}
-                      >
-                        <Sparkles size={13} />
-                        {claimingPromo ? "CLAIMING..." : "CLAIM 100 CREDITS!"}
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Notice */}
-            <div className="session-notice-strip">
-              <ShieldCheck className="session-notice-icon" size={14} />
-              <span>1 Credit = $0.01. Unspent prepaid Credits return to your balance when the session ends.</span>
-            </div>
-
-            {/* First Screen Footer: CANCEL only */}
-            <div className="session-actions-footer">
-              <Button variant="ghost" size="sm" onClick={closeModal}>
-                CANCEL
-              </Button>
-            </div>
-          </div>
+          <FundingPanel
+            onDone={handleDone}
+            reason={isFundingGate ? gate.request?.reason ?? null : null}
+            funding={isFundingGate ? gate.request?.funding ?? null : null}
+          />
         )}
       </Modal>
     </>
   );
 }
-
