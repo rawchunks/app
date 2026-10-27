@@ -1,9 +1,9 @@
 import { Song, Track } from './schema';
 import { audio } from './audio';
 import { bus } from './bus';
-import { sdk, hasCreditSession } from './sdk';
+import { sdk, hasStreamBudget, hasPromoCreditsOnly } from './sdk';
 import { toast } from 'sonner';
-import { promptSessionModal } from '../components/session';
+import { openGate, type GateOptions } from './gate';
 
 export interface State {
   songs: Song[];
@@ -27,21 +27,40 @@ class Store {
   private listeners: Set<Listener> = new Set();
   private authorizedSongId: string | null = null;
   private isExemptCreator: boolean = false;
-  private isAuthorizing: boolean = false;
+  private playRequestId: number = 0;
+  private streamResumeArmed = false;
   private currentPaymentIntentId: string | null = null;
   private accumulatedListenedSeconds: number = 0;
   private lastReportedSeconds: number = 0;
   private lastPlayhead: number = 0;
+  private lastBroadcastAt: number = 0;
 
   constructor() {
+    let initialSong: Song | null = null;
+    let initialPlayhead = 0;
+    let initialDuration = 0;
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = localStorage.getItem('rawchunks:playback');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed?.song && typeof parsed.song.id === 'string') {
+            initialSong = parsed.song as Song;
+            initialPlayhead = typeof parsed.playhead === 'number' && parsed.playhead >= 0 ? parsed.playhead : 0;
+            initialDuration = typeof parsed.duration === 'number' && parsed.duration > 0 ? parsed.duration : (initialSong.duration || 0);
+          }
+        }
+      } catch { }
+    }
+
     this.state = {
       songs: [],
       tracks: [],
-      activeSong: null,
+      activeSong: initialSong,
       editingSong: null,
       isPlaying: false,
-      playhead: 0,
-      duration: 0,
+      playhead: initialPlayhead,
+      duration: initialDuration,
       selection: null,
       isGenerating: false,
       userAddress: '',
@@ -51,6 +70,7 @@ class Store {
 
     bus.registerPlayer(() => {
       if (this.state.isPlaying) {
+        this.playRequestId++;
         this.state = { ...this.state, isPlaying: false };
         audio.pause();
         this.notify();
@@ -58,9 +78,42 @@ class Store {
       }
     });
 
+    bus.registerPlaybackSync(({ song, playhead, duration }) => {
+      if (this.state.isPlaying) {
+        this.playRequestId++;
+        audio.pause();
+      }
+      const songChanged = this.state.activeSong?.id !== song?.id;
+      if (songChanged) {
+        this.authorizedSongId = null;
+        audio.reset();
+      }
+      this.state = {
+        ...this.state,
+        activeSong: song,
+        playhead: typeof playhead === 'number' ? playhead : 0,
+        duration: typeof duration === 'number' && duration > 0 ? duration : (song?.duration || 0),
+        isPlaying: false,
+      };
+      this.notify();
+    });
+
+    bus.onRemoteLogout(() => {
+      this.clearUserWorkspace(false);
+    });
+
+    bus.onRemoteAccountSwitch(() => {
+      this.clearUserWorkspace(false);
+    });
+
     audio.setOnTimeUpdate((time) => {
       this.state = { ...this.state, playhead: time };
       this.notify();
+      const now = Date.now();
+      if (this.state.isPlaying && this.state.activeSong && now - this.lastBroadcastAt >= 1000) {
+        this.lastBroadcastAt = now;
+        bus.broadcastPlayback(this.state.activeSong, time, this.state.duration, true);
+      }
 
       if (this.state.isPlaying && !this.isExemptCreator) {
         if (this.lastPlayhead > 0 && time > this.lastPlayhead && (time - this.lastPlayhead) < 5) {
@@ -141,12 +194,21 @@ class Store {
         audio.pause();
         this.state = { ...this.state, isPlaying: false };
         this.notify();
-        toast.error('Session budget exhausted for streaming. Please top up your session.');
-        promptSessionModal();
+        this.resumeAfterGate({ steps: ['funding'], reason: 'Session budget exhausted', force: true });
       }
     } catch (err) {
       console.warn('[Stream Checkpoint] Failed to report checkpoint:', err);
     }
+  }
+
+  private resumeAfterGate(options: GateOptions): void {
+    void openGate(options).then(ready => {
+      if (!ready || this.streamResumeArmed) return;
+      this.streamResumeArmed = true;
+      void this.setPlaying(true).finally(() => {
+        this.streamResumeArmed = false;
+      });
+    });
   }
 
   public getState(): State {
@@ -215,7 +277,8 @@ class Store {
     if (this.currentPaymentIntentId && this.accumulatedListenedSeconds > this.lastReportedSeconds) {
       void this.reportStreamCheckpoint(true);
     }
-    audio.pause();
+    this.playRequestId++;
+    audio.reset();
     this.authorizedSongId = null;
     this.isExemptCreator = false;
     this.currentPaymentIntentId = null;
@@ -231,6 +294,41 @@ class Store {
       isPlaying: false,
     };
     this.notify();
+    bus.broadcastPlayback(song, 0, dur, false);
+  }
+
+  public clearUserWorkspace(broadcast = false) {
+    if (this.currentPaymentIntentId && this.accumulatedListenedSeconds > this.lastReportedSeconds) {
+      void this.reportStreamCheckpoint(true);
+    }
+    this.playRequestId++;
+    audio.reset();
+    bus.release('player');
+    this.authorizedSongId = null;
+    this.isExemptCreator = false;
+    this.currentPaymentIntentId = null;
+    this.accumulatedListenedSeconds = 0;
+    this.lastReportedSeconds = 0;
+    this.lastPlayhead = 0;
+    this.state = {
+      ...this.state,
+      songs: this.state.songs.filter((s) => s.public),
+      tracks: [],
+      activeSong: this.state.activeSong?.public ? this.state.activeSong : null,
+      editingSong: null,
+      isPlaying: false,
+      playhead: 0,
+      duration: this.state.activeSong?.public ? (this.state.activeSong.duration || 0) : 0,
+      selection: null,
+      isGenerating: false,
+      userAddress: '',
+      evmAddress: null,
+      svmAddress: null,
+    };
+    this.notify();
+    if (broadcast) {
+      bus.broadcastLogout();
+    }
   }
 
   public setEditingSong(song: Song | null) {
@@ -278,10 +376,12 @@ class Store {
 
   public async setPlaying(isPlaying: boolean): Promise<boolean> {
     if (!isPlaying) {
+      this.playRequestId++;
       bus.release('player');
       this.state = { ...this.state, isPlaying: false };
       audio.pause();
       this.notify();
+      bus.broadcastPlayback(this.state.activeSong, this.state.playhead, this.state.duration, false);
       void this.reportStreamCheckpoint(false);
       return false;
     }
@@ -300,21 +400,42 @@ class Store {
       this.lastPlayhead = this.state.playhead || 0;
       audio.play(this.state.playhead, this.state.duration);
       this.notify();
+      bus.broadcastPlayback(song, this.state.playhead, this.state.duration, true);
+      return true;
+    }
+
+    if (isCreator && song.url && !song.url.endsWith('/stream')) {
+      this.authorizedSongId = song.id;
+      this.isExemptCreator = true;
+      this.currentPaymentIntentId = null;
+      this.accumulatedListenedSeconds = 0;
+      this.lastReportedSeconds = 0;
+      this.lastPlayhead = this.state.playhead || 0;
+      audio.load(song.url);
+      bus.request('player');
+      this.state = { ...this.state, isPlaying: true };
+      audio.play(this.state.playhead, this.state.duration);
+      this.notify();
+      bus.broadcastPlayback(song, this.state.playhead, this.state.duration, true);
       return true;
     }
 
     const token = sdk.keys.currentToken();
-    if (!isCreator && !token && !hasCreditSession()) {
-      toast.error('An active session is required to stream music. Please create a session.');
-      promptSessionModal();
+    if (!isCreator && !token && !hasStreamBudget()) {
       this.state = { ...this.state, isPlaying: false };
       this.notify();
+      this.resumeAfterGate({
+        steps: ['login', 'funding'],
+        action: 'stream',
+        reason: hasPromoCreditsOnly()
+          ? 'Promo credits cannot be used for streaming. Add Card Credits or start an On-Chain USDC Session.'
+          : undefined,
+      });
       return false;
     }
 
-    if (this.isAuthorizing) return false;
-    this.isAuthorizing = true;
-
+    const requestId = ++this.playRequestId;
+    const targetSongId = song.id;
     const effectiveUserAddress = this.state.userAddress || this.state.evmAddress || this.state.svmAddress || sdk.wallets.current()?.address || '';
 
     try {
@@ -326,11 +447,14 @@ class Store {
         },
       });
 
+      if (requestId !== this.playRequestId || this.state.activeSong?.id !== targetSongId) {
+        return false;
+      }
+
       if (response.status === 402) {
-        toast.error('Session payment required or budget exhausted. Please top up your session.');
-        promptSessionModal();
         this.state = { ...this.state, isPlaying: false };
         this.notify();
+        this.resumeAfterGate({ steps: ['login', 'funding'], reason: 'Session budget exhausted', force: true });
         return false;
       }
 
@@ -343,6 +467,9 @@ class Store {
       }
 
       const data = await response.json();
+      if (requestId !== this.playRequestId || this.state.activeSong?.id !== targetSongId) {
+        return false;
+      }
       if (!data.url) {
         toast.error('Audio stream URL not returned by server');
         this.state = { ...this.state, isPlaying: false };
@@ -362,14 +489,14 @@ class Store {
       this.state = { ...this.state, isPlaying: true };
       audio.play(this.state.playhead, this.state.duration);
       this.notify();
+      bus.broadcastPlayback(song, this.state.playhead, this.state.duration, true);
       return true;
     } catch (err: any) {
+      if (requestId !== this.playRequestId) return false;
       toast.error(err?.message || 'Failed to authorize stream playback');
       this.state = { ...this.state, isPlaying: false };
       this.notify();
       return false;
-    } finally {
-      this.isAuthorizing = false;
     }
   }
 

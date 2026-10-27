@@ -4,17 +4,34 @@ class AudioEngine {
   private duration = 0;
   private pendingSeek: number | null = null;
   private pendingPlay = false;
+  private resetting = false;
   private onTimeUpdateCallback: ((time: number) => void) | null = null;
   private onDurationCallback: ((duration: number) => void) | null = null;
   private onEndCallback: (() => void) | null = null;
 
   constructor() {
-    this.element = new Audio();
+    this.element =
+      typeof Audio !== 'undefined'
+        ? new Audio()
+        : ({
+            crossOrigin: '',
+            preload: '',
+            currentTime: 0,
+            duration: 0,
+            readyState: 0,
+            volume: 1,
+            src: '',
+            addEventListener: () => {},
+            removeAttribute: () => {},
+            load: () => {},
+            pause: () => {},
+            play: async () => {},
+          } as unknown as HTMLAudioElement);
     this.element.crossOrigin = 'anonymous';
     this.element.preload = 'auto';
 
     this.element.addEventListener('timeupdate', () => {
-      if (this.onTimeUpdateCallback) {
+      if (!this.resetting && this.onTimeUpdateCallback) {
         this.onTimeUpdateCallback(this.element.currentTime);
       }
     });
@@ -77,6 +94,19 @@ class AudioEngine {
     this.onEndCallback = cb;
   }
 
+  public reset() {
+    this.resetting = true;
+    this.isPlaying = false;
+    this.pendingPlay = false;
+    this.pendingSeek = 0;
+    this.duration = 0;
+    this.element.pause();
+    try {
+      this.element.currentTime = 0;
+    } catch {}
+    this.resetting = false;
+  }
+
   public load(url: string) {
     if (!url) return;
     try {
@@ -85,8 +115,14 @@ class AudioEngine {
     } catch {
       if (this.element.src === url) return;
     }
+    this.resetting = true;
+    this.pendingSeek = 0;
+    try {
+      this.element.currentTime = 0;
+    } catch {}
     this.element.src = url;
     this.element.load();
+    this.resetting = false;
   }
 
   public play(offset = 0, duration = 0) {
@@ -101,11 +137,11 @@ class AudioEngine {
     this.isPlaying = true;
 
     if (offset >= 0 && this.element.readyState >= 1) {
-      if (Math.abs(this.element.currentTime - offset) > 0.5) {
+      if (Math.abs(this.element.currentTime - offset) > 0.25) {
         this.element.currentTime = offset;
       }
-    } else if (offset > 0) {
-      this.pendingSeek = offset;
+    } else {
+      this.pendingSeek = Math.max(0, offset);
     }
 
     if (this.element.readyState < 2) {
