@@ -302,7 +302,7 @@ export async function watch(
       if (!response.body) throw new Error("Generation stream is unavailable");
       const reader = response.body.getReader();
       const abort = () => {
-        void reader.cancel().catch(() => {});
+        void reader.cancel().catch(() => { });
       };
       signal.addEventListener("abort", abort, { once: true });
       const decoder = new TextDecoder();
@@ -330,7 +330,7 @@ export async function watch(
         }
       } finally {
         signal.removeEventListener("abort", abort);
-        await reader.cancel().catch(() => {});
+        await reader.cancel().catch(() => { });
         reader.releaseLock();
       }
     }
@@ -346,16 +346,4 @@ export async function watch(
       signal.addEventListener("abort", done, { once: true });
     });
   }
-}export function hasCreditSession(): boolean { return Boolean(creditContext?.sessionToken); }
-
-
-export function attachWallet(address: string | null, network: NetworkId | null): void {
-  if (address && network) {
-    sdk.wallets.attach({ address, network });
-  } else {
-    sdk.wallets.clear();
-  }
 }
-
-
-
