@@ -13,14 +13,11 @@ import {
   Key,
   RefreshCw,
   LogOut,
-  Wallet,
   Copy,
   Check,
   CreditCard,
   CircleDollarSign,
   Sparkles,
-  ChevronDown,
-  ChevronRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import { PayPalScriptProvider } from '@paypal/react-paypal-js';
@@ -40,6 +37,8 @@ import {
   SessionContext,
   emptySession,
   useSession,
+  type FundingSource,
+  type SessionModalOption,
   type SessionState,
   type SessionContextValue,
 } from "@/hooks/use-session";
@@ -50,13 +49,17 @@ import {
   evmChainId,
   getChainObject,
 } from "@/lib/chains";
-import { sdk } from "@/lib/sdk";
+import { sdk, setCreditRequestContext } from "@/lib/sdk";
+import { readPreferredFundingSource, writePreferredFundingSource } from "@/lib/cache";
 import { approveTempoSession, CardCheckout } from "@/components/connector";
 import { useCreditAccount } from "@/hooks/use-credits";
-import { creditLabel, formatCredits } from "@/lib/credits";
-import { Modal } from "@/components/modal";
+import { creditLabel, formatCredits, formatDollars, type CheckoutIntent } from "@/lib/credits";
 import { Button } from "@/components/button";
 import { Badge } from "@/components/badge";
+import { Modal } from "@/components/modal";
+import { NetworkSelector } from "@/components/network";
+import { closeGate, openGate, unsatisfiedStep, useGate } from "@/lib/gate";
+import { useDisclaimerConsent } from "@/hooks/use-disclaimer";
 import { Tooltip } from "@/components/daw/Tooltip";
 import { cn } from "@/lib/utils";
 
@@ -87,7 +90,7 @@ export function readSession(storage: Storage, scope: SessionScope): SessionState
           storage.setItem(sessionCacheKey(scope), raw);
           storage.removeItem(LEGACY_SESSION_KEY);
         }
-        return value;
+        return { ...value, fundingSource: 'wallet' };
       }
     }
   } catch { /* Invalid or unavailable cache is ignored. */ }
@@ -101,7 +104,7 @@ export function writeSession(storage: Storage, scope: SessionScope, value: Sessi
       try {
         storage.setItem(k, raw);
       } catch {
-        for (const prefix of ["waveform:", "project:", "songs:", "rawchunks:wip:v1:"]) {
+        for (const prefix of ["waveform:", "project:", "songs:", "rawchunks:wip:"]) {
           const keys: string[] = [];
           for (let i = 0; i < storage.length; i++) {
             const key = storage.key(i);
@@ -140,12 +143,14 @@ export function SessionProvider({ children, userAddress: propUserAddress }: Sess
   const currentAdminWallet = useRef(adminWallet);
   currentAdminWallet.current = adminWallet;
   const { chains, selectedNetwork } = useChain();
-  const { userAddress, evmSignerAddress, activate } = useSelectedUserAddress();
+  const { userAddress, readAddress, isReconnecting, evmSignerAddress, activate } = useSelectedUserAddress();
   const liveAddress = propUserAddress ?? userAddress;
   const address = liveAddress && (isEvmNetwork(selectedNetwork)
     ? /^0x[0-9a-f]{40}$/i.test(liveAddress) && Boolean(account)
     : /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(liveAddress) && Boolean(evmSignerAddress)) ? liveAddress : null;
   const scope: SessionScope | null = address ? { address, network: selectedNetwork } : null;
+  const displayAddress = address ?? (isReconnecting ? readAddress : null);
+  const displayScope: SessionScope | null = displayAddress ? { address: displayAddress, network: selectedNetwork } : null;
   const key = scope ? scopeKey(scope) : null;
   const config = chains.find(chain => chain.network === selectedNetwork);
   const identityKey = `${key}:${account?.address}:${evmSignerAddress}:${config?.rpcUrl}:${config?.assetAddress}`;
@@ -153,12 +158,68 @@ export function SessionProvider({ children, userAddress: propUserAddress }: Sess
   if (current.current.identityKey !== identityKey) current.current = { identityKey, generation: current.current.generation + 1 };
   const generation = current.current.generation;
   const mounted = useRef(true);
-  const [storedSession, setSession] = useState<SessionState>(emptySession);
+  const [storedSession, setSession] = useState<SessionState>(() => {
+    if (typeof window === 'undefined' || !displayScope) return emptySession;
+    try { return readSession(localStorage, displayScope) ?? emptySession; } catch { return emptySession; }
+  });
   const credits = useCreditAccount();
-  const walletSession = scope && sameScope(storedSession, scope) ? storedSession : emptySession;
-  const session = credits.session ?? walletSession;
+  const session = displayScope && sameScope(storedSession, displayScope)
+    ? storedSession
+    : (displayScope && typeof window !== 'undefined' ? (readSession(localStorage, displayScope) ?? emptySession) : emptySession);
   const sessionRef = useRef(session);
   sessionRef.current = session;
+
+  const [preferredSource, setPreferredSourceState] = useState<FundingSource | null>(() => readPreferredFundingSource(credits.owner));
+  useEffect(() => {
+    setPreferredSourceState(readPreferredFundingSource(credits.owner));
+  }, [credits.owner]);
+
+  const setActiveSource = useCallback((source: FundingSource) => {
+    setPreferredSourceState(source);
+    writePreferredFundingSource(credits.owner, source);
+  }, [credits.owner]);
+
+  const usdcActive = Boolean(session.active && BigInt(session.budgetRemaining || '0') > 0n);
+  const cardAvailable = BigInt(credits.balance.availableAtomics || '0') > 0n;
+  const promoAvailable = BigInt(credits.balance.promo?.availableAtomics || '0') > 0n;
+  const hasStreamBudget = usdcActive || cardAvailable;
+  const hasBudget = hasStreamBudget || promoAvailable;
+
+  const activeSource: FundingSource = useMemo(() => {
+    if (preferredSource === 'usdc' && usdcActive) return 'usdc';
+    if (preferredSource === 'card' && cardAvailable) return 'card';
+    if (preferredSource === 'promo' && promoAvailable) return 'promo';
+    if (usdcActive) return 'usdc';
+    if (cardAvailable) return 'card';
+    if (promoAvailable) return 'promo';
+    return preferredSource ?? 'usdc';
+  }, [preferredSource, usdcActive, cardAvailable, promoAvailable]);
+
+  useEffect(() => {
+    const effectiveAddr = liveAddress ?? readAddress;
+    if (effectiveAddr) {
+      setCreditRequestContext({
+        userAddress: effectiveAddr,
+        authToken: credits.authToken ?? '',
+        preferredSource: activeSource,
+        usdcActive,
+        cardAvailableAtomics: credits.balance.availableAtomics || '0',
+        promoAvailableAtomics: credits.balance.promo?.availableAtomics || '0',
+      });
+    } else {
+      setCreditRequestContext(null);
+    }
+    return () => setCreditRequestContext(null);
+  }, [
+    liveAddress,
+    readAddress,
+    credits.authToken,
+    activeSource,
+    usdcActive,
+    credits.balance.availableAtomics,
+    credits.balance.promo?.availableAtomics,
+  ]);
+
   const [creation, setCreation] = useState<{ key: string | null; generation: number; pending: boolean; error: string | null }>({ key: null, generation: 0, pending: false, error: null });
   const creating = useRef<number | null>(null);
   const refreshController = useRef<AbortController | null>(null);
@@ -182,7 +243,6 @@ export function SessionProvider({ children, userAddress: propUserAddress }: Sess
   }, []);
 
   const refreshSession = useCallback(async () => {
-    if (credits.session) { await credits.refresh(); return; }
     if (!scope || creating.current === generation) return;
     refreshController.current?.abort();
     const controller = new AbortController();
@@ -198,31 +258,36 @@ export function SessionProvider({ children, userAddress: propUserAddress }: Sess
       if (controller.signal.aborted) return;
       assertCurrent();
       if (status.network && status.network !== scope.network) throw new Error("The session response belongs to another network");
-      attach(scope);
+      let cached: SessionState | null = null;
+      try { cached = readSession(localStorage, scope); } catch { /* Optional cache. */ }
+      const prevWalletSession = sameScope(sessionRef.current, scope) ? sessionRef.current : null;
+      const token = status.token ?? prevWalletSession?.token ?? cached?.token ?? sdk.keys.currentToken();
+      attach(scope, token);
       if (!status.hasSession) {
         sdk.keys.clearToken();
         setSession(emptySession);
         try { writeSession(localStorage, scope, emptySession); } catch { /* Optional cache. */ }
         return;
       }
-      const token = status.token ?? sessionRef.current.token ?? sdk.keys.currentToken();
-      if (token) sdk.keys.use(token);
       setSession({
         fundingSource: 'wallet',
         active: status.status?.isActive ?? true, userAddress: scope.address, network: scope.network,
-        keyId: status.keyId ?? sessionRef.current.keyId, token,
-        budgetLimit: status.budgetLimit ?? sessionRef.current.budgetLimit, budgetUsed: status.budgetUsed ?? sessionRef.current.budgetUsed,
-        budgetLocked: status.budgetLocked ?? sessionRef.current.budgetLocked, budgetRemaining: status.budgetRemaining ?? sessionRef.current.budgetRemaining,
-        expiresAt: status.expiresAt ?? sessionRef.current.expiresAt,
+        keyId: status.keyId ?? prevWalletSession?.keyId ?? cached?.keyId ?? null, token,
+        budgetLimit: status.budgetLimit ?? prevWalletSession?.budgetLimit ?? cached?.budgetLimit ?? "0",
+        budgetUsed: status.budgetUsed ?? prevWalletSession?.budgetUsed ?? cached?.budgetUsed ?? "0",
+        budgetLocked: status.budgetLocked ?? prevWalletSession?.budgetLocked ?? cached?.budgetLocked ?? "0",
+        budgetRemaining: status.budgetRemaining ?? prevWalletSession?.budgetRemaining ?? cached?.budgetRemaining ?? "0",
+        expiresAt: status.expiresAt ?? prevWalletSession?.expiresAt ?? cached?.expiresAt ?? null,
       });
     } catch (cause) {
       if (!controller.signal.aborted && current.current.generation === generation) console.warn("[session] refresh failed", cause);
     }
-  }, [key, generation, assertCurrent, attach, Boolean(credits.session), credits.refresh]);
+  }, [key, generation, assertCurrent, attach]);
 
   useEffect(() => {
     refreshController.current?.abort();
     if (!scope) {
+      if (isReconnecting && displayScope) return;
       sdk.wallets.clear();
       attachedRef.current = null;
       setSession(emptySession);
@@ -234,7 +299,7 @@ export function SessionProvider({ children, userAddress: propUserAddress }: Sess
     setSession(cached ?? emptySession);
     void refreshSession();
     return () => { refreshController.current?.abort(); };
-  }, [key, generation, attach, refreshSession]);
+  }, [key, isReconnecting, generation, attach, refreshSession]);
 
   useEffect(() => {
     if (!scope || !sameScope(storedSession, scope)) return;
@@ -249,7 +314,7 @@ export function SessionProvider({ children, userAddress: propUserAddress }: Sess
   useEffect(() => {
     if (!scope) return;
     const matches = (value: { userAddress?: string | null; network?: string | null }) =>
-      sessionRef.current.fundingSource !== 'prepaid' && current.current.generation === generation && sameScope(value, scope);
+      current.current.generation === generation && sameScope(value, scope);
     const disposers = [
       sdk.events.on("budget", event => {
         if (!matches(event)) return;
@@ -281,7 +346,7 @@ export function SessionProvider({ children, userAddress: propUserAddress }: Sess
   }, [key, generation, refreshSession]);
 
   useEffect(() => {
-    if (!scope || !session.active || session.fundingSource === 'prepaid') return;
+    if (!scope || !session.active) return;
     const controller = new AbortController();
     void (async () => {
       try {
@@ -291,10 +356,9 @@ export function SessionProvider({ children, userAddress: propUserAddress }: Sess
       }
     })();
     return () => controller.abort();
-  }, [key, generation, session.active, session.fundingSource]);
+  }, [key, generation, session.active]);
 
   const createSession = useCallback(async (budgetWei: string, durationHours: number): Promise<KeyCreateResponse> => {
-    if (credits.session) throw new Error('End the current session first');
     if (!scope || !config) throw new Error("Connect your account first");
     if (creating.current !== null) throw new Error("Session creation is already in progress");
     if (!/^\d+$/.test(budgetWei) || BigInt(budgetWei) <= 0n || !Number.isFinite(durationHours) || durationHours <= 0) {
@@ -391,6 +455,7 @@ export function SessionProvider({ children, userAddress: propUserAddress }: Sess
       refreshController.current?.abort();
       attach(scope, created.token);
       setSession(next);
+      setActiveSource('usdc');
       return created;
     } catch (cause) {
       if (mounted.current && current.current.generation === generation) setCreation({ key, generation, pending: false, error: cause instanceof Error ? cause.message : "Failed to create session" });
@@ -399,7 +464,7 @@ export function SessionProvider({ children, userAddress: propUserAddress }: Sess
       creating.current = null;
       if (mounted.current && current.current.generation === generation) setCreation(previous => ({ ...previous, pending: false }));
     }
-  }, [key, generation, config, account, adminWallet, evmSignerAddress, activate, assertCurrent, attach, Boolean(credits.session)]);
+  }, [key, generation, config, account, adminWallet, evmSignerAddress, activate, assertCurrent, attach, setActiveSource]);
 
   const clearSession = useCallback(() => {
     if (!scope) return;
@@ -409,26 +474,27 @@ export function SessionProvider({ children, userAddress: propUserAddress }: Sess
     try { writeSession(localStorage, scope, emptySession); } catch { /* Optional cache. */ }
     setSession(emptySession);
   }, [key, assertCurrent, attach]);
+
   const endSession = useCallback(async () => {
-    if (session.fundingSource === 'prepaid') { await credits.end(); return; }
     assertCurrent();
     if (!scope) return;
     attach(scope, session.token);
     if (session.keyId) await sdk.keys.revoke(session.keyId);
     assertCurrent();
     clearSession();
-  }, [key, session.keyId, session.token, session.fundingSource, credits.end, assertCurrent, attach, clearSession]);
+  }, [key, session.keyId, session.token, assertCurrent, attach, clearSession]);
+
+  const handleClaimPromoCredits = useCallback(async () => {
+    await credits.claimPromo();
+    setActiveSource('promo');
+  }, [credits.claimPromo, setActiveSource]);
+
+  const handleCompleteCreditPurchase = useCallback(async (operationId: string) => {
+    await credits.completePurchase(operationId);
+    setActiveSource('card');
+  }, [credits.completePurchase, setActiveSource]);
 
   const paypalClientId = import.meta.env.VITE_PAYPAL_CLIENT_ID || credits.balance.paypalClientId || "";
-  const [paypalReady, setPaypalReady] = useState(false);
-  useEffect(() => {
-    if (!paypalClientId) {
-      setPaypalReady(false);
-      return;
-    }
-    const timer = window.setTimeout(() => setPaypalReady(true), 0);
-    return () => window.clearTimeout(timer);
-  }, [paypalClientId]);
   const paypalOptions = useMemo(
     () => ({
       clientId: paypalClientId || "test",
@@ -440,12 +506,14 @@ export function SessionProvider({ children, userAddress: propUserAddress }: Sess
   );
 
   return <SessionContext.Provider value={{
-    session, isCreating: creation.key === key && creation.generation === generation && creation.pending,
-    error: creation.key === key && creation.generation === generation ? creation.error : null, createSession, refreshSession, clearSession, endSession,
+    session, activeSource, setActiveSource, hasBudget, hasStreamBudget,
+    isCreating: creation.key === key && creation.generation === generation && creation.pending,
+    error: creation.key === key && creation.generation === generation ? creation.error : null,
+    createSession, refreshSession, clearSession, endSession,
     credits: credits.balance, creditsLoading: credits.loading, creditsError: credits.error, creditsEnabled: credits.enabled, creditOwner: credits.owner,
-    refreshCredits: credits.refresh, createCreditSession: credits.start, completeCreditPurchase: credits.completePurchase, claimPromoSession: credits.claimPromo
+    refreshCredits: credits.refresh, claimPromoCredits: handleClaimPromoCredits, completeCreditPurchase: handleCompleteCreditPurchase,
   }}>
-    <PayPalScriptProvider key={paypalClientId || "pending"} options={paypalOptions} deferLoading={!paypalReady}>{children}</PayPalScriptProvider>
+    <PayPalScriptProvider key={paypalClientId || "pending"} options={paypalOptions} deferLoading={!paypalClientId}>{children}</PayPalScriptProvider>
   </SessionContext.Provider>;
 }
 
@@ -481,7 +549,13 @@ const DURATION_PRESETS = [
   { label: "7 DAYS", hours: 168, desc: "Weekly pass" },
 ] as const;
 
-export { promptSessionModal } from "../hooks/use-session";
+export interface FundingPanelProps {
+  onDone: () => void;
+  reason?: string | null;
+  funding?: SessionModalOption | null;
+}
+
+type FundingStep = 'compartments' | 'card' | 'usdc';
 
 export function SessionControl() {
   const { session, isCreating, error, createSession, refreshSession, endSession, credits, creditsLoading, creditsError, creditsEnabled, createCreditSession, claimPromoSession } = useSession();
@@ -1139,3 +1213,4 @@ export function SessionControl() {
     </>
   );
 }
+
