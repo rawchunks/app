@@ -113,15 +113,16 @@ export function readCachedProfile(address?: string | null): CachedProfile | null
     }
 }
 
-export function writeCachedProfile(address: string, profile: { nickname?: string | null; avatar?: string | null }): void {
+export function writeCachedProfile(address: string, profile: { nickname?: string | null; avatar?: string | null; bio?: string | null }): void {
     if (typeof window === "undefined" || !address) return;
     try {
         localStorage.setItem(`profile:${address.toLowerCase()}`, JSON.stringify({
             nickname: profile.nickname ?? null,
             avatar: profile.avatar ?? null,
+            bio: profile.bio ?? null,
             updatedAt: Date.now(),
         }));
-    } catch {}
+    } catch { }
 }
 
 export function readCachedGuides(address?: string | null): string[] | null {
@@ -141,7 +142,7 @@ export function writeCachedGuides(address: string, guides: string[]): void {
     try {
         const unique = Array.from(new Set(guides.filter((id): id is string => typeof id === "string" && id.trim().length > 0)));
         localStorage.setItem(`guides:${address.toLowerCase()}`, JSON.stringify(unique));
-    } catch {}
+    } catch { }
 }
 
 export function cachedAddress(account: CachedAccount | null, network: string, isEvm: boolean, status: string): string | null {
