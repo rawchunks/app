@@ -1,11 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePayPalScriptReducer } from '@paypal/react-paypal-js';
 import { useSession } from '@/hooks/use-session';
-import { creditLabel, creditsApi, DEFAULT_CREDIT_PACKS, purchaseCacheKey, type CheckoutIntent } from '@/lib/credits';
+import { creditLabel, creditsApi, purchaseCacheKey, type CheckoutIntent } from '@/lib/credits';
 import { Button } from '@/components/button';
-import { useActiveAccount, useActiveWallet, useAutoConnect, useConnectModal } from "thirdweb/react";
-import { createWallet, inAppWallet } from "thirdweb/wallets";
-import type { SmartWalletOptions, Account, Wallet as ThirdwebWallet } from "thirdweb/wallets";
+import type { Account, Wallet as ThirdwebWallet } from "thirdweb/wallets";
 import { getContract, readContract, prepareContractCall, prepareTransaction, encode, sendAndConfirmTransaction, type Chain, type PreparedTransaction } from "thirdweb";
 import { allowance, approve } from "thirdweb/extensions/erc20";
 import { createPublicClient, createWalletClient, encodeFunctionData, hexToBytes, http, parseEventLogs, type Transport } from "viem";
@@ -13,26 +11,10 @@ import { entryPoint06Abi, getUserOperationHash } from "viem/account-abstraction"
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { tempoModerato } from "viem/chains";
 import { withRelay } from "viem/tempo";
-import { ChevronDown, LogOut, Copy, Check, ExternalLink, Wallet, ShieldCheck, User, CreditCard } from "lucide-react";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { thirdwebClient, getChainObject, getChainConfig, getUsdcAddress, getExplorerUrl, isEvmNetwork, evmChainId } from "@/lib/chains";
-import { useChain } from "@/contexts/Network";
-import { useTotalBalance } from "@/hooks/use-multichain";
-import { useSelectedUserAddress } from "@/hooks/use-address";
-import { useProfile } from "@/hooks/use-profile";
-import { ProfileModal } from "@/components/profile-modal";
+import { ShieldCheck, CreditCard } from "lucide-react";
+import { thirdwebClient } from "@/lib/chains";
+import { openGate } from "@/lib/gate";
 import { cn } from "@/lib/utils";
-import { NetworkGlyph } from "@/contexts/Network";
-import { clearCachedAccount, readCachedAccount, writeCachedAccount } from "@/lib/cache";
-import { DisclaimerModal } from "@/components/disclaimer";
-import { useDisclaimerConsent } from "@/hooks/use-disclaimer";
-import { thirdwebCustomTheme } from "@/lib/connector";
-import { Tooltip } from "@/components/daw/Tooltip";
 
 const TEMPO_ACCOUNT_FACTORY = "0x85e23b94e7F5E9cC1fF78BCe78cfb15B81f0DF00";
 const TEMPO_ENTRY_POINT = "0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789";
@@ -189,34 +171,436 @@ export async function approveTempoSession(input: TempoAccountInput & { asset: st
   check();
 }
 
-const wallets = [
-  inAppWallet({
-    auth: {
-      options: [
-        "google",
-        "github",
-        "discord",
-        "x",
-        "farcaster",
-        "email",
-        "passkey",
-        "guest",
-      ],
-    },
-  }),
-  createWallet("io.metamask"),
-  createWallet("com.coinbase.wallet"),
-  createWallet("walletConnect"),
-  createWallet("io.rabby"),
-  createWallet("me.rainbow"),
-];
-
-interface WalletConnectorProps {
-  className?: string;
-  compact?: boolean;
+function formatPayPalError(error: unknown, fallback = 'Card payment failed'): string {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === 'string' && error.trim()) return error;
+  if (error && typeof error === 'object' && 'message' in error && typeof (error as { message?: unknown }).message === 'string') {
+    return (error as { message: string }).message;
+  }
+  return fallback;
 }
 
-export function WalletConnector({ className, compact = true }: WalletConnectorProps) {
+const PAYPAL_STYLE_VARS: Record<string, Record<string, string>> = {
+  body: {
+    padding: '--paypal-card-body-padding',
+    background: '--paypal-card-bg',
+  },
+  input: {
+    background: '--paypal-card-bg',
+    color: '--paypal-card-color',
+    border: '--paypal-card-border',
+    'border-radius': '--paypal-card-radius',
+    'box-shadow': '--paypal-card-shadow-none',
+    outline: '--paypal-card-outline-none',
+    'font-family': '--paypal-card-font-family',
+    'font-size': '--paypal-card-font-size',
+    'font-weight': '--paypal-card-font-weight',
+    'line-height': '--paypal-card-line-height',
+    'letter-spacing': '--paypal-card-letter-spacing',
+    padding: '--paypal-card-padding',
+    height: '--paypal-card-height',
+    transition: '--paypal-card-transition',
+  },
+  'input.card-field-number.display-icon': {
+    'padding-left': '--paypal-card-icon-padding-left',
+  },
+  '::placeholder': {
+    color: '--paypal-card-placeholder-color',
+    opacity: '--paypal-card-placeholder-opacity',
+  },
+  ':hover': {
+    border: '--paypal-card-border-hover',
+  },
+  ':focus': {
+    background: '--paypal-card-bg',
+    color: '--paypal-card-color',
+    border: '--paypal-card-border-focus',
+    'box-shadow': '--paypal-card-shadow-focus',
+    outline: '--paypal-card-outline-none',
+  },
+  '.valid': {
+    color: '--paypal-card-color',
+  },
+  '.invalid': {
+    color: '--paypal-card-color-invalid',
+    border: '--paypal-card-border-invalid',
+    'box-shadow': '--paypal-card-shadow-none',
+  },
+  ':focus.invalid': {
+    color: '--paypal-card-color',
+    border: '--paypal-card-border-invalid',
+    'box-shadow': '--paypal-card-shadow-invalid',
+    outline: '--paypal-card-outline-none',
+  },
+};
+
+function readPayPalCardStyle(element: HTMLElement): Record<string, Record<string, string>> {
+  const computed = window.getComputedStyle(element);
+  const style: Record<string, Record<string, string>> = {};
+  for (const [selector, rules] of Object.entries(PAYPAL_STYLE_VARS)) {
+    const resolved: Record<string, string> = {};
+    for (const [prop, variable] of Object.entries(rules)) {
+      const value = computed.getPropertyValue(variable).trim();
+      if (value) resolved[prop] = value;
+    }
+    if (Object.keys(resolved).length > 0) style[selector] = resolved;
+  }
+  return style;
+}
+
+export interface PayPalCardFieldsProps {
+  createOrder: () => Promise<string>;
+  onApprove: (data: { orderID: string; liabilityShift?: string }) => Promise<void> | void;
+  onError: (message: string | null) => void;
+  onCancel: () => void;
+  cancelLabel?: string;
+  submitLabel: string;
+  submitVariant?: 'primary' | 'accent';
+  disabled?: boolean;
+  error?: string | null;
+  notice?: string;
+  showBrand?: boolean;
+}
+
+export function PayPalCardFields({
+  createOrder,
+  onApprove,
+  onError,
+  onCancel,
+  cancelLabel = 'CANCEL',
+  submitLabel,
+  submitVariant = 'primary',
+  disabled = false,
+  error = null,
+  notice = '1 Credit = $0.01 USD. Encrypted card checkout settles directly to your account.',
+  showBrand = true,
+}: PayPalCardFieldsProps) {
+  const [{ isPending, isResolved, isRejected }] = usePayPalScriptReducer();
+  const formRef = useRef<HTMLDivElement | null>(null);
+  const nameSlotRef = useRef<HTMLDivElement | null>(null);
+  const numberSlotRef = useRef<HTMLDivElement | null>(null);
+  const expirySlotRef = useRef<HTMLDivElement | null>(null);
+  const cvvSlotRef = useRef<HTMLDivElement | null>(null);
+  const cardFieldsRef = useRef<NonNullable<NonNullable<Window['paypal']>['CardFields']> extends (...args: any[]) => infer R ? R | null : null>(null);
+  const renderPromiseRef = useRef<Promise<unknown> | null>(null);
+  const [fieldsReady, setFieldsReady] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  const callbacksRef = useRef({ createOrder, onApprove, onError });
+  callbacksRef.current = { createOrder, onApprove, onError };
+
+  useEffect(() => {
+    if (!isResolved) {
+      setFieldsReady(false);
+      renderPromiseRef.current = null;
+      return;
+    }
+    const formEl = formRef.current;
+    const nameSlot = nameSlotRef.current;
+    const numberSlot = numberSlotRef.current;
+    const expirySlot = expirySlotRef.current;
+    const cvvSlot = cvvSlotRef.current;
+    if (!formEl || !nameSlot || !numberSlot || !expirySlot || !cvvSlot) return;
+
+    let cancelled = false;
+    const renderedFields: Array<{ close: () => Promise<void> }> = [];
+
+    const cardFieldsFactory = window.paypal?.CardFields;
+    if (!cardFieldsFactory) {
+      callbacksRef.current.onError('PayPal card checkout could not load.');
+      return;
+    }
+    try {
+      const instance = cardFieldsFactory({
+        style: readPayPalCardStyle(formEl),
+        inputEvents: {
+          onChange: () => {
+            callbacksRef.current.onError(null);
+          },
+        },
+        createOrder: () => callbacksRef.current.createOrder(),
+        onApprove: async (data) => {
+          try {
+            await callbacksRef.current.onApprove(data);
+          } catch (cause) {
+            callbacksRef.current.onError(formatPayPalError(cause));
+          }
+        },
+        onError: (cause) => {
+          callbacksRef.current.onError(formatPayPalError(cause));
+        },
+      });
+
+      if (!instance.isEligible()) {
+        callbacksRef.current.onError('Card fields are not eligible for this merchant configuration.');
+        return;
+      }
+
+      cardFieldsRef.current = instance;
+
+      const nameHost = document.createElement('div');
+      const numberHost = document.createElement('div');
+      const expiryHost = document.createElement('div');
+      const cvvHost = document.createElement('div');
+
+      nameSlot.replaceChildren(nameHost);
+      numberSlot.replaceChildren(numberHost);
+      expirySlot.replaceChildren(expiryHost);
+      cvvSlot.replaceChildren(cvvHost);
+
+      const fieldStyleOptions = { disablePrerender: true };
+      const nameField = instance.NameField({
+        placeholder: 'CARDHOLDER NAME',
+        styleOptions: fieldStyleOptions,
+      } as Parameters<typeof instance.NameField>[0]);
+      const numberField = instance.NumberField({
+        placeholder: '0000 0000 0000 0000',
+        styleOptions: fieldStyleOptions,
+      } as Parameters<typeof instance.NumberField>[0]);
+      const expiryField = instance.ExpiryField({
+        placeholder: 'MM / YY',
+        styleOptions: fieldStyleOptions,
+      } as Parameters<typeof instance.ExpiryField>[0]);
+      const cvvField = instance.CVVField({
+        placeholder: 'CVV',
+        styleOptions: fieldStyleOptions,
+      } as Parameters<typeof instance.CVVField>[0]);
+
+      renderedFields.push(nameField, numberField, expiryField, cvvField);
+
+      const renderPromise = Promise.all([
+        nameField.render(nameHost),
+        numberField.render(numberHost),
+        expiryField.render(expiryHost),
+        cvvField.render(cvvHost),
+      ]);
+      renderPromiseRef.current = renderPromise;
+
+      void renderPromise
+        .then(() => {
+          if (!cancelled) setFieldsReady(true);
+        })
+        .catch((cause) => {
+          if (!cancelled) callbacksRef.current.onError(formatPayPalError(cause, 'Failed to initialize card fields'));
+        });
+    } catch (cause) {
+      if (!cancelled) callbacksRef.current.onError(formatPayPalError(cause, 'Failed to initialize card checkout'));
+    }
+
+    return () => {
+      cancelled = true;
+      cardFieldsRef.current = null;
+      renderPromiseRef.current = null;
+      setFieldsReady(false);
+      for (const field of renderedFields) {
+        void field.close().catch(() => { });
+      }
+      nameSlot.replaceChildren();
+      numberSlot.replaceChildren();
+      expirySlot.replaceChildren();
+      cvvSlot.replaceChildren();
+    };
+  }, [isResolved]);
+
+  const handleSubmit = async () => {
+    if (submitting || disabled) return;
+    callbacksRef.current.onError(null);
+    setSubmitting(true);
+    try {
+      if (renderPromiseRef.current) {
+        await renderPromiseRef.current;
+      }
+      const form = cardFieldsRef.current;
+      if (!form) {
+        callbacksRef.current.onError('Secure card terminal is still loading. Please try again.');
+        return;
+      }
+      const state = await form.getState().catch(() => null);
+      if (state && !state.isFormValid) {
+        callbacksRef.current.onError('Enter a valid card number, expiration date, and security code.');
+        return;
+      }
+      await form.submit();
+    } catch (cause) {
+      callbacksRef.current.onError(formatPayPalError(cause));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <>
+      <div className="connector-card-form" ref={formRef} data-ready={fieldsReady || undefined}>
+        <div className="connector-card-field-row connector-card-field-row-top">
+          <div className="connector-card-field-group">
+            <span className="connector-card-field-label">CARDHOLDER NAME</span>
+            <div className="connector-card-field-slot" data-placeholder="CARDHOLDER NAME" ref={nameSlotRef} />
+          </div>
+          <div className="connector-card-field-group">
+            <span className="connector-card-field-label">CARD NUMBER</span>
+            <div className="connector-card-field-slot" data-placeholder="0000 0000 0000 0000" ref={numberSlotRef} />
+          </div>
+        </div>
+        <div className="connector-card-field-row">
+          <div className="connector-card-field-group">
+            <span className="connector-card-field-label">EXPIRATION</span>
+            <div className="connector-card-field-slot" data-placeholder="MM / YY" ref={expirySlotRef} />
+          </div>
+          <div className="connector-card-field-group">
+            <span className="connector-card-field-label">SECURITY CODE (CVV)</span>
+            <div className="connector-card-field-slot" data-placeholder="CVV" ref={cvvSlotRef} />
+          </div>
+        </div>
+        {(isPending || (!fieldsReady && !isRejected && !error)) && (
+          <div className="connector-card-status" role="status">
+            INITIALIZING SECURE CARD TERMINAL...
+          </div>
+        )}
+      </div>
+      {notice && (
+        <div className="session-notice-strip">
+          <ShieldCheck className="session-notice-icon" size={14} />
+          <span>{notice}</span>
+        </div>
+      )}
+      {isRejected && (
+        <div className="session-error-strip" role="alert">
+          PayPal card checkout could not load.
+        </div>
+      )}
+      {error && (
+        <div className="session-error-strip" role="alert">
+          {error}
+        </div>
+      )}
+      <div className="session-actions-footer">
+        {showBrand && (
+          <div className="connector-paypal-brand">
+            <span>Powered by</span>
+            <img src="https://www.paypalobjects.com/digitalassets/c/website/logo/full-text/pp_fc_hl.svg" alt="PayPal" />
+          </div>
+        )}
+        <div className="session-actions-btns">
+          <Button variant="ghost" size="sm" onClick={onCancel} disabled={submitting || disabled}>
+            {cancelLabel}
+          </Button>
+          <Button
+            variant={submitVariant}
+            size="sm"
+            disabled={submitting || disabled || isRejected}
+            onClick={() => void handleSubmit()}
+          >
+            {submitting ? 'PROCESSING...' : submitLabel}
+          </Button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+export function CardCheckout({ intent, version = 0, cancelLabel = 'CANCEL', onComplete, onCancel }: { intent: CheckoutIntent; version?: number; cancelLabel?: string; onComplete: () => void; onCancel: () => void }) {
+  const { credits, creditsLoading, creditOwner, completeCreditPurchase } = useSession();
+  const packs = credits.packs.length > 0 ? credits.packs : DEFAULT_CREDIT_PACKS;
+  const [packId, setPackId] = useState(packs[0]?.id ?? 'usd-10');
+  const pack = packs.find(value => value.id === packId) ?? packs[0];
+  const [error, setError] = useState<string | null>(null);
+  const operation = useRef<{ operationId: string; orderId: string } | null>(null);
+  const requestKey = useRef(crypto.randomUUID());
+  const orderParamsRef = useRef({ packId: pack?.id ?? 'usd-10', intent, creditOwner });
+  orderParamsRef.current = { packId: pack?.id ?? 'usd-10', intent, creditOwner };
+
+  useEffect(() => {
+    operation.current = null;
+    requestKey.current = crypto.randomUUID();
+    setError(null);
+  }, [version]);
+
+  return (
+    <div className="session-modal-content">
+      <div className="session-info-strip">
+        <CreditCard className="session-info-icon" size={18} />
+        <div className="session-info-text">
+          <span className="session-info-title">INSTANT CREDIT TOP-UP</span>
+          <span className="session-info-desc">
+            Prepaid Credits fund AI studio generation, stem separation, and track streaming across any network without wallet popups.
+          </span>
+        </div>
+      </div>
+      <div className="session-balance-strip">
+        <span className="session-balance-chain">AVAILABLE CREDITS</span>
+        <span className="session-balance-val">
+          {creditsLoading ? 'CHECKING...' : creditLabel(credits.availableAtomics)}
+        </span>
+      </div>
+      <div className="session-section">
+        <div className="session-section-head">
+          <span className="session-section-label">SELECT CREDIT PACK</span>
+          {pack && <span className="session-section-val">${Number(pack.usd)} USD • {creditLabel(pack.amountAtomics)}</span>}
+        </div>
+        <div className="session-pills-row">
+          {packs.map(value => (
+            <button
+              type="button"
+              key={value.id}
+              className={cn('session-pill-btn', pack?.id === value.id && 'active')}
+              disabled={Boolean(operation.current)}
+              onClick={() => {
+                if (pack?.id === value.id) return;
+                setPackId(value.id);
+                operation.current = null;
+                requestKey.current = crypto.randomUUID();
+                setError(null);
+              }}
+            >
+              {creditLabel(value.amountAtomics)}
+            </button>
+          ))}
+        </div>
+      </div>
+      {pack && creditOwner ? (
+        <PayPalCardFields
+          createOrder={async () => {
+            setError(null);
+            const current = orderParamsRef.current;
+            if (!current.creditOwner) throw new Error('Connect your account first');
+            const result = await creditsApi<{ operationId: string; orderId: string }>(
+              'paypal/create-order',
+              { packId: current.packId, checkout: current.intent },
+              requestKey.current,
+            );
+            operation.current = result;
+            localStorage.setItem(purchaseCacheKey(current.creditOwner), result.operationId);
+            return result.orderId;
+          }}
+          onApprove={async data => {
+            if (!operation.current || data.orderID !== operation.current.orderId) {
+              throw new Error('Checkout order mismatch');
+            }
+            await creditsApi('paypal/capture-order', operation.current);
+            await completeCreditPurchase(operation.current.operationId);
+            onComplete();
+          }}
+          onError={setError}
+          onCancel={onCancel}
+          cancelLabel={cancelLabel}
+          submitLabel={`PAY $${Number(pack.usd)}`}
+          error={error}
+        />
+      ) : (
+        <>
+          {error ? (
+            <div className="session-error-strip" role="alert">{error}</div>
+          ) : (
+            <div className="connector-card-status" role="status">CONNECT WALLET TO PURCHASE CREDITS...</div>
+          )}
+          <div className="session-actions-footer">
+            <Button variant="ghost" size="sm" onClick={onCancel}>{cancelLabel}</Button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}export function WalletConnector({ className, compact = true }: WalletConnectorProps) {
   const { credits, creditsLoading } = useSession();
   const account = useActiveAccount();
   const wallet = useActiveWallet();
@@ -495,444 +879,6 @@ export function WalletConnector({ className, compact = true }: WalletConnectorPr
   );
 }
 
-function formatPayPalError(error: unknown, fallback = 'Card payment failed'): string {
-  if (error instanceof Error && error.message) return error.message;
-  if (typeof error === 'string' && error.trim()) return error;
-  if (error && typeof error === 'object' && 'message' in error && typeof (error as { message?: unknown }).message === 'string') {
-    return (error as { message: string }).message;
-  }
-  return fallback;
-}
 
-const PAYPAL_STYLE_VARS: Record<string, Record<string, string>> = {
-  body: {
-    padding: '--paypal-card-body-padding',
-    background: '--paypal-card-bg',
-  },
-  input: {
-    background: '--paypal-card-bg',
-    color: '--paypal-card-color',
-    border: '--paypal-card-border',
-    'border-radius': '--paypal-card-radius',
-    'box-shadow': '--paypal-card-shadow-none',
-    outline: '--paypal-card-outline-none',
-    'font-family': '--paypal-card-font-family',
-    'font-size': '--paypal-card-font-size',
-    'font-weight': '--paypal-card-font-weight',
-    'line-height': '--paypal-card-line-height',
-    'letter-spacing': '--paypal-card-letter-spacing',
-    padding: '--paypal-card-padding',
-    height: '--paypal-card-height',
-    transition: '--paypal-card-transition',
-  },
-  'input.card-field-number.display-icon': {
-    'padding-left': '--paypal-card-icon-padding-left',
-  },
-  '::placeholder': {
-    color: '--paypal-card-placeholder-color',
-    opacity: '--paypal-card-placeholder-opacity',
-  },
-  ':hover': {
-    border: '--paypal-card-border-hover',
-  },
-  ':focus': {
-    background: '--paypal-card-bg',
-    color: '--paypal-card-color',
-    border: '--paypal-card-border-focus',
-    'box-shadow': '--paypal-card-shadow-focus',
-    outline: '--paypal-card-outline-none',
-  },
-  '.valid': {
-    color: '--paypal-card-color',
-  },
-  '.invalid': {
-    color: '--paypal-card-color-invalid',
-    border: '--paypal-card-border-invalid',
-    'box-shadow': '--paypal-card-shadow-none',
-  },
-  ':focus.invalid': {
-    color: '--paypal-card-color',
-    border: '--paypal-card-border-invalid',
-    'box-shadow': '--paypal-card-shadow-invalid',
-    outline: '--paypal-card-outline-none',
-  },
-};
 
-function readPayPalCardStyle(element: HTMLElement): Record<string, Record<string, string>> {
-  const computed = window.getComputedStyle(element);
-  const style: Record<string, Record<string, string>> = {};
-  for (const [selector, rules] of Object.entries(PAYPAL_STYLE_VARS)) {
-    const resolved: Record<string, string> = {};
-    for (const [prop, variable] of Object.entries(rules)) {
-      const value = computed.getPropertyValue(variable).trim();
-      if (value) resolved[prop] = value;
-    }
-    if (Object.keys(resolved).length > 0) style[selector] = resolved;
-  }
-  return style;
-}
-
-export interface PayPalCardFieldsProps {
-  createOrder: () => Promise<string>;
-  onApprove: (data: { orderID: string; liabilityShift?: string }) => Promise<void> | void;
-  onError: (message: string | null) => void;
-  onCancel: () => void;
-  cancelLabel?: string;
-  submitLabel: string;
-  submitVariant?: 'primary' | 'accent';
-  disabled?: boolean;
-  error?: string | null;
-  notice?: string;
-  showBrand?: boolean;
-}
-
-export function PayPalCardFields({
-  createOrder,
-  onApprove,
-  onError,
-  onCancel,
-  cancelLabel = 'CANCEL',
-  submitLabel,
-  submitVariant = 'primary',
-  disabled = false,
-  error = null,
-  notice = '1 Credit = $0.01 USD. Encrypted card checkout settles directly to your account.',
-  showBrand = true,
-}: PayPalCardFieldsProps) {
-  const [{ isPending, isResolved, isRejected }] = usePayPalScriptReducer();
-  const formRef = useRef<HTMLDivElement | null>(null);
-  const nameSlotRef = useRef<HTMLDivElement | null>(null);
-  const numberSlotRef = useRef<HTMLDivElement | null>(null);
-  const expirySlotRef = useRef<HTMLDivElement | null>(null);
-  const cvvSlotRef = useRef<HTMLDivElement | null>(null);
-  const cardFieldsRef = useRef<NonNullable<NonNullable<Window['paypal']>['CardFields']> extends (...args: any[]) => infer R ? R | null : null>(null);
-  const [fieldsReady, setFieldsReady] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-
-  const callbacksRef = useRef({ createOrder, onApprove, onError });
-  callbacksRef.current = { createOrder, onApprove, onError };
-
-  useEffect(() => {
-    if (!isResolved) {
-      setFieldsReady(false);
-      return;
-    }
-    const formEl = formRef.current;
-    const nameSlot = nameSlotRef.current;
-    const numberSlot = numberSlotRef.current;
-    const expirySlot = expirySlotRef.current;
-    const cvvSlot = cvvSlotRef.current;
-    if (!formEl || !nameSlot || !numberSlot || !expirySlot || !cvvSlot) return;
-
-    let cancelled = false;
-    let pollTimer: number | undefined;
-    const renderedFields: Array<{ close: () => Promise<void> }> = [];
-
-    const timer = window.setTimeout(() => {
-      if (cancelled) return;
-      const cardFieldsFactory = window.paypal?.CardFields;
-      if (!cardFieldsFactory) {
-        callbacksRef.current.onError('PayPal card checkout could not load.');
-        return;
-      }
-      try {
-        const instance = cardFieldsFactory({
-          style: readPayPalCardStyle(formEl),
-          inputEvents: {
-            onChange: () => {
-              callbacksRef.current.onError(null);
-            },
-          },
-          createOrder: () => callbacksRef.current.createOrder(),
-          onApprove: async (data) => {
-            try {
-              await callbacksRef.current.onApprove(data);
-            } catch (cause) {
-              callbacksRef.current.onError(formatPayPalError(cause));
-            }
-          },
-          onError: (cause) => {
-            callbacksRef.current.onError(formatPayPalError(cause));
-          },
-        });
-
-        if (!instance.isEligible()) {
-          callbacksRef.current.onError('Card fields are not eligible for this merchant configuration.');
-          return;
-        }
-
-        cardFieldsRef.current = instance;
-
-        const nameHost = document.createElement('div');
-        const numberHost = document.createElement('div');
-        const expiryHost = document.createElement('div');
-        const cvvHost = document.createElement('div');
-
-        nameSlot.replaceChildren(nameHost);
-        numberSlot.replaceChildren(numberHost);
-        expirySlot.replaceChildren(expiryHost);
-        cvvSlot.replaceChildren(cvvHost);
-
-        const fieldStyleOptions = { disablePrerender: true };
-        const nameField = instance.NameField({
-          placeholder: 'CARDHOLDER NAME',
-          styleOptions: fieldStyleOptions,
-        } as Parameters<typeof instance.NameField>[0]);
-        const numberField = instance.NumberField({
-          placeholder: '0000 0000 0000 0000',
-          styleOptions: fieldStyleOptions,
-        } as Parameters<typeof instance.NumberField>[0]);
-        const expiryField = instance.ExpiryField({
-          placeholder: 'MM / YY',
-          styleOptions: fieldStyleOptions,
-        } as Parameters<typeof instance.ExpiryField>[0]);
-        const cvvField = instance.CVVField({
-          placeholder: 'CVV',
-          styleOptions: fieldStyleOptions,
-        } as Parameters<typeof instance.CVVField>[0]);
-
-        renderedFields.push(nameField, numberField, expiryField, cvvField);
-
-        const waitForMountedInputs = async () => {
-          if (typeof instance.getState !== 'function') {
-            if (!cancelled) setFieldsReady(true);
-            return;
-          }
-          const deadline = Date.now() + 4_000;
-          const check = async () => {
-            if (cancelled) return;
-            const state = await instance.getState().catch(() => null);
-            if (cancelled) return;
-            const mounted = state != null && (
-              !('fields' in state) ||
-              Object.keys((state as { fields?: Record<string, unknown> }).fields ?? {}).length >= 4
-            );
-            if (mounted || Date.now() >= deadline) {
-              setFieldsReady(true);
-              return;
-            }
-            pollTimer = window.setTimeout(() => void check(), 40);
-          };
-          await check();
-        };
-
-        void Promise.all([
-          nameField.render(nameHost),
-          numberField.render(numberHost),
-          expiryField.render(expiryHost),
-          cvvField.render(cvvHost),
-        ])
-          .then(() => waitForMountedInputs())
-          .catch((cause) => {
-            if (!cancelled) callbacksRef.current.onError(formatPayPalError(cause, 'Failed to initialize card fields'));
-          });
-      } catch (cause) {
-        if (!cancelled) callbacksRef.current.onError(formatPayPalError(cause, 'Failed to initialize card checkout'));
-      }
-    }, 0);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-      if (pollTimer !== undefined) window.clearTimeout(pollTimer);
-      cardFieldsRef.current = null;
-      setFieldsReady(false);
-      for (const field of renderedFields) {
-        void field.close().catch(() => { });
-      }
-      nameSlot.replaceChildren();
-      numberSlot.replaceChildren();
-      expirySlot.replaceChildren();
-      cvvSlot.replaceChildren();
-    };
-  }, [isResolved]);
-
-  const handleSubmit = async () => {
-    const form = cardFieldsRef.current;
-    if (!form || submitting || disabled) return;
-    callbacksRef.current.onError(null);
-    setSubmitting(true);
-    try {
-      const state = await form.getState().catch(() => null);
-      if (state && !state.isFormValid) {
-        callbacksRef.current.onError('Enter a valid card number, expiration date, and security code.');
-        return;
-      }
-      await form.submit();
-    } catch (cause) {
-      callbacksRef.current.onError(formatPayPalError(cause));
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <>
-      <div className="connector-card-form" ref={formRef} data-ready={fieldsReady || undefined}>
-        <div className="connector-card-field-group">
-          <span className="connector-card-field-label">CARDHOLDER NAME</span>
-          <div className="connector-card-field-slot" data-placeholder="CARDHOLDER NAME" ref={nameSlotRef} />
-        </div>
-        <div className="connector-card-field-group">
-          <span className="connector-card-field-label">CARD NUMBER</span>
-          <div className="connector-card-field-slot" data-placeholder="0000 0000 0000 0000" ref={numberSlotRef} />
-        </div>
-        <div className="connector-card-field-row">
-          <div className="connector-card-field-group">
-            <span className="connector-card-field-label">EXPIRATION</span>
-            <div className="connector-card-field-slot" data-placeholder="MM / YY" ref={expirySlotRef} />
-          </div>
-          <div className="connector-card-field-group">
-            <span className="connector-card-field-label">SECURITY CODE (CVV)</span>
-            <div className="connector-card-field-slot" data-placeholder="CVV" ref={cvvSlotRef} />
-          </div>
-        </div>
-        {(isPending || (!fieldsReady && !isRejected && !error)) && (
-          <div className="connector-card-status" role="status">
-            INITIALIZING SECURE CARD TERMINAL...
-          </div>
-        )}
-      </div>
-      {notice && (
-        <div className="session-notice-strip">
-          <ShieldCheck className="session-notice-icon" size={14} />
-          <span>{notice}</span>
-        </div>
-      )}
-      {isRejected && (
-        <div className="session-error-strip" role="alert">
-          PayPal card checkout could not load.
-        </div>
-      )}
-      {error && (
-        <div className="session-error-strip" role="alert">
-          {error}
-        </div>
-      )}
-      <div className="session-actions-footer">
-        <Button variant="ghost" size="sm" onClick={onCancel} disabled={submitting || disabled}>
-          {cancelLabel}
-        </Button>
-        <Button
-          variant={submitVariant}
-          size="sm"
-          disabled={!fieldsReady || submitting || disabled}
-          onClick={() => void handleSubmit()}
-        >
-          {submitting ? 'PROCESSING...' : submitLabel}
-        </Button>
-      </div>
-      {showBrand && (
-        <div className="connector-paypal-brand">
-          <span>Powered by</span>
-          <img src="https://www.paypalobjects.com/digitalassets/c/website/logo/full-text/pp_fc_hl.svg" alt="PayPal" />
-        </div>
-      )}
-    </>
-  );
-}
-
-export function CardCheckout({ intent, version = 0, cancelLabel = 'CANCEL', onComplete, onCancel }: { intent: CheckoutIntent; version?: number; cancelLabel?: string; onComplete: () => void; onCancel: () => void }) {
-  const { credits, creditsLoading, creditOwner, completeCreditPurchase } = useSession();
-  const packs = credits.packs.length > 0 ? credits.packs : DEFAULT_CREDIT_PACKS;
-  const [packId, setPackId] = useState(packs[0]?.id ?? 'usd-10');
-  const pack = packs.find(value => value.id === packId) ?? packs[0];
-  const [error, setError] = useState<string | null>(null);
-  const operation = useRef<{ operationId: string; orderId: string } | null>(null);
-  const requestKey = useRef(crypto.randomUUID());
-  const orderParamsRef = useRef({ packId: pack?.id ?? 'usd-10', intent, creditOwner });
-  orderParamsRef.current = { packId: pack?.id ?? 'usd-10', intent, creditOwner };
-
-  useEffect(() => {
-    operation.current = null;
-    requestKey.current = crypto.randomUUID();
-    setError(null);
-  }, [version]);
-
-  return (
-    <div className="session-modal-content">
-      <div className="session-info-strip">
-        <CreditCard className="session-info-icon" size={18} />
-        <div className="session-info-text">
-          <span className="session-info-title">INSTANT CREDIT TOP-UP</span>
-          <span className="session-info-desc">
-            Prepaid Credits fund AI studio generation, stem separation, and track streaming across any network without wallet popups.
-          </span>
-        </div>
-      </div>
-      <div className="session-balance-strip">
-        <span className="session-balance-chain">AVAILABLE CREDITS</span>
-        <span className="session-balance-val">
-          {creditsLoading ? 'CHECKING...' : creditLabel(credits.availableAtomics)}
-        </span>
-      </div>
-      <div className="session-section">
-        <div className="session-section-head">
-          <span className="session-section-label">SELECT CREDIT PACK</span>
-          {pack && <span className="session-section-val">${Number(pack.usd)} USD • {creditLabel(pack.amountAtomics)}</span>}
-        </div>
-        <div className="session-pills-row">
-          {packs.map(value => (
-            <button
-              type="button"
-              key={value.id}
-              className={cn('session-pill-btn', pack?.id === value.id && 'active')}
-              disabled={Boolean(operation.current)}
-              onClick={() => {
-                if (pack?.id === value.id) return;
-                setPackId(value.id);
-                operation.current = null;
-                requestKey.current = crypto.randomUUID();
-                setError(null);
-              }}
-            >
-              {creditLabel(value.amountAtomics)}
-            </button>
-          ))}
-        </div>
-      </div>
-      {pack && creditOwner ? (
-        <PayPalCardFields
-          createOrder={async () => {
-            setError(null);
-            const current = orderParamsRef.current;
-            if (!current.creditOwner) throw new Error('Connect your account first');
-            const result = await creditsApi<{ operationId: string; orderId: string }>(
-              'paypal/create-order',
-              { packId: current.packId, checkout: current.intent },
-              requestKey.current,
-            );
-            operation.current = result;
-            localStorage.setItem(purchaseCacheKey(current.creditOwner), result.operationId);
-            return result.orderId;
-          }}
-          onApprove={async data => {
-            if (!operation.current || data.orderID !== operation.current.orderId) {
-              throw new Error('Checkout order mismatch');
-            }
-            await creditsApi('paypal/capture-order', operation.current);
-            await completeCreditPurchase(operation.current.operationId);
-            onComplete();
-          }}
-          onError={setError}
-          onCancel={onCancel}
-          cancelLabel={cancelLabel}
-          submitLabel={`PAY $${Number(pack.usd)}`}
-          error={error}
-        />
-      ) : (
-        <>
-          {error ? (
-            <div className="session-error-strip" role="alert">{error}</div>
-          ) : (
-            <div className="connector-card-status" role="status">CONNECT WALLET TO PURCHASE CREDITS...</div>
-          )}
-          <div className="session-actions-footer">
-            <Button variant="ghost" size="sm" onClick={onCancel}>{cancelLabel}</Button>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
 
