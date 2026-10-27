@@ -29,7 +29,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useAdminWallet } from "thirdweb/react";
 import { useChain } from "@/contexts/Network";
 import { isEvmNetwork } from "@/lib/chains";
-import { clearSwigCreated, writeSwigCreated } from "@/lib/cache";
+import { clearSwigCreated, readCachedAccount, readSwigCreated, writeSwigCreated } from "@/lib/cache";
 
 export const SOLANA_MAINNET = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";
 export interface SolanaActivationResult {
@@ -135,8 +135,18 @@ export function useSolanaSmartAccount() {
   const { paymentNetwork, solanaChains } = useChain();
   const selectedChain = useMemo(() => isEvmNetwork(paymentNetwork)
     ? solanaChains[0] : solanaChains.find(chain => chain.network === paymentNetwork), [paymentNetwork, solanaChains]);
-  const [derived, setDerived] = useState<{ owner: string; address: string } | null>(null);
-  const swigAddress = derived?.owner === adminAddress ? derived.address : null;
+  const [derived, setDerived] = useState<{ owner: string; address: string } | null>(() => {
+    const cached = readCachedAccount();
+    if (adminAddress && cached?.adminAddress?.toLowerCase() === adminAddress.toLowerCase() && cached.svmAddress) {
+      return { owner: adminAddress, address: cached.svmAddress };
+    }
+    return null;
+  });
+  const swigAddress = derived?.owner === adminAddress
+    ? derived.address
+    : (adminAddress && readCachedAccount()?.adminAddress?.toLowerCase() === adminAddress.toLowerCase()
+      ? readCachedAccount()?.svmAddress ?? null
+      : null);
   const [creation, setCreation] = useState<{ key: string; generation: number; pending: boolean; error: string | null }>({ key: "", generation: 0, pending: false, error: null });
   const scopeKey = `${adminAddress}:${paymentNetwork}:${selectedChain?.rpcUrl}:${selectedChain?.assetAddress}`;
   const current = useRef({ key: scopeKey, generation: 0 });
@@ -156,12 +166,13 @@ export function useSolanaSmartAccount() {
     return () => { cancelled = true; };
   }, [adminAddress]);
 
+  const cachedActivated = Boolean(adminAddress && selectedChain && readSwigCreated(adminAddress, selectedChain.network));
   const status = useQuery({
     queryKey: ['swig', adminAddress, selectedChain?.network, selectedChain?.rpcUrl, selectedChain?.assetAddress, swigAddress],
-    enabled: Boolean(adminAddress && swigAddress && selectedChain),
+    enabled: Boolean(adminAddress && swigAddress && selectedChain && !isEvmNetwork(paymentNetwork)),
     retry: false,
     staleTime: ACTIVATION_POLL_MS,
-    refetchInterval: ACTIVATION_POLL_MS,
+    refetchInterval: (query) => query.state.data?.activated ? false : ACTIVATION_POLL_MS,
     queryFn: async () => {
       const rpc = createSolanaRpcFromNetwork(selectedChain!.network, selectedChain!.rpcUrl);
       const config = await deriveSwigConfigAddress(adminAddress!);
@@ -202,12 +213,14 @@ export function useSolanaSmartAccount() {
     }
   }, [signer, adminAddress, swigAddress, selectedChain, paymentNetwork, scopeKey, generation, adminWallet, status.refetch]);
 
+  const isActivated = status.data?.activated ?? cachedActivated;
+
   return {
     swigAddress,
     evmSignerAddress: adminAddress,
-    isActivated: status.data?.activated ?? false,
+    isActivated,
     isCreating: creation.key === scopeKey && creation.generation === generation && creation.pending,
-    requiredFundingLamports: status.data?.activated ? null : SVM_ACTIVATION_MINIMUM_LAMPORTS,
+    requiredFundingLamports: isActivated ? null : SVM_ACTIVATION_MINIMUM_LAMPORTS,
     currentFundingLamports: status.data?.balance ?? null,
     error: creation.key === scopeKey && creation.generation === generation && creation.error ? creation.error : status.error?.message ?? null,
     create,
