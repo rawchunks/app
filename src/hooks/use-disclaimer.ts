@@ -5,8 +5,8 @@ import { useSelectedUserAddress } from "@/hooks/use-address";
 import { DISCLAIMER_POLICY_VERSION, DISCLAIMER_TYPE } from "@/components/disclaimer";
 
 export function useDisclaimerConsent() {
-  const { evmAddress } = useSelectedUserAddress();
-  const activeAddress = evmAddress?.toLowerCase() ?? null;
+  const { accountId, evmAddress, userAddress } = useSelectedUserAddress();
+  const activeAddress = accountId ?? evmAddress?.toLowerCase() ?? userAddress ?? null;
 
   const query = useQuery({
     queryKey: ["user-consent", activeAddress, DISCLAIMER_POLICY_VERSION],
