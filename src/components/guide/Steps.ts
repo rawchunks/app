@@ -1,11 +1,9 @@
 export type GuideFlowId = 'welcome' | 'studio' | 'mypage' | 'market' | 'editor';
 
 export interface GuideStepAction {
-  type: 'studio-section' | 'mypage-state' | 'editor-focus';
+  type: 'studio-section' | 'editor-focus';
   section?: 'core' | 'params' | 'financials';
-  openSongMenu?: boolean;
-  closeSongMenu?: boolean;
-  editorFocus?: 'board' | 'studio' | 'toolbox';
+  editorFocus?: 'studio' | 'toolbox';
 }
 
 export interface GuideStep {
@@ -29,47 +27,39 @@ export interface GuideFlow {
 export const GUIDE_FLOWS: Record<GuideFlowId, GuideFlow> = {
   welcome: {
     id: 'welcome',
-    label: 'Account, Session & Profile',
+    label: 'Account, Session & Credits',
     subtitle: 'Getting started',
     steps: [
       {
-        id: 'welcome-connect',
-        title: 'Connect & Sign In',
+        id: 'welcome-account',
+        title: '1-Click Login & Account',
         badge: 'ACCOUNT',
         description:
-          'Sign in with Google, Discord, Email, Passkey, Guest mode, or an external wallet. We create an embedded wallet for your account automatically—no browser extension required.',
-        selector: '[data-guide="connect"], [data-guide="profile"], .btn.connect',
-        placement: 'bottom',
-      },
-      {
-        id: 'welcome-network',
-        title: 'Active Network',
-        badge: 'NETWORKS',
-        description:
-          'Switch between supported networks (Base, Avalanche, Tempo). Your active network sets where songs are minted and where onchain USDC transactions settle.',
-        selector: '[data-guide="network"], .header-network-trigger',
+          'Sign in with Google, Discord, Email, Passkey, Guest mode, or an external wallet. We create an embedded smart account for you automatically—no browser extension required.',
+        selector: '[data-guide="account"], .btn.connect',
         placement: 'bottom',
       },
       {
         id: 'welcome-session',
-        title: 'Session, Credits & PayPal',
+        title: 'Session & Credits Deck',
         badge: '1 CREDIT = $0.01',
         description:
-          'Manage how you pay for studio tasks and streaming without constant wallet popups:',
+          'Open the Session pill anytime to fund studio tasks and streaming with zero wallet popups:',
         bullets: [
-          'Credits: Top up instantly with a card or PayPal ($5 = 500 Credits), or claim your one-time free trial.',
-          'Session: Set a USDC spending cap and duration so you can generate, edit, and stream with one click.',
+          'FREE $1: Claim 100 Free Welcome Credits (~20 AI songs) on your first login.',
+          'CARD: Top up instantly with Visa, Mastercard, or PayPal ($10, $25, $100).',
+          'USDC: Authorize an on-chain spending cap on Base, Tempo, or Solana.',
         ],
-        selector: '[data-guide="session"], .header-session-trigger',
+        selector: '.session-trigger-btn, [data-guide="account"], .btn.connect',
         placement: 'bottom',
       },
       {
         id: 'welcome-profile',
-        title: 'Artist Profile',
+        title: 'Profile, Terms & Guides',
         badge: 'PROFILE',
         description:
-          'Once connected, click your account menu (or the pencil icon on My Page) to set your public artist Nickname and upload an Avatar. These appear on every song you publish to the Market.',
-        selector: '[data-guide="profile"], [data-guide="connect"], .btn.connect',
+          'Once signed in, click your Account chip to set your public artist Nickname and Avatar, review the generation terms, replay any interactive guide, or disconnect.',
+        selector: '[data-guide="account"], .btn.connect',
         placement: 'bottom',
       },
     ],
@@ -158,12 +148,12 @@ export const GUIDE_FLOWS: Record<GuideFlowId, GuideFlow> = {
 
   mypage: {
     id: 'mypage',
-    label: 'My Profile Guide',
+    label: 'Workspace',
     subtitle: 'Catalog, editing & publishing',
     steps: [
       {
         id: 'mypage-sections',
-        title: 'Your Studio Library',
+        title: 'Your Workspace',
         badge: 'SECTIONS',
         description:
           'Your catalog is organized into four collapsible sections:',
@@ -174,7 +164,6 @@ export const GUIDE_FLOWS: Record<GuideFlowId, GuideFlow> = {
         ],
         selector: '[data-guide="mypage-sections"], .mypage-section',
         placement: 'bottom',
-        action: { type: 'mypage-state', closeSongMenu: true },
       },
       {
         id: 'mypage-details',
@@ -184,7 +173,6 @@ export const GUIDE_FLOWS: Record<GuideFlowId, GuideFlow> = {
           'Click ••• on any song card and select SONG DETAILS to update its title, cover art, album assignment, stream rate ($/min), license price ($), and license supply before publishing.',
         selector: '[data-guide="mypage-card-details"], [data-guide="mypage-card-menu"], .mypage-card-more-btn',
         placement: 'right',
-        action: { type: 'mypage-state', openSongMenu: true },
       },
       {
         id: 'mypage-editor',
@@ -194,7 +182,6 @@ export const GUIDE_FLOWS: Record<GuideFlowId, GuideFlow> = {
           'Select AUDIO EDITOR from the ••• menu to open your track in the multi-stem workstation. If a song is already published, opening the editor automatically creates a new editable version (v2, v3…) while keeping earlier versions live.',
         selector: '[data-guide="mypage-card-editor"], [data-guide="mypage-card-menu"], .mypage-card-more-btn',
         placement: 'right',
-        action: { type: 'mypage-state', openSongMenu: true },
       },
       {
         id: 'mypage-publish',
@@ -204,7 +191,6 @@ export const GUIDE_FLOWS: Record<GuideFlowId, GuideFlow> = {
           'Ready to release? Click the Publish button at the bottom right of your song card. Your audio and metadata are pinned to IPFS and minted onchain on your active network so anyone can stream or license your track on the Market.',
         selector: '[data-guide="mypage-card-publish"], .mypage-publish-icon-btn',
         placement: 'top',
-        action: { type: 'mypage-state', closeSongMenu: true },
       },
     ],
   },
@@ -257,7 +243,7 @@ export const GUIDE_FLOWS: Record<GuideFlowId, GuideFlow> = {
           'We pre-loaded "Playground" so you can test every control right away. Use the top bar for Play/Pause (Space), Loop (L), Return-to-Zero (0), and Audition Selection (Shift+Space). Click BPM to adjust tempo, or click the song title to switch tracks.',
         selector: '[data-guide="editor-transport"], .editor-transport-row, .editor-header-bar',
         placement: 'bottom',
-        action: { type: 'editor-focus', editorFocus: 'board' },
+        action: { type: 'editor-focus', editorFocus: 'toolbox' },
       },
       {
         id: 'editor-master',
@@ -267,7 +253,7 @@ export const GUIDE_FLOWS: Record<GuideFlowId, GuideFlow> = {
           'The top MASTER strip lets you compare your original track (ORG) against any generated take (TK#). Starting from a single stereo mix? Click SPLIT STEMS / SEPARATE (2 Credits) to split your song into isolated Vocals, Drums, Bass, and Instruments.',
         selector: '[data-guide="editor-master"], .board-master-horizon, .board-stage-focus .board-lane-controller-row',
         placement: 'bottom',
-        action: { type: 'editor-focus', editorFocus: 'board' },
+        action: { type: 'editor-focus', editorFocus: 'toolbox' },
       },
       {
         id: 'editor-waveform',
@@ -282,7 +268,7 @@ export const GUIDE_FLOWS: Record<GuideFlowId, GuideFlow> = {
         ],
         selector: '[data-guide="editor-waveform"], .board-stage-focus .board-lane-waveform-row, .board-stage-focus',
         placement: 'bottom',
-        action: { type: 'editor-focus', editorFocus: 'board' },
+        action: { type: 'editor-focus', editorFocus: 'toolbox' },
       },
       {
         id: 'editor-lyrics',
@@ -292,7 +278,7 @@ export const GUIDE_FLOWS: Record<GuideFlowId, GuideFlow> = {
           'When a region is selected, use its floating pill to Audition, REWORK, or CUT that slice. On vocal lanes, click LYRICS to transcribe vocals automatically with AI Scribe and align words to the timeline—for free.',
         selector: '[data-guide="editor-lyrics"], .board-stage-focus .board-lane-controller-row, .board-stage-focus',
         placement: 'bottom',
-        action: { type: 'editor-focus', editorFocus: 'board' },
+        action: { type: 'editor-focus', editorFocus: 'toolbox' },
       },
       {
         id: 'editor-lanes',
@@ -302,7 +288,7 @@ export const GUIDE_FLOWS: Record<GuideFlowId, GuideFlow> = {
           'Switch active lanes, Mute (M) or Solo (S) stems, and click + to add custom KEYS, DRUMS, CODE, or SAMPLE tracks. Expand TAKES on any lane to audition edits, mount a take as your working BASE, or MERGE mounted takes into the Master mix (free).',
         selector: '[data-guide="editor-lanes"], .board-stems-card',
         placement: 'right',
-        action: { type: 'editor-focus', editorFocus: 'board' },
+        action: { type: 'editor-focus', editorFocus: 'toolbox' },
       },
       {
         id: 'editor-studio',
@@ -312,9 +298,9 @@ export const GUIDE_FLOWS: Record<GuideFlowId, GuideFlow> = {
           'Run any AI audio transformation for 2 Credits ($0.02) per operation:',
         bullets: [
           'Rework: Regenerate a selected time region (start ➔ end) with new lyrics or style.',
-          'Layer: Generate a new instrument stem around your active CTX reference lanes.',
+          'Layer: Generate a new instrument stem around the lanes you have active.',
           'Extend & Accompany: Add bars to the intro/outro, or build a full band around a stem.',
-          'Restyle & Separate: Transform genre/timbre while keeping melody, or isolate stems.',
+          'Restyle & Extract: Transform genre/timbre while keeping melody, or isolate stems.',
         ],
         selector: '[data-guide="editor-studio"], .studio-bento-row',
         placement: 'top',

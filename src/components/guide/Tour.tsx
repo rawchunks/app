@@ -10,18 +10,16 @@ import React, {
 import { createPortal } from 'react-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  HelpCircle,
   ChevronLeft,
   ChevronRight,
   X,
   Sparkles,
-  Compass,
-  UserCheck,
 } from 'lucide-react';
 import { sdk } from '@/lib/sdk';
 import { readCachedGuides, writeCachedGuides } from '@/lib/cache';
 import { useSelectedUserAddress } from '@/hooks/use-address';
 import { useDisclaimerConsent } from '@/hooks/use-disclaimer';
+import { Tooltip } from '../daw/Tooltip';
 import {
   GUIDE_FLOWS,
   type GuideFlowId,
@@ -86,9 +84,9 @@ export const GuideProvider: React.FC<{
   children: React.ReactNode;
 }> = ({ activePage, children }) => {
   const queryClient = useQueryClient();
-  const { userAddress, evmAddress, isReconnecting } = useSelectedUserAddress();
+  const { accountId, isReconnecting } = useSelectedUserAddress();
   const { hasConsented, isLoading: consentLoading } = useDisclaimerConsent();
-  const activeUser = (evmAddress || userAddress)?.toLowerCase() ?? null;
+  const activeUser = accountId;
   const userScope = activeUser ?? 'guest';
 
   const [activeFlow, setActiveFlow] = useState<GuideFlowId | null>(null);
@@ -164,12 +162,22 @@ export const GuideProvider: React.FC<{
 
   useEffect(() => {
     if (prevScopeRef.current !== userScope) {
+      const previousScope = prevScopeRef.current;
       prevScopeRef.current = userScope;
+      if (previousScope === 'guest' && activeUser) {
+        const guestFlows = readCachedGuides('guest') ?? [];
+        if (guestFlows.length > 0) {
+          const localFlows = readCachedGuides(activeUser) ?? [];
+          const merged = Array.from(new Set([...localFlows, ...guestFlows]));
+          writeCachedGuides(activeUser, merged);
+          queryClient.setQueryData(['user-guides', userScope], merged);
+        }
+      }
       setActiveFlow(null);
       setStepIndex(0);
       setCutout(null);
     }
-  }, [userScope]);
+  }, [userScope, activeUser, queryClient]);
 
   const startFlow = useCallback((flow: GuideFlowId) => {
     scrolledStepRef.current = null;
@@ -184,9 +192,6 @@ export const GuideProvider: React.FC<{
   const closeGuide = useCallback(() => {
     if (activeFlow) {
       markFlowSeen(activeFlow);
-      if (activeFlow === 'mypage') {
-        dispatchGuideAction({ type: 'mypage-state', closeSongMenu: true });
-      }
     }
     setActiveFlow(null);
     setStepIndex(0);
@@ -205,6 +210,7 @@ export const GuideProvider: React.FC<{
     if (activeUser && (consentLoading || !hasConsented)) return;
     if (guidesQuery.isLoading) return;
     const timer = window.setTimeout(() => {
+      if (typeof document !== 'undefined' && document.querySelector('.modal-overlay')) return;
       if (!hasSeenFlow('welcome')) {
         startFlow('welcome');
         return;
@@ -314,9 +320,6 @@ export const GuideProvider: React.FC<{
       setStepIndex((i) => i + 1);
     } else {
       markFlowSeen(activeFlow);
-      if (activeFlow === 'mypage') {
-        dispatchGuideAction({ type: 'mypage-state', closeSongMenu: true });
-      }
       // If user just finished 'welcome' and hasn't seen the current page guide yet, chain smoothly into it
       if (activeFlow === 'welcome' && !hasSeenFlow(activePage)) {
         startFlow(activePage);
@@ -530,15 +533,16 @@ export const GuideProvider: React.FC<{
                     <span className="guide-step-badge">{currentStep.badge}</span>
                   )}
                 </div>
-                <button
-                  type="button"
-                  className="guide-close-btn"
-                  onClick={closeGuide}
-                  title="Close guide (Esc)"
-                  aria-label="Close guide"
-                >
-                  <X size={14} />
-                </button>
+                <Tooltip title="Close guide (Esc)">
+                  <button
+                    type="button"
+                    className="guide-close-btn"
+                    onClick={closeGuide}
+                    aria-label="Close guide"
+                  >
+                    <X size={14} />
+                  </button>
+                </Tooltip>
               </div>
 
               <h3 className="guide-card-title">{currentStep.title}</h3>
@@ -593,32 +597,34 @@ export const GuideProvider: React.FC<{
                   >
                     Skip
                   </button>
-                  <button
-                    type="button"
-                    className="guide-arrow-btn"
-                    onClick={handlePrev}
-                    disabled={stepIndex === 0}
-                    aria-label="Previous step"
-                    title="Previous (←)"
-                  >
-                    <ChevronLeft size={15} />
-                  </button>
-                  <button
-                    type="button"
-                    className="guide-next-btn"
-                    onClick={handleNext}
-                    aria-label={stepIndex === flowObj.steps.length - 1 ? 'Finish guide' : 'Next step'}
-                    title="Next (→)"
-                  >
-                    <span>
-                      {stepIndex === flowObj.steps.length - 1
-                        ? activeFlow === 'welcome' && !hasSeenFlow(activePage)
-                          ? `${GUIDE_FLOWS[activePage].label} `
-                          : 'Done'
-                        : 'Next'}
-                    </span>
-                    <ChevronRight size={14} />
-                  </button>
+                  <Tooltip title="Previous (←)">
+                    <button
+                      type="button"
+                      className="guide-arrow-btn"
+                      onClick={handlePrev}
+                      disabled={stepIndex === 0}
+                      aria-label="Previous step"
+                    >
+                      <ChevronLeft size={15} />
+                    </button>
+                  </Tooltip>
+                  <Tooltip title="Next (→)">
+                    <button
+                      type="button"
+                      className="guide-next-btn"
+                      onClick={handleNext}
+                      aria-label={stepIndex === flowObj.steps.length - 1 ? 'Finish guide' : 'Next step'}
+                    >
+                      <span>
+                        {stepIndex === flowObj.steps.length - 1
+                          ? activeFlow === 'welcome' && !hasSeenFlow(activePage)
+                            ? `${GUIDE_FLOWS[activePage].label} `
+                            : 'Done'
+                          : 'Next'}
+                      </span>
+                      <ChevronRight size={14} />
+                    </button>
+                  </Tooltip>
                 </div>
               </div>
             </div>
@@ -636,92 +642,3 @@ export function useGuide(): GuideContextValue {
   }
   return ctx;
 }
-
-/**
- * Common "?" button rendered in the header on every page (/studio, /mypage, /market, /editor).
- * Lets the user replay the current page's interactive guide or the Account & Session guide anytime.
- */
-export const GuideTrigger: React.FC<{ compact?: boolean }> = ({ compact }) => {
-  const { activePage, activeFlow, startFlow, closeGuide } = useGuide();
-  const [menuOpen, setMenuOpen] = useState(false);
-  const wrapRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (activeFlow) {
-      setMenuOpen(false);
-    }
-  }, [activeFlow]);
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onDocClick = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
-        setMenuOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', onDocClick);
-    return () => document.removeEventListener('mousedown', onDocClick);
-  }, [menuOpen]);
-
-  const pageFlow = GUIDE_FLOWS[activePage];
-
-  return (
-    <div ref={wrapRef} className="guide-trigger-wrap">
-      <button
-        type="button"
-        className={`guide-trigger-btn ${activeFlow ? 'active' : ''} ${compact ? 'compact' : ''}`}
-        onClick={() => {
-          if (activeFlow) {
-            closeGuide();
-          } else {
-            setMenuOpen((v) => !v);
-          }
-        }}
-        title="Interactive Guide (?)"
-        aria-label="Open interactive guide"
-        data-guide="guide-trigger"
-      >
-        <HelpCircle size={15} />
-      </button>
-
-      {menuOpen && (
-        <div className="guide-trigger-menu" role="menu">
-          <div className="guide-trigger-menu-header">INTERACTIVE GUIDE</div>
-          <button
-            type="button"
-            className="guide-trigger-menu-item primary"
-            onClick={() => {
-              setMenuOpen(false);
-              startFlow(activePage);
-            }}
-          >
-            <Compass size={14} />
-            <div className="guide-trigger-menu-text">
-              <span className="guide-trigger-menu-title">{pageFlow.label}</span>
-              <span className="guide-trigger-menu-sub">
-                {pageFlow.steps.length} steps · {pageFlow.subtitle}
-              </span>
-            </div>
-          </button>
-
-          <button
-            type="button"
-            className="guide-trigger-menu-item"
-            onClick={() => {
-              setMenuOpen(false);
-              startFlow('welcome');
-            }}
-          >
-            <UserCheck size={14} />
-            <div className="guide-trigger-menu-text">
-              <span className="guide-trigger-menu-title">Account, Session & Credits</span>
-              <span className="guide-trigger-menu-sub">
-                4 steps · Connect, networks, PayPal & profile
-              </span>
-            </div>
-          </button>
-        </div>
-      )}
-    </div>
-  );
-};
