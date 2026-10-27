@@ -1,15 +1,9 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { AudioWaveform, Radio, FileMusic } from 'lucide-react';
 import { Player } from './player';
 import { Tooltip } from './daw/Tooltip';
-import { store } from '../lib/store';
-import { NetworkSelector } from './network';
-import { SessionControl } from './session';
-import { WalletConnector } from './connector';
-import { GuideTrigger } from './guide/Tour';
-import { useSelectedUserAddress } from '../hooks/use-address';
-import { useChain } from '../contexts/Network';
-import { attachWallet } from '../lib/sdk';
+import { AccountChip } from './account';
+import { Session } from './session';
 
 export type Route = 'studio' | 'mypage' | 'market' | 'editor';
 
@@ -20,23 +14,10 @@ export interface Props {
 }
 
 export const Layout: React.FC<Props> = ({ current, onNavigate, children }) => {
-  const { userAddress, evmAddress, svmAddress } = useSelectedUserAddress();
-  const { selectedNetwork } = useChain();
-
-  useEffect(() => {
-    const activeAddress = userAddress || evmAddress || svmAddress || '';
-    store.setUserAddress(activeAddress, evmAddress, svmAddress);
-    if (activeAddress && selectedNetwork) {
-      attachWallet(activeAddress, selectedNetwork);
-    } else {
-      attachWallet(null, null);
-    }
-  }, [userAddress, evmAddress, svmAddress, selectedNetwork]);
-
   const navItems: { id: Route; label: string; Icon: React.ComponentType<{ className?: string }> }[] = [
-    { id: 'studio', label: '/STUDIO', Icon: AudioWaveform },
-    { id: 'mypage', label: '/MY-PAGE', Icon: FileMusic },
-    { id: 'market', label: '/MARKET', Icon: Radio },
+    { id: 'studio', label: 'STUDIO', Icon: AudioWaveform },
+    { id: 'mypage', label: 'WORKSPACE', Icon: FileMusic },
+    { id: 'market', label: 'MARKET', Icon: Radio },
   ];
 
   return (
@@ -50,7 +31,6 @@ export const Layout: React.FC<Props> = ({ current, onNavigate, children }) => {
           <Tooltip title="RAWCHUNKS" description="Open Studio" position="bottom">
             <button type="button" className="header-brand" onClick={() => onNavigate('studio')} aria-label="Rawchunks — open Studio">
               <img src="/branding/logo.svg" alt="Rawchunks" className="header-brand-logo" width={590} height={88} />
-              <span className="header-brand-tag">v1.5</span>
             </button>
           </Tooltip>
 
@@ -65,6 +45,7 @@ export const Layout: React.FC<Props> = ({ current, onNavigate, children }) => {
                     type="button"
                     onClick={() => onNavigate(item.id)}
                     aria-label={item.label}
+                    aria-current={active ? 'page' : undefined}
                     className={`service-nav-btn ${active ? 'active' : ''}`}
                   >
                     <span className="service-nav-icon"><Icon className="nav-icon-svg" /></span>
@@ -75,12 +56,10 @@ export const Layout: React.FC<Props> = ({ current, onNavigate, children }) => {
             })}
           </nav>
 
-          {/* Network Selector, Session Control, Smart Account Connector, and Interactive Guide */}
+          {/* Account status, networks, funding, and guides */}
           <div className="header-actions">
-            <NetworkSelector />
-            <SessionControl />
-            <WalletConnector compact />
-            <GuideTrigger />
+            <Session />
+            <AccountChip />
           </div>
         </header>
       )}
@@ -92,6 +71,29 @@ export const Layout: React.FC<Props> = ({ current, onNavigate, children }) => {
 
       {/* Persistent Audio Transport Dock (Studio / My-Page / Market) */}
       {current !== 'editor' && <Player />}
+
+      {/* Bottom Tab Navigation (visible on mobile, directly under the player strip) */}
+      {current !== 'editor' && (
+        <nav className="tabbar" aria-label="Sections">
+          {navItems.map((item) => {
+            const active = current === item.id;
+            const Icon = item.Icon;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => onNavigate(item.id)}
+                aria-label={item.label}
+                aria-current={active ? 'page' : undefined}
+                className={`tabbar-btn ${active ? 'active' : ''}`}
+              >
+                <Icon className="tabbar-icon" />
+                <span className="tabbar-label">{item.label}</span>
+              </button>
+            );
+          })}
+        </nav>
+      )}
     </div>
   );
 };

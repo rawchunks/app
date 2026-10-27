@@ -1,43 +1,79 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Layout, Route } from './components/Layout';
 import { Studio } from './pages/studio';
 import { Mypage } from './pages/mypage';
 import { Market } from './pages/market';
 import { Editor } from './pages/editor';
 import { store } from './lib/store';
+import { bus } from './lib/bus';
 import { Song } from './lib/schema';
 import { sdk } from './lib/sdk';
 import { useSelectedUserAddress } from './hooks/use-address';
 import { useSongs } from './hooks/use-songs';
-import { readProject, writeProject, readCachedAccount } from './lib/cache';
+import { readProject, writeProject } from './lib/cache';
 import { parseRoute, editorId, editorPath } from './lib/routes';
 import { GuideProvider } from './components/guide/Tour';
 import './styles/styles.css';
 
 export const App: React.FC = () => {
   useSongs();
-  const { readAddress, isReconnecting } = useSelectedUserAddress();
+  const { readAddress, accountId, isReconnecting } = useSelectedUserAddress();
   const [editorError, setEditorError] = useState<string | null>(null);
   const [route, setRoute] = useState<Route>(() => parseRoute(window.location.pathname));
   const [songId, setSongId] = useState(() => editorId(window.location.pathname));
   const [editingSong, setEditingSong] = useState<Song | null>(() => {
-    const songId = editorId(window.location.pathname);
-    if (!songId) return null;
-    const account = readCachedAccount();
-    const address = account?.network.startsWith('solana:') ? account.svmAddress : account?.address;
-    const cached = songId && address ? readProject(songId, address) : null;
+    const id = editorId(window.location.pathname);
+    if (!id) return null;
+    const cached = id && readAddress ? readProject(id, readAddress) : null;
     if (cached) return cached.song;
     const fromStore = store.getState().editingSong;
-    if (fromStore?.id === songId) return fromStore;
+    if (fromStore?.id === id) return fromStore;
     try {
       const saved = sessionStorage.getItem('rawchunks_editing_song');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (parsed.id === songId) return parsed;
+        if (parsed.id === id) return parsed;
       }
     } catch { }
     return null;
   });
+
+  const prevAccountIdRef = useRef<string | null>(accountId);
+
+  useEffect(() => {
+    const prev = prevAccountIdRef.current;
+    if (prev && ((!accountId && !isReconnecting) || (accountId && prev !== accountId))) {
+      setEditingSong(null);
+      setEditorError(null);
+      if (route === 'editor') {
+        setRoute('studio');
+        setSongId(null);
+        window.history.replaceState(null, '', '/studio');
+      }
+    }
+    prevAccountIdRef.current = accountId;
+  }, [accountId, isReconnecting, route]);
+
+  useEffect(() => {
+    const exitEditor = () => {
+      setEditingSong(null);
+      setEditorError(null);
+      setRoute((current) => {
+        if (current === 'editor') {
+          setSongId(null);
+          window.history.replaceState(null, '', '/studio');
+          return 'studio';
+        }
+        return current;
+      });
+    };
+    const unsubLogout = bus.onRemoteLogout(exitEditor);
+    const unsubSwitch = bus.onRemoteAccountSwitch(exitEditor);
+    return () => {
+      unsubLogout();
+      unsubSwitch();
+    };
+  }, []);
 
   useEffect(() => {
     const handlePopState = () => {
