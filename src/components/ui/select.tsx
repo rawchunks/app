@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useState, useRef, useEffect } from "react";
+import React, { createContext, useContext, useState, useRef } from "react";
 import { cn } from "@/lib/utils";
+import { useDismiss } from "@/hooks/use-dismiss";
 
 interface SelectContextType {
   value: string;
@@ -20,17 +21,7 @@ export function Select({ value, onValueChange, children }: SelectProps) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    if (open) {
-      document.addEventListener("mousedown", handleClickOutside);
-    }
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [open]);
+  useDismiss(open, () => setOpen(false), containerRef);
 
   return (
     <SelectContext.Provider value={{ value, onValueChange, open, setOpen }}>
@@ -42,13 +33,12 @@ export function Select({ value, onValueChange, children }: SelectProps) {
 }
 
 export interface SelectTriggerProps {
-  bare?: boolean;
   className?: string;
   children: React.ReactNode;
   "aria-label"?: string;
 }
 
-export function SelectTrigger({ bare = false, className, children, "aria-label": ariaLabel }: SelectTriggerProps) {
+export function SelectTrigger({ className, children, "aria-label": ariaLabel }: SelectTriggerProps) {
   const ctx = useContext(SelectContext);
   if (!ctx) throw new Error("SelectTrigger must be used within Select");
 
@@ -59,7 +49,6 @@ export function SelectTrigger({ bare = false, className, children, "aria-label":
       onClick={() => ctx.setOpen(!ctx.open)}
       className={cn(
         "select-trigger",
-        bare && "select-trigger-bare",
         className
       )}
     >

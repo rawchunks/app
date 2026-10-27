@@ -1,6 +1,7 @@
 import type { Parameter } from '@/hooks/use-options';
 import { useState } from 'react';
 import { Selector } from './selector';
+import { Tooltip } from './daw/Tooltip';
 
 interface Props {
   parameters: Record<string, Parameter>;
@@ -31,7 +32,7 @@ export function Parameters({ parameters, values, onChange, optional = false }: P
   return <div className={optional ? 'studio-optional-fields' : 'studio-field-group'}>
     {Object.entries(parameters).map(([key, parameter]) => {
       const displayLabel = SHORT_LABELS[key] ?? parameter.label;
-      return <div key={key} className={optional ? 'studio-option-row' : 'studio-field-label'} title={parameter.label}>
+      return <Tooltip key={key} title={parameter.label} className="studio-param-row-wrap"><div className={optional ? 'studio-option-row' : 'studio-field-label'}>
       {optional ? <label className="studio-checkbox-label">
         <input type="checkbox" aria-label={parameter.label} className="cyber-checkbox" checked={key in values} onChange={event => {
           const next = { ...values };
@@ -53,7 +54,7 @@ export function Parameters({ parameters, values, onChange, optional = false }: P
           {parameter.options?.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}
         </select>
         : <input aria-label={parameter.label} className="cyber-input-field" type={parameter.type === 'number' ? 'number' : 'text'} min={parameter.min} max={parameter.max} step={parameter.step} value={values[key] ?? ''} placeholder="Optional" onChange={event => change(key, event.target.value === '' || parameter.type !== 'number' ? event.target.value : Number(event.target.value))} />)}
-    </div>;
+    </div></Tooltip>;
     })}
   </div>;
 }

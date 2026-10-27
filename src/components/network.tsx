@@ -1,10 +1,8 @@
 import { cn } from "@/lib/utils";
-import { useChain } from "@/contexts/Network";
+import { useChain, NetworkGlyph } from "@/contexts/Network";
 import type { NetworkId } from "@compose-market/sdk/chains";
 import { useMultiChainBalance } from "@/hooks/use-multichain";
 import { useSelectedUserAddress } from "@/hooks/use-address";
-import { NetworkGlyph } from "@/contexts/Network";
-import { Tooltip } from "@/components/daw/Tooltip";
 import {
   Select,
   SelectContent,
@@ -14,38 +12,22 @@ import {
 
 interface NetworkSelectorProps {
   className?: string;
-  bare?: boolean;
 }
 
-export function NetworkSelector({ className, bare = false }: NetworkSelectorProps) {
+export function NetworkSelector({ className }: NetworkSelectorProps) {
   const { evmAddress, svmAddress } = useSelectedUserAddress();
   const { selectedNetwork, setSelectedNetwork, chains, getChainByNetworkId } = useChain();
   const { data: balances } = useMultiChainBalance({ evmAddress, svmAddress });
 
   const current = getChainByNetworkId(selectedNetwork);
-  const currentBalance = balances?.find((b) => b.network === selectedNetwork);
-
-  const trigger = (
-    <SelectTrigger bare={bare} data-guide="network" className={cn(!bare && "header-network-trigger", className)} aria-label="Network">
-      <NetworkGlyph network={selectedNetwork} name={current?.name} />
-      {!bare && current?.name ? <span className="network-trigger-name">{current.name}</span> : null}
-    </SelectTrigger>
-  );
 
   return (
     <Select value={selectedNetwork} onValueChange={(value) => setSelectedNetwork(value as NetworkId)}>
-      {bare ? (
-        trigger
-      ) : (
-        <Tooltip
-          title={current?.name ? `NETWORK // ${current.name.toUpperCase()}` : "SELECT NETWORK"}
-          description={currentBalance ? `Balance: $${currentBalance.formatted}` : "Switch active payment chain"}
-          position="bottom"
-        >
-          {trigger}
-        </Tooltip>
-      )}
-      <SelectContent className="header-network-content">
+      <SelectTrigger className={cn("account-network-trigger", className)} aria-label="Payment network">
+        <NetworkGlyph network={selectedNetwork} name={current?.name} />
+        {current?.name ? <span className="account-network-name">{current.name}</span> : null}
+      </SelectTrigger>
+      <SelectContent className="account-network-content">
         {chains.map((network) => {
           const balance = balances?.find((b) => b.network === network.network);
           return (
@@ -60,4 +42,3 @@ export function NetworkSelector({ className, bare = false }: NetworkSelectorProp
     </Select>
   );
 }
-

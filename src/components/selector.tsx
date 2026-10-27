@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
+import { useDismiss } from '../hooks/use-dismiss';
 
 interface Props {
   label: string;
@@ -15,21 +16,7 @@ export function Selector({ label, value, children, open: controlled, onOpenChang
   const open = controlled ?? expanded;
   const change = onOpenChange ?? setExpanded;
 
-  useEffect(() => {
-    if (!open) return;
-    const dismiss = (event: PointerEvent) => {
-      if (!ref.current?.contains(event.target as Node)) change(false);
-    };
-    const escape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') change(false);
-    };
-    document.addEventListener('pointerdown', dismiss);
-    document.addEventListener('keydown', escape);
-    return () => {
-      document.removeEventListener('pointerdown', dismiss);
-      document.removeEventListener('keydown', escape);
-    };
-  }, [open, change]);
+  useDismiss(open, () => change(false), ref);
 
   return <div className="studio-duration-wrap" ref={ref}>
     <button type="button" aria-label={label} aria-expanded={open} onClick={() => change(!open)} className="studio-dropdown-trigger">
