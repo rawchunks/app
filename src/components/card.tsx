@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Play,
   Pause,
@@ -130,16 +130,18 @@ export const CreatorSlot: React.FC<{ address?: string; network?: string }> = ({ 
 
   return (
     <div className="market-card-row-creator">
-      <div className="market-creator-info" title={displayName}>
-        {avatar ? (
-          <img src={avatar} alt={displayName} className="market-creator-avatar" />
-        ) : (
-          <div className="market-creator-avatar-placeholder">
-            <User size={10} />
-          </div>
-        )}
-        <span className="market-creator-name">{displayName}</span>
-      </div>
+      <Tooltip title={displayName} className="market-creator-info-wrap">
+        <div className="market-creator-info">
+          {avatar ? (
+            <img src={avatar} alt={displayName} className="market-creator-avatar" />
+          ) : (
+            <div className="market-creator-avatar-placeholder">
+              <User size={10} />
+            </div>
+          )}
+          <span className="market-creator-name">{displayName}</span>
+        </div>
+      </Tooltip>
 
       <Tooltip title="Creator's Address" description={address}>
         <a
@@ -191,8 +193,11 @@ export const CoverArt: React.FC<{
   topRightActions,
 }) => {
     const [imgError, setImgError] = useState(false);
+    useEffect(() => {
+      setImgError(false);
+    }, [image, albumCover]);
     const coverSrc =
-      !imgError && image && image !== '/hero.png' && image.trim() !== ''
+      !imgError && image && image.trim() !== ''
         ? image
         : !imgError && albumCover && albumCover.trim() !== ''
           ? albumCover
@@ -335,7 +340,7 @@ export interface CardProps {
   isPlayingThis: boolean;
   onPlayToggle: () => void;
   onSelectVersion: (version: Song) => void;
-  selectedGenre?: string | null;
+  selectedGenres?: string[];
   onSelectGenre?: (genre: string) => void;
   isMenuOpen?: boolean;
   onToggleMenu?: () => void;
@@ -360,7 +365,7 @@ export const Card: React.FC<CardProps> = ({
   isPlayingThis,
   onPlayToggle,
   onSelectVersion,
-  selectedGenre,
+  selectedGenres,
   onSelectGenre,
   isMenuOpen = false,
   onToggleMenu,
@@ -472,10 +477,12 @@ export const Card: React.FC<CardProps> = ({
 
         {/* Row 2: Album (uniform height reserved) */}
         {albumTitle ? (
-          <div className="market-card-row-album" title={`Album: ${albumTitle}`}>
-            <Disc3 size={10} className="market-album-icon" />
-            <span className="market-album-text">{albumTitle}</span>
-          </div>
+          <Tooltip title={`Album: ${albumTitle}`}>
+            <div className="market-card-row-album">
+              <Disc3 size={10} className="market-album-icon" />
+              <span className="market-album-text">{albumTitle}</span>
+            </div>
+          </Tooltip>
         ) : (
           <div className="market-card-row-album empty" aria-hidden="true">
             <span>&nbsp;</span>
@@ -505,7 +512,7 @@ export const Card: React.FC<CardProps> = ({
                   <Badge
                     variant={
                       variant === 'market'
-                        ? selectedGenre?.toLowerCase() === t.toLowerCase()
+                        ? selectedGenres?.some((g) => g.toLowerCase() === t.toLowerCase())
                           ? 'primary'
                           : 'muted'
                         : 'secondary'

@@ -2,6 +2,7 @@ import React from 'react';
 import { Modal } from './modal';
 import { Button } from './button';
 import { Song, Album } from '@/lib/schema';
+import { Tooltip } from './daw/Tooltip';
 
 export interface PublishModalProps {
   isOpen: boolean;
@@ -38,9 +39,11 @@ export const PublishModal: React.FC<PublishModalProps> = ({
         <div className="publish-specs">
           <div className="publish-spec-row">
             <span className="publish-label">ACCOUNT</span>
-            <span className="publish-val" title={activeAddress || ''}>
-              {formattedAddress || activeAddress || '—'}
-            </span>
+            <Tooltip title={activeAddress || ''} className="publish-val-wrap">
+              <span className="publish-val">
+                {formattedAddress || activeAddress || '—'}
+              </span>
+            </Tooltip>
           </div>
 
           <div className="publish-spec-row">

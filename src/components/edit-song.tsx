@@ -4,9 +4,10 @@ import { Button } from './button';
 import { sdk } from '@/lib/sdk';
 import { store } from '@/lib/store';
 import { Song } from '@/lib/schema';
-import { useSession, promptSessionModal } from '@/hooks/use-session';
+import { openGate } from '@/lib/gate';
 import { toast } from 'sonner';
 import { Upload, Sparkles } from 'lucide-react';
+import { Tooltip } from './daw/Tooltip';
 
 export interface EditSongModalProps {
   isOpen: boolean;
@@ -50,14 +51,13 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
   const [uploading, setUploading] = useState(false);
   const [generatingCover, setGeneratingCover] = useState(false);
   const [saving, setSaving] = useState(false);
-  const { session } = useSession();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (isOpen && song) {
       setTitle(song.title || '');
       setGenre(song.tags?.[0] ? song.tags[0].toUpperCase() : 'ELECTRONIC');
-      setImage(song.image && song.image !== '/hero.png' ? song.image : null);
+      setImage(song.image ? song.image : null);
       setStreamPrice(String(song.stream_price ?? 0.05));
       setLicenses(String(song.licenses ?? 50));
       setLicensePrice(String(song.license_price ?? 20));
@@ -89,12 +89,8 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
     }
   };
 
-  const handleGenerateCover = async () => {
-    if (!session.active) {
-      toast.error('Active session required to generate cover. Please create a session.');
-      promptSessionModal();
-      return;
-    }
+  const handleGenerateCover = async (retry = false) => {
+    if (!await openGate({ steps: ['login', 'funding'] })) return;
     setGeneratingCover(true);
     try {
       const res = await sdk.fetch('/api/generation/cover', {
@@ -107,8 +103,8 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
         }),
       });
       if (res.status === 402) {
-        toast.error('Active session required or session budget exhausted. Please top up your session.');
-        promptSessionModal();
+        void openGate({ steps: ['login', 'funding'], reason: 'Session budget exhausted' })
+          .then(ready => { if (ready && !retry) void handleGenerateCover(true); });
         return;
       }
       const result = await res.json();
@@ -242,17 +238,18 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
                     className="studio-avatar-preview"
                     onClick={() => fileInputRef.current?.click()}
                   />
-                  <button
-                    type="button"
-                    className="studio-avatar-remove"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setImage(null);
-                    }}
-                    title="Remove cover"
-                  >
-                    ✕
-                  </button>
+                  <Tooltip title="Remove cover" className="studio-avatar-remove-wrap">
+                    <button
+                      type="button"
+                      className="studio-avatar-remove"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setImage(null);
+                      }}
+                    >
+                      ✕
+                    </button>
+                  </Tooltip>
                 </>
               ) : (
                 <div

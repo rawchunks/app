@@ -13,10 +13,15 @@ export interface Props {
 export const Player: React.FC<Props> = ({ className = '' }) => {
   const [state, setState] = useState<State>(store.getState());
   const [volume, setVolume] = useState(0.85);
+  const [imgError, setImgError] = useState(false);
 
   useEffect(() => {
     return store.subscribe(setState);
   }, []);
+
+  useEffect(() => {
+    setImgError(false);
+  }, [state.activeSong?.id, state.activeSong?.image]);
 
   useEffect(() => {
     audio.setVolume(volume);
@@ -66,7 +71,18 @@ export const Player: React.FC<Props> = ({ className = '' }) => {
         {/* Track Info */}
         <div className="player-track-info">
           <div className="player-track-avatar">
-            <img src="/branding/mark.svg" alt="Rawchunks" width={24} height={24} />
+            <img
+              src={
+                !imgError && currentSong?.image && currentSong.image.trim() !== ''
+                  ? currentSong.image
+                  : '/branding/mark.svg'
+              }
+              alt={currentSong?.title || 'Rawchunks'}
+              width={24}
+              height={24}
+              decoding="async"
+              onError={() => setImgError(true)}
+            />
           </div>
           <div className="player-track-text">
             <div className="player-track-title">
