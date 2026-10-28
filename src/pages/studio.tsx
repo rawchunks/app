@@ -7,9 +7,9 @@ import { store, State } from '../lib/store';
 import { Song, Track, Album } from '../lib/schema';
 import { readSongs, writeSongs } from '../lib/cache';
 import { useSelectedUserAddress } from '../hooks/use-address';
-import { useDisclaimerConsent } from '../hooks/use-disclaimer';
 import { usePublic } from '../hooks/use-public';
-import { useSession, promptSessionModal } from '../components/session';
+import { useSession } from '../components/session';
+import { openGate } from '@/lib/gate';
 import { toast } from 'sonner';
 import { Modal } from '../components/modal';
 import { Languages } from '../components/languages';
@@ -252,7 +252,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
   };
 
   const { userAddress: userAddr, readAddress } = useSelectedUserAddress();
-  const { session, refreshSession, refreshCredits } = useSession();
+  const { refreshSession, refreshCredits } = useSession();
   const { voices, loading: loadingVoices, error: voicesError, refresh: refreshVoices, remember: rememberVoice } = useVoices(readAddress);
   const voiceOutput = model === 'sft' ? 'sft' : 'turbo';
   const selectedVoice = voices.find(voice => voice.id === selectedVoiceId);
@@ -291,25 +291,18 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
   }, [readAddress]);
 
   const { toggle: togglePublic, pending: publicPending } = usePublic();
-  const { hasConsented } = useDisclaimerConsent();
 
   useEffect(() => {
     return store.subscribe(setState);
   }, []);
 
   useEffect(() => {
-    if (userAddr && userAddr !== state.userAddress) {
-      store.setUserAddress(userAddr);
-    }
-  }, [userAddr, state.userAddress]);
-
-  useEffect(() => {
-    if (!userAddr) {
+    if (!readAddress) {
       setAlbums([]);
       setSelectedAlbumId('');
       return;
     }
-    sdk.fetch(`/api/albums?creator=${encodeURIComponent(userAddr)}`)
+    sdk.fetch(`/api/albums?creator=${encodeURIComponent(readAddress)}`)
       .then((res) => res.json())
       .then((data) => {
         if (Array.isArray(data)) {
@@ -317,19 +310,15 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
         }
       })
       .catch((err) => console.error('Failed to fetch albums:', err));
-  }, [userAddr]);
+  }, [readAddress]);
 
-  const handleGenerateCover = async () => {
+  const handleGenerateCover = async (retry = false) => {
     const coverPromptSeed = prompt.trim() || lyrics.trim().slice(0, 200) || title.trim();
     if (!coverPromptSeed) {
       toast.error('Enter a prompt or lyrics first to generate cover');
       return;
     }
-    if (!session.active) {
-      toast.error('Active session required to generate cover. Please create a session.');
-      promptSessionModal();
-      return;
-    }
+    if (!await openGate({ steps: ['login', 'funding'] })) return;
     setIsGeneratingCover(true);
     try {
       const res = await sdk.fetch('/api/generation/cover', {
@@ -342,8 +331,8 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
         }),
       });
       if (res.status === 402) {
-        toast.error('Active session required or session budget exhausted. Please top up your session.');
-        promptSessionModal();
+        void openGate({ steps: ['login', 'funding'], reason: 'Session budget exhausted' })
+          .then(ready => { if (ready && !retry) void handleGenerateCover(true); });
         return;
       }
       const data = await res.json();
@@ -359,7 +348,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
 
   const handleCreateAlbum = async () => {
     if (!userAddr) {
-      toast.error('Connect wallet required');
+      void openGate({ steps: ['login'] });
       return;
     }
     if (!newAlbumTitle.trim()) return;
@@ -662,7 +651,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
     e.target.value = '';
   };
 
-  const handleVibe = async () => {
+  const handleVibe = async (retry = false) => {
     const trimmedPrompt = prompt.trim();
     if (isVibing || state.isGenerating || !canSubmitVibe) return;
 
@@ -675,20 +664,11 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
     if (trimmedPrompt.length < 2 && !vibeImage && !activeAudio) return;
 
     if (!userAddr) {
-      toast.error('Connect wallet required to vibe');
+      void openGate({ steps: ['login', 'terms', 'funding'] });
       return;
     }
 
-    if (!hasConsented) {
-      toast.error('Disclaimer signature required prior to generation');
-      return;
-    }
-
-    if (!session.active) {
-      toast.error('Active session required to run Songwriter. Please create a session.');
-      promptSessionModal();
-      return;
-    }
+    if (!await openGate({ steps: ['terms', 'funding'] })) return;
 
     const controller = new AbortController();
     vibeAbortRef.current?.abort();
@@ -723,8 +703,8 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
 
       if (!res.ok) {
         if (res.status === 402) {
-          toast.error('Active session required or session budget exhausted. Please top up your session.');
-          promptSessionModal();
+          void openGate({ steps: ['terms', 'funding'], reason: 'Session budget exhausted' })
+            .then(ready => { if (ready && !retry) void handleVibe(true); });
           return;
         }
         const errData = await res.json().catch(() => ({ error: 'Songwriter Agent failed' }));
@@ -844,24 +824,15 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
     }
   };
 
-  const handleGenerate = () => {
+  const handleGenerate = async () => {
     if (state.isGenerating || isGeneratingCover || isVibing || !canSubmitGeneration) return;
 
     if (!userAddr) {
-      toast.error('Connect wallet required to generate');
+      void openGate({ steps: ['login', 'terms', 'funding'] });
       return;
     }
 
-    if (!hasConsented) {
-      toast.error('Disclaimer signature required prior to generation');
-      return;
-    }
-
-    if (!session.active) {
-      toast.error('Active session required to generate music. Please create a session.');
-      promptSessionModal();
-      return;
-    }
+    if (!await openGate({ steps: ['terms', 'funding'] })) return;
 
     if (useVoice && !canUseVoice) {
       toast.error(voiceMode === 'trained' ? `This voice is not ready for ${voiceOutput === 'turbo' ? 'Fast' : 'Master'}` : 'Choose a voice sample');
@@ -871,8 +842,8 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
     void executeGenerate();
   };
 
-  const executeGenerate = async () => {
-    if (!userAddr) { toast.error('Connect your wallet'); return; }
+  const executeGenerate = async (retry = false) => {
+    if (!userAddr) return;
     const scope = scopeRef.current;
     store.setGenerating(true);
 
@@ -898,8 +869,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
             const response = await sdk.fetch('/api/voices/upload', { method: 'POST', body: formData, userAddress: userAddr });
             if (response.status === 402) {
               store.setGenerating(false);
-              toast.error('Active session required or session budget exhausted. Please top up your session.');
-              promptSessionModal();
+              if (!retry && await openGate({ steps: ['terms', 'funding'], reason: 'Session budget exhausted' })) return executeGenerate(true);
               return;
             }
             const result = await response.json();
@@ -945,8 +915,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
       if (!res.ok) {
         if (res.status === 402) {
           store.setGenerating(false);
-          toast.error('Active session required or session budget exhausted. Please top up your session.');
-          promptSessionModal();
+          if (!retry && await openGate({ steps: ['terms', 'funding'], reason: 'Session budget exhausted' })) return executeGenerate(true);
           return;
         }
         const err = await res.json().catch(() => ({ error: 'Failed to start generation' }));
@@ -965,7 +934,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
         tags: activeTags,
         creator: userAddr,
         public: false,
-        image: coverUrl || '/hero.png',
+        image: coverUrl || '',
         album_id: selectedAlbumId || null,
         licenses: licenses,
         stream_price: streamPrice,
@@ -1000,7 +969,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                 url: result.audioUrls[index],
                 duration: result.durations?.[index],
                 title: `${baseTitle}${result.audioUrls.length > 1 ? ` (Var ${index + 1})` : ''}`,
-                image: coverUrl || '/hero.png',
+                image: coverUrl || '',
                 album_id: selectedAlbumId || null,
               };
               store.addSong(song); songs.push(song);
@@ -1032,16 +1001,12 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
     }
   };
 
-  const handleSaveVoice = async (track: Track) => {
+  const handleSaveVoice = async (track: Track, retry = false) => {
     if (!userAddr) {
-      toast.error('Connect wallet required');
+      void openGate({ steps: ['login', 'funding'] });
       return;
     }
-    if (!session.active) {
-      toast.error('Active session required to save voice. Please create a session.');
-      promptSessionModal();
-      return;
-    }
+    if (!await openGate({ steps: ['funding'] })) return;
     const scope = scopeRef.current;
     try {
       toast.info('Saving voice...');
@@ -1056,8 +1021,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
         }),
       });
       if (res.status === 402) {
-        toast.error('Active session required or session budget exhausted. Please top up your session.');
-        promptSessionModal();
+        if (!retry && await openGate({ steps: ['funding'], reason: 'Session budget exhausted' })) return handleSaveVoice(track, true);
         return;
       }
       const result = await res.json();
@@ -1173,18 +1137,19 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                           </div>
                         </div>
                         <div className="studio-vibe-image-actions">
-                          <button
-                            type="button"
-                            className="daw-ui-btn studio-vibe-image-clear"
-                            onClick={() => {
-                              setVibeImage(null);
-                              setVibeImageName(null);
-                            }}
-                            title="Remove image prompt"
-                            aria-label="Remove image prompt"
-                          >
-                            ✕
-                          </button>
+                          <Tooltip title="Remove image prompt">
+                            <button
+                              type="button"
+                              className="daw-ui-btn studio-vibe-image-clear"
+                              onClick={() => {
+                                setVibeImage(null);
+                                setVibeImageName(null);
+                              }}
+                              aria-label="Remove image prompt"
+                            >
+                              ✕
+                            </button>
+                          </Tooltip>
                         </div>
                       </div>
                     ) : (
@@ -1242,38 +1207,44 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                       </button>
                     ) : vibeAudio ? (
                       <div className="studio-vibe-image-card studio-vibe-audio-card">
-                        <div
-                          className="studio-vibe-image-info"
-                          onClick={togglePlayVibeAudio}
+                        <Tooltip
                           title={isPlayingVibeAudio ? 'Pause preview' : 'Play preview'}
+                          className="studio-vibe-info-wrap"
                         >
-                          <span className="studio-vibe-audio-play-badge">
-                            {isPlayingVibeAudio ? '❚❚' : '▶'}
-                          </span>
-                          <div className="studio-vibe-image-meta">
-                            <span className="studio-vibe-image-name">
-                              HUM · {formatShortSec(vibeAudioDuration)}
+                          <div
+                            className="studio-vibe-image-info"
+                            onClick={togglePlayVibeAudio}
+                          >
+                            <span className="studio-vibe-audio-play-badge">
+                              {isPlayingVibeAudio ? '❚❚' : '▶'}
                             </span>
+                            <div className="studio-vibe-image-meta">
+                              <span className="studio-vibe-image-name">
+                                HUM · {formatShortSec(vibeAudioDuration)}
+                              </span>
+                            </div>
                           </div>
-                        </div>
+                        </Tooltip>
                         <div className="studio-vibe-image-actions">
-                          <button
-                            type="button"
-                            className="daw-ui-btn"
-                            onClick={() => void startVibeAudioRecording()}
-                            title="Re-record hum or voice"
-                          >
-                            MIC
-                          </button>
-                          <button
-                            type="button"
-                            className="daw-ui-btn studio-vibe-image-clear"
-                            onClick={clearVibeAudio}
-                            title="Remove voice/hum prompt"
-                            aria-label="Remove voice/hum prompt"
-                          >
-                            ✕
-                          </button>
+                          <Tooltip title="Re-record hum or voice">
+                            <button
+                              type="button"
+                              className="daw-ui-btn"
+                              onClick={() => void startVibeAudioRecording()}
+                            >
+                              MIC
+                            </button>
+                          </Tooltip>
+                          <Tooltip title="Remove voice/hum prompt">
+                            <button
+                              type="button"
+                              className="daw-ui-btn studio-vibe-image-clear"
+                              onClick={clearVibeAudio}
+                              aria-label="Remove voice/hum prompt"
+                            >
+                              ✕
+                            </button>
+                          </Tooltip>
                         </div>
                       </div>
                     ) : (
@@ -1391,27 +1362,30 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                         />
                         {coverUrl ? (
                           <>
-                            <img
-                              src={coverUrl}
-                              alt="Cover preview"
-                              className="studio-avatar-preview"
-                              onClick={() => setActiveModal('cover')}
-                              title="Expand cover"
-                            />
-                            <button
-                              type="button"
-                              className="studio-avatar-remove"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setCoverUrl(null);
-                                if (coverFileInputRef.current) {
-                                  coverFileInputRef.current.value = '';
-                                }
-                              }}
-                              title="Remove cover"
-                            >
-                              ✕
-                            </button>
+                            <Tooltip title="Expand cover" className="studio-avatar-preview-wrap">
+                              <img
+                                src={coverUrl}
+                                alt="Cover preview"
+                                className="studio-avatar-preview"
+                                onClick={() => setActiveModal('cover')}
+                              />
+                            </Tooltip>
+                            <Tooltip title="Remove cover" className="studio-avatar-remove-wrap">
+                              <button
+                                type="button"
+                                className="studio-avatar-remove"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setCoverUrl(null);
+                                  if (coverFileInputRef.current) {
+                                    coverFileInputRef.current.value = '';
+                                  }
+                                }}
+                              >
+                                ✕
+                              </button>
+                            </Tooltip>
+                            <Tooltip title="Regenerate Cover with AI" className="studio-avatar-sparkle-wrap">
                             <button
                               type="button"
                               className="studio-avatar-sparkle-btn"
@@ -1420,7 +1394,6 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                                 handleGenerateCover();
                               }}
                               disabled={isGeneratingCover || (!prompt.trim() && !lyrics.trim() && !title.trim())}
-                              title="Regenerate Cover with AI"
                             >
                               {isGeneratingCover ? '...' : (
                                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
@@ -1428,6 +1401,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                                 </svg>
                               )}
                             </button>
+                            </Tooltip>
                           </>
                         ) : (
                           <>
@@ -1444,22 +1418,23 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                               </span>
                               <span className="studio-avatar-label">UPLOAD COVER</span>
                             </div>
-                            <button
-                              type="button"
-                              className="studio-avatar-sparkle-btn"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleGenerateCover();
-                              }}
-                              disabled={isGeneratingCover || (!prompt.trim() && !lyrics.trim() && !title.trim())}
-                              title="Generate Cover with AI"
-                            >
-                              {isGeneratingCover ? '...' : (
-                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                                  <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
-                                </svg>
-                              )}
-                            </button>
+                            <Tooltip title="Generate Cover with AI" className="studio-avatar-sparkle-wrap">
+                              <button
+                                type="button"
+                                className="studio-avatar-sparkle-btn"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleGenerateCover();
+                                }}
+                                disabled={isGeneratingCover || (!prompt.trim() && !lyrics.trim() && !title.trim())}
+                              >
+                                {isGeneratingCover ? '...' : (
+                                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 0 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
+                                  </svg>
+                                )}
+                              </button>
+                            </Tooltip>
                           </>
                         )}
                       </div>
@@ -1504,19 +1479,20 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                             <span>INSTRUMENTAL</span>
                           </label>
 
-                          <button
-                            type="button"
-                            disabled={instrumental}
-                            className={`studio-param-pill-mini ${selectedLanguage ? 'configured' : ''}`}
-                            onClick={() => setActiveModal('language')}
-                            title="Configure Vocal Language"
-                          >
-                            <span className="studio-param-pill-label">LANGUAGE:</span>
-                            <span className="studio-param-pill-val">
-                              {instrumental ? 'MUTED' : selectedLanguage ? selectedLanguage.toUpperCase() : 'AUTO'}
-                            </span>
-                            <span className="studio-param-pill-icon">⚙</span>
-                          </button>
+                          <Tooltip title="Configure Vocal Language">
+                            <button
+                              type="button"
+                              disabled={instrumental}
+                              className={`studio-param-pill-mini ${selectedLanguage ? 'configured' : ''}`}
+                              onClick={() => setActiveModal('language')}
+                            >
+                              <span className="studio-param-pill-label">LANGUAGE:</span>
+                              <span className="studio-param-pill-val">
+                                {instrumental ? 'MUTED' : selectedLanguage ? selectedLanguage.toUpperCase() : 'AUTO'}
+                              </span>
+                              <span className="studio-param-pill-icon">⚙</span>
+                            </button>
+                          </Tooltip>
                         </div>
                       </div>
                       {instrumental ? (
@@ -1531,29 +1507,30 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                             value={lyrics}
                             onChange={(e) => setLyrics(e.target.value)}
                           />
-                          <button
-                            type="button"
-                            className={`studio-lyrics-box-expand-btn ${lyrics.trim() ? 'configured' : ''}`}
-                            onClick={handleOpenLyricsModal}
-                            title="Expand Structured Lyrics Canvas"
-                            aria-label="Expand Structured Lyrics Canvas"
-                          >
-                            <svg
-                              width="12"
-                              height="12"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2.2"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
+                          <Tooltip title="Expand Structured Lyrics Canvas" className="studio-lyrics-expand-wrap">
+                            <button
+                              type="button"
+                              className={`studio-lyrics-box-expand-btn ${lyrics.trim() ? 'configured' : ''}`}
+                              onClick={handleOpenLyricsModal}
+                              aria-label="Expand Structured Lyrics Canvas"
                             >
-                              <polyline points="15 3 21 3 21 9" />
-                              <polyline points="9 21 3 21 3 15" />
-                              <line x1="21" y1="3" x2="14" y2="10" />
-                              <line x1="3" y1="21" x2="10" y2="14" />
-                            </svg>
-                          </button>
+                              <svg
+                                width="12"
+                                height="12"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2.2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              >
+                                <polyline points="15 3 21 3 21 9" />
+                                <polyline points="9 21 3 21 3 15" />
+                                <line x1="21" y1="3" x2="14" y2="10" />
+                                <line x1="3" y1="21" x2="10" y2="14" />
+                              </svg>
+                            </button>
+                          </Tooltip>
                         </div>
                       )}
                     </div>
@@ -1781,7 +1758,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
               variant="primary"
               size="lg"
               disabled={isVibing || state.isGenerating || isGeneratingCover || !canSubmitVibe}
-              onClick={handleVibe}
+              onClick={() => handleVibe()}
               className="studio-generate-btn studio-vibe-btn"
             >
               {isVibing ? 'VIBING...' : 'VIBE'}
@@ -1791,7 +1768,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
               variant="primary"
               size="lg"
               disabled={state.isGenerating || isGeneratingCover || isVibing || !canSubmitGeneration || !generation || !model}
-              onClick={handleGenerate}
+              onClick={() => handleGenerate()}
               className="studio-generate-btn"
             >
               {isVibing ? 'VIBING...' : state.isGenerating ? 'SYNTHESIZING...' : 'GENERATE AUDIO'}
@@ -1825,6 +1802,13 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                 >
                   <div className="variation-card-row-top">
                     <div className="variation-card-track-info">
+                      <img
+                        src={t.song.image || '/branding/mark.svg'}
+                        alt={t.song.title}
+                        className="variation-card-cover"
+                        loading="lazy"
+                        decoding="async"
+                      />
                       <Tooltip title={isPlayingThis ? 'Pause' : 'Play'} description="Preview generated track">
                         <Button
                           variant={isPlayingThis ? 'primary' : 'ghost'}
@@ -2217,8 +2201,8 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
 
               {!loadingVoices && !voicesError && !readAddress && (
                 <div className="studio-voice-status-box">
-                  <span className="studio-voice-status-title">WALLET DISCONNECTED</span>
-                  <span className="studio-voice-status-desc">Connect your wallet to access your saved custom vocal profiles.</span>
+                  <span className="studio-voice-status-title">DISCONNECTED</span>
+                  <span className="studio-voice-status-desc">Log in to access your saved custom vocal profiles.</span>
                 </div>
               )}
 
@@ -2510,20 +2494,23 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                   {(['all', 'structure', 'intensity', 'solo', 'vocal'] as const).map((cat) => {
                     const isSelected = lyricsPaletteCategory === cat;
                     return (
-                      <button
+                      <Tooltip
                         key={cat}
-                        type="button"
-                        className={`studio-lyrics-cat-tab ${cat} ${isSelected ? 'active' : ''}`}
-                        onClick={() => handleTogglePaletteCategory(cat)}
                         title={
                           isSelected
                             ? 'Click to collapse sub-tags'
                             : `Click to reveal ${cat === 'all' ? 'ALL' : CATEGORY_METADATA[cat].label} tags`
                         }
                       >
-                        <span>{cat === 'all' ? 'ALL' : CATEGORY_METADATA[cat].label}</span>
-                        <span className="studio-lyrics-cat-arrow">{isSelected ? '▲' : '▼'}</span>
-                      </button>
+                        <button
+                          type="button"
+                          className={`studio-lyrics-cat-tab ${cat} ${isSelected ? 'active' : ''}`}
+                          onClick={() => handleTogglePaletteCategory(cat)}
+                        >
+                          <span>{cat === 'all' ? 'ALL' : CATEGORY_METADATA[cat].label}</span>
+                          <span className="studio-lyrics-cat-arrow">{isSelected ? '▲' : '▼'}</span>
+                        </button>
+                      </Tooltip>
                     );
                   })}
                 </div>
@@ -2533,15 +2520,15 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                     {STRUCTURED_TAGS.filter(
                       (t) => lyricsPaletteCategory === 'all' || t.category === lyricsPaletteCategory
                     ).map((tag) => (
-                      <button
-                        key={tag.token}
-                        type="button"
-                        className={`studio-lyrics-chip ${tag.category}`}
-                        onClick={() => handleInsertSection(lyricsBlocks.length, tag.token)}
-                        title={tag.description}
-                      >
-                        <span>{tag.token}</span>
-                      </button>
+                      <Tooltip key={tag.token} title={tag.description}>
+                        <button
+                          type="button"
+                          className={`studio-lyrics-chip ${tag.category}`}
+                          onClick={() => handleInsertSection(lyricsBlocks.length, tag.token)}
+                        >
+                          <span>{tag.token}</span>
+                        </button>
+                      </Tooltip>
                     ))}
                   </div>
                 )}
@@ -2551,15 +2538,16 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
               <div className="studio-lyrics-canvas">
                 {/* Top Separator for inserting before first section */}
                 <div className="studio-lyrics-separator">
-                  <button
-                    type="button"
-                    className="studio-lyrics-add-sep-btn"
-                    onClick={() => setInsertingSepIndex(insertingSepIndex === -1 ? null : -1)}
-                    title="Insert section at start"
-                  >
-                    <span className="studio-lyrics-add-plus">+</span>
-                    <span>ADD SECTION</span>
-                  </button>
+                  <Tooltip title="Insert section at start">
+                    <button
+                      type="button"
+                      className="studio-lyrics-add-sep-btn"
+                      onClick={() => setInsertingSepIndex(insertingSepIndex === -1 ? null : -1)}
+                    >
+                      <span className="studio-lyrics-add-plus">+</span>
+                      <span>ADD SECTION</span>
+                    </button>
+                  </Tooltip>
                 </div>
 
                 {insertingSepIndex === -1 && (
@@ -2608,64 +2596,67 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                               {block.tags.map((tag, tIdx) => {
                                 const cat = getTagCategory(tag);
                                 return (
-                                  <span
-                                    key={`${tag}-${tIdx}`}
-                                    className={`studio-lyrics-badge ${cat}`}
-                                    title={getTagDescription(tag)}
-                                  >
-                                    <span>{tag}</span>
-                                    <button
-                                      type="button"
-                                      className="studio-lyrics-badge-close"
-                                      onClick={() => handleRemoveTag(block.id, tIdx)}
-                                      title="Remove tag"
-                                    >
-                                      ✕
-                                    </button>
-                                  </span>
+                                  <Tooltip key={`${tag}-${tIdx}`} title={getTagDescription(tag)}>
+                                    <span className={`studio-lyrics-badge ${cat}`}>
+                                      <span>{tag}</span>
+                                      <Tooltip title="Remove tag">
+                                        <button
+                                          type="button"
+                                          className="studio-lyrics-badge-close"
+                                          onClick={() => handleRemoveTag(block.id, tIdx)}
+                                        >
+                                          ✕
+                                        </button>
+                                      </Tooltip>
+                                    </span>
+                                  </Tooltip>
                                 );
                               })}
 
-                              <button
-                                type="button"
-                                className="studio-lyrics-add-tag-btn"
-                                onClick={() =>
-                                  setAddingTagBlockId(addingTagBlockId === block.id ? null : block.id)
-                                }
-                                title="Add structured tag to this section"
-                              >
-                                + TAG
-                              </button>
+                              <Tooltip title="Add structured tag to this section">
+                                <button
+                                  type="button"
+                                  className="studio-lyrics-add-tag-btn"
+                                  onClick={() =>
+                                    setAddingTagBlockId(addingTagBlockId === block.id ? null : block.id)
+                                  }
+                                >
+                                  + TAG
+                                </button>
+                              </Tooltip>
                             </div>
                           </div>
 
                           <div className="studio-lyrics-block-actions">
-                            <button
-                              type="button"
-                              className="studio-lyrics-icon-btn"
-                              disabled={index === 0}
-                              onClick={() => handleMoveBlock(index, 'up')}
-                              title="Move section up"
-                            >
-                              ▲
-                            </button>
-                            <button
-                              type="button"
-                              className="studio-lyrics-icon-btn"
-                              disabled={index === lyricsBlocks.length - 1}
-                              onClick={() => handleMoveBlock(index, 'down')}
-                              title="Move section down"
-                            >
-                              ▼
-                            </button>
-                            <button
-                              type="button"
-                              className="studio-lyrics-icon-btn danger"
-                              onClick={() => handleDeleteBlock(index)}
-                              title="Delete section"
-                            >
-                              ✕
-                            </button>
+                            <Tooltip title="Move section up">
+                              <button
+                                type="button"
+                                className="studio-lyrics-icon-btn"
+                                disabled={index === 0}
+                                onClick={() => handleMoveBlock(index, 'up')}
+                              >
+                                ▲
+                              </button>
+                            </Tooltip>
+                            <Tooltip title="Move section down">
+                              <button
+                                type="button"
+                                className="studio-lyrics-icon-btn"
+                                disabled={index === lyricsBlocks.length - 1}
+                                onClick={() => handleMoveBlock(index, 'down')}
+                              >
+                                ▼
+                              </button>
+                            </Tooltip>
+                            <Tooltip title="Delete section">
+                              <button
+                                type="button"
+                                className="studio-lyrics-icon-btn danger"
+                                onClick={() => handleDeleteBlock(index)}
+                              >
+                                ✕
+                              </button>
+                            </Tooltip>
                           </div>
                         </div>
 
@@ -2723,17 +2714,18 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
 
                       {/* + Separator Between Blocks */}
                       <div className="studio-lyrics-separator">
-                        <button
-                          type="button"
-                          className="studio-lyrics-add-sep-btn"
-                          onClick={() =>
-                            setInsertingSepIndex(insertingSepIndex === index ? null : index)
-                          }
-                          title="Split and add a new section"
-                        >
-                          <span className="studio-lyrics-add-plus">+</span>
-                          <span>ADD SECTION</span>
-                        </button>
+                        <Tooltip title="Split and add a new section">
+                          <button
+                            type="button"
+                            className="studio-lyrics-add-sep-btn"
+                            onClick={() =>
+                              setInsertingSepIndex(insertingSepIndex === index ? null : index)
+                            }
+                          >
+                            <span className="studio-lyrics-add-plus">+</span>
+                            <span>ADD SECTION</span>
+                          </button>
+                        </Tooltip>
                       </div>
 
                       {insertingSepIndex === index && (
