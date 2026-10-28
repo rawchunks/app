@@ -43,17 +43,18 @@ async function readLicense(song: Song, evmAddress: string | null, svmAddress: st
 }
 
 export function useLicensedSongs(songs: Song[]) {
-  const { userAddress, evmAddress, svmAddress } = useSelectedUserAddress();
+  const { readAddress, userAddress, evmAddress, svmAddress } = useSelectedUserAddress();
+  const effectiveUser = userAddress || readAddress;
   const originals = songs.filter(song => !song.source && song.chain_song_id && song.network && song.metadata_cid);
   const results = useQueries({ queries: originals.map(song => ({
     queryKey: licenseKey(song, evmAddress, svmAddress),
-    enabled: Boolean(userAddress),
+    enabled: Boolean(effectiveUser),
     retry: false,
     queryFn: () => readLicense(song, evmAddress, svmAddress),
   })) });
   return {
-    songs: userAddress ? originals.filter((_, index) => results[index].data?.owned) : [],
-    loading: Boolean(userAddress) && results.some(result => result.isPending),
+    songs: effectiveUser ? originals.filter((_, index) => results[index].data?.owned) : [],
+    loading: Boolean(effectiveUser) && results.some(result => result.isPending),
     error: results.find(result => result.error)?.error ?? null,
   };
 }

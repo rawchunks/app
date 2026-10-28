@@ -603,6 +603,7 @@ export function buildSolanaConsumeLicenseInstruction(input: {
   factoryConfig: SvmAddress | string;
   songAccount: SvmAddress | string;
   licenseRecord: SvmAddress | string;
+  consumerAccount?: SvmAddress | string;
   songId: bigint | number;
   licensee: SvmAddress | string;
 }): Instruction {
@@ -614,15 +615,20 @@ export function buildSolanaConsumeLicenseInstruction(input: {
   data.set(encodeU64(input.songId), 1);
   data.set(licenseeBytes, 9);
 
+  const accounts = [
+    { address: address(input.caller), role: AccountRole.WRITABLE_SIGNER },
+    { address: address(input.factoryConfig), role: AccountRole.READONLY },
+    { address: address(input.songAccount), role: AccountRole.WRITABLE },
+    { address: address(input.licenseRecord), role: AccountRole.WRITABLE },
+  ];
+  if (input.consumerAccount) {
+    accounts.push({ address: address(input.consumerAccount), role: AccountRole.READONLY });
+  }
+  accounts.push({ address: address(SYSTEM_PROGRAM), role: AccountRole.READONLY });
+
   return {
     programAddress,
-    accounts: [
-      { address: address(input.caller), role: AccountRole.WRITABLE_SIGNER },
-      { address: address(input.factoryConfig), role: AccountRole.READONLY },
-      { address: address(input.songAccount), role: AccountRole.WRITABLE },
-      { address: address(input.licenseRecord), role: AccountRole.WRITABLE },
-      { address: address(SYSTEM_PROGRAM), role: AccountRole.READONLY },
-    ],
+    accounts,
     data,
   };
 }
@@ -631,28 +637,29 @@ export function buildSolanaDistributeLicensePaymentInstruction(input: {
   programId?: SvmAddress | string;
   payer: SvmAddress | string;
   royaltiesConfig: SvmAddress | string;
-  factorySong: SvmAddress | string;
+  factorySong?: SvmAddress | string;
   payerUsdcAta: SvmAddress | string;
   creatorUsdcAta: SvmAddress | string;
   treasuryUsdcAta: SvmAddress | string;
   songId: bigint | number;
+  licensePrice?: bigint | number;
   tokenProgram?: SvmAddress | string;
 }): Instruction {
   const programAddress = address(input.programId ?? getRawchunksSolanaDeployment().royaltiesProgramId);
   const tokenProgram = address(input.tokenProgram ?? SPL_TOKEN_PROGRAM);
-  const data = new Uint8Array(9);
+  const data = new Uint8Array(17);
   data[0] = 1; // process_distribute_license_payment discriminator
   data.set(encodeU64(input.songId), 1);
+  data.set(encodeU64(input.licensePrice ?? 0n), 9);
 
   return {
     programAddress,
     accounts: [
       { address: address(input.payer), role: AccountRole.WRITABLE_SIGNER },
-      { address: address(input.royaltiesConfig), role: AccountRole.READONLY },
-      { address: address(input.factorySong), role: AccountRole.READONLY },
       { address: address(input.payerUsdcAta), role: AccountRole.WRITABLE },
       { address: address(input.creatorUsdcAta), role: AccountRole.WRITABLE },
       { address: address(input.treasuryUsdcAta), role: AccountRole.WRITABLE },
+      { address: address(input.royaltiesConfig), role: AccountRole.READONLY },
       { address: tokenProgram, role: AccountRole.READONLY },
     ],
     data,
