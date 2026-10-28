@@ -66,7 +66,7 @@ export function useOptions() {
     queryKey: ['music-options'],
     queryFn: async (): Promise<Options> => {
       const response = await sdk.fetch('/api/options');
-      if (!response.ok) throw new Error('Music options are unavailable');
+      if (!response.ok) throw new Error('AI options are unavailable, try again in a minute.');
       return response.json();
     },
     staleTime: 60_000,

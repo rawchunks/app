@@ -338,9 +338,8 @@ export const Studio: React.FC<StudioProps> = ({
   const instrumentList = options?.parameters.trackName?.options ?? options?.tracks ?? [];
   const trackClassesOptions = options?.parameters.trackClasses?.options ?? instrumentList;
   const stemList = useMemo(() => {
-    const baseStems = options?.stems ?? [];
-    const extraTracks = instrumentList.filter((t) => !baseStems.some((s) => s.id === t.id));
-    return [...baseStems, ...extraTracks];
+    if (instrumentList.length > 0) return instrumentList;
+    return (options?.stems ?? []).filter((s) => s.id !== 'all' && s.id !== 'other' && s.id !== 'instrumental');
   }, [options?.stems, instrumentList]);
 
   const activeTaskDef = aiTasks.find((t) => t.id === task);
@@ -494,7 +493,6 @@ export const Studio: React.FC<StudioProps> = ({
         }
       }}
     >
-      {/* MOBILE FOLDED LIVE GRAPHICAL TELEMETRY BAR (Visible only on <=960px when Manual Toolbox is focused) */}
       {/* UNIFIED IN-PLACE ACCORDION WORKSPACE: Open-Extend <> Close-Shrink in Fixed Order */}
       <div className="studio-unified-block" role="tablist" aria-label="AI Studio Operations">
         {aiTasks
@@ -540,29 +538,29 @@ export const Studio: React.FC<StudioProps> = ({
                           </button>
                         </Tooltip>
 
-                        <span
-                          className="studio-target-chip"
-                          title="Active target track and timeline region"
-                        >
-                          <span className="studio-target-track">{trackName}</span>
-                          {rangeText && (
-                            <span className="studio-target-range">
-                              {rangeText}
-                              <button
-                                type="button"
-                                className="studio-clear-range-btn"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  onClearSelection();
-                                }}
-                                title="Clear timeline section selection"
-                                aria-label="Clear section selection"
-                              >
-                                <X size={11} />
-                              </button>
-                            </span>
-                          )}
-                        </span>
+                        <Tooltip title="Active target track and timeline region" className="studio-target-chip-wrap">
+                          <span className="studio-target-chip">
+                            <span className="studio-target-track">{trackName}</span>
+                            {rangeText && (
+                              <span className="studio-target-range">
+                                {rangeText}
+                                <Tooltip title="Clear timeline section selection">
+                                  <button
+                                    type="button"
+                                    className="studio-clear-range-btn"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      onClearSelection();
+                                    }}
+                                    aria-label="Clear section selection"
+                                  >
+                                    <X size={11} />
+                                  </button>
+                                </Tooltip>
+                              </span>
+                            )}
+                          </span>
+                        </Tooltip>
 
                         <Tooltip
                           title={activeSummary.title}
@@ -668,19 +666,31 @@ export const Studio: React.FC<StudioProps> = ({
                               {preset.label}
                             </button>
                           ))}
+                        {task === 'extract' &&
+                          stemList.slice(0, 5).map((stem) => (
+                            <button
+                              key={stem.id}
+                              type="button"
+                              className={`studio-inline-chip ${stemType === stem.id ? 'active' : ''}`}
+                              onClick={() => onStemTypeChange(stem.id)}
+                            >
+                              {stem.label}
+                            </button>
+                          ))}
                       </div>
-                      <div
-                        className="studio-open-visual"
-                        onClick={() => setIsParamModalOpen(true)}
-                        title="Click to adjust operation parameters"
-                      >
-                        <StudioMicroPreview
-                          task={task}
-                          peaks={activePeaks}
-                          selectionRatio={selectionRatio}
-                          intensity={visualIntensity}
-                        />
-                      </div>
+                      <Tooltip title="Click to adjust operation parameters" className="studio-open-visual-wrap">
+                        <div
+                          className="studio-open-visual"
+                          onClick={() => setIsParamModalOpen(true)}
+                        >
+                          <StudioMicroPreview
+                            task={task}
+                            peaks={activePeaks}
+                            selectionRatio={selectionRatio}
+                            intensity={visualIntensity}
+                          />
+                        </div>
+                      </Tooltip>
                     </div>
 
                     {/* Row 3: Prompt / Isolation Bar + Action Controls */}
@@ -718,7 +728,7 @@ export const Studio: React.FC<StudioProps> = ({
                         </div>
                       ) : (
                         <div className="studio-extract-banner">
-                          <span className="studio-extract-hint">ISOLATE:</span>
+                          <span className="studio-extract-hint">EXTRACT:</span>
                           <div className="studio-extract-chips">
                             {stemList.slice(0, 6).map((stem) => (
                               <button
@@ -1145,7 +1155,7 @@ export const Studio: React.FC<StudioProps> = ({
 
               <div className="toolbox-param-section">
                 <div className="toolbox-param-section-head">
-                  <span className="daw-field-label">ACTIVE TRACK CLASSES</span>
+                  <span className="daw-field-label">ACTIVE TRACKS</span>
                   <span className="toolbox-param-readout-val">
                     {String(parameters.trackClasses || activeCompletePreset.classes)}
                   </span>
@@ -1461,15 +1471,14 @@ export const Studio: React.FC<StudioProps> = ({
             mode="overlay"
             autoEdit={true}
             lyrics={lyrics}
-            onLyricsChange={onLyricsChange || (() => {})}
+            onLyricsChange={onLyricsChange}
             vocalLanguage={vocalLanguage}
-            onVocalLanguageChange={onVocalLanguageChange || (() => {})}
+            onVocalLanguageChange={onVocalLanguageChange}
             hasExistingLyrics={hasExistingLyrics}
             isTranscribingLyrics={isTranscribingLyrics}
-            onExtractLyrics={onExtractLyrics || (() => {})}
             lyricsAlignment={lyricsAlignment}
             isAligningLyrics={isAligningLyrics}
-            onAlignLyrics={onAlignLyrics || (() => {})}
+            onAlignLyrics={onAlignLyrics}
             languages={languages}
             onClose={() => setIsLyricsModalOpen(false)}
           />
