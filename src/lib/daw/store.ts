@@ -1,12 +1,13 @@
 import { sdk } from '../sdk';
-import { promptSessionModal } from '../../hooks/use-session';
+import { openGate } from '../gate';
 import { toast } from 'sonner';
 import { create } from 'zustand';
 import { dawEngine } from './engine';
+import { bus } from '../bus';
 import { isBase, preview, interval, source, clips, sourceInterval, retained, masterArrangement, pending, isLayerTake, layerTrackName, isFullSongRestyleTake, isMasterTargetTake } from './takes';
 import type { Project } from '../cache';
 import { DRUM_STEPS } from './notes';
-import { type WaveSculptState, createDefaultWaveSculpt } from './peaks';
+import { type WaveSculptState, createDefaultWaveSculpt, seedResolvedPeaks } from './peaks';
 
 export type TrackType = 'stem' | 'sample' | 'sequencer' | 'pianoroll' | 'strudel';
 
@@ -178,7 +179,7 @@ export interface Take {
   url: string;
   is_active: boolean;
   created_at: string;
-  provenance?: { taskId?: string; target?: string; layerName?: string; region?: { start: number; end: number } | null; regions?: {start:number; end:number}[]; audioOffset?: number; outputDuration?: number | null; sourceTakeId?: string | null; targetStemId?: string | null; mergedInto?: string; parameters?: Record<string, any> };
+  provenance?: { taskId?: string; target?: string; layerName?: string; region?: { start: number; end: number } | null; regions?: { start: number; end: number }[]; audioOffset?: number; outputDuration?: number | null; sourceTakeId?: string | null; targetStemId?: string | null; mergedInto?: string; parameters?: Record<string, any> };
 }
 
 export interface Commit {
@@ -188,7 +189,7 @@ export interface Commit {
   parent_commit_id?: string | null;
   message: string;
   created_at: string;
-  timeline_snapshot?: { action?: string; activeTakeId?: string; provenance?: { target?: string; region?: { start: number; end: number } | null }; [key: string]: unknown };
+  timeline_snapshot?: { action?: string; activeTakeId?: string; provenance?: { target?: string; region?: { start: number; end: number } | null };[key: string]: unknown };
 }
 
 export type DAWView = 'timeline' | 'sequencer' | 'pianoroll' | 'strudel' | 'mixer' | 'ai-lab' | 'history' | 'sample';
@@ -233,6 +234,7 @@ export interface DAWState {
 
   // Actions
   initProject: (songId: string, songTitle: string, duration: number, masterUrl: string, project?: Pick<Project, 'stems' | 'takes' | 'commits' | 'session'>) => void;
+  resetDaw: () => void;
   setPlaying: (isPlaying: boolean) => void;
   setPlayhead: (time: number) => void;
   setDuration: (duration: number) => void;
@@ -244,7 +246,7 @@ export interface DAWState {
   setSelection: (selection: { start: number; end: number } | null) => void;
   setSectionGain: (gain: number) => void;
   setSectionTone: (low: number, mid: number, high: number) => void;
-  extractCurrentSection: () => Promise<Take | null>;
+  extractCurrentSection: (retry?: boolean) => Promise<Take | null>;
   revertToOriginalMaster: () => void;
   setSelectedTrackId: (trackId: string) => void;
   setActiveView: (view: DAWView) => void;
@@ -303,7 +305,7 @@ export interface DAWState {
   toggleTake: (takeId: string) => Promise<void>;
   moveTake: (takeId: string, shift: number) => Promise<void>;
   toggleOriginal: (region: { start: number; end: number }) => void;
-  mergeTakes: (takeIds: string[], region?: {start:number; end:number}) => Promise<void>;
+  mergeTakes: (takeIds: string[], region?: { start: number; end: number }) => Promise<void>;
   upsertTake: (take: Take) => void;
   activateTake: (takeId: string, action?: 'base' | 'merge') => Promise<void>;
   pendingTake: string | null;
@@ -378,13 +380,13 @@ export function isTrackFxModified(track?: DAWTrack | null): boolean {
     (Math.abs(fx.eq.low) > 0.05 || Math.abs(fx.eq.mid) > 0.05 || Math.abs(fx.eq.high) > 0.05);
   return Boolean(
     eqModified ||
-      fx.compressor?.enabled ||
-      fx.reverb?.enabled ||
-      fx.delay?.enabled ||
-      fx.distortion?.enabled ||
-      fx.chorus?.enabled ||
-      fx.filter?.enabled ||
-      fx.spatial?.enabled
+    fx.compressor?.enabled ||
+    fx.reverb?.enabled ||
+    fx.delay?.enabled ||
+    fx.distortion?.enabled ||
+    fx.chorus?.enabled ||
+    fx.filter?.enabled ||
+    fx.spatial?.enabled
   );
 }
 
@@ -419,11 +421,11 @@ function syncActiveSynthVersion(track: DAWTrack): DAWTrack {
     versions: track.versions.map((v) =>
       v.id === activeId
         ? {
-            ...v,
-            sequencerVoices: track.sequencerVoices ? JSON.parse(JSON.stringify(track.sequencerVoices)) : v.sequencerVoices,
-            pianoRollNotes: track.pianoRollNotes ? JSON.parse(JSON.stringify(track.pianoRollNotes)) : v.pianoRollNotes,
-            strudelCode: track.strudelCode ?? v.strudelCode,
-          }
+          ...v,
+          sequencerVoices: track.sequencerVoices ? JSON.parse(JSON.stringify(track.sequencerVoices)) : v.sequencerVoices,
+          pianoRollNotes: track.pianoRollNotes ? JSON.parse(JSON.stringify(track.pianoRollNotes)) : v.pianoRollNotes,
+          strudelCode: track.strudelCode ?? v.strudelCode,
+        }
         : v
     ),
   };
@@ -465,14 +467,14 @@ function consolidateCanonicalTracks(tracks: DAWTrack[], resetSynthMount = false)
           ? st.versions
           : st.sequencerVoices
             ? [
-                {
-                  id: `ver-sequencer-1`,
-                  versionNumber: 1,
-                  number: 1,
-                  createdAt: new Date().toISOString(),
-                  sequencerVoices: st.sequencerVoices,
-                },
-              ]
+              {
+                id: `ver-sequencer-1`,
+                versionNumber: 1,
+                number: 1,
+                createdAt: new Date().toISOString(),
+                sequencerVoices: st.sequencerVoices,
+              },
+            ]
             : [];
       mergedSeqVersions = mergeVersionLists(mergedSeqVersions, stVers);
       if (st.sequencerVoices) mergedSeqVoices = st.sequencerVoices;
@@ -537,16 +539,16 @@ function consolidateCanonicalTracks(tracks: DAWTrack[], resetSynthMount = false)
         t.versions && t.versions.length > 0
           ? t.versions
           : [
-              {
-                id: `ver-${t.type}-1`,
-                versionNumber: 1,
-                number: 1,
-                createdAt: new Date().toISOString(),
-                sequencerVoices: t.sequencerVoices,
-                pianoRollNotes: t.pianoRollNotes,
-                strudelCode: t.strudelCode,
-              },
-            ];
+            {
+              id: `ver-${t.type}-1`,
+              versionNumber: 1,
+              number: 1,
+              createdAt: new Date().toISOString(),
+              sequencerVoices: t.sequencerVoices,
+              pianoRollNotes: t.pianoRollNotes,
+              strudelCode: t.strudelCode,
+            },
+          ];
 
       const prevIdx = seenSynthType.get(t.type);
       if (prevIdx !== undefined) {
@@ -569,17 +571,17 @@ function consolidateCanonicalTracks(tracks: DAWTrack[], resetSynthMount = false)
         activeVersionId: t.activeVersionId || baseVersions[baseVersions.length - 1].id,
         ...(resetSynthMount
           ? {
-              mounted: false,
-              isWip: true,
+            mounted: false,
+            isWip: true,
+            muted: true,
+            solo: false,
+            mixer: {
+              volume: t.mixer?.volume ?? t.volume ?? 0.9,
+              pan: t.mixer?.pan ?? t.pan ?? 0,
               muted: true,
               solo: false,
-              mixer: {
-                volume: t.mixer?.volume ?? t.volume ?? 0.9,
-                pan: t.mixer?.pan ?? t.pan ?? 0,
-                muted: true,
-                solo: false,
-              },
-            }
+            },
+          }
           : {}),
       };
       seenSynthType.set(t.type, result.length);
@@ -652,15 +654,15 @@ export const useDawStore = create<DAWState>((set, get) => ({
       activeVersionTakeId: null,
       clips: masterUrl
         ? [
-            {
-              id: 'clip-master',
-              name: songTitle || 'Full Track',
-              url: masterUrl,
-              startTime: 0,
-              duration: dur,
-              offset: 0,
-            },
-          ]
+          {
+            id: 'clip-master',
+            name: songTitle || 'Full Track',
+            url: masterUrl,
+            startTime: 0,
+            duration: dur,
+            offset: 0,
+          },
+        ]
         : [],
     };
 
@@ -1736,10 +1738,10 @@ export const useDawStore = create<DAWState>((set, get) => ({
       const drumStemTargetIdx =
         rawSynth.type === 'sequencer'
           ? nextTracks.findIndex(
-              (t) =>
-                t.type === 'stem' &&
-                (t.layerName || t.stemType || t.name).toLowerCase().includes('drum')
-            )
+            (t) =>
+              t.type === 'stem' &&
+              (t.layerName || t.stemType || t.name).toLowerCase().includes('drum')
+          )
           : -1;
       const existingIdx =
         drumStemTargetIdx >= 0
@@ -1747,21 +1749,21 @@ export const useDawStore = create<DAWState>((set, get) => ({
           : nextTracks.findIndex((t) => t.id === rawSynth.id || t.type === rawSynth.type);
       const versions: SynthTrackVersion[] = Array.isArray(rawSynth.versions) && rawSynth.versions.length > 0
         ? rawSynth.versions.map((v: any, idx: number) => ({
-            ...v,
-            versionNumber: v.versionNumber ?? v.number ?? idx + 1,
-            number: v.number ?? v.versionNumber ?? idx + 1,
-          }))
+          ...v,
+          versionNumber: v.versionNumber ?? v.number ?? idx + 1,
+          number: v.number ?? v.versionNumber ?? idx + 1,
+        }))
         : [
-            {
-              id: `ver-${rawSynth.type}-1`,
-              versionNumber: 1,
-              number: 1,
-              createdAt: new Date().toISOString(),
-              sequencerVoices: rawSynth.sequencerVoices,
-              pianoRollNotes: rawSynth.pianoRollNotes,
-              strudelCode: rawSynth.strudelCode,
-            },
-          ];
+          {
+            id: `ver-${rawSynth.type}-1`,
+            versionNumber: 1,
+            number: 1,
+            createdAt: new Date().toISOString(),
+            sequencerVoices: rawSynth.sequencerVoices,
+            pianoRollNotes: rawSynth.pianoRollNotes,
+            strudelCode: rawSynth.strudelCode,
+          },
+        ];
       const activeVersionId = rawSynth.activeVersionId || versions[versions.length - 1].id;
       const activeVer = versions.find((v) => v.id === activeVersionId) || versions[versions.length - 1];
       const vol = typeof rawSynth.volume === 'number' ? rawSynth.volume : 0.9;
@@ -1847,20 +1849,20 @@ export const useDawStore = create<DAWState>((set, get) => ({
     const songId = state.songId;
     if (!songId) return;
     try {
-      localStorage.removeItem(`rawchunks:wip:v1:${songId}`);
-    } catch {}
+      localStorage.removeItem(`rawchunks:wip:${songId}`);
+    } catch { }
     try {
       await sdk.fetch(`/api/editing/wip/${encodeURIComponent(songId)}`, {
         method: 'DELETE',
       });
-    } catch {}
+    } catch { }
     try {
       await sdk.fetch('/api/editing/reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ songId }),
       });
-    } catch {}
+    } catch { }
 
     for (const t of state.tracks) {
       if (t.type === 'pianoroll' || t.type === 'sequencer' || t.type === 'strudel') {
@@ -2687,10 +2689,50 @@ export const useDawStore = create<DAWState>((set, get) => ({
     });
     merged.push(...saved.filter(track => !current.some(item => item.id === track.id)));
     const tracks = consolidateCanonicalTracks(merged, true);
-    set({ tracks, originals: Array.isArray(snapshot.originals) ? snapshot.originals as { start:number; end:number }[] : [], ...(typeof snapshot.bpm === 'number' && snapshot.bpm > 0 ? { bpm: snapshot.bpm } : {}) });
+    set({ tracks, originals: Array.isArray(snapshot.originals) ? snapshot.originals as { start: number; end: number }[] : [], ...(typeof snapshot.bpm === 'number' && snapshot.bpm > 0 ? { bpm: snapshot.bpm } : {}) });
     for (const track of tracks) {
       if (track.id === 'master') continue;
       for (const clip of track.clips) if (clip.url) void dawEngine.loadClip(track.id, clip.id, clip.url, clip.startTime, clip.offset, clip.duration);
     }
   },
+  resetDaw: () => {
+    dawEngine.resetProject();
+    set({
+      songId: '',
+      songTitle: '',
+      tracks: [],
+      selectedTrackId: 'master',
+      activeView: 'timeline',
+      isPlaying: false,
+      playhead: 0,
+      duration: 60,
+      bpm: 128,
+      loop: false,
+      loopStart: 0,
+      loopEnd: 30,
+      selection: null,
+      sectionGain: 0,
+      sectionLow: 0,
+      sectionMid: 0,
+      sectionHigh: 0,
+      originalMasterUrl: null,
+      originals: [],
+      operations: [],
+      auditionId: null,
+      legoContextTrackIds: [],
+      takes: [],
+      commits: [],
+      pendingTake: null,
+      pendingModalTrackId: null,
+      sequencerSteps: {},
+    });
+  },
 }));
+
+bus.onRemoteLogout(() => {
+  useDawStore.getState().resetDaw();
+});
+
+bus.onRemoteAccountSwitch(() => {
+  useDawStore.getState().resetDaw();
+});
