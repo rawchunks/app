@@ -1302,7 +1302,7 @@ export const Clip: React.FC<ClipProps> = ({
       onPointerMove={trackId || enableSelection ? handlePointerMove : undefined}
       onPointerUp={trackId || enableSelection ? handlePointerUp : undefined}
       onPointerCancel={trackId || enableSelection ? handlePointerUp : undefined}
-      onClick={(e) => e.stopPropagation()}
+      onClick={trackId || enableSelection ? (e) => e.stopPropagation() : undefined}
       onClickCapture={(e) => {
         if (suppressNextClickRef.current) {
           suppressNextClickRef.current = false;

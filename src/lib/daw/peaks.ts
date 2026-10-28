@@ -454,7 +454,13 @@ export function fetchAudioArrayBuffer(url: string, priority: AudioLoadPriority =
     if (cachedBuf && cachedBuf.byteLength > 0) {
       return cachedBuf;
     }
-    const response = await fetch(url, { signal: controller.signal });
+    const isTransientStemUrl = url.includes('.r2.dev/stems/') || url.includes('/stems/');
+    const maxAttempts = isTransientStemUrl ? 14 : 1;
+    let response = await fetch(url, { signal: controller.signal });
+    for (let attempt = 1; attempt < maxAttempts && response.status === 404; attempt++) {
+      await new Promise((r) => setTimeout(r, 500));
+      response = await fetch(url, { signal: controller.signal });
+    }
     if (!response.ok) throw new Error(`Failed to load waveform (${response.status})`);
     const buf = await response.arrayBuffer();
     void writeCachedAudioBuffer(url, buf, response.headers.get('content-type') || 'audio/wav');
@@ -619,6 +625,22 @@ function resampleBipolarPeaks(source: BipolarPeaks, targetBins: number): Bipolar
     }
   }
   return { mins, maxs, rms, low, mid, high, bins: count, duration: source.duration };
+}
+
+export function seedResolvedPeaks(url: string, raw: any): void {
+  if (!url || !raw) return;
+  const hydrated = hydratePeakRecord(raw);
+  if (!hydrated) return;
+  const key = canonicalCacheKey(url, 0, undefined);
+  storeResolvedPeak(key, hydrated);
+  canonicalPeakCache.set(key, Promise.resolve(hydrated));
+  persistPeakToLocalStorage(url, 512, 0, undefined, resampleBipolarPeaks(hydrated, 512));
+  void writePersistedPeaks(key, {
+    mins: Array.from(hydrated.mins),
+    maxs: Array.from(hydrated.maxs),
+    duration: hydrated.duration,
+    updatedAt: Date.now(),
+  });
 }
 
 export function readPeaks(url: string, bins = 512, offset = 0, duration?: number): BipolarPeaks | null {

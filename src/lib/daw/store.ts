@@ -804,16 +804,18 @@ export const useDawStore = create<DAWState>((set, get) => ({
       };
     }
     if (masterStem && masterTrack && masterStem.url && (!masterTrack.activeVersionTakeId || masterTrack.activeVersionTakeId === 'MST') && masterTrack.clips[0]?.url !== masterStem.url) {
-      masterTrack = { ...masterTrack, clips: [
-        {
-          id: 'clip-master',
-          name: 'Master Output',
-          url: masterStem.url,
-          startTime: 0,
-          duration: dur,
-          offset: 0,
-        },
-      ] };
+      masterTrack = {
+        ...masterTrack, clips: [
+          {
+            id: 'clip-master',
+            name: 'Master Output',
+            url: masterStem.url,
+            startTime: 0,
+            duration: dur,
+            offset: 0,
+          },
+        ]
+      };
       dawEngine.loadClip('master', 'clip-master', masterStem.url, 0, 0, dur);
     }
 
@@ -827,6 +829,12 @@ export const useDawStore = create<DAWState>((set, get) => ({
     );
 
     const standaloneDrumSynth = currentTracks.find((t) => t.type === 'sequencer');
+
+    for (const stem of stems) {
+      if (stem?.url && (stem as any).peaks) {
+        seedResolvedPeaks(stem.url, (stem as any).peaks);
+      }
+    }
 
     const newStemTracks: DAWTrack[] = nonMasterStems.map((stem) => {
       const normName = String(stem.name || 'stem').toLowerCase().trim().replace(/\s+/g, '_');
@@ -854,8 +862,10 @@ export const useDawStore = create<DAWState>((set, get) => ({
           const syncedClips = existing.clips.map((c, idx) =>
             idx === 0 && c.offset === 0 && Math.abs(c.duration - dur) > 0.5 ? { ...c, duration: dur } : c
           );
-          for (const clip of syncedClips) {
-            if (clip.url) void dawEngine.loadClip(stem.id, clip.id, clip.url, clip.startTime, clip.offset, clip.duration);
+          if (!updatedBase.muted || updatedBase.solo) {
+            for (const clip of syncedClips) {
+              if (clip.url) void dawEngine.loadClip(stem.id, clip.id, clip.url, clip.startTime, clip.offset, clip.duration);
+            }
           }
           return { ...updatedBase, clips: syncedClips };
         }
@@ -869,7 +879,9 @@ export const useDawStore = create<DAWState>((set, get) => ({
             offset: 0,
           },
         ];
-        for (const clip of nextClips) void dawEngine.loadClip(stem.id, clip.id, clip.url, clip.startTime, clip.offset, clip.duration);
+        if (!updatedBase.muted || updatedBase.solo) {
+          for (const clip of nextClips) void dawEngine.loadClip(stem.id, clip.id, clip.url, clip.startTime, clip.offset, clip.duration);
+        }
         return { ...updatedBase, clips: nextClips };
       }
       if (existing && existing.id === `layer-${normName}`) {
@@ -916,7 +928,7 @@ export const useDawStore = create<DAWState>((set, get) => ({
         ],
       };
 
-      if (stem.url && !inheritedActiveVerId) {
+      if (stem.url && !inheritedActiveVerId && (!stemTrack.muted || stemTrack.solo)) {
         dawEngine.loadClip(stem.id, `clip-${stem.id}`, stem.url, 0, 0, dur);
       }
 

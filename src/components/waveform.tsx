@@ -328,7 +328,7 @@ export const Waveform: React.FC<Props> = ({
     let current = true;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     if (!sources.length || duration <= 0 || storedLayers.length === sources.length) return;
-    const loadSeparatedLayers = () => {
+    const loadIsolatedLayers = () => {
       Promise.all(sources.map(async lane => {
         const isSynthActive = Boolean(lane.activeVersionId && lane.sequencerVoices?.length) || (lane.clips.length === 0 && (lane.type === 'pianoroll' || lane.type === 'sequencer' || lane.type === 'strudel' || lane.type === 'sample'));
         if (isSynthActive) {
@@ -341,13 +341,13 @@ export const Waveform: React.FC<Props> = ({
       }).catch(error => {
         if (!current) return;
         if (error && typeof error === 'object' && 'name' in error && error.name === 'AbortError') {
-          retryTimer = setTimeout(loadSeparatedLayers, 80);
+          retryTimer = setTimeout(loadIsolatedLayers, 80);
           return;
         }
-        console.error('Could not load separated waveforms:', error);
+        console.error('Could not load isolated waveforms:', error);
       });
     };
-    loadSeparatedLayers();
+    loadIsolatedLayers();
     return () => {
       current = false;
       if (retryTimer) clearTimeout(retryTimer);
@@ -477,8 +477,8 @@ export const Waveform: React.FC<Props> = ({
   const effectiveRatioSelection = customSelection !== undefined
     ? customSelection
     : storeSel && duration > 0
-    ? { start: Math.max(0, storeSel.start / duration), end: Math.min(1, storeSel.end / duration) }
-    : null;
+      ? { start: Math.max(0, storeSel.start / duration), end: Math.min(1, storeSel.end / duration) }
+      : null;
 
   // Look for any active reworked take on this song to highlight on the waveform
   const activeReworkedTake = takes.find(t => t.is_active && t.provenance?.target === 'master' && t.provenance.region && t.repainting_start != null && t.repainting_end != null);
@@ -734,8 +734,8 @@ export const Waveform: React.FC<Props> = ({
     const currentRatio = customProgress !== undefined
       ? customProgress
       : duration > 0
-      ? Math.max(0, Math.min(1, playheadRef.current / duration))
-      : 0;
+        ? Math.max(0, Math.min(1, playheadRef.current / duration))
+        : 0;
     const playheadX = currentRatio * virtualW;
 
     if (barCount > 0) {
@@ -1140,7 +1140,7 @@ export const Waveform: React.FC<Props> = ({
 
     try {
       canvas.setPointerCapture(e.pointerId);
-    } catch {}
+    } catch { }
     activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
     const rect = canvas.getBoundingClientRect();
@@ -1500,10 +1500,10 @@ export const Waveform: React.FC<Props> = ({
       const nextNodes = effectiveSculpt.nodes.map((node) =>
         node.id === sculptNodeId
           ? {
-              ...node,
-              gainDb: Number(nextGainDb.toFixed(2)),
-              warpOffset: Number(nextWarp.toFixed(3)),
-            }
+            ...node,
+            gainDb: Number(nextGainDb.toFixed(2)),
+            warpOffset: Number(nextWarp.toFixed(3)),
+          }
           : node
       );
 
@@ -1532,9 +1532,9 @@ export const Waveform: React.FC<Props> = ({
         // On desktop mouse: horizontal drag without holding draws a region; vertical or held drag sculpts peaks.
         const shouldCreateRegion = Boolean(
           !isTouchPointer &&
-            !dragRef.current.held &&
-            showSelection &&
-            Math.abs(deltaX) >= Math.abs(deltaY) * 0.85
+          !dragRef.current.held &&
+          showSelection &&
+          Math.abs(deltaX) >= Math.abs(deltaY) * 0.85
         );
         if (shouldCreateRegion) {
           dragRef.current.mode = 'create';
@@ -1750,7 +1750,7 @@ export const Waveform: React.FC<Props> = ({
     event.preventDefault();
     try {
       event.currentTarget.setPointerCapture(event.pointerId);
-    } catch {}
+    } catch { }
     const rect = canvasRef.current.getBoundingClientRect();
     const w = Math.max(1, rect.width);
     const localX = event.clientX - rect.left;
@@ -1788,7 +1788,7 @@ export const Waveform: React.FC<Props> = ({
       if (event.currentTarget.hasPointerCapture(event.pointerId)) {
         event.currentTarget.releasePointerCapture(event.pointerId);
       }
-    } catch {}
+    } catch { }
     if (drag && Math.abs(event.clientX - drag.x) < 5) {
       triggerTapAtClientPos(event.clientX, event.clientY);
     }
