@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   User,
   Search,
@@ -7,6 +7,8 @@ import {
   ArrowDownWideNarrow,
   ArrowUpNarrowWide,
   RotateCcw,
+  ChevronDown,
+  Check,
 } from 'lucide-react';
 import { Glitch } from '../components/glitch';
 import { Button } from '../components/button';
@@ -15,14 +17,20 @@ import { Card, normalizeTags } from '../components/card';
 import { store } from '../lib/store';
 import { useSongs } from '../hooks/use-songs';
 import { usePublicAlbums } from '../hooks/use-albums';
+import { fetchUserProfilesBatch, type WalletPairProfile } from '../hooks/use-profile';
+import { readCachedProfile } from '../lib/cache';
 import { groupSongs } from '../lib/versions';
-import { useSession, promptSessionModal } from '../components/session';
-import { useSelectedUserAddress } from '../hooks/use-address';
-import { toast } from 'sonner';
 import type { Song, Album } from '../lib/schema';
 
 export interface Props {
   className?: string;
+}
+
+interface CreatorGroup {
+  key: string;
+  label: string;
+  nicknameKey: string | null;
+  addresses: Set<string>;
 }
 
 export const Market: React.FC<Props> = ({ className = '' }) => {
