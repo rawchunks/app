@@ -1283,10 +1283,10 @@ export const useDawStore = create<DAWState>((set, get) => ({
     if (isInstrumentModalTrack) {
       const existing = type === 'sequencer'
         ? get().tracks.find(
-            (t) =>
-              t.type === 'sequencer' ||
-              (t.type === 'stem' && (t.layerName || t.stemType || t.name).toLowerCase().includes('drum'))
-          )
+          (t) =>
+            t.type === 'sequencer' ||
+            (t.type === 'stem' && (t.layerName || t.stemType || t.name).toLowerCase().includes('drum'))
+        )
         : get().tracks.find((t) => t.type === type);
       if (existing) {
         get().addSynthVersion(existing.id);
@@ -1327,16 +1327,16 @@ export const useDawStore = create<DAWState>((set, get) => ({
     const initialVersionId = `ver-${type}-1`;
     const initialVersions: SynthTrackVersion[] | undefined = isInstrumentModalTrack
       ? [
-          {
-            id: initialVersionId,
-            versionNumber: 1,
-            number: 1,
-            createdAt: new Date().toISOString(),
-            sequencerVoices: initialVoices ? JSON.parse(JSON.stringify(initialVoices)) : undefined,
-            pianoRollNotes: initialNotes ? [] : undefined,
-            strudelCode: initialCode,
-          },
-        ]
+        {
+          id: initialVersionId,
+          versionNumber: 1,
+          number: 1,
+          createdAt: new Date().toISOString(),
+          sequencerVoices: initialVoices ? JSON.parse(JSON.stringify(initialVoices)) : undefined,
+          pianoRollNotes: initialNotes ? [] : undefined,
+          strudelCode: initialCode,
+        },
+      ]
       : undefined;
 
     const newTrack: DAWTrack = {
@@ -1388,16 +1388,16 @@ export const useDawStore = create<DAWState>((set, get) => ({
       : isDrumStem
         ? []
         : [
-            {
-              id: `ver-${effectiveSynthType}-1`,
-              versionNumber: 1,
-              number: 1,
-              createdAt: new Date().toISOString(),
-              sequencerVoices: track.sequencerVoices ? JSON.parse(JSON.stringify(track.sequencerVoices)) : undefined,
-              pianoRollNotes: track.pianoRollNotes ? JSON.parse(JSON.stringify(track.pianoRollNotes)) : undefined,
-              strudelCode: track.strudelCode,
-            },
-          ];
+          {
+            id: `ver-${effectiveSynthType}-1`,
+            versionNumber: 1,
+            number: 1,
+            createdAt: new Date().toISOString(),
+            sequencerVoices: track.sequencerVoices ? JSON.parse(JSON.stringify(track.sequencerVoices)) : undefined,
+            pianoRollNotes: track.pianoRollNotes ? JSON.parse(JSON.stringify(track.pianoRollNotes)) : undefined,
+            strudelCode: track.strudelCode,
+          },
+        ];
 
     const nextVerNum = Math.max(0, ...existingVersions.map((v) => v.versionNumber)) + 1;
     const newVersion: SynthTrackVersion = {
@@ -1428,22 +1428,22 @@ export const useDawStore = create<DAWState>((set, get) => ({
       tracks: state.tracks.map((t) =>
         t.id === trackId
           ? {
-              ...syncedTrack,
-              mounted: nextMounted,
-              isWip: true,
-              muted: nextMuted,
-              mixer: nextMixer,
-              versions: [...existingVersions, newVersion],
-              activeVersionId: newVersion.id,
-              activeVersionTakeId: isDrumStem ? newVersion.id : syncedTrack.activeVersionTakeId,
-              sequencerVoices: newVersion.sequencerVoices
-                ? JSON.parse(JSON.stringify(newVersion.sequencerVoices))
-                : t.sequencerVoices,
-              pianoRollNotes: newVersion.pianoRollNotes
-                ? JSON.parse(JSON.stringify(newVersion.pianoRollNotes))
-                : t.pianoRollNotes,
-              strudelCode: newVersion.strudelCode ?? t.strudelCode,
-            }
+            ...syncedTrack,
+            mounted: nextMounted,
+            isWip: true,
+            muted: nextMuted,
+            mixer: nextMixer,
+            versions: [...existingVersions, newVersion],
+            activeVersionId: newVersion.id,
+            activeVersionTakeId: isDrumStem ? newVersion.id : syncedTrack.activeVersionTakeId,
+            sequencerVoices: newVersion.sequencerVoices
+              ? JSON.parse(JSON.stringify(newVersion.sequencerVoices))
+              : t.sequencerVoices,
+            pianoRollNotes: newVersion.pianoRollNotes
+              ? JSON.parse(JSON.stringify(newVersion.pianoRollNotes))
+              : t.pianoRollNotes,
+            strudelCode: newVersion.strudelCode ?? t.strudelCode,
+          }
           : t
       ),
     }));
@@ -1492,20 +1492,20 @@ export const useDawStore = create<DAWState>((set, get) => ({
       tracks: state.tracks.map((t) =>
         t.id === trackId
           ? {
-              ...syncedTrack,
-              mounted: nextMounted,
-              muted: nextMuted,
-              mixer: nextMixer,
-              activeVersionId: targetVer.id,
-              activeVersionTakeId: isDrumStem ? targetVer.id : syncedTrack.activeVersionTakeId,
-              sequencerVoices: targetVer.sequencerVoices
-                ? JSON.parse(JSON.stringify(targetVer.sequencerVoices))
-                : t.sequencerVoices,
-              pianoRollNotes: targetVer.pianoRollNotes
-                ? JSON.parse(JSON.stringify(targetVer.pianoRollNotes))
-                : t.pianoRollNotes,
-              strudelCode: targetVer.strudelCode ?? t.strudelCode,
-            }
+            ...syncedTrack,
+            mounted: nextMounted,
+            muted: nextMuted,
+            mixer: nextMixer,
+            activeVersionId: targetVer.id,
+            activeVersionTakeId: isDrumStem ? targetVer.id : syncedTrack.activeVersionTakeId,
+            sequencerVoices: targetVer.sequencerVoices
+              ? JSON.parse(JSON.stringify(targetVer.sequencerVoices))
+              : t.sequencerVoices,
+            pianoRollNotes: targetVer.pianoRollNotes
+              ? JSON.parse(JSON.stringify(targetVer.pianoRollNotes))
+              : t.pianoRollNotes,
+            strudelCode: targetVer.strudelCode ?? t.strudelCode,
+          }
           : t
       ),
     }));
@@ -1538,11 +1538,11 @@ export const useDawStore = create<DAWState>((set, get) => ({
           tracks: state.tracks.map((t) =>
             t.id === trackId
               ? {
-                  ...t,
-                  versions: [],
-                  activeVersionId: undefined,
-                  sequencerVoices: undefined,
-                }
+                ...t,
+                versions: [],
+                activeVersionId: undefined,
+                sequencerVoices: undefined,
+              }
               : t
           ),
         }));
@@ -1557,18 +1557,18 @@ export const useDawStore = create<DAWState>((set, get) => ({
       tracks: state.tracks.map((t) =>
         t.id === trackId
           ? {
-              ...t,
-              versions: remaining,
-              activeVersionId: nextActive.id,
-              activeVersionTakeId: isDrumStem ? nextActive.id : t.activeVersionTakeId,
-              sequencerVoices: nextActive.sequencerVoices
-                ? JSON.parse(JSON.stringify(nextActive.sequencerVoices))
-                : t.sequencerVoices,
-              pianoRollNotes: nextActive.pianoRollNotes
-                ? JSON.parse(JSON.stringify(nextActive.pianoRollNotes))
-                : t.pianoRollNotes,
-              strudelCode: nextActive.strudelCode ?? t.strudelCode,
-            }
+            ...t,
+            versions: remaining,
+            activeVersionId: nextActive.id,
+            activeVersionTakeId: isDrumStem ? nextActive.id : t.activeVersionTakeId,
+            sequencerVoices: nextActive.sequencerVoices
+              ? JSON.parse(JSON.stringify(nextActive.sequencerVoices))
+              : t.sequencerVoices,
+            pianoRollNotes: nextActive.pianoRollNotes
+              ? JSON.parse(JSON.stringify(nextActive.pianoRollNotes))
+              : t.pianoRollNotes,
+            strudelCode: nextActive.strudelCode ?? t.strudelCode,
+          }
           : t
       ),
     }));
@@ -1600,12 +1600,12 @@ export const useDawStore = create<DAWState>((set, get) => ({
       tracks: state.tracks.map((t) =>
         t.id === trackId
           ? {
-              ...t,
-              mounted: nextMounted,
-              muted: nextMuted,
-              solo: nextMixer.solo,
-              mixer: nextMixer,
-            }
+            ...t,
+            mounted: nextMounted,
+            muted: nextMuted,
+            solo: nextMixer.solo,
+            mixer: nextMixer,
+          }
           : t
       ),
     }));
@@ -1969,6 +1969,13 @@ export const useDawStore = create<DAWState>((set, get) => ({
         dawEngine.schedulePiano(targetTrack);
       } else if (targetTrack.type === 'strudel' && targetTrack.strudelCode) {
         dawEngine.scheduleStrudel(trackId, targetTrack.strudelCode);
+      }
+    }
+    if (targetTrack && (!targetTrack.muted || targetTrack.solo) && (partial.muted === false || partial.solo === true)) {
+      for (const clip of targetTrack.clips) {
+        if (clip.url) {
+          void dawEngine.loadClip(trackId, clip.id, clip.url, clip.startTime, clip.offset, clip.duration);
+        }
       }
     }
     const mixer = targetTrack?.mixer || (targetTrack ? { volume: targetTrack.volume, pan: targetTrack.pan, muted: targetTrack.muted, solo: targetTrack.solo } : partial);
@@ -2358,13 +2365,13 @@ export const useDawStore = create<DAWState>((set, get) => ({
       tracks: state.tracks.map((t) =>
         t.id === trackId
           ? syncActiveSynthVersion({
-              ...t,
-              isWip: true,
-              mounted: true,
-              muted: false,
-              mixer: t.mixer ? { ...t.mixer, muted: false } : undefined,
-              strudelCode,
-            })
+            ...t,
+            isWip: true,
+            mounted: true,
+            muted: false,
+            mixer: t.mixer ? { ...t.mixer, muted: false } : undefined,
+            strudelCode,
+          })
           : t
       ),
     }));
