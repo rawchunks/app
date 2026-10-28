@@ -728,7 +728,7 @@ export const useDawStore = create<DAWState>((set, get) => ({
     set({ sectionLow, sectionMid, sectionHigh });
     dawEngine.setSectionTone(sectionLow, sectionMid, sectionHigh);
   },
-  extractCurrentSection: async () => {
+  extractCurrentSection: async (retry = false) => {
     const { selection, songId, selectedTrackId, tracks, takes } = get();
     if (!selection) return null;
     const candidate = takes.find(take => take.id === selectedTrackId);
@@ -736,9 +736,8 @@ export const useDawStore = create<DAWState>((set, get) => ({
     if (!tracks.some(track => track.id === trackId)) { toast.error('Select a track before extracting'); return null; }
     const token = sdk.keys.currentToken();
     if (!token) {
-      toast.error('Active session required to extract section. Please create a session.');
-      promptSessionModal();
-      return null;
+      if (!await openGate({ steps: ['login', 'funding'] })) return null;
+      if (!sdk.keys.currentToken()) return null;
     }
     const operation = crypto.randomUUID();
     set(state => ({ operations: [...state.operations, { id: operation, task: 'extract', status: 'submitting' }] }));
@@ -750,13 +749,12 @@ export const useDawStore = create<DAWState>((set, get) => ({
           stemId: trackId === 'master' ? undefined : trackId,
           sourceTakeId: candidate?.id,
           srcAudioUrl: candidate?.url,
-          ...(candidate ? sourceInterval(candidate,tracks,selection) : selection),
+          ...(candidate ? sourceInterval(candidate, tracks, selection) : selection),
         }),
       });
       if (response.status === 402) {
         set(state => ({ operations: state.operations.filter(item => item.id !== operation) }));
-        toast.error('Active session required or session budget exhausted. Please top up your session.');
-        promptSessionModal();
+        if (!retry && await openGate({ steps: ['login', 'funding'], reason: 'Session budget exhausted', force: true })) return get().extractCurrentSection(true);
         return null;
       }
       const result = await response.json();
@@ -1938,9 +1936,9 @@ export const useDawStore = create<DAWState>((set, get) => ({
             item.end <= rStart || item.start >= rEnd
               ? [item]
               : [
-                  ...(item.start < rStart ? [{ start: item.start, end: rStart }] : []),
-                  ...(item.end > rEnd ? [{ start: rEnd, end: item.end }] : []),
-                ],
+                ...(item.start < rStart ? [{ start: item.start, end: rStart }] : []),
+                ...(item.end > rEnd ? [{ start: rEnd, end: item.end }] : []),
+              ],
           );
         }
       }
@@ -2439,9 +2437,9 @@ export const useDawStore = create<DAWState>((set, get) => ({
             item.end <= rStart || item.start >= rEnd
               ? [item]
               : [
-                  ...(item.start < rStart ? [{ start: item.start, end: rStart }] : []),
-                  ...(item.end > rEnd ? [{ start: rEnd, end: item.end }] : []),
-                ],
+                ...(item.start < rStart ? [{ start: item.start, end: rStart }] : []),
+                ...(item.end > rEnd ? [{ start: rEnd, end: item.end }] : []),
+              ],
           );
         }
         nextOriginals = [
@@ -2452,7 +2450,7 @@ export const useDawStore = create<DAWState>((set, get) => ({
       return {
         tracks: state.tracks.map(item => item.id === takeId ? { ...item, clips: next } : item),
         originals: nextOriginals,
-        selection: {start:Math.min(...next.map(clip => clip.startTime)),end:Math.max(...next.map(clip => clip.startTime + clip.duration))},
+        selection: { start: Math.min(...next.map(clip => clip.startTime)), end: Math.max(...next.map(clip => clip.startTime + clip.duration)) },
       };
     });
     if (isReplacement) dawEngine.syncOriginals();
@@ -2461,22 +2459,22 @@ export const useDawStore = create<DAWState>((set, get) => ({
     } catch (error) { toast.error(error instanceof Error ? error.message : 'Could not move the section'); }
   },
   toggleOriginal: (region) => {
-    set(state => ({ originals: state.originals.some(item => item.start <= region.start && item.end >= region.end) ? state.originals.flatMap(item => item.end <= region.start || item.start >= region.end ? [item] : [...(item.start < region.start ? [{start:item.start,end:region.start}] : []), ...(item.end > region.end ? [{start:region.end,end:item.end}] : [])]) : [...state.originals, region] }));
+    set(state => ({ originals: state.originals.some(item => item.start <= region.start && item.end >= region.end) ? state.originals.flatMap(item => item.end <= region.start || item.start >= region.end ? [item] : [...(item.start < region.start ? [{ start: item.start, end: region.start }] : []), ...(item.end > region.end ? [{ start: region.end, end: item.end }] : [])]) : [...state.originals, region] }));
     dawEngine.syncOriginals();
   },
   mergeTakes: async (takeIds, selectedRegion) => {
     const state = get();
     if (state.pendingTake || !takeIds.length) return;
     const solo = state.tracks.some(track => track.solo);
-    if (takeIds.some(id => {const track=state.tracks.find(track=>track.id===id);return !track || track.muted || solo && !track.solo;})) {toast.error('Enable the selected layers and clear other lane solos before merging');return;}
+    if (takeIds.some(id => { const track = state.tracks.find(track => track.id === id); return !track || track.muted || solo && !track.solo; })) { toast.error('Enable the selected layers and clear other lane solos before merging'); return; }
     const candidates = takeIds.map(id => state.takes.find(take => take.id === id)!);
     if (candidates.some(take => !take)) return;
     const placements = candidates.map(take => {
       const track = state.tracks.find(track => track.id === take.id && track.activeTakeId === take.id);
       const clip = track?.clips[0];
-      return {takeId:take.id, shift:clip ? clip.startTime - (clip.origin ?? clips(take, state.duration)[0].startTime) : 0};
+      return { takeId: take.id, shift: clip ? clip.startTime - (clip.origin ?? clips(take, state.duration)[0].startTime) : 0 };
     });
-    const ranges = candidates.flatMap(take => state.tracks.find(track => track.id === take.id)?.clips.map(clip => ({start:clip.startTime,end:clip.startTime + clip.duration})) ?? [interval(take,state.duration)]);
+    const ranges = candidates.flatMap(take => state.tracks.find(track => track.id === take.id)?.clips.map(clip => ({ start: clip.startTime, end: clip.startTime + clip.duration })) ?? [interval(take, state.duration)]);
     const region = selectedRegion ?? { start: Math.min(...ranges.map(range => range.start)), end: Math.max(...ranges.map(range => range.end)) };
     const songId = state.songId;
     set({ pendingTake: takeIds[0] });
@@ -2507,7 +2505,7 @@ export const useDawStore = create<DAWState>((set, get) => ({
         if (!take || take.provenance?.mergedInto) get().removeTrack(id);
         else if (take) {
           const shift = placements.find(item => item.takeId === id)!.shift;
-          const pending = clips(take, result.take.provenance.outputDuration).map(clip => ({...clip,origin:clip.startTime,startTime:clip.startTime + shift}));
+          const pending = clips(take, result.take.provenance.outputDuration).map(clip => ({ ...clip, origin: clip.startTime, startTime: clip.startTime + shift }));
           dawEngine.disposeTrack(id);
           set(current => ({ tracks: current.tracks.map(item => item.id === id ? { ...item, clips: pending } : item) }));
           for (const clip of pending) await dawEngine.loadClip(id, clip.id, clip.url, clip.startTime, clip.offset, clip.duration);
@@ -2523,17 +2521,17 @@ export const useDawStore = create<DAWState>((set, get) => ({
         tracks: current.tracks.map(track =>
           track.id === 'master' && nextMasterUrl
             ? {
-                ...track,
-                activeTakeId: result.take.id,
-                activeVersionTakeId: null,
-                originalUrl: nextMasterUrl,
-                clips: track.clips.length
-                  ? track.clips.map((clip, idx) => idx === 0 ? { ...clip, url: nextMasterUrl, offset: 0, duration: nextDuration } : clip)
-                  : [{ id: 'clip-master', name: 'Master Output', url: nextMasterUrl, startTime: 0, offset: 0, duration: nextDuration }],
-              }
+              ...track,
+              activeTakeId: result.take.id,
+              activeVersionTakeId: null,
+              originalUrl: nextMasterUrl,
+              clips: track.clips.length
+                ? track.clips.map((clip, idx) => idx === 0 ? { ...clip, url: nextMasterUrl, offset: 0, duration: nextDuration } : clip)
+                : [{ id: 'clip-master', name: 'Master Output', url: nextMasterUrl, startTime: 0, offset: 0, duration: nextDuration }],
+            }
             : track
         ),
-        originals: current.originals.flatMap(item => item.end <= region.start || item.start >= region.end ? [item] : [...(item.start < region.start ? [{start:item.start,end:region.start}] : []), ...(item.end > region.end ? [{start:region.end,end:item.end}] : [])]),
+        originals: current.originals.flatMap(item => item.end <= region.start || item.start >= region.end ? [item] : [...(item.start < region.start ? [{ start: item.start, end: region.start }] : []), ...(item.end > region.end ? [{ start: region.end, end: item.end }] : [])]),
         selectedTrackId: 'master',
         isPlaying: false,
       }));
@@ -2603,9 +2601,9 @@ export const useDawStore = create<DAWState>((set, get) => ({
     const isReplacement = isMasterTargetTake(take) && ['repaint', 'complete', 'cover'].includes(take.task);
     const nextOriginals = isReplacement
       ? [
-          ...originals,
-          ...track.clips.map(part => ({ start: part.startTime, end: part.startTime + part.duration })),
-        ]
+        ...originals,
+        ...track.clips.map(part => ({ start: part.startTime, end: part.startTime + part.duration })),
+      ]
       : originals;
     set({
       tracks: [...tracks, track],
@@ -2650,14 +2648,14 @@ export const useDawStore = create<DAWState>((set, get) => ({
           tracks: current.tracks.map(track =>
             track.id === 'master'
               ? {
-                  ...track,
-                  activeTakeId: nextMasterBase.id,
-                  activeVersionTakeId: null,
-                  originalUrl: nextMasterBase.url,
-                  clips: track.clips.map((clip, idx) =>
-                    idx === 0 ? { ...clip, url: nextMasterBase.url, offset: 0, duration: masterDuration } : clip
-                  ),
-                }
+                ...track,
+                activeTakeId: nextMasterBase.id,
+                activeVersionTakeId: null,
+                originalUrl: nextMasterBase.url,
+                clips: track.clips.map((clip, idx) =>
+                  idx === 0 ? { ...clip, url: nextMasterBase.url, offset: 0, duration: masterDuration } : clip
+                ),
+              }
               : track
           ),
         }));
