@@ -7,6 +7,7 @@ export interface TooltipProps {
   position?: 'top' | 'bottom' | 'left' | 'right';
   children: React.ReactNode;
   className?: string;
+  style?: React.CSSProperties;
 }
 
 export const Tooltip: React.FC<TooltipProps> = ({
@@ -15,6 +16,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
   position = 'top',
   children,
   className = '',
+  style,
 }) => {
   const [isVisible, setIsVisible] = useState(false);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
@@ -73,13 +75,17 @@ export const Tooltip: React.FC<TooltipProps> = ({
     bubbleRef.current.style.setProperty('--tooltip-left', `${left}px`);
   };
 
+  const hasTitle = Boolean(title && title.trim());
+
   const showTooltip = () => {
+    if (!hasTitle) return;
     if (typeof window !== 'undefined' && window.matchMedia('(hover: none)').matches) {
       return;
     }
     clearAllTimers();
     showTimerRef.current = setTimeout(() => {
-      if (wrapperRef.current && wrapperRef.current.matches(':hover')) {
+      const el = wrapperRef.current;
+      if (el && el.matches(':hover') && !el.querySelector('.daw-tooltip-wrapper:hover')) {
         isTouchShowingRef.current = false;
         setIsVisible(true);
       }
@@ -93,6 +99,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
   };
 
   const handleTouchStart = () => {
+    if (!hasTitle) return;
     if (typeof window !== 'undefined' && window.matchMedia('(hover: none)').matches) {
       clearAllTimers();
       longPressTimerRef.current = setTimeout(() => {
@@ -147,7 +154,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
         e.clientX <= rect.right &&
         e.clientY >= rect.top &&
         e.clientY <= rect.bottom;
-      if (!inside || !el.matches(':hover')) {
+      if (!inside || !el.matches(':hover') || el.querySelector('.daw-tooltip-wrapper:hover')) {
         hideTooltipImmediate();
       }
     };
@@ -190,6 +197,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
     <div
       ref={wrapperRef}
       className={`daw-tooltip-wrapper ${className}`}
+      style={style}
       onMouseEnter={showTooltip}
       onMouseLeave={hideTooltipImmediate}
       onPointerLeave={hideTooltipImmediate}

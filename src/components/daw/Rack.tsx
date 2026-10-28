@@ -100,9 +100,11 @@ export const Rack: React.FC<RackProps> = ({ track }) => {
           );
         })}
         {isAnyFxModified && (
-          <span className="dsp-modified-badge" title="Active uncommitted DSP / Wave Sculpt modifications">
-            MOD
-          </span>
+          <Tooltip title="Unsaved DSP / wave-sculpt changes">
+            <span className="dsp-modified-badge">
+              MOD
+            </span>
+          </Tooltip>
         )}
       </div>
 
@@ -112,15 +114,16 @@ export const Rack: React.FC<RackProps> = ({ track }) => {
         <div className={`dsp-module-card ${!isSculptActive ? 'disabled' : ''} ${activeFxKey === 'sculpt' ? 'active-module' : ''}`}>
           <div className="dsp-module-header">
             <span className="dsp-module-title">WAVE SCULPT</span>
-            <button
-              type="button"
-              onClick={() => resetTrackSculpt(currentTrack.id)}
-              className={`dsp-power-btn ${isSculptActive ? 'active' : ''}`}
-              title="Reset Wave-Design & Peak-Sculpting"
-              disabled={!isSculptActive}
-            >
-              <RotateCcw size={10} /> RESET
-            </button>
+            <Tooltip title="Reset Wave-Design & Peak-Sculpting">
+              <button
+                type="button"
+                onClick={() => resetTrackSculpt(currentTrack.id)}
+                className={`dsp-power-btn ${isSculptActive ? 'active' : ''}`}
+                disabled={!isSculptActive}
+              >
+                <RotateCcw size={10} /> RESET
+              </button>
+            </Tooltip>
           </div>
           <div className="dsp-control-group">
             <RangeSlider
@@ -547,14 +550,15 @@ export const Rack: React.FC<RackProps> = ({ track }) => {
 };
 
 const PowerToggle: React.FC<{ enabled: boolean; onToggle: (enabled: boolean) => void }> = ({ enabled, onToggle }) => (
-  <button
-    type="button"
-    onClick={() => onToggle(!enabled)}
-    className={`dsp-power-btn ${enabled ? 'active' : ''}`}
-    title={enabled ? 'Bypass Effect' : 'Enable Effect'}
-  >
-    <Power size={10} /> {enabled ? 'ON' : 'OFF'}
-  </button>
+  <Tooltip title={enabled ? 'Bypass Effect' : 'Enable Effect'}>
+    <button
+      type="button"
+      onClick={() => onToggle(!enabled)}
+      className={`dsp-power-btn ${enabled ? 'active' : ''}`}
+    >
+      <Power size={10} /> {enabled ? 'ON' : 'OFF'}
+    </button>
+  </Tooltip>
 );
 
 const RangeSlider: React.FC<{

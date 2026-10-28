@@ -134,68 +134,76 @@ const HorizontalChannelDeck: React.FC<HorizontalChannelDeckProps> = ({
             </button>
           </Tooltip>
           {isMaster && selection && (
-            <span className="mixer-strip-title" title={track.name}>
-              {`${selection.start.toFixed(1)}s–${selection.end.toFixed(1)}s`}
-            </span>
+            <Tooltip title={track.name}>
+              <span className="mixer-strip-title">
+                {`${selection.start.toFixed(1)}s–${selection.end.toFixed(1)}s`}
+              </span>
+            </Tooltip>
           )}
         </div>
 
-        <div className="mixer-horiz-fader-well" title="Double-click fader to reset to 0.0 dB">
-          <Volume2 size={13} className="mixer-fader-icon" />
-          <div className="mixer-horiz-fader-track-wrap">
-            <div className="mixer-horiz-meter-lane">
-              <div
-                className="mixer-horiz-meter-fill"
-                data-level={Number.isFinite(level) ? level.toFixed(1) : 'silent'}
-                style={{ '--meter-w': `${meterPct}%` } as React.CSSProperties}
+        <Tooltip title="Volume Fader" description="Double-click to reset to 0.0 dB">
+          <div className="mixer-horiz-fader-well">
+            <Volume2 size={13} className="mixer-fader-icon" />
+            <div className="mixer-horiz-fader-track-wrap">
+              <div className="mixer-horiz-meter-lane">
+                <div
+                  className="mixer-horiz-meter-fill"
+                  data-level={Number.isFinite(level) ? level.toFixed(1) : 'silent'}
+                  style={{ '--meter-w': `${meterPct}%` } as React.CSSProperties}
+                />
+              </div>
+              <input
+                type="range"
+                className="mixer-horiz-fader"
+                min="0.0"
+                max="1.3"
+                step="0.01"
+                value={vol}
+                onChange={(e) => handleVolChange(parseFloat(e.target.value))}
+                onDoubleClick={() => handleVolChange(1.0)}
+                aria-label={`${track.name} Volume`}
               />
             </div>
-            <input
-              type="range"
-              className="mixer-horiz-fader"
-              min="0.0"
-              max="1.3"
-              step="0.01"
-              value={vol}
-              onChange={(e) => handleVolChange(parseFloat(e.target.value))}
-              onDoubleClick={() => handleVolChange(1.0)}
-              aria-label={`${track.name} Volume`}
-            />
+            <Tooltip title={`Peak: ${Number.isFinite(peak) ? peak.toFixed(1) : '-∞'} dB`} description="Double-click to reset">
+              <span
+                className="mixer-fader-readout"
+                onDoubleClick={() => handleVolChange(1.0)}
+              >
+                {volDb} dB
+              </span>
+            </Tooltip>
           </div>
-          <span
-            className="mixer-fader-readout"
-            title={`Peak: ${Number.isFinite(peak) ? peak.toFixed(1) : '-∞'} dB (Double-click to reset)`}
-            onDoubleClick={() => handleVolChange(1.0)}
-          >
-            {volDb} dB
-          </span>
-        </div>
+        </Tooltip>
       </div>
 
       {/* Row 2: Proportional Horizontal Parameter Matrix (EQ / Filter / Pan / Optional Section Trim) */}
       <div className="mixer-horiz-matrix">
         {isSectionMode && (
-          <div className="mixer-param-cell mixer-param-cell-warning" title="Double-click to reset Section Trim">
-            <div className="mixer-param-header">
-              <span className="mixer-knob-name mixer-knob-warning">TRIM</span>
-              <span className="mixer-knob-readout mixer-knob-warning">
-                {sectionGain > 0 ? `+${sectionGain}` : sectionGain} dB
-              </span>
+          <Tooltip title="Section Trim" description="Double-click to reset">
+            <div className="mixer-param-cell mixer-param-cell-warning">
+              <div className="mixer-param-header">
+                <span className="mixer-knob-name mixer-knob-warning">TRIM</span>
+                <span className="mixer-knob-readout mixer-knob-warning">
+                  {sectionGain > 0 ? `+${sectionGain}` : sectionGain} dB
+                </span>
+              </div>
+              <input
+                type="range"
+                className="mixer-rotary-slider"
+                min="-24"
+                max="12"
+                step="0.5"
+                value={sectionGain}
+                onChange={(e) => setSectionGain(parseFloat(e.target.value))}
+                onDoubleClick={() => setSectionGain(0)}
+              />
             </div>
-            <input
-              type="range"
-              className="mixer-rotary-slider"
-              min="-24"
-              max="12"
-              step="0.5"
-              value={sectionGain}
-              onChange={(e) => setSectionGain(parseFloat(e.target.value))}
-              onDoubleClick={() => setSectionGain(0)}
-            />
-          </div>
+          </Tooltip>
         )}
 
-        <div className="mixer-param-cell" title="Low Shelf 120Hz (Double-click to reset)">
+        <Tooltip title="Low Shelf 120Hz" description="Double-click to reset">
+          <div className="mixer-param-cell">
           <div className="mixer-param-header">
             <span className="mixer-knob-name">BASS</span>
             <span className="mixer-knob-readout">{activeLow > 0 ? `+${activeLow}` : activeLow} dB</span>
@@ -217,9 +225,11 @@ const HorizontalChannelDeck: React.FC<HorizontalChannelDeckProps> = ({
               else handleEqChange('low', 0);
             }}
           />
-        </div>
+          </div>
+        </Tooltip>
 
-        <div className="mixer-param-cell" title="Mid Peaking 1kHz (Double-click to reset)">
+        <Tooltip title="Mid Peaking 1kHz" description="Double-click to reset">
+          <div className="mixer-param-cell">
           <div className="mixer-param-header">
             <span className="mixer-knob-name">MID</span>
             <span className="mixer-knob-readout">{activeMid > 0 ? `+${activeMid}` : activeMid} dB</span>
@@ -241,9 +251,11 @@ const HorizontalChannelDeck: React.FC<HorizontalChannelDeckProps> = ({
               else handleEqChange('mid', 0);
             }}
           />
-        </div>
+          </div>
+        </Tooltip>
 
-        <div className="mixer-param-cell" title="High Shelf 6kHz (Double-click to reset)">
+        <Tooltip title="High Shelf 6kHz" description="Double-click to reset">
+          <div className="mixer-param-cell">
           <div className="mixer-param-header">
             <span className="mixer-knob-name">HIGH</span>
             <span className="mixer-knob-readout">{activeHigh > 0 ? `+${activeHigh}` : activeHigh} dB</span>
@@ -265,9 +277,11 @@ const HorizontalChannelDeck: React.FC<HorizontalChannelDeckProps> = ({
               else handleEqChange('high', 0);
             }}
           />
-        </div>
+          </div>
+        </Tooltip>
 
-        <div className="mixer-param-cell" title="Low-Pass Filter Cutoff (Double-click to reset)">
+        <Tooltip title="Low-Pass Filter Cutoff" description="Double-click to reset">
+          <div className="mixer-param-cell">
           <div className="mixer-param-header">
             <span className="mixer-knob-name">FILTER</span>
             <span className="mixer-filter-readout">
@@ -284,9 +298,11 @@ const HorizontalChannelDeck: React.FC<HorizontalChannelDeckProps> = ({
             onChange={(e) => handleCutoffChange(parseFloat(e.target.value))}
             onDoubleClick={() => handleCutoffChange(20000)}
           />
-        </div>
+          </div>
+        </Tooltip>
 
-        <div className="mixer-param-cell" title="Stereo Panning (Double-click to center)">
+        <Tooltip title="Stereo Panning" description="Double-click to center">
+          <div className="mixer-param-cell">
           <div className="mixer-param-header">
             <span className="mixer-knob-name">PAN</span>
             <span className="mixer-pan-readout">
@@ -303,7 +319,8 @@ const HorizontalChannelDeck: React.FC<HorizontalChannelDeckProps> = ({
             onChange={(e) => handlePanChange(parseFloat(e.target.value))}
             onDoubleClick={() => handlePanChange(0)}
           />
-        </div>
+          </div>
+        </Tooltip>
       </div>
     </div>
   );

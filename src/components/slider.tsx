@@ -1,4 +1,5 @@
 import React from 'react';
+import { Tooltip } from './daw/Tooltip';
 
 export interface Props {
   value: number;
@@ -40,22 +41,26 @@ export const Slider: React.FC<Props> = ({
         </div>
       )}
       <div className="cyber-slider-track">
-        <input
-          type="range"
-          aria-label={label}
-          min={min}
-          max={max}
-          step={step}
-          value={value}
-          onChange={(e) => onChange(parseFloat(e.target.value))}
-          onDoubleClick={defaultValue !== undefined ? () => onChange(defaultValue) : undefined}
-          title={defaultValue !== undefined ? 'Double-click to reset' : undefined}
-          className="cyber-slider-input"
-          style={{
-            '--slider-color': color,
-            '--slider-pct': `${percentage}%`,
-          } as React.CSSProperties}
-        />
+        <Tooltip
+          title={defaultValue !== undefined ? 'Double-click to reset' : ''}
+          className="cyber-slider-input-wrap"
+        >
+          <input
+            type="range"
+            aria-label={label}
+            min={min}
+            max={max}
+            step={step}
+            value={value}
+            onChange={(e) => onChange(parseFloat(e.target.value))}
+            onDoubleClick={defaultValue !== undefined ? () => onChange(defaultValue) : undefined}
+            className="cyber-slider-input"
+            style={{
+              '--slider-color': color,
+              '--slider-pct': `${percentage}%`,
+            } as React.CSSProperties}
+          />
+        </Tooltip>
       </div>
     </div>
   );

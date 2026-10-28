@@ -6,7 +6,8 @@ import {
   isTrackSynthModified,
 } from '../../lib/daw/store';
 import { dawEngine } from '../../lib/daw/engine';
-import { mounted, taskLabel } from '../../lib/daw/takes';
+import { mounted, preview, taskLabel } from '../../lib/daw/takes';
+import { useDismiss } from '../../hooks/use-dismiss';
 import { toast } from 'sonner';
 import {
   Sliders,
@@ -28,15 +29,12 @@ import { Tooltip } from './Tooltip';
 export type ManualToolId = 'dsp' | 'mixer' | 'keys' | 'drums' | 'strudel' | 'sample' | 'history';
 export type ManualToolTab = ManualToolId;
 export type ActiveTool = ManualToolId | 'studio' | null;
-export type MobileWorkspacePane = 'board' | 'studio' | 'toolbox';
 
 export interface ToolboxProps {
   activeTool: ActiveTool;
   onSelectTool: (tool: ActiveTool) => void;
   selectedTrackId: string;
   onSelectTrack?: (trackId: string) => void;
-  onOpenCommitModal: () => void;
-  mobileFocused?: boolean;
   onMobileFocus?: () => void;
 }
 
@@ -214,7 +212,6 @@ export const Toolbox: React.FC<ToolboxProps> = ({
   onSelectTool,
   selectedTrackId,
   onSelectTrack,
-  onOpenCommitModal,
   onMobileFocus,
 }) => {
   const tracks = useDawStore((s) => s.tracks);
@@ -222,8 +219,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
   const commits = useDawStore((s) => s.commits);
   const toggleTake = useDawStore((s) => s.toggleTake);
   const deleteTake = useDawStore((s) => s.deleteTake);
-  const isPlaying = useDawStore((s) => s.isPlaying);
-  const setPlaying = useDawStore((s) => s.setPlaying);
+  const auditionId = useDawStore((s) => s.auditionId);
 
   const resolvedActiveTool: ManualToolId =
     activeTool && activeTool !== 'studio' ? activeTool : 'dsp';
@@ -240,16 +236,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
     }
   }, [resolvedActiveTool]);
 
-  useEffect(() => {
-    if (!isOverflowOpen) return;
-    const onPointerDown = (e: PointerEvent) => {
-      if (overflowRef.current && !overflowRef.current.contains(e.target as Node)) {
-        setIsOverflowOpen(false);
-      }
-    };
-    window.addEventListener('pointerdown', onPointerDown);
-    return () => window.removeEventListener('pointerdown', onPointerDown);
-  }, [isOverflowOpen]);
+  useDismiss(isOverflowOpen, () => setIsOverflowOpen(false), overflowRef);
 
   const [historyTab, setHistoryTab] = useState<'takes' | 'commits'>('takes');
   const [selectedCommitId, setSelectedCommitId] = useState<string | null>(null);
@@ -275,9 +262,9 @@ export const Toolbox: React.FC<ToolboxProps> = ({
       { id: 'mixer', label: 'MIXER', meta: `${tracks.length} CH`, desc: 'Multitrack faders, stereo pan, mute & solo console', icon: Sliders, className: 'tab-mixer', dirty: isMixerDirty },
       { id: 'keys', label: 'KEYS', meta: 'MIDI', desc: 'Polyphonic piano roll MIDI composer & note editor', icon: Key, className: 'tab-keys', dirty: isKeysDirty },
       { id: 'drums', label: 'DRUMS', meta: '16-STEP', desc: '16-step polyphonic drum pattern sequencer', icon: Drum, className: 'tab-drums', dirty: isDrumsDirty },
-      { id: 'strudel', label: 'CODE', meta: 'REPL', desc: 'Strudel live-coding pattern synthesizer', icon: Terminal, className: 'tab-strudel', dirty: isStrudelDirty },
+      { id: 'strudel', label: 'CODE', meta: 'REPL', desc: 'Live-code patterns or generate playable synth and drum code from text', icon: Terminal, className: 'tab-strudel', dirty: isStrudelDirty },
       { id: 'sample', label: 'SAMPLE', meta: 'AUDIO', desc: 'Import and slice external audio samples into stems', icon: Plus, className: 'tab-sample', dirty: false },
-      { id: 'history', label: 'HISTORY', meta: `${takes.length}T·${commits.length}C`, desc: `Session takes (${takes.length}) and saved commits (${commits.length})`, icon: History, className: 'tab-history', dirty: false },
+      { id: 'history', label: 'HISTORY', meta: `${takes.length}·${commits.length}`, desc: `Session takes (${takes.length}) and saved snapshots (${commits.length})`, icon: History, className: 'tab-history', dirty: false },
     ];
 
   const activeToolDef = manualTools.find((t) => t.id === resolvedActiveTool) || manualTools[0];
@@ -370,17 +357,9 @@ export const Toolbox: React.FC<ToolboxProps> = ({
                       className={`toolbox-mode-btn ${historyTab === 'commits' ? 'active' : ''}`}
                       onClick={() => setHistoryTab('commits')}
                     >
-                      COMMITS ({commits.length})
+                      SNAPSHOTS ({commits.length})
                     </button>
                   </div>
-
-                  <button
-                    type="button"
-                    className="btn-base btn-variant-primary btn-size-xs"
-                    onClick={onOpenCommitModal}
-                  >
-                    COMMIT
-                  </button>
                 </div>
 
                 {historyTab === 'takes' ? (
@@ -419,39 +398,43 @@ export const Toolbox: React.FC<ToolboxProps> = ({
                                     className="btn-base btn-variant-ghost btn-size-xs"
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      if (isSelected && isPlaying) {
+                                      if (auditionId === take.id) {
                                         dawEngine.stopAuditionTake();
-                                        setPlaying(false);
-                                      } else {
+                                      } else if (take.url) {
                                         if (onSelectTrack) onSelectTrack(take.id);
+                                        const range = preview(take);
+                                        dawEngine.auditionTake(take.url, range.start, range.end, range.timelineStart);
+                                        useDawStore.setState({ auditionId: take.id });
                                       }
                                     }}
                                   >
-                                    {isSelected && isPlaying ? 'STOP' : 'PLAY'}
+                                    {auditionId === take.id ? 'STOP' : 'PLAY'}
                                   </button>
-                                  <button
-                                    type="button"
-                                    title={active ? 'Unmount take' : 'Mount take as base'}
-                                    aria-pressed={active}
-                                    className={`btn-base ${active ? 'btn-variant-primary' : 'btn-variant-ghost'} btn-size-xs`}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      toggleTake(take.id);
-                                    }}
-                                  >
-                                    {active ? 'BASE' : 'MOUNT'}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="btn-base btn-variant-ghost btn-size-xs toolbox-take-delete-btn"
-                                    title="Delete take"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      deleteTake(take.id);
-                                    }}
-                                  >
-                                    <Trash2 size={11} />
-                                  </button>
+                                  <Tooltip title={active ? 'Unmount take' : 'Mount take as base'}>
+                                    <button
+                                      type="button"
+                                      aria-pressed={active}
+                                      className={`btn-base ${active ? 'btn-variant-primary' : 'btn-variant-ghost'} btn-size-xs`}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        toggleTake(take.id);
+                                      }}
+                                    >
+                                      {active ? 'BASE' : 'MOUNT'}
+                                    </button>
+                                  </Tooltip>
+                                  <Tooltip title="Delete take">
+                                    <button
+                                      type="button"
+                                      className="btn-base btn-variant-ghost btn-size-xs toolbox-take-delete-btn"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        deleteTake(take.id);
+                                      }}
+                                    >
+                                      <Trash2 size={11} />
+                                    </button>
+                                  </Tooltip>
                                 </div>
                               )}
                             </div>
@@ -463,7 +446,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
                 ) : (
                   <div className="toolbox-commits-section">
                     {commits.length === 0 ? (
-                      <p className="toolbox-history-empty">No commits yet.</p>
+                      <p className="toolbox-history-empty">No snapshots yet.</p>
                     ) : (
                       <div className="toolbox-commits-list">
                         {visibleCommits.map((c) => {
@@ -488,19 +471,26 @@ export const Toolbox: React.FC<ToolboxProps> = ({
                               </div>
                               {isSelected && (
                                 <div className="toolbox-commit-actions">
-                                  {snapTakeId && (
-                                    <button
-                                      type="button"
-                                      className="btn-base btn-variant-ghost btn-size-xs"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        if (onSelectTrack) onSelectTrack(snapTakeId);
-                                        useDawStore.getState().setSelectedTrackId(snapTakeId);
-                                      }}
-                                    >
-                                      AUDITION
-                                    </button>
-                                  )}
+                                  {snapTakeId && (() => {
+                                    const snapTake = takes.find((t) => t.id === snapTakeId);
+                                    if (!snapTake?.url) return null;
+                                    return (
+                                      <button
+                                        type="button"
+                                        className="btn-base btn-variant-ghost btn-size-xs"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          if (onSelectTrack) onSelectTrack(snapTakeId);
+                                          useDawStore.getState().setSelectedTrackId(snapTakeId);
+                                          const range = preview(snapTake);
+                                          dawEngine.auditionTake(snapTake.url!, range.start, range.end, range.timelineStart);
+                                          useDawStore.setState({ auditionId: snapTakeId });
+                                        }}
+                                      >
+                                        AUDITION
+                                      </button>
+                                    );
+                                  })()}
                                   <button
                                     type="button"
                                     className="btn-base btn-variant-primary btn-size-xs"
@@ -508,11 +498,11 @@ export const Toolbox: React.FC<ToolboxProps> = ({
                                       e.stopPropagation();
                                       if (Array.isArray(c.timeline_snapshot?.tracks)) {
                                         useDawStore.getState().restoreSession([c]);
-                                        toast.success(`Restored commit: ${c.message}`);
+                                        toast.success(`Restored snapshot: ${c.message}`);
                                       } else if (snapTakeId) {
                                         void toggleTake(snapTakeId);
                                       } else {
-                                        toast.success(`Selected commit: ${c.message}`);
+                                        toast.success(`Selected snapshot: ${c.message}`);
                                       }
                                     }}
                                   >
