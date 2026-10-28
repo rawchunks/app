@@ -1,4 +1,4 @@
-import { sdk } from '@/lib/sdk';
+import { sdk, watch } from '@/lib/sdk';
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
 import { Glitch } from '../components/glitch';
@@ -10,17 +10,17 @@ import { useDawStore, TrackType, type Take, type LyricsAlignment } from '../lib/
 import { dawEngine } from '../lib/daw/engine';
 import { useOptions } from '../hooks/use-options';
 import { useSelectedUserAddress } from '../hooks/use-address';
-import { useSession, promptSessionModal, SessionControl } from '../components/session';
-import { WalletConnector } from '../components/connector';
+import { openGate } from '@/lib/gate';
+import { AccountChip } from '../components/account';
+import { Session } from '../components/session';
 import { Board } from '../components/daw/Board';
 import { Toolbox, ManualToolTab } from '../components/daw/Toolbox';
 import { Studio } from '../components/daw/Studio';
 import { Tooltip } from '../components/daw/Tooltip';
 import { ArrowLeft, Play, Pause, Square, SkipBack, Repeat } from 'lucide-react';
-import { source, sourceInterval, interval, isLayerTake, layerTrackName, isFullSongRestyleTake } from '../lib/daw/takes';
+import { source, sourceInterval, interval, isLayerTake, layerTrackName, isFullSongRestyleTake, taskLabel } from '../lib/daw/takes';
 import { readProject, writeProject } from '../lib/cache';
 import { useQueryClient } from '@tanstack/react-query';
-import { GuideTrigger } from '../components/guide/Tour';
 
 export interface Props {
   song: Song;
@@ -38,81 +38,27 @@ const fmtHeaderTime = (sec: number) => {
 
 const EditorTransportDeck: React.FC<{
   fallbackDuration?: number;
-}> = ({ fallbackDuration = 0 }) => {
+  onTogglePlay: () => void;
+  onStop: () => void;
+  onReturnToZero: () => void;
+  onToggleLoop: () => void;
+}> = ({ fallbackDuration = 0, onTogglePlay, onStop, onReturnToZero, onToggleLoop }) => {
   const playhead = useDawStore((s) => s.playhead);
   const duration = useDawStore((s) => s.duration);
   const isPlaying = useDawStore((s) => s.isPlaying);
-  const setPlaying = useDawStore((s) => s.setPlaying);
-  const setPlayhead = useDawStore((s) => s.setPlayhead);
   const loop = useDawStore((s) => s.loop);
-  const setLoop = useDawStore((s) => s.setLoop);
   const selection = useDawStore((s) => s.selection);
   const total = duration > 0 ? duration : fallbackDuration;
-
-  const handleTogglePlay = useCallback(async () => {
-    if (useDawStore.getState().isPlaying) {
-      dawEngine.pauseTransport();
-      setPlaying(false);
-    } else {
-      try {
-        await dawEngine.startTransport();
-      } catch (error) {
-        toast.error(error instanceof Error ? error.message : 'Could not play the arrangement');
-      }
-    }
-  }, [setPlaying]);
-
-  const handleStop = useCallback(() => {
-    dawEngine.stopTransport();
-    setPlaying(false);
-    setPlayhead(0);
-  }, [setPlaying, setPlayhead]);
-
-  const handleReturnToZero = useCallback(() => {
-    dawEngine.seek(0);
-    setPlayhead(0);
-  }, [setPlayhead]);
-
-  const handleToggleLoop = useCallback(() => {
-    const nextLoop = !loop;
-    setLoop(nextLoop);
-    if (selection) {
-      dawEngine.setLoop(nextLoop, selection.start, selection.end);
-    } else {
-      dawEngine.setLoop(nextLoop, 0, total);
-    }
-  }, [loop, setLoop, selection, total]);
-
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.code !== 'Space' || e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
-      const target = e.target as HTMLElement | null;
-      if (
-        target &&
-        (target.tagName === 'INPUT' ||
-          target.tagName === 'TEXTAREA' ||
-          target.tagName === 'SELECT' ||
-          target.tagName === 'BUTTON' ||
-          target.isContentEditable)
-      ) {
-        return;
-      }
-      e.preventDefault();
-      void handleTogglePlay();
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [handleTogglePlay]);
 
   return (
     <div className={`editor-transport-deck ${isPlaying ? 'is-playing' : ''}`} role="group" aria-label="Master Transport">
       <div className="editor-transport-controls">
-        <Tooltip title="Return to Zero" description="Rewind playhead to 0:00.0">
+        <Tooltip title="Back to Start" description="Jump to the start of the arrangement">
           <button
             type="button"
             className="editor-transport-btn editor-transport-rtz-btn"
-            onClick={handleReturnToZero}
-            aria-label="Return to Zero"
+            onClick={onReturnToZero}
+            aria-label="Back to start"
           >
             <SkipBack size={12} />
           </button>
@@ -125,7 +71,7 @@ const EditorTransportDeck: React.FC<{
           <button
             type="button"
             className={`editor-transport-play-btn ${isPlaying ? 'active' : ''}`}
-            onClick={handleTogglePlay}
+            onClick={onTogglePlay}
             aria-label={isPlaying ? 'Pause' : 'Play'}
           >
             {isPlaying ? <Pause size={13} /> : <Play size={13} className="play-icon-nudge" />}
@@ -133,11 +79,11 @@ const EditorTransportDeck: React.FC<{
           </button>
         </Tooltip>
 
-        <Tooltip title="Stop" description="Stop playback and reset playhead to 0:00.0">
+        <Tooltip title="Stop" description="Stop playback and jump to the start">
           <button
             type="button"
             className="editor-transport-btn editor-transport-stop-btn"
-            onClick={handleStop}
+            onClick={onStop}
             aria-label="Stop"
           >
             <Square size={11} />
@@ -151,7 +97,7 @@ const EditorTransportDeck: React.FC<{
           <button
             type="button"
             className={`editor-transport-btn ${loop ? 'active' : ''}`}
-            onClick={handleToggleLoop}
+            onClick={onToggleLoop}
             aria-label="Toggle Loop"
           >
             <Repeat size={12} />
