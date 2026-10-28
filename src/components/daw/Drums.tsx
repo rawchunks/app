@@ -257,19 +257,21 @@ export const Drums: React.FC<DrumsProps> = ({ track }) => {
 
       {/* Row 2: Inline 16-Step Lane Preview + Expand Full Matrix Modal */}
       <div className="daw-instrument-preview-row">
-        <div
-          className="daw-instrument-preview-viz"
+        <Tooltip
           title="Click steps to toggle active voice or click Open Drum Matrix for all voices & QWERTY pads"
+          className="daw-preview-grow-wrap"
         >
+        <div className="daw-instrument-preview-viz">
           {activePreviewVoice && (
-            <button
-              type="button"
-              className="daw-instrument-preview-badge"
-              onClick={() => handleVoiceAudition(safeVoiceIdx)}
-              title={`Audition ${activePreviewVoice.name}`}
-            >
-              {activePreviewVoice.name.toUpperCase()}
-            </button>
+            <Tooltip title={`Audition ${activePreviewVoice.name}`}>
+              <button
+                type="button"
+                className="daw-instrument-preview-badge"
+                onClick={() => handleVoiceAudition(safeVoiceIdx)}
+              >
+                {activePreviewVoice.name.toUpperCase()}
+              </button>
+            </Tooltip>
           )}
 
           <div className="daw-instrument-preview-steps">
@@ -278,22 +280,27 @@ export const Drums: React.FC<DrumsProps> = ({ track }) => {
                   const isCurrent = isPlaying && activeStep === stepIdx;
                   const isMeasureStart = stepIdx % 4 === 0;
                   return (
-                    <button
+                    <Tooltip
                       key={stepIdx}
-                      type="button"
-                      className={`sequencer-step-pad ${isActive ? 'active' : ''} ${isMeasureStart ? 'measure-start' : ''} ${isCurrent ? 'playhead-active' : ''}`}
-                      onClick={() => handleStepClick(safeVoiceIdx, stepIdx)}
-                      aria-pressed={isActive}
-                      aria-label={`${activePreviewVoice.name} step ${stepIdx + 1}`}
                       title={`${activePreviewVoice.name} • Step ${stepIdx + 1}`}
+                      className="sequencer-pad-wrap"
                     >
-                      <div className="sequencer-pad-led" />
-                    </button>
+                      <button
+                        type="button"
+                        className={`sequencer-step-pad ${isActive ? 'active' : ''} ${isMeasureStart ? 'measure-start' : ''} ${isCurrent ? 'playhead-active' : ''}`}
+                        onClick={() => handleStepClick(safeVoiceIdx, stepIdx)}
+                        aria-pressed={isActive}
+                        aria-label={`${activePreviewVoice.name} step ${stepIdx + 1}`}
+                      >
+                        <div className="sequencer-pad-led" />
+                      </button>
+                    </Tooltip>
                   );
                 })
               : null}
           </div>
         </div>
+        </Tooltip>
 
         <button
           type="button"
@@ -324,14 +331,18 @@ export const Drums: React.FC<DrumsProps> = ({ track }) => {
                   const isBarBeat = stepIdx % 4 === 0;
                   const isCurrent = (isPlaying && activeStep === stepIdx) || (!isPlaying && isKeyRecEnabled && stepCursor === stepIdx);
                   return (
-                    <div
+                    <Tooltip
                       key={stepIdx}
-                      className={`sequencer-step-num ${isBarBeat ? 'bar-beat' : ''} ${isCurrent ? 'current' : ''}`}
-                      onClick={() => setStepCursor(stepIdx)}
                       title={`Set step cursor to step ${stepIdx + 1}`}
+                      className="sequencer-cell-wrap"
                     >
-                      {stepIdx + 1}
-                    </div>
+                      <div
+                        className={`sequencer-step-num ${isBarBeat ? 'bar-beat' : ''} ${isCurrent ? 'current' : ''}`}
+                        onClick={() => setStepCursor(stepIdx)}
+                      >
+                        {stepIdx + 1}
+                      </div>
+                    </Tooltip>
                   );
                 })}
               </div>
@@ -344,17 +355,21 @@ export const Drums: React.FC<DrumsProps> = ({ track }) => {
                 const isHeld = heldVoices.has(voiceIdx);
                 return (
                   <div key={voice.name} className="sequencer-voice-row">
-                    <div
-                      className={`sequencer-voice-strip ${isHeld ? 'active' : ''}`}
-                      onClick={() => handleVoiceAudition(voiceIdx)}
+                    <Tooltip
                       title={keycap ? `Audition ${voice.name} (Keys: [${keycap}])` : `Audition ${voice.name}`}
+                      className="sequencer-voice-wrap"
                     >
-                      <div className="sequencer-voice-badge-wrap">
-                        {keycap && <kbd className="daw-keycap-badge">{keycap}</kbd>}
-                        <span className="sequencer-voice-badge">{voice.name}</span>
+                      <div
+                        className={`sequencer-voice-strip ${isHeld ? 'active' : ''}`}
+                        onClick={() => handleVoiceAudition(voiceIdx)}
+                      >
+                        <div className="sequencer-voice-badge-wrap">
+                          {keycap && <kbd className="daw-keycap-badge">{keycap}</kbd>}
+                          <span className="sequencer-voice-badge">{voice.name}</span>
+                        </div>
+                        <Volume2 size={11} className="sequencer-voice-icon" />
                       </div>
-                      <Volume2 size={11} className="sequencer-voice-icon" />
-                    </div>
+                    </Tooltip>
 
                     <div className="sequencer-steps-row">
                       {voice.steps.map((isActive, stepIdx) => {
@@ -365,17 +380,21 @@ export const Drums: React.FC<DrumsProps> = ({ track }) => {
                         const isAlternatingMeasure = measureIdx % 2 === 1;
 
                         return (
-                          <button
+                          <Tooltip
                             key={stepIdx}
-                            type="button"
-                            className={`sequencer-step-pad ${isActive ? 'active' : ''} ${isMeasureStart ? 'measure-start' : ''} ${isAlternatingMeasure ? 'alt-measure' : ''} ${isCurrent || isCursor ? 'playhead-active' : ''}`}
-                            onClick={() => handleStepClick(voiceIdx, stepIdx)}
-                            aria-pressed={isActive}
-                            aria-label={`${voice.name} step ${stepIdx + 1}`}
                             title={`${voice.name} • Step ${stepIdx + 1} ${isActive ? '(Active)' : '(Empty)'}`}
+                            className="sequencer-pad-wrap"
                           >
-                            <div className="sequencer-pad-led" />
-                          </button>
+                            <button
+                              type="button"
+                              className={`sequencer-step-pad ${isActive ? 'active' : ''} ${isMeasureStart ? 'measure-start' : ''} ${isAlternatingMeasure ? 'alt-measure' : ''} ${isCurrent || isCursor ? 'playhead-active' : ''}`}
+                              onClick={() => handleStepClick(voiceIdx, stepIdx)}
+                              aria-pressed={isActive}
+                              aria-label={`${voice.name} step ${stepIdx + 1}`}
+                            >
+                              <div className="sequencer-pad-led" />
+                            </button>
+                          </Tooltip>
                         );
                       })}
                     </div>

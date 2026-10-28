@@ -325,6 +325,10 @@ export const Keys: React.FC<KeysProps> = ({ track }) => {
 
       {/* Row 2: Self-Contained Compact Preview + Expand Modal Trigger */}
       <div className="daw-instrument-preview-row">
+        <Tooltip
+          title="Click to open full 2-octave Piano Roll & QWERTY Synth Modal"
+          className="daw-preview-grow-wrap"
+        >
         <div
           className="daw-instrument-preview-viz"
           onClick={() => setIsModalOpen(true)}
@@ -336,7 +340,6 @@ export const Keys: React.FC<KeysProps> = ({ track }) => {
               setIsModalOpen(true);
             }
           }}
-          title="Click to open full 2-octave Piano Roll & QWERTY Synth Modal"
         >
           <span className="daw-instrument-preview-badge">
             {notes.length} {notes.length === 1 ? 'NOTE' : 'NOTES'}
@@ -348,19 +351,20 @@ export const Keys: React.FC<KeysProps> = ({ track }) => {
               const hasNote = notes.some((n) => n.pitch === pitch);
               const isAuditioning = activeAuditionPitch === pitch || heldPitches.has(pitch);
               return (
-                <button
-                  key={pitch}
-                  type="button"
-                  className={`pianoroll-mini-btn ${hasNote || isAuditioning ? 'active' : ''}`}
-                  onClick={() => handleKeyAudition(pitch)}
-                  title={`Audition ${pitch}`}
-                >
-                  {pitch}
-                </button>
+                <Tooltip key={pitch} title={`Audition ${pitch}`}>
+                  <button
+                    type="button"
+                    className={`pianoroll-mini-btn ${hasNote || isAuditioning ? 'active' : ''}`}
+                    onClick={() => handleKeyAudition(pitch)}
+                  >
+                    {pitch}
+                  </button>
+                </Tooltip>
               );
             })}
           </div>
         </div>
+        </Tooltip>
 
         <button
           type="button"
@@ -390,15 +394,19 @@ export const Keys: React.FC<KeysProps> = ({ track }) => {
                 const isAuditioning = activeAuditionPitch === pitch || heldPitches.has(pitch);
                 const keycap = getKeycapForPitch(pitch, baseOctave);
                 return (
-                  <div
+                  <Tooltip
                     key={pitch}
-                    className={`pianoroll-key ${isAccidental ? 'accidental' : 'natural'} ${isAuditioning ? 'active' : ''}`}
-                    onClick={() => handleKeyAudition(pitch)}
                     title={keycap ? `Play ${pitch} (Laptop Key: [${keycap}])` : `Play ${pitch}`}
+                    className="pianoroll-key-wrap"
                   >
-                    {keycap && <kbd className="daw-keycap-badge">{keycap}</kbd>}
-                    <span className="pianoroll-key-label">{pitch}</span>
-                  </div>
+                    <div
+                      className={`pianoroll-key ${isAccidental ? 'accidental' : 'natural'} ${isAuditioning ? 'active' : ''}`}
+                      onClick={() => handleKeyAudition(pitch)}
+                    >
+                      {keycap && <kbd className="daw-keycap-badge">{keycap}</kbd>}
+                      <span className="pianoroll-key-label">{pitch}</span>
+                    </div>
+                  </Tooltip>
                 );
               })}
             </div>
@@ -441,26 +449,32 @@ export const Keys: React.FC<KeysProps> = ({ track }) => {
                   const widthPct = Math.max(1.8, (n.duration / PIANO_STEPS) * 100);
 
                   return (
-                    <button
-                      type="button"
-                      aria-label={`Remove ${n.pitch} at step ${n.startTime + 1}`}
+                    <Tooltip
                       key={n.id}
-                      className="pianoroll-note-item"
+                      title={`${n.pitch} (Step ${n.startTime + 1}, Length ${n.duration}) - Click to delete`}
+                      className="pianoroll-note-wrap"
                       style={{
                         '--note-top': `${topPct}%`,
                         '--note-left': `${leftPct}%`,
                         '--note-w': `${widthPct}%`,
                         '--note-h': `${rowHeightPct}%`,
-                        '--note-opacity': 0.4 + (n.velocity || 0.8) * 0.6,
                       } as React.CSSProperties}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        removePianoRollNote(pianoTrack.id, n.id);
-                      }}
-                      title={`${n.pitch} (Step ${n.startTime + 1}, Length ${n.duration}) - Click to delete`}
                     >
-                      <span className="pianoroll-note-label">{n.pitch}</span>
-                    </button>
+                      <button
+                        type="button"
+                        aria-label={`Remove ${n.pitch} at step ${n.startTime + 1}`}
+                        className="pianoroll-note-item"
+                        style={{
+                          '--note-opacity': 0.4 + (n.velocity || 0.8) * 0.6,
+                        } as React.CSSProperties}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removePianoRollNote(pianoTrack.id, n.id);
+                        }}
+                      >
+                        <span className="pianoroll-note-label">{n.pitch}</span>
+                      </button>
+                    </Tooltip>
                   );
                 })}
               </div>

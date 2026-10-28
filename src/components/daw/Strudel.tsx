@@ -241,24 +241,26 @@ export const Strudel: React.FC<StrudelProps> = ({ track }) => {
         {inModal ? (
           <div className="strudel-starters-group">
             {STRUDEL_STARTERS.map((preset) => (
-              <button
-                key={preset.label}
-                type="button"
-                className="daw-ui-btn"
-                onClick={() => {
-                  setCode(preset.code);
-                  handleEvaluate(preset.code);
-                }}
-                title={`Load & evaluate ${preset.label}`}
-              >
-                {preset.label}
-              </button>
+              <Tooltip key={preset.label} title={`Load & evaluate ${preset.label}`}>
+                <button
+                  type="button"
+                  className="daw-ui-btn"
+                  onClick={() => {
+                    setCode(preset.code);
+                    handleEvaluate(preset.code);
+                  }}
+                >
+                  {preset.label}
+                </button>
+              </Tooltip>
             ))}
           </div>
         ) : (
-          <span className="daw-instrument-preview-code" title={lastLog}>
-            {lastLog}
-          </span>
+          <Tooltip title={lastLog} className="daw-preview-grow-wrap">
+            <span className="daw-instrument-preview-code">
+              {lastLog}
+            </span>
+          </Tooltip>
         )}
       </div>
 
@@ -332,6 +334,10 @@ export const Strudel: React.FC<StrudelProps> = ({ track }) => {
 
       {/* Row 2: Click-to-Expand Pattern Preview + Expand Modal Button */}
       <div className="daw-instrument-preview-row">
+        <Tooltip
+          title="Click to open full Strudel Live Code REPL Modal"
+          className="daw-preview-grow-wrap"
+        >
         <div
           className="daw-instrument-preview-viz"
           onClick={() => setIsModalOpen(true)}
@@ -343,7 +349,6 @@ export const Strudel: React.FC<StrudelProps> = ({ track }) => {
               setIsModalOpen(true);
             }
           }}
-          title="Click to open full Strudel Live Code REPL Modal"
         >
           <span className="daw-instrument-preview-badge">REPL</span>
           <span className="daw-instrument-preview-code">
@@ -352,6 +357,7 @@ export const Strudel: React.FC<StrudelProps> = ({ track }) => {
               : "// s('bd [sd hh]*2').fast(2) — Click to open Live Code Editor..."}
           </span>
         </div>
+        </Tooltip>
 
         <button
           type="button"
