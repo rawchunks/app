@@ -294,6 +294,48 @@ const LyricsHighlightedCanvas: React.FC<LyricsHighlightedCanvasProps> = ({
     useDawStore.getState().setPlayhead(clamped);
   };
 
+  const handleSelectLineRange = (lineIdx: number) => {
+    const line = alignment.lines[lineIdx];
+    if (!line) return;
+
+    let srcStart: number | null = line.start;
+    let srcEnd: number | null = line.end;
+
+    if (line.isTag) {
+      const nextTagIdx = alignment.lines.findIndex((l, idx) => idx > lineIdx && l.isTag);
+      const sectionLines = alignment.lines
+        .slice(lineIdx + 1, nextTagIdx >= 0 ? nextTagIdx : undefined)
+        .filter((l) => !l.isTag && l.start !== null && l.end !== null);
+      if (sectionLines.length > 0) {
+        srcStart = sectionLines[0].start;
+        srcEnd = sectionLines[sectionLines.length - 1].end;
+      }
+    }
+
+    if (srcStart === null) return;
+    const safeEnd = srcEnd !== null && srcEnd > srcStart + 0.25 ? srcEnd : srcStart + 2.0;
+
+    const pStart = mapSourceTimeToPlayheadTime(Math.max(0, srcStart), clipStart, clipDuration, activeSculpt);
+    const pEnd = mapSourceTimeToPlayheadTime(Math.max(srcStart + 0.5, safeEnd), clipStart, clipDuration, activeSculpt);
+    const currentSel = useDawStore.getState().selection;
+
+    if (
+      currentSel &&
+      Math.abs(currentSel.start - pStart) < 0.15 &&
+      Math.abs(currentSel.end - pEnd) < 0.15
+    ) {
+      useDawStore.getState().setSelection(null);
+      return;
+    }
+
+    useDawStore.getState().setSelection({
+      start: Number(pStart.toFixed(3)),
+      end: Number(pEnd.toFixed(3)),
+    });
+    dawEngine.seek(pStart);
+    useDawStore.getState().setPlayhead(pStart);
+  };
+
   return (
     <div className="toolbox-lyrics-canvas-wrapper">
       {selection && (
@@ -307,12 +349,15 @@ const LyricsHighlightedCanvas: React.FC<LyricsHighlightedCanvasProps> = ({
         </div>
       )}
 
-      <div
-        ref={scrollContainerRef}
-        className="toolbox-lyrics-canvas toolbox-lyrics-canvas-highlighted"
-        onDoubleClick={() => onStartEdit()}
+      <Tooltip
         title="Click any word to seek playhead • Double-click anywhere to edit lyrics text"
+        className="canvas-scroll-wrap"
       >
+        <div
+          ref={scrollContainerRef}
+          className="toolbox-lyrics-canvas toolbox-lyrics-canvas-highlighted"
+          onDoubleClick={() => onStartEdit()}
+        >
         {alignment.lines.map((line, lineIdx) => {
           const isInSelection = selectedLineIndices.has(lineIdx);
           if (line.isTag) {
@@ -323,7 +368,7 @@ const LyricsHighlightedCanvas: React.FC<LyricsHighlightedCanvasProps> = ({
                   lineRefs.current[lineIdx] = el;
                 }}
                 className={`toolbox-lyrics-canvas-line is-tag-line ${isInSelection ? 'is-in-selection' : ''}`}
-                onClick={() => handleSeek(line.start)}
+                onClick={() => handleSelectLineRange(lineIdx)}
                 onDoubleClick={(e) => {
                   e.stopPropagation();
                   onStartEdit(lineIdx);
@@ -373,14 +418,17 @@ const LyricsHighlightedCanvas: React.FC<LyricsHighlightedCanvasProps> = ({
                     const warpedWordStart = mapSourceTimeToPlayheadTime(word.start, clipStart, clipDuration, activeSculpt);
                     const warpedWordEnd = mapSourceTimeToPlayheadTime(word.end, clipStart, clipDuration, activeSculpt);
                     return (
-                      <span
+                      <Tooltip
                         key={`w-${lineIdx}-${wIdx}-${word.start}`}
-                        className={`toolbox-lyrics-sync-word ${isActiveWord ? 'is-active-word' : ''} ${isPastWord ? 'is-past-word' : ''} ${isWordInSelection ? 'is-in-selection' : ''}`}
-                        onClick={() => handleSeek(word.start)}
                         title={`${word.text} [${formatSyncTimestamp(warpedWordStart)} – ${formatSyncTimestamp(warpedWordEnd)}]`}
                       >
-                        {word.text}{wIdx < line.words.length - 1 ? ' ' : ''}
-                      </span>
+                        <span
+                          className={`toolbox-lyrics-sync-word ${isActiveWord ? 'is-active-word' : ''} ${isPastWord ? 'is-past-word' : ''} ${isWordInSelection ? 'is-in-selection' : ''}`}
+                          onClick={() => handleSeek(word.start)}
+                        >
+                          {word.text}{wIdx < line.words.length - 1 ? ' ' : ''}
+                        </span>
+                      </Tooltip>
                     );
                   })
                 ) : (
@@ -393,18 +441,25 @@ const LyricsHighlightedCanvas: React.FC<LyricsHighlightedCanvasProps> = ({
                 )}
               </div>
               {line.start !== null && (
-                <span
-                  className="toolbox-lyrics-sync-timestamp"
-                  onClick={() => handleSeek(line.start)}
-                  title={`Seek playhead to ${formatSyncTimestamp(mapSourceTimeToPlayheadTime(line.start, clipStart, clipDuration, activeSculpt))}`}
+                <Tooltip
+                  title={`Select line range on timeline (${formatSyncTimestamp(mapSourceTimeToPlayheadTime(line.start, clipStart, clipDuration, activeSculpt))})`}
                 >
-                  {formatSyncTimestamp(mapSourceTimeToPlayheadTime(line.start, clipStart, clipDuration, activeSculpt))}
-                </span>
+                  <span
+                    className="toolbox-lyrics-sync-timestamp"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleSelectLineRange(lineIdx);
+                    }}
+                  >
+                    {formatSyncTimestamp(mapSourceTimeToPlayheadTime(line.start, clipStart, clipDuration, activeSculpt))}
+                  </span>
+                </Tooltip>
               )}
             </div>
           );
         })}
-      </div>
+        </div>
+      </Tooltip>
 
       <div className="toolbox-lyrics-sidepanel-footer">
         <Tooltip title="Double-click any lyric line to edit">
@@ -423,9 +478,9 @@ const LyricsHighlightedCanvas: React.FC<LyricsHighlightedCanvasProps> = ({
 
 export interface CanvasProps {
   lyrics: string;
-  onLyricsChange: (lyrics: string) => void;
+  onLyricsChange?: (lyrics: string) => void;
   vocalLanguage: string;
-  onVocalLanguageChange: (language: string) => void;
+  onVocalLanguageChange?: (language: string) => void;
   languages?: Array<{ id: string; label: string }>;
   hasExistingLyrics?: boolean;
   isTranscribingLyrics?: boolean;
@@ -649,7 +704,7 @@ export const Canvas: React.FC<CanvasProps> = ({
       const canonical = activeAlign.lines.map((l) => l.text).join('\n');
       if (canonical && canonical !== lyrics) {
         textToEdit = canonical;
-        onLyricsChange(canonical);
+        onLyricsChange?.(canonical);
       }
     }
 
@@ -666,6 +721,18 @@ export const Canvas: React.FC<CanvasProps> = ({
     if (typeof preferredLineIdx === 'number' && preferredLineIdx >= 0) {
       targetStartIdx = preferredLineIdx;
       targetEndIdx = preferredLineIdx;
+      const targetLine = alignLines[preferredLineIdx];
+      if (targetLine && targetLine.start !== null) {
+        const rawEnd = targetLine.end !== null && targetLine.end > targetLine.start + 0.25
+          ? targetLine.end
+          : targetLine.start + 2.0;
+        const pStart = mapSourceTimeToPlayheadTime(Math.max(0, targetLine.start), clipStart, clipDuration || 60, activeSculpt);
+        const pEnd = mapSourceTimeToPlayheadTime(Math.max(targetLine.start + 0.5, rawEnd), clipStart, clipDuration || 60, activeSculpt);
+        storeState.setSelection({
+          start: Number(pStart.toFixed(3)),
+          end: Number(pEnd.toFixed(3)),
+        });
+      }
     } else if (selection && alignLines.length > 0) {
       const selStart = mapPlayheadTimeToSourceTime(selection.start, clipStart, clipDuration, activeSculpt);
       const selEnd = mapPlayheadTimeToSourceTime(selection.end, clipStart, clipDuration, activeSculpt);
@@ -785,7 +852,7 @@ export const Canvas: React.FC<CanvasProps> = ({
       const suffix = after.startsWith('\n') ? '' : '\n';
       const next = `${before}${prefix}${tag}${suffix}${after}`;
       const cursor = before.length + prefix.length + tag.length + suffix.length;
-      onLyricsChange(next);
+      onLyricsChange?.(next);
       setTimeout(() => {
         el.focus({ preventScroll: true });
         el.setSelectionRange(cursor, cursor);
@@ -813,12 +880,12 @@ export const Canvas: React.FC<CanvasProps> = ({
         const next = `${beforeStr}${tag}\n${afterLines.join('\n')}`;
         const cursor = beforeStr.length + tag.length + 1;
         pendingEditTargetRef.current = { charStart: cursor, charEnd: cursor, textToEdit: next };
-        onLyricsChange(next);
+        onLyricsChange?.(next);
       } else {
         const prefix = baseText.trim().length > 0 ? `${baseText.trimEnd()}\n` : '';
         const next = `${prefix}${tag}\n`;
         pendingEditTargetRef.current = { charStart: next.length, charEnd: next.length, textToEdit: next };
-        onLyricsChange(next);
+        onLyricsChange?.(next);
       }
     }
   };
@@ -927,16 +994,20 @@ export const Canvas: React.FC<CanvasProps> = ({
       aria-label="Lyrics Canvas"
     >
       {mode === 'dock' && (
-        <div
-          className="canvas-dock-resizer"
-          onPointerDown={handleDockResizeDown}
+        <Tooltip
           title="Drag horizontally to resize Lyrics Canvas width"
-        />
+          className="canvas-resizer-wrap"
+        >
+          <div
+            className="canvas-dock-resizer"
+            onPointerDown={handleDockResizeDown}
+          />
+        </Tooltip>
       )}
       <div className="toolbox-lyrics-sidepanel-header">
         <div className="toolbox-lyrics-sidepanel-title-wrap">
           <span className="toolbox-lyrics-sidepanel-title">
-            {mode === 'overlay' ? 'LYRICS & STRUCTURE' : 'CANVAS'}
+            {mode === 'overlay' ? 'LYRICS & STRUCTURE' : 'LYRICS'}
           </span>
         </div>
         <div className="toolbox-lyrics-sidepanel-actions">
@@ -1054,16 +1125,16 @@ export const Canvas: React.FC<CanvasProps> = ({
           className="toolbox-lyrics-canvas"
           placeholder={
             isTranscribingLyrics
-              ? 'Transcribing vocal stem in background... You can also type or edit lyrics directly.'
+              ? 'Extracting lyrics from the vocals — you can keep writing while it works...'
               : hasExistingLyrics
-                ? 'Edit vocal lyrics...'
-                : 'Write vocal lyrics or insert section tags above (leave empty to let AI compose lyrics matching the prompt)...'
+                ? 'Edit lyrics...'
+                : 'Write lyrics or add section tags above — leave empty and the AI will write them for you...'
           }
           value={lyrics}
           onFocus={() => setIsEditingLyricsCanvas(true)}
           onChange={(e) => {
             setIsEditingLyricsCanvas(true);
-            onLyricsChange(e.target.value);
+            onLyricsChange?.(e.target.value);
           }}
         />
       )}
@@ -1072,7 +1143,7 @@ export const Canvas: React.FC<CanvasProps> = ({
         isOpen={isLanguageModalOpen}
         onClose={() => setIsLanguageModalOpen(false)}
         value={vocalLanguage}
-        onChange={(val) => onVocalLanguageChange(val || 'en')}
+        onChange={(val) => onVocalLanguageChange?.(val || 'en')}
         languages={languages}
         allowAuto={false}
       />

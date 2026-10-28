@@ -194,10 +194,10 @@ export const Board: React.FC<BoardProps> = ({
     (task === 'lego' && (instrument === 'vocals' || instrument === 'backing_vocals'));
   const canShowCanvas = Boolean(
     hasExistingLyrics ||
-      lyrics.trim().length > 0 ||
-      (lyricsAlignment?.lines && lyricsAlignment.lines.length > 0) ||
-      hasVocalStem ||
-      isVocalMacro,
+    lyrics.trim().length > 0 ||
+    (lyricsAlignment?.lines && lyricsAlignment.lines.length > 0) ||
+    hasVocalStem ||
+    isVocalMacro,
   );
   const playingTakeId = isPlaying ? auditionId : null;
   const overlays = tracks.filter(
@@ -2447,7 +2447,7 @@ export const Board: React.FC<BoardProps> = ({
                     disabled={isSeparating}
                     onClick={() => {
                       setMasterExpanded(true);
-                      onSeparateStems();
+                      onIsolateStems();
                     }}
                   >
                     <Split size={14} />
@@ -2520,9 +2520,9 @@ export const Board: React.FC<BoardProps> = ({
         {canShowCanvas && isCanvasOpen && (
           <Canvas
             lyrics={lyrics}
-            onLyricsChange={onLyricsChange || (() => {})}
+            onLyricsChange={onLyricsChange}
             vocalLanguage={vocalLanguage}
-            onVocalLanguageChange={onVocalLanguageChange || (() => {})}
+            onVocalLanguageChange={onVocalLanguageChange}
             languages={languages}
             hasExistingLyrics={hasExistingLyrics}
             isTranscribingLyrics={isTranscribingLyrics}
