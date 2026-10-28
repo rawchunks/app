@@ -7,6 +7,7 @@ import { Clip } from './Clip';
 import { Notes } from './Notes';
 import { Tooltip } from './Tooltip';
 import { Canvas } from './Canvas';
+import { useDismiss } from '../../hooks/use-dismiss';
 import {
   Play,
   Square,
@@ -172,27 +173,8 @@ export const Board: React.FC<BoardProps> = ({
   const addMenuRef = useRef<HTMLDivElement | null>(null);
   const vaultMenuRef = useRef<HTMLDivElement | null>(null);
 
-  useEffect(() => {
-    if (!isAddMenuOpen) return;
-    const handlePointerDownOutside = (e: PointerEvent) => {
-      if (addMenuRef.current && !addMenuRef.current.contains(e.target as Node)) {
-        setIsAddMenuOpen(false);
-      }
-    };
-    window.addEventListener('pointerdown', handlePointerDownOutside);
-    return () => window.removeEventListener('pointerdown', handlePointerDownOutside);
-  }, [isAddMenuOpen]);
-
-  useEffect(() => {
-    if (!isVaultOpen) return;
-    const handlePointerDownOutside = (e: PointerEvent) => {
-      if (vaultMenuRef.current && !vaultMenuRef.current.contains(e.target as Node)) {
-        setIsVaultOpen(false);
-      }
-    };
-    window.addEventListener('pointerdown', handlePointerDownOutside);
-    return () => window.removeEventListener('pointerdown', handlePointerDownOutside);
-  }, [isVaultOpen]);
+  useDismiss(isAddMenuOpen, () => setIsAddMenuOpen(false), addMenuRef);
+  useDismiss(isVaultOpen, () => setIsVaultOpen(false), vaultMenuRef);
 
   useEffect(() => {
     if (!selectedTrackId || selectedTrackId === 'master') return;
