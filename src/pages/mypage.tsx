@@ -32,7 +32,17 @@ import { EditSongModal } from '../components/edit-song';
 import { PublishModal } from '../components/publish';
 import { readSongs, writeSongs } from '../lib/cache';
 import { groupSongs } from '../lib/versions';
-import { useSession, promptSessionModal } from '../components/session';
+import { useDismiss } from '../hooks/use-dismiss';
+import { openGate } from '@/lib/gate';
+
+const MENU_IGNORE_SELECTORS = [
+  '.mypage-menu-wrap',
+  '.mypage-menu-dropdown',
+  '.guide-card',
+  '.guide-layer',
+  '.guide-popover',
+  '.guide-overlay-root',
+];
 
 export interface Props {
   onEditSong: (song: Song) => void;
@@ -40,9 +50,8 @@ export interface Props {
 }
 
 export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
-  const { readAddress, userAddress, evmAddress, svmAddress, isReconnecting } =
+  const { readAddress, isReconnecting } =
     useSelectedUserAddress();
-  const { session } = useSession();
 
   const [state, setState] = useState<State>(() => ({
     ...store.getState(),
@@ -88,7 +97,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
     error: voicesError,
     refresh: refreshVoices,
   } = useVoices(activeAddress);
-  const { nickname, avatar } = useProfile(activeAddress);
+  const { nickname, avatar, bio } = useProfile(activeAddress);
   const formattedAddress = activeAddress
     ? `${activeAddress.slice(0, 6)}...${activeAddress.slice(-4)}`
     : '';
@@ -103,24 +112,8 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
     return map;
   }, [albums]);
 
-  // Close 3-dot dropdown when clicking outside
-  useEffect(() => {
-    if (!menuOpenId) return;
-    const closeMenu = (e: MouseEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (
-        target?.closest('.mypage-menu-wrap') ||
-        target?.closest('.guide-card') ||
-        target?.closest('.guide-layer') ||
-        target?.closest('.guide-popover') ||
-        target?.closest('.guide-overlay-root')
-      )
-        return;
-      setMenuOpenId(null);
-    };
-    window.addEventListener('click', closeMenu);
-    return () => window.removeEventListener('click', closeMenu);
-  }, [menuOpenId]);
+  // Close 3-dot dropdown when clicking outside (guide overlays excluded)
+  useDismiss(Boolean(menuOpenId), () => setMenuOpenId(null), undefined, MENU_IGNORE_SELECTORS);
 
   useEffect(
     () => () => {
@@ -133,6 +126,11 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
   );
 
   useEffect(() => {
+    if (!activeAddress && !isReconnecting) {
+      store.setSongs([]);
+      setState(store.getState());
+      return;
+    }
     const cached = activeAddress ? readSongs(activeAddress) : null;
     if (cached) store.setSongs(cached);
     let songs = store.getState().songs;
@@ -143,7 +141,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
         if (activeAddress) writeSongs(songs, activeAddress);
       }
     });
-  }, [activeAddress]);
+  }, [activeAddress, isReconnecting]);
 
   // Fetch Songs
   useEffect(() => {
@@ -168,7 +166,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
           ...s,
           tags: s.tags ?? [],
           public: s.public ?? false,
-          image: s.image || '/hero.png',
+          image: s.image || '',
           licenses: s.licenses ?? 0,
           stream_price: Number(s.stream_price),
           license_price: Number(s.license_price),
@@ -191,27 +189,6 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
     };
   }, [activeAddress]);
 
-  // Sync with interactive Guide steps on /mypage
-  useEffect(() => {
-    const onGuideAction = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (!detail || detail.type !== 'mypage-state') return;
-      setSongsOpen(true);
-      if (detail.openSongMenu) {
-        const groups = groupSongs(state.songs);
-        if (groups.length > 0) {
-          const versions = groups[0];
-          const family = versions[0].family ?? versions[0].id;
-          const firstSong = versions.find((s) => s.id === selected[family]) ?? versions[0];
-          setMenuOpenId(firstSong.id);
-        }
-      } else if (detail.closeSongMenu) {
-        setMenuOpenId(null);
-      }
-    };
-    window.addEventListener('rawchunks:guide-action', onGuideAction);
-    return () => window.removeEventListener('rawchunks:guide-action', onGuideAction);
-  }, [state.songs, selected]);
   useEffect(() => {
     if (!activeAddress) {
       setAlbums([]);
@@ -342,36 +319,46 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
         <div>
           <Glitch text="MY_PAGE" className="mypage-title-text" />
           <div className="mypage-subtitle">
-            CREATOR'S PROFILE &bull; AUDIO LICENSING PORTAL
+            YOUR CREATOR'S WORKSPACE
           </div>
         </div>
       </div>
 
       {/* SECTION (i): Profile Header */}
-      <div className="mypage-profile-card">
-        <div className="mypage-profile-left">
-          {avatar ? (
-            <img src={avatar} alt="Profile Avatar" className="mypage-profile-avatar" />
-          ) : (
-            <div className="mypage-profile-avatar-placeholder">
-              <User size={24} />
-            </div>
-          )}
-          <div className="mypage-profile-details">
-            <div className="mypage-profile-nickname-row">
-              <span className="mypage-profile-nickname">{displayName}</span>
-              <Tooltip title="Edit Profile" description="Update creator nickname and avatar">
-                <button
-                  type="button"
-                  className="mypage-profile-edit-btn"
+      {activeAddress ? (
+        <div className="mypage-profile-card">
+          <div className="mypage-profile-left">
+            {avatar ? (
+              <img src={avatar} alt="Profile Avatar" className="mypage-profile-avatar" />
+            ) : (
+              <div className="mypage-profile-avatar-placeholder">
+                <User size={24} />
+              </div>
+            )}
+            <div className="mypage-profile-details">
+              <div className="mypage-profile-nickname-row">
+                <span className="mypage-profile-nickname">{displayName}</span>
+                <Tooltip title="Edit Profile" description="Update creator nickname, bio, and avatar">
+                  <button
+                    type="button"
+                    className="mypage-profile-edit-btn"
+                    onClick={() => setProfileModalOpen(true)}
+                    aria-label="Edit Profile"
+                  >
+                    <Pencil size={12} />
+                  </button>
+                </Tooltip>
+              </div>
+              {bio ? (
+                <p className="mypage-profile-bio">{bio}</p>
+              ) : (
+                <p
+                  className="mypage-profile-bio empty"
                   onClick={() => setProfileModalOpen(true)}
-                  aria-label="Edit Profile"
                 >
-                  <Pencil size={12} />
-                </button>
-              </Tooltip>
-            </div>
-            {activeAddress && (
+                  Add a creator bio...
+                </p>
+              )}
               <div className="mypage-profile-meta">
                 <Tooltip title="Copy Wallet Address" description={activeAddress}>
                   <button
@@ -385,25 +372,54 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
                   </button>
                 </Tooltip>
               </div>
-            )}
+            </div>
           </div>
-        </div>
 
-        <div className="mypage-profile-stats">
-          <div className="mypage-profile-stat-box">
-            <span className="mypage-profile-stat-val">{state.songs.length}</span>
-            <span className="mypage-profile-stat-label">Tracks</span>
-          </div>
-          <div className="mypage-profile-stat-box">
-            <span className="mypage-profile-stat-val">{albums.length}</span>
-            <span className="mypage-profile-stat-label">Albums</span>
-          </div>
-          <div className="mypage-profile-stat-box">
-            <span className="mypage-profile-stat-val">{voices.length}</span>
-            <span className="mypage-profile-stat-label">Voices</span>
+          <div className="mypage-profile-stats">
+            <div className="mypage-profile-stat-box">
+              <span className="mypage-profile-stat-val">{state.songs.length}</span>
+              <span className="mypage-profile-stat-label">Tracks</span>
+            </div>
+            <div className="mypage-profile-stat-box">
+              <span className="mypage-profile-stat-val">{albums.length}</span>
+              <span className="mypage-profile-stat-label">Albums</span>
+            </div>
+            <div className="mypage-profile-stat-box">
+              <span className="mypage-profile-stat-val">{voices.length}</span>
+              <span className="mypage-profile-stat-label">Voices</span>
+            </div>
           </div>
         </div>
-      </div>
+      ) : (
+        <div className="mypage-profile-card">
+          <div className="mypage-profile-left">
+            <div className="mypage-profile-avatar-placeholder">
+              <User size={24} />
+            </div>
+            <div className="mypage-profile-details">
+              <div className="mypage-profile-nickname-row">
+                <span className="mypage-profile-nickname">
+                  {isReconnecting ? 'RECONNECTING...' : 'CONNECT YOUR ACCOUNT'}
+                </span>
+              </div>
+              <p className="mypage-profile-bio">
+                Sign in with Google, Email, Passkey, or Wallet to customize your creator profile and manage your tracks, licenses, albums, and voices.
+              </p>
+            </div>
+          </div>
+          {!isReconnecting && (
+            <div className="mypage-profile-stats">
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => void openGate({ steps: ['login'], force: true })}
+              >
+                SIGN IN
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* SECTION (ii): My Songs */}
       <div className="mypage-section" data-guide="mypage-sections">
@@ -433,7 +449,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
                       ? 'LOADING SONGS'
                       : activeAddress
                         ? 'NO SONGS GENERATED YET'
-                        : 'CONNECT YOUR WALLET'}
+                        : 'LOGIN OR CONNECT YOUR WALLET'}
                 </span>
                 <span className="mypage-empty-desc">
                   {error ??
@@ -467,19 +483,6 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
                         if (isPlayingThis) {
                           store.setPlaying(false);
                         } else {
-                          const isCreator = store.isCreatorOfSong(song, [
-                            userAddress,
-                            evmAddress,
-                            svmAddress,
-                            readAddress,
-                          ]);
-                          if (!isCreator && !session.active) {
-                            toast.error(
-                              'Active session required to stream music. Please create a session.'
-                            );
-                            promptSessionModal();
-                            return;
-                          }
                           store.setActiveSong(song);
                           store.setPlaying(true);
                         }
@@ -568,19 +571,6 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
                         if (isPlayingThis) {
                           store.setPlaying(false);
                         } else {
-                          const isCreator = store.isCreatorOfSong(song, [
-                            userAddress,
-                            evmAddress,
-                            svmAddress,
-                            readAddress,
-                          ]);
-                          if (!isCreator && !session.active) {
-                            toast.error(
-                              'Active session required to stream music. Please create a session.'
-                            );
-                            promptSessionModal();
-                            return;
-                          }
                           store.setActiveSong(song);
                           store.setPlaying(true);
                         }
@@ -773,11 +763,13 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
       </div>
 
       {/* Edit Profile Modal */}
-      <ProfileModal
-        isOpen={profileModalOpen}
-        onClose={() => setProfileModalOpen(false)}
-        address={activeAddress}
-      />
+      {activeAddress && (
+        <ProfileModal
+          isOpen={profileModalOpen}
+          onClose={() => setProfileModalOpen(false)}
+          address={activeAddress}
+        />
+      )}
 
       {/* Edit Song Details Modal */}
       <EditSongModal
