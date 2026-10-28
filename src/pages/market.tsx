@@ -39,15 +39,21 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
     active: store.getState().isPlaying,
   }));
   const [selectedCreator, setSelectedCreator] = useState<string | null>(null);
-  const [selectedGenre, setSelectedGenre] = useState<string | null>(null);
+  const [selectedGenres, setSelectedGenres] = useState<string[]>([]);
   const [order, setOrder] = useState<'latest' | 'oldest'>('latest');
   const [search, setSearch] = useState<string>('');
   const [selected, setSelected] = useState<Record<string, string>>({});
 
+  const [creatorOpen, setCreatorOpen] = useState(false);
+  const [creatorQuery, setCreatorQuery] = useState('');
+  const [genreOpen, setGenreOpen] = useState(false);
+  const [genreQuery, setGenreQuery] = useState('');
+
+  const creatorPopoverRef = useRef<HTMLDivElement>(null);
+  const genrePopoverRef = useRef<HTMLDivElement>(null);
+
   const { data: publicSongs = [], isPending, error } = useSongs();
   const { data: publicAlbums = [] } = usePublicAlbums();
-  const { session } = useSession();
-  const { userAddress, evmAddress, svmAddress } = useSelectedUserAddress();
 
   useEffect(() => {
     return store.subscribe((state) => {
@@ -59,6 +65,31 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
     });
   }, []);
 
+  useEffect(() => {
+    if (!creatorOpen && !genreOpen) return;
+    const handlePointerDown = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (creatorOpen && creatorPopoverRef.current && !creatorPopoverRef.current.contains(target)) {
+        setCreatorOpen(false);
+      }
+      if (genreOpen && genrePopoverRef.current && !genrePopoverRef.current.contains(target)) {
+        setGenreOpen(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setCreatorOpen(false);
+        setGenreOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [creatorOpen, genreOpen]);
+
   // Map public albums by id for rapid lookup
   const albumsMap = useMemo(() => {
     const map = new Map<string, Album>();
@@ -68,14 +99,80 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
     return map;
   }, [publicAlbums]);
 
-  // Extract unique creators
-  const uniqueCreators = useMemo(() => {
+  // Extract unique creators & batch-resolve paired identities + nicknames
+  const rawCreatorAddresses = useMemo(() => {
     const set = new Set<string>();
     for (const song of publicSongs) {
       if (song.creator) set.add(song.creator);
     }
     return Array.from(set);
   }, [publicSongs]);
+
+  const [creatorPairs, setCreatorPairs] = useState<WalletPairProfile[]>([]);
+
+  useEffect(() => {
+    if (!rawCreatorAddresses.length) return;
+    let active = true;
+    fetchUserProfilesBatch(rawCreatorAddresses).then((users) => {
+      if (active) setCreatorPairs(users);
+    });
+    return () => {
+      active = false;
+    };
+  }, [rawCreatorAddresses]);
+
+  const creatorGroups = useMemo<CreatorGroup[]>(() => {
+    const pairByAddr = new Map<string, WalletPairProfile>();
+    for (const p of creatorPairs) {
+      if (p.evmAddress) pairByAddr.set(p.evmAddress.toLowerCase(), p);
+      if (p.svmAddress) pairByAddr.set(p.svmAddress.toLowerCase(), p);
+    }
+
+    const groups: CreatorGroup[] = [];
+
+    for (const raw of rawCreatorAddresses) {
+      const lower = raw.toLowerCase();
+      const pair = pairByAddr.get(lower);
+      const cached = readCachedProfile(raw);
+      const rawNickname = pair?.nickname?.trim() || cached?.nickname?.trim() || null;
+      const nicknameKey = rawNickname ? rawNickname.toLowerCase() : null;
+
+      const candidateAddresses = new Set<string>([lower]);
+      if (pair?.evmAddress) candidateAddresses.add(pair.evmAddress.toLowerCase());
+      if (pair?.svmAddress) candidateAddresses.add(pair.svmAddress.toLowerCase());
+
+      const shortAddr = raw.startsWith('0x')
+        ? `${raw.slice(0, 6)}…${raw.slice(-4)}`
+        : `${raw.slice(0, 4)}…${raw.slice(-4)}`;
+
+      const existing = groups.find(
+        (g) =>
+          Array.from(candidateAddresses).some((addr) => g.addresses.has(addr)) ||
+          (nicknameKey !== null && g.nicknameKey === nicknameKey)
+      );
+
+      if (existing) {
+        for (const addr of candidateAddresses) {
+          existing.addresses.add(addr);
+        }
+        if (rawNickname && !existing.nicknameKey) {
+          existing.label = rawNickname;
+          existing.nicknameKey = nicknameKey;
+        }
+      } else {
+        const canonicalKey =
+          pair?.evmAddress?.toLowerCase() || pair?.svmAddress?.toLowerCase() || lower;
+        groups.push({
+          key: canonicalKey,
+          label: rawNickname || shortAddr,
+          nicknameKey,
+          addresses: candidateAddresses,
+        });
+      }
+    }
+
+    return groups.sort((a, b) => a.label.localeCompare(b.label));
+  }, [rawCreatorAddresses, creatorPairs]);
 
   // Extract unique normalized genres / tags
   const uniqueGenres = useMemo(() => {
@@ -91,32 +188,64 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
     return Array.from(map.values()).sort((a, b) => a.localeCompare(b));
   }, [publicSongs]);
 
+  const filteredCreatorGroups = useMemo(() => {
+    const q = creatorQuery.trim().toLowerCase();
+    if (!q) return creatorGroups;
+    return creatorGroups.filter(
+      (g) =>
+        g.label.toLowerCase().includes(q) ||
+        Array.from(g.addresses).some((addr) => addr.includes(q))
+    );
+  }, [creatorGroups, creatorQuery]);
+
+  const filteredGenres = useMemo(() => {
+    const q = genreQuery.trim().toLowerCase();
+    if (!q) return uniqueGenres;
+    return uniqueGenres.filter((g) => g.toLowerCase().includes(q));
+  }, [uniqueGenres, genreQuery]);
+
+  const toggleGenre = (genre: string) => {
+    setSelectedGenres((prev) => {
+      const lower = genre.toLowerCase();
+      const exists = prev.some((g) => g.toLowerCase() === lower);
+      if (exists) {
+        return prev.filter((g) => g.toLowerCase() !== lower);
+      }
+      return [...prev, genre];
+    });
+  };
+
   // Apply filters and ordering
   const displayedSongs = useMemo(() => {
     let list = [...publicSongs];
 
-    // Filter by Creator
+    // Filter by Creator (matches all linked addresses of the selected creator)
     if (selectedCreator) {
-      list = list.filter((s) => s.creator?.toLowerCase() === selectedCreator.toLowerCase());
+      const group = creatorGroups.find((g) => g.key === selectedCreator);
+      const targetAddresses = group ? group.addresses : new Set([selectedCreator.toLowerCase()]);
+      list = list.filter((s) => s.creator && targetAddresses.has(s.creator.toLowerCase()));
     }
 
-    // Filter by Genre (= normalized tag)
-    if (selectedGenre) {
-      const target = selectedGenre.toLowerCase();
+    // Filter by Genres (multi-select)
+    if (selectedGenres.length > 0) {
+      const targetSet = new Set(selectedGenres.map((g) => g.toLowerCase()));
       list = list.filter((s) =>
-        normalizeTags(s.tags).some((t) => t.toLowerCase() === target)
+        normalizeTags(s.tags).some((t) => targetSet.has(t.toLowerCase()))
       );
     }
 
     // Filter by Search Query
     if (search.trim()) {
       const q = search.trim().toLowerCase();
-      list = list.filter(
-        (s) =>
+      list = list.filter((s) => {
+        const group = creatorGroups.find((g) => s.creator && g.addresses.has(s.creator.toLowerCase()));
+        return (
           s.title.toLowerCase().includes(q) ||
           normalizeTags(s.tags).some((t) => t.toLowerCase().includes(q)) ||
-          s.creator.toLowerCase().includes(q)
-      );
+          s.creator.toLowerCase().includes(q) ||
+          Boolean(group?.label.toLowerCase().includes(q))
+        );
+      });
     }
 
     // Sort order: latest | oldest
@@ -127,15 +256,22 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
     });
 
     return list;
-  }, [publicSongs, selectedCreator, selectedGenre, search, order]);
+  }, [publicSongs, selectedCreator, selectedGenres, search, order, creatorGroups]);
 
-  const hasActiveFilters = Boolean(
-    selectedCreator || selectedGenre || search.trim() || order === 'oldest'
+  const selectedCreatorGroup = useMemo(
+    () => (selectedCreator ? creatorGroups.find((g) => g.key === selectedCreator) ?? null : null),
+    [creatorGroups, selectedCreator]
   );
+
+  const hasFilterPills = Boolean(
+    selectedCreator || selectedGenres.length > 0 || search.trim()
+  );
+
+  const hasActiveFilters = Boolean(hasFilterPills || order === 'oldest');
 
   const clearAllFilters = () => {
     setSelectedCreator(null);
-    setSelectedGenre(null);
+    setSelectedGenres([]);
     setSearch('');
     setOrder('latest');
   };
@@ -144,13 +280,6 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
     const isPlayingThis = playing.active && playing.id === song.id;
     if (isPlayingThis) {
       store.setPlaying(false);
-      return;
-    }
-
-    const isCreator = store.isCreatorOfSong(song, [userAddress, evmAddress, svmAddress]);
-    if (!isCreator && !session.active) {
-      toast.error('Active session required to stream music. Please create a session.');
-      promptSessionModal();
       return;
     }
 
@@ -201,42 +330,189 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
 
         {/* Filters cluster */}
         <div className="market-filter-selects">
-          {/* Creator Filter */}
-          <div className="market-select-wrap">
-            <User size={12} className="market-select-icon" />
-            <select
-              value={selectedCreator || ''}
-              onChange={(e) => setSelectedCreator(e.target.value || null)}
-              className="market-select"
+          {/* Searchable Creator Combobox Popover */}
+          <div className="market-select-wrap" ref={creatorPopoverRef}>
+            <button
+              type="button"
+              className={`market-popover-trigger ${selectedCreator ? 'has-selection' : ''} ${creatorOpen ? 'is-open' : ''}`}
+              onClick={() => {
+                setCreatorOpen((prev) => !prev);
+                setGenreOpen(false);
+              }}
               aria-label="Filter by creator"
+              aria-expanded={creatorOpen}
             >
-              <option value="">CREATORS ({uniqueCreators.length})</option>
-              {uniqueCreators.map((c) => (
-                <option key={c} value={c}>
-                  {c.startsWith('0x')
-                    ? `${c.slice(0, 6)}…${c.slice(-4)}`
-                    : `${c.slice(0, 4)}…${c.slice(-4)}`}
-                </option>
-              ))}
-            </select>
+              <User size={12} className="market-select-icon" />
+              <span className="market-popover-trigger-label">
+                {selectedCreatorGroup
+                  ? selectedCreatorGroup.label
+                  : `CREATORS (${creatorGroups.length})`}
+              </span>
+              <ChevronDown size={12} className="market-popover-chevron" />
+            </button>
+
+            {creatorOpen && (
+              <div className="market-popover-menu" role="listbox" aria-label="Creators">
+                <div className="market-popover-search">
+                  <Search size={11} className="market-search-icon" />
+                  <input
+                    type="text"
+                    placeholder="SEARCH CREATORS..."
+                    value={creatorQuery}
+                    onChange={(e) => setCreatorQuery(e.target.value)}
+                    className="market-popover-search-input"
+                    autoFocus
+                  />
+                  {creatorQuery && (
+                    <button
+                      type="button"
+                      className="market-filter-clear-btn"
+                      onClick={() => setCreatorQuery('')}
+                      aria-label="Clear creator search"
+                    >
+                      <X size={11} />
+                    </button>
+                  )}
+                </div>
+
+                <div className="market-popover-list scrollable">
+                  {!creatorQuery.trim() && (
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={!selectedCreator}
+                      className={`market-popover-option ${!selectedCreator ? 'selected' : ''}`}
+                      onClick={() => {
+                        setSelectedCreator(null);
+                        setCreatorOpen(false);
+                        setCreatorQuery('');
+                      }}
+                    >
+                      <span className="market-popover-option-text">
+                        ALL CREATORS ({creatorGroups.length})
+                      </span>
+                      {!selectedCreator && <Check size={11} className="market-popover-check" />}
+                    </button>
+                  )}
+
+                  {filteredCreatorGroups.length === 0 ? (
+                    <div className="market-popover-empty">NO MATCHING CREATORS</div>
+                  ) : (
+                    filteredCreatorGroups.map((g) => {
+                      const isSelected = selectedCreator === g.key;
+                      return (
+                        <button
+                          key={g.key}
+                          type="button"
+                          role="option"
+                          aria-selected={isSelected}
+                          className={`market-popover-option ${isSelected ? 'selected' : ''}`}
+                          onClick={() => {
+                            setSelectedCreator(isSelected ? null : g.key);
+                            setCreatorOpen(false);
+                            setCreatorQuery('');
+                          }}
+                        >
+                          <span className="market-popover-option-text">{g.label}</span>
+                          {isSelected && <Check size={11} className="market-popover-check" />}
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* Genre Filter */}
-          <div className="market-select-wrap">
-            <Music size={12} className="market-select-icon" />
-            <select
-              value={selectedGenre || ''}
-              onChange={(e) => setSelectedGenre(e.target.value || null)}
-              className="market-select"
+          {/* Multi-Select Genre Popover */}
+          <div className="market-select-wrap" ref={genrePopoverRef}>
+            <button
+              type="button"
+              className={`market-popover-trigger ${selectedGenres.length > 0 ? 'has-selection' : ''} ${genreOpen ? 'is-open' : ''}`}
+              onClick={() => {
+                setGenreOpen((prev) => !prev);
+                setCreatorOpen(false);
+              }}
               aria-label="Filter by genre"
+              aria-expanded={genreOpen}
             >
-              <option value="">GENRES ({uniqueGenres.length})</option>
-              {uniqueGenres.map((g) => (
-                <option key={g} value={g}>
-                  {g.toUpperCase()}
-                </option>
-              ))}
-            </select>
+              <Music size={12} className="market-select-icon" />
+              <span className="market-popover-trigger-label">
+                {selectedGenres.length > 0
+                  ? `GENRES (${selectedGenres.length} SELECTED)`
+                  : `GENRES (${uniqueGenres.length})`}
+              </span>
+              <ChevronDown size={12} className="market-popover-chevron" />
+            </button>
+
+            {genreOpen && (
+              <div
+                className="market-popover-menu"
+                role="listbox"
+                aria-label="Genres"
+                aria-multiselectable="true"
+              >
+                <div className="market-popover-search">
+                  <Search size={11} className="market-search-icon" />
+                  <input
+                    type="text"
+                    placeholder="SEARCH GENRES..."
+                    value={genreQuery}
+                    onChange={(e) => setGenreQuery(e.target.value)}
+                    className="market-popover-search-input"
+                    autoFocus
+                  />
+                  {genreQuery && (
+                    <button
+                      type="button"
+                      className="market-filter-clear-btn"
+                      onClick={() => setGenreQuery('')}
+                      aria-label="Clear genre search"
+                    >
+                      <X size={11} />
+                    </button>
+                  )}
+                </div>
+
+                <div className="market-popover-list scrollable">
+                  {selectedGenres.length > 0 && !genreQuery.trim() && (
+                    <button
+                      type="button"
+                      className="market-popover-option market-popover-clear-row"
+                      onClick={() => setSelectedGenres([])}
+                    >
+                      <span className="market-popover-option-text">
+                        CLEAR SELECTED ({selectedGenres.length})
+                      </span>
+                      <X size={11} />
+                    </button>
+                  )}
+
+                  {filteredGenres.length === 0 ? (
+                    <div className="market-popover-empty">NO MATCHING GENRES</div>
+                  ) : (
+                    filteredGenres.map((g) => {
+                      const isSelected = selectedGenres.some(
+                        (s) => s.toLowerCase() === g.toLowerCase()
+                      );
+                      return (
+                        <button
+                          key={g}
+                          type="button"
+                          role="option"
+                          aria-selected={isSelected}
+                          className={`market-popover-option ${isSelected ? 'selected' : ''}`}
+                          onClick={() => toggleGenre(g)}
+                        >
+                          <span className="market-popover-option-text">{g.toUpperCase()}</span>
+                          {isSelected && <Check size={11} className="market-popover-check" />}
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Order Toggle (Latest | Oldest) - Icon + Tooltip */}
@@ -278,6 +554,59 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
           )}
         </div>
       </div>
+
+      {/* Active Filter Pills Bar */}
+      {hasFilterPills && (
+        <div className="market-active-pills" role="region" aria-label="Active filters">
+          {selectedCreatorGroup && (
+            <button
+              type="button"
+              className="market-filter-pill creator"
+              onClick={() => setSelectedCreator(null)}
+              aria-label={`Remove creator filter ${selectedCreatorGroup.label}`}
+            >
+              <User size={10} />
+              <span>{selectedCreatorGroup.label}</span>
+              <X size={10} className="market-filter-pill-close" />
+            </button>
+          )}
+
+          {selectedGenres.map((genre) => (
+            <button
+              key={genre}
+              type="button"
+              className="market-filter-pill genre"
+              onClick={() => toggleGenre(genre)}
+              aria-label={`Remove genre filter ${genre}`}
+            >
+              <Music size={10} />
+              <span>{genre.toUpperCase()}</span>
+              <X size={10} className="market-filter-pill-close" />
+            </button>
+          ))}
+
+          {search.trim() && (
+            <button
+              type="button"
+              className="market-filter-pill search"
+              onClick={() => setSearch('')}
+              aria-label="Clear search query"
+            >
+              <Search size={10} />
+              <span>&ldquo;{search.trim()}&rdquo;</span>
+              <X size={10} className="market-filter-pill-close" />
+            </button>
+          )}
+
+          <button
+            type="button"
+            className="market-filter-pill-clear-all"
+            onClick={clearAllFilters}
+          >
+            CLEAR ALL
+          </button>
+        </div>
+      )}
 
       {/* Catalog Grid */}
       <div className="market-grid panel scrollable">
@@ -341,12 +670,8 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
                     store.setActiveSong(version);
                   }
                 }}
-                selectedGenre={selectedGenre}
-                onSelectGenre={(genre) =>
-                  setSelectedGenre(
-                    selectedGenre?.toLowerCase() === genre.toLowerCase() ? null : genre
-                  )
-                }
+                selectedGenres={selectedGenres}
+                onSelectGenre={toggleGenre}
               />
             );
           })
