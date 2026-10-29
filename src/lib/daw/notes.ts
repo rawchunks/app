@@ -36,18 +36,23 @@ export function sequence(
   }
   if (track.type === 'strudel') {
     const parsed = parseStrudelPattern(track.strudelCode || '');
-    const rate = Math.max(0.125, parsed.rateModifier || 1.0);
-    const cycleDuration = (DRUM_STEPS * step) / rate;
-    const uniqueLabels = Array.from(new Set(parsed.events.map(ev => ev.value)));
+    const rate = Math.max(0.125, parsed.effectiveBarRate ?? parsed.rateModifier ?? 1.0);
+    const barDuration = (DRUM_STEPS * step) / rate;
+    const patternCycles = parsed.cycles && parsed.cycles.length > 0 ? parsed.cycles : [parsed.events];
+    const numCycles = Math.max(1, patternCycles.length);
+    const allCycleEvents = patternCycles.flatMap((cyc, cIdx) =>
+      cyc.map((ev) => ({ ...ev, absStart: (cIdx + ev.time) * barDuration, absDuration: Math.max(step * 0.25, ev.duration * barDuration) }))
+    );
+    const uniqueLabels = Array.from(new Set(allCycleEvents.map(ev => ev.value)));
     return {
-      duration: cycleDuration,
+      duration: barDuration * numCycles,
       rows: Math.max(1, uniqueLabels.length),
-      notes: parsed.events.map((ev, index) => ({
+      notes: allCycleEvents.map((ev, index) => ({
         id: `strudel-${index}-${ev.value}`,
         label: ev.value.toUpperCase(),
         row: Math.max(0, uniqueLabels.indexOf(ev.value)),
-        start: ev.time * cycleDuration,
-        duration: Math.max(step * 0.25, ev.duration * cycleDuration),
+        start: ev.absStart,
+        duration: ev.absDuration,
         velocity: Math.min(1, Math.max(0.1, ev.gain ?? 0.85)),
         muted: false,
       })),
