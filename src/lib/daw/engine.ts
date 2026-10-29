@@ -2207,6 +2207,7 @@ class DAWEngine {
       activeTransport?.clear(strudelScheduleId);
       this.strudelScheduleIds.delete(trackId);
     }
+    this.strudelScheduledKeys.delete(trackId);
     for (const id of this.pianoScheduleIds.get(trackId) ?? []) activeTransport?.clear(id);
     this.pianoScheduleIds.delete(trackId);
 
@@ -2228,13 +2229,17 @@ class DAWEngine {
 
     nodes.polySynth?.dispose();
     if (nodes.drumSynths) {
-      nodes.drumSynths.kick.dispose();
-      nodes.drumSynths.snare.dispose();
-      nodes.drumSynths.hihat.dispose();
-      nodes.drumSynths.clap.dispose();
-      nodes.drumSynths.tom.dispose();
-      nodes.drumSynths.perc.dispose();
-      nodes.drumSynths.crash.dispose();
+      if (nodes.drumSynths.disposeAll) {
+        nodes.drumSynths.disposeAll();
+      } else {
+        nodes.drumSynths.kick.dispose();
+        nodes.drumSynths.snare.dispose();
+        nodes.drumSynths.hihat.dispose();
+        nodes.drumSynths.clap.dispose();
+        nodes.drumSynths.tom.dispose();
+        nodes.drumSynths.perc.dispose();
+        nodes.drumSynths.crash.dispose();
+      }
     }
     nodes.source?.dispose();
     nodes.input.dispose();
