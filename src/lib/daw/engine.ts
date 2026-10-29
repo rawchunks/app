@@ -43,6 +43,13 @@ export interface TrackAudioNodes {
   compressor?: Tone.Compressor;
   panner3d?: Tone.Panner3D;
   fxChainSignature?: string;
+  lastSynthSound?: string;
+  lastPan?: number;
+  lastFilterType?: string;
+  lastFilterCutoff?: number;
+  lastRoomWet?: number;
+  lastDelayWet?: number;
+  pendingReverbInit?: boolean;
   spatialState?: DSPFxConfig['spatial'];
   panner: Tone.Panner;
   volume: Tone.Volume;
@@ -57,6 +64,7 @@ export interface TrackAudioNodes {
     tom: Tone.MembraneSynth;
     perc: Tone.MembraneSynth;
     crash: Tone.MetalSynth;
+    disposeAll?: () => void;
   };
 }
 
@@ -80,6 +88,7 @@ class DAWEngine {
   private masterLimiter: Tone.Limiter | null = null;
   private sequencerScheduleIds = new Map<string, number>();
   private strudelScheduleIds = new Map<string, number>();
+  private strudelScheduledKeys = new Map<string, string>();
   private pianoScheduleIds = new Map<string, number[]>();
   private targetTransportState: 'started' | 'stopped' | 'paused' = 'stopped';
   private onStepCallback: ((step: number) => void) | null = null;
@@ -876,6 +885,91 @@ class DAWEngine {
     }
   }
 
+  private createLazyDrumSynths(input: Tone.Gain): NonNullable<TrackAudioNodes['drumSynths']> {
+    let _kick: Tone.MembraneSynth | undefined;
+    let _snare: Tone.NoiseSynth | undefined;
+    let _hihat: Tone.MetalSynth | undefined;
+    let _clap: Tone.NoiseSynth | undefined;
+    let _tom: Tone.MembraneSynth | undefined;
+    let _perc: Tone.MembraneSynth | undefined;
+    let _crash: Tone.MetalSynth | undefined;
+
+    return {
+      get kick() {
+        if (!_kick) {
+          _kick = new Tone.MembraneSynth({
+            pitchDecay: 0.05, octaves: 8, oscillator: { type: 'sine' }, envelope: { attack: 0.001, decay: 0.4, sustain: 0.01, release: 0.4 },
+          });
+          _kick.connect(input);
+        }
+        return _kick;
+      },
+      get snare() {
+        if (!_snare) {
+          _snare = new Tone.NoiseSynth({
+            noise: { type: 'white' }, envelope: { attack: 0.001, decay: 0.2, sustain: 0 },
+          });
+          _snare.connect(input);
+        }
+        return _snare;
+      },
+      get hihat() {
+        if (!_hihat) {
+          _hihat = new Tone.MetalSynth({
+            envelope: { attack: 0.001, decay: 0.05, release: 0.05 }, harmonicity: 5.1, modulationIndex: 32, resonance: 4000, octaves: 1.5,
+          });
+          _hihat.connect(input);
+        }
+        return _hihat;
+      },
+      get clap() {
+        if (!_clap) {
+          _clap = new Tone.NoiseSynth({
+            noise: { type: 'pink' }, envelope: { attack: 0.005, decay: 0.15, sustain: 0 },
+          });
+          _clap.connect(input);
+        }
+        return _clap;
+      },
+      get tom() {
+        if (!_tom) {
+          _tom = new Tone.MembraneSynth({
+            pitchDecay: 0.03, octaves: 4, oscillator: { type: 'sine' }, envelope: { attack: 0.001, decay: 0.3, sustain: 0.01, release: 0.3 },
+          });
+          _tom.connect(input);
+        }
+        return _tom;
+      },
+      get perc() {
+        if (!_perc) {
+          _perc = new Tone.MembraneSynth({
+            pitchDecay: 0.02, octaves: 4, oscillator: { type: 'triangle' }, envelope: { attack: 0.001, decay: 0.15, sustain: 0.01, release: 0.2 },
+          });
+          _perc.connect(input);
+        }
+        return _perc;
+      },
+      get crash() {
+        if (!_crash) {
+          _crash = new Tone.MetalSynth({
+            envelope: { attack: 0.001, decay: 0.8, release: 0.8 }, harmonicity: 3.2, modulationIndex: 64, resonance: 2000, octaves: 2.0,
+          });
+          _crash.connect(input);
+        }
+        return _crash;
+      },
+      disposeAll() {
+        _kick?.dispose();
+        _snare?.dispose();
+        _hihat?.dispose();
+        _clap?.dispose();
+        _tom?.dispose();
+        _perc?.dispose();
+        _crash?.dispose();
+      },
+    };
+  }
+
   /**
    * Builds or updates the Tone.js node graph for a track (lazily created if not exists)
    */
@@ -900,44 +994,18 @@ class DAWEngine {
       const hasPianoNotes = Boolean(storeTrack?.pianoRollNotes?.length);
       const hasDrumVoices = Boolean(storeTrack?.sequencerVoices?.length);
       if ((currentType === 'pianoroll' || currentType === 'strudel' || hasPianoNotes) && !nodes.polySynth) {
-        nodes.polySynth = new Tone.PolySynth(Tone.Synth, {
-          oscillator: { type: 'triangle' },
-          envelope: { attack: 0.02, decay: 0.1, sustain: 0.3, release: 0.8 },
+        nodes.polySynth = new Tone.PolySynth({
+          maxPolyphony: 12,
+          voice: Tone.Synth,
+          options: {
+            oscillator: { type: 'triangle' },
+            envelope: { attack: 0.02, decay: 0.1, sustain: 0.3, release: 0.8 },
+          },
         });
         nodes.polySynth.connect(nodes.input);
       }
       if ((currentType === 'sequencer' || currentType === 'strudel' || hasDrumVoices) && !nodes.drumSynths) {
-        const kick = new Tone.MembraneSynth({
-          pitchDecay: 0.05, octaves: 8, oscillator: { type: 'sine' }, envelope: { attack: 0.001, decay: 0.4, sustain: 0.01, release: 0.4 },
-        });
-        const snare = new Tone.NoiseSynth({
-          noise: { type: 'white' }, envelope: { attack: 0.001, decay: 0.2, sustain: 0 },
-        });
-        const hihat = new Tone.MetalSynth({
-          envelope: { attack: 0.001, decay: 0.05, release: 0.05 }, harmonicity: 5.1, modulationIndex: 32, resonance: 4000, octaves: 1.5,
-        });
-        const clap = new Tone.NoiseSynth({
-          noise: { type: 'pink' }, envelope: { attack: 0.005, decay: 0.15, sustain: 0 },
-        });
-        const tom = new Tone.MembraneSynth({
-          pitchDecay: 0.03, octaves: 4, oscillator: { type: 'sine' }, envelope: { attack: 0.001, decay: 0.3, sustain: 0.01, release: 0.3 },
-        });
-        const perc = new Tone.MembraneSynth({
-          pitchDecay: 0.02, octaves: 4, oscillator: { type: 'triangle' }, envelope: { attack: 0.001, decay: 0.15, sustain: 0.01, release: 0.2 },
-        });
-        const crash = new Tone.MetalSynth({
-          envelope: { attack: 0.001, decay: 0.8, release: 0.8 }, harmonicity: 3.2, modulationIndex: 64, resonance: 2000, octaves: 2.0,
-        });
-
-        kick.connect(nodes.input);
-        snare.connect(nodes.input);
-        hihat.connect(nodes.input);
-        clap.connect(nodes.input);
-        tom.connect(nodes.input);
-        perc.connect(nodes.input);
-        crash.connect(nodes.input);
-
-        nodes.drumSynths = { kick, snare, hihat, clap, tom, perc, crash };
+        nodes.drumSynths = this.createLazyDrumSynths(nodes.input);
       }
       return nodes;
     }
@@ -980,45 +1048,19 @@ class DAWEngine {
     let drumSynths: TrackAudioNodes['drumSynths'] | undefined;
 
     if (trackType === 'pianoroll' || trackType === 'strudel' || hasPianoNotes) {
-      polySynth = new Tone.PolySynth(Tone.Synth, {
-        oscillator: { type: 'triangle' },
-        envelope: { attack: 0.02, decay: 0.1, sustain: 0.3, release: 0.8 },
+      polySynth = new Tone.PolySynth({
+        maxPolyphony: 12,
+        voice: Tone.Synth,
+        options: {
+          oscillator: { type: 'triangle' },
+          envelope: { attack: 0.02, decay: 0.1, sustain: 0.3, release: 0.8 },
+        },
       });
       polySynth.connect(input);
     }
 
     if (trackType === 'sequencer' || trackType === 'strudel' || hasDrumVoices) {
-      const kick = new Tone.MembraneSynth({
-        pitchDecay: 0.05, octaves: 8, oscillator: { type: 'sine' }, envelope: { attack: 0.001, decay: 0.4, sustain: 0.01, release: 0.4 },
-      });
-      const snare = new Tone.NoiseSynth({
-        noise: { type: 'white' }, envelope: { attack: 0.001, decay: 0.2, sustain: 0 },
-      });
-      const hihat = new Tone.MetalSynth({
-        envelope: { attack: 0.001, decay: 0.05, release: 0.05 }, harmonicity: 5.1, modulationIndex: 32, resonance: 4000, octaves: 1.5,
-      });
-      const clap = new Tone.NoiseSynth({
-        noise: { type: 'pink' }, envelope: { attack: 0.005, decay: 0.15, sustain: 0 },
-      });
-      const tom = new Tone.MembraneSynth({
-        pitchDecay: 0.03, octaves: 4, oscillator: { type: 'sine' }, envelope: { attack: 0.001, decay: 0.3, sustain: 0.01, release: 0.3 },
-      });
-      const perc = new Tone.MembraneSynth({
-        pitchDecay: 0.02, octaves: 4, oscillator: { type: 'triangle' }, envelope: { attack: 0.001, decay: 0.15, sustain: 0.01, release: 0.2 },
-      });
-      const crash = new Tone.MetalSynth({
-        envelope: { attack: 0.001, decay: 0.8, release: 0.8 }, harmonicity: 3.2, modulationIndex: 64, resonance: 2000, octaves: 2.0,
-      });
-
-      kick.connect(input);
-      snare.connect(input);
-      hihat.connect(input);
-      clap.connect(input);
-      tom.connect(input);
-      perc.connect(input);
-      crash.connect(input);
-
-      drumSynths = { kick, snare, hihat, clap, tom, perc, crash };
+      drumSynths = this.createLazyDrumSynths(input);
     }
 
     const spatialState = fxConfig.spatial
@@ -1359,9 +1401,13 @@ class DAWEngine {
     const targetTrackId = trackId || useDawStore.getState().selectedTrackId || 'master';
     const trackNode = this.getOrCreateTrackNodes(targetTrackId);
     if (!trackNode.polySynth) {
-      trackNode.polySynth = new Tone.PolySynth(Tone.Synth, {
-        oscillator: { type: 'triangle' },
-        envelope: { attack: 0.02, decay: 0.1, sustain: 0.3, release: 0.8 },
+      trackNode.polySynth = new Tone.PolySynth({
+        maxPolyphony: 12,
+        voice: Tone.Synth,
+        options: {
+          oscillator: { type: 'triangle' },
+          envelope: { attack: 0.02, decay: 0.1, sustain: 0.3, release: 0.8 },
+        },
       });
       trackNode.polySynth.connect(trackNode.input);
     }
@@ -1381,37 +1427,7 @@ class DAWEngine {
     const targetTrackId = trackId || useDawStore.getState().selectedTrackId || 'master';
     const trackNode = this.getOrCreateTrackNodes(targetTrackId);
     if (!trackNode.drumSynths) {
-      const kick = new Tone.MembraneSynth({
-        pitchDecay: 0.05, octaves: 8, oscillator: { type: 'sine' }, envelope: { attack: 0.001, decay: 0.4, sustain: 0.01, release: 0.4 },
-      });
-      const snare = new Tone.NoiseSynth({
-        noise: { type: 'white' }, envelope: { attack: 0.001, decay: 0.2, sustain: 0 },
-      });
-      const hihat = new Tone.MetalSynth({
-        envelope: { attack: 0.001, decay: 0.05, release: 0.05 }, harmonicity: 5.1, modulationIndex: 32, resonance: 4000, octaves: 1.5,
-      });
-      const clap = new Tone.NoiseSynth({
-        noise: { type: 'pink' }, envelope: { attack: 0.005, decay: 0.15, sustain: 0 },
-      });
-      const tom = new Tone.MembraneSynth({
-        pitchDecay: 0.03, octaves: 4, oscillator: { type: 'sine' }, envelope: { attack: 0.001, decay: 0.3, sustain: 0.01, release: 0.3 },
-      });
-      const perc = new Tone.MembraneSynth({
-        pitchDecay: 0.02, octaves: 4, oscillator: { type: 'triangle' }, envelope: { attack: 0.001, decay: 0.15, sustain: 0.01, release: 0.2 },
-      });
-      const crash = new Tone.MetalSynth({
-        envelope: { attack: 0.001, decay: 0.8, release: 0.8 }, harmonicity: 3.2, modulationIndex: 64, resonance: 2000, octaves: 2.0,
-      });
-
-      kick.connect(trackNode.input);
-      snare.connect(trackNode.input);
-      hihat.connect(trackNode.input);
-      clap.connect(trackNode.input);
-      tom.connect(trackNode.input);
-      perc.connect(trackNode.input);
-      crash.connect(trackNode.input);
-
-      trackNode.drumSynths = { kick, snare, hihat, clap, tom, perc, crash };
+      trackNode.drumSynths = this.createLazyDrumSynths(trackNode.input);
     }
 
     this.playDrum(trackNode, instrument, time ?? Tone.now(), velocity);
@@ -1419,22 +1435,30 @@ class DAWEngine {
 
   private playDrum(trackNode: TrackAudioNodes, instrument: string, triggerTime: number, velocity: number) {
     if (!trackNode.drumSynths) throw new Error('Drum instrument is unavailable');
-    const inst = instrument.toLowerCase();
+    const inst = instrument.toLowerCase().split(':')[0];
 
     if (inst === 'kick' || inst === 'bd') {
       trackNode.drumSynths.kick.triggerAttackRelease('C1', '8n', triggerTime, velocity);
     } else if (inst === 'snare' || inst === 'sd') {
       trackNode.drumSynths.snare.triggerAttackRelease('8n', triggerTime, velocity);
-    } else if (inst === 'hihat' || inst === 'hi-hat' || inst === 'hh') {
+    } else if (inst === 'hihat' || inst === 'hi-hat' || inst === 'hh' || inst === 'ch') {
       trackNode.drumSynths.hihat.triggerAttackRelease('16n', triggerTime, velocity);
+    } else if (inst === 'oh' || inst === 'openhat') {
+      trackNode.drumSynths.hihat.triggerAttackRelease('8n', triggerTime, Math.min(1, velocity * 0.95));
     } else if (inst === 'clap' || inst === 'cp') {
       trackNode.drumSynths.clap.triggerAttackRelease('16n', triggerTime, velocity);
-    } else if (inst === 'tom') {
+    } else if (inst === 'tom' || inst === 'mt') {
+      trackNode.drumSynths.tom.triggerAttackRelease('D2', '8n', triggerTime, velocity);
+    } else if (inst === 'ht') {
+      trackNode.drumSynths.tom.triggerAttackRelease('G2', '8n', triggerTime, velocity);
+    } else if (inst === 'lt') {
       trackNode.drumSynths.tom.triggerAttackRelease('G1', '8n', triggerTime, velocity);
-    } else if (inst === 'perc' || inst === 'rim') {
+    } else if (inst === 'perc' || inst === 'rim' || inst === 'cb' || inst === 'shaker') {
       trackNode.drumSynths.perc.triggerAttackRelease('G2', '16n', triggerTime, velocity);
     } else if (inst === 'crash' || inst === 'cymbal' || inst === 'cr') {
       trackNode.drumSynths.crash.triggerAttackRelease('8n', triggerTime, velocity);
+    } else if (inst === 'ride') {
+      trackNode.drumSynths.crash.triggerAttackRelease('16n', triggerTime, Math.min(1, velocity * 0.7));
     }
   }
 
