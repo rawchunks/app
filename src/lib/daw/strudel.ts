@@ -262,12 +262,134 @@ export function expandChordSymbol(token: string, defaultOctave = 3): string[] | 
   return notes;
 }
 
+function stripCommentsAndPrefixes(code: string): string {
+  let out = '';
+  let inSingle = false;
+  let inDouble = false;
+  let i = 0;
+
+  while (i < code.length) {
+    const ch = code[i];
+    const next = code[i + 1];
+
+    if (!inSingle && !inDouble && ch === '/' && next === '/') {
+      while (i < code.length && code[i] !== '\n') i++;
+      continue;
+    }
+    if (!inSingle && !inDouble && ch === '/' && next === '*') {
+      i += 2;
+      while (i < code.length && !(code[i] === '*' && code[i + 1] === '/')) i++;
+      i += 2;
+      continue;
+    }
+    if (ch === "'" && !inDouble) {
+      inSingle = !inSingle;
+    } else if (ch === '"' && !inSingle) {
+      inDouble = !inDouble;
+    }
+    out += ch;
+    i++;
+  }
+
+  // Strip Strudel REPL track labels like `$:` or `d1:` at line starts
+  return out.replace(/^\s*(?:\$[a-zA-Z0-9_]*|d\d+)\s*:\s*/gm, '');
+}
+
 function parseModifierNumber(expr: string, name: string): number | undefined {
   const regex = new RegExp(`\\.${name}\\(\\s*([-\\d.]+)\\s*\\)`);
   const m = expr.match(regex);
   if (!m) return undefined;
   const val = parseFloat(m[1]);
   return Number.isFinite(val) ? val : undefined;
+}
+
+function parseModifierString(expr: string, name: string): string | undefined {
+  const regex = new RegExp(`\\.${name}\\(\\s*["']([^"']+)["']\\s*\\)`);
+  const m = expr.match(regex);
+  return m ? m[1].trim() : undefined;
+}
+
+function gcd(a: number, b: number): number {
+  let x = Math.abs(Math.round(a));
+  let y = Math.abs(Math.round(b));
+  while (y !== 0) {
+    const t = y;
+    y = x % y;
+    x = t;
+  }
+  return Math.max(1, x);
+}
+
+function lcm(a: number, b: number): number {
+  if (a <= 0 || b <= 0) return Math.max(1, a, b);
+  return Math.min(16, Math.round((a * b) / gcd(a, b)));
+}
+
+/**
+ * Counts the cycle period induced by angle-bracket `<...>` alternations in a mini-notation string.
+ */
+function detectAngleBracketCycles(str: string): number {
+  let period = 1;
+  let i = 0;
+  while (i < str.length) {
+    if (str[i] === '<') {
+      let depth = 1;
+      let start = i + 1;
+      i++;
+      while (i < str.length && depth > 0) {
+        if (str[i] === '<') depth++;
+        else if (str[i] === '>') depth--;
+        i++;
+      }
+      const inner = str.slice(start, Math.max(start, i - 1));
+      const items = tokenizeMiniNotation(inner);
+      if (items.length > 1) {
+        period = lcm(period, items.length);
+      }
+      for (const item of items) {
+        if (item.includes('<')) {
+          period = lcm(period, items.length * detectAngleBracketCycles(item));
+        }
+      }
+    } else {
+      i++;
+    }
+  }
+  return period;
+}
+
+/**
+ * Resolves angle-bracket `<a b c d>` alternation and `a|b` choice tokens for a given `cycleIndex`.
+ */
+function resolveCycleAlternations(str: string, cycleIndex: number): string {
+  let result = '';
+  let i = 0;
+  while (i < str.length) {
+    if (str[i] === '<') {
+      let depth = 1;
+      const start = i + 1;
+      i++;
+      while (i < str.length && depth > 0) {
+        if (str[i] === '<') depth++;
+        else if (str[i] === '>') depth--;
+        i++;
+      }
+      const inner = str.slice(start, Math.max(start, i - 1)).trim();
+      const items = tokenizeMiniNotation(inner);
+      if (items.length === 0) {
+        result += '~';
+      } else {
+        const chosenIdx = ((cycleIndex % items.length) + items.length) % items.length;
+        const nextCycleIdx = Math.floor(cycleIndex / items.length);
+        const chosen = resolveCycleAlternations(items[chosenIdx], nextCycleIdx);
+        result += chosen;
+      }
+    } else {
+      result += str[i];
+      i++;
+    }
+  }
+  return result;
 }
 
 interface SubExpressionPlan {
