@@ -1520,66 +1520,195 @@ class DAWEngine {
       this.setBpm(bpm);
     }
     if (!this.isToneReady) return;
+    const trimmedCode = patternCode ? patternCode.trim() : '';
+    const effectiveBpm = Math.round((Number(Tone.getTransport()?.bpm?.value) || this.pendingBpm || 120) * 100) / 100;
+    const scheduleKey = `${trimmedCode}@${effectiveBpm}`;
+    const existingNodes = this.trackNodes.get(trackId);
+    if (
+      trimmedCode &&
+      this.strudelScheduleIds.has(trackId) &&
+      this.strudelScheduledKeys.get(trackId) === scheduleKey &&
+      existingNodes?.polySynth &&
+      existingNodes?.drumSynths
+    ) {
+      return;
+    }
+
     const existingScheduleId = this.strudelScheduleIds.get(trackId);
     if (existingScheduleId !== undefined) {
       Tone.getTransport().clear(existingScheduleId);
       this.strudelScheduleIds.delete(trackId);
     }
+    this.strudelScheduledKeys.delete(trackId);
 
-    if (!patternCode || !patternCode.trim()) return;
+    if (!trimmedCode) return;
 
     const parsed = parseStrudelPattern(patternCode);
-    if (!parsed.events || parsed.events.length === 0) return;
+    const patternCycles = parsed.cycles && parsed.cycles.length > 0 ? parsed.cycles : [parsed.events];
+    const allEvents = patternCycles.flat();
+    if (!allEvents.length) return;
     const track = useDawStore.getState().tracks.find(track => track.id === trackId);
     const nodes = this.getOrCreateTrackNodes(track ?? trackId);
-    const needsRoom = parsed.events.some(event => event.room !== undefined);
-    const needsDelay = parsed.events.some(event => event.delay !== undefined);
-    if (needsRoom || needsDelay) {
-      this.syncTrackFxChain(nodes, track?.fx || ENGINE_DEFAULT_FX, { reverb: needsRoom, delay: needsDelay });
+    const fxConfig = track?.fx || ENGINE_DEFAULT_FX;
+    const needsRoom = allEvents.some(event => event.room !== undefined);
+    const needsDelay = allEvents.some(event => event.delay !== undefined);
+
+    if (needsDelay) {
+      this.syncTrackFxChain(nodes, fxConfig, { reverb: Boolean(nodes.reverb), delay: true });
+    }
+    if (needsRoom) {
+      if (nodes.reverb || this.offline || fxConfig.reverb.enabled) {
+        this.syncTrackFxChain(nodes, fxConfig, { reverb: true, delay: needsDelay });
+      } else if (!nodes.pendingReverbInit) {
+        nodes.pendingReverbInit = true;
+        setTimeout(() => {
+          if (!this.trackNodes.has(trackId)) return;
+          try {
+            const rev = new Tone.Reverb({
+              decay: Math.max(0.1, fxConfig.reverb.enabled ? fxConfig.reverb.decay : 1.1),
+              wet: nodes.lastRoomWet ?? 0,
+            });
+            void rev.ready.then(() => {
+              nodes.pendingReverbInit = false;
+              if (!this.trackNodes.has(trackId)) {
+                rev.dispose();
+                return;
+              }
+              nodes.reverb = rev;
+              if (nodes.lastRoomWet !== undefined) {
+                nodes.reverb.wet.value = nodes.lastRoomWet;
+              }
+              const latestTrack = useDawStore.getState().tracks.find(t => t.id === trackId);
+              this.syncTrackFxChain(nodes, latestTrack?.fx || ENGINE_DEFAULT_FX, {
+                reverb: true,
+                delay: Boolean(nodes.delay),
+              });
+            });
+          } catch {
+            nodes.pendingReverbInit = false;
+          }
+        }, 45);
+      }
+    }
+    if (!needsRoom && nodes.reverb && !fxConfig.reverb?.enabled && nodes.lastRoomWet !== 0) {
+      nodes.lastRoomWet = 0;
+      nodes.reverb.wet.rampTo(0, 0.03);
+    }
+    if (!needsDelay && nodes.delay && !fxConfig.delay?.enabled && nodes.lastDelayWet !== 0) {
+      nodes.lastDelayWet = 0;
+      nodes.delay.wet.rampTo(0, 0.03);
     }
 
     const currentBpm = bpm && bpm > 0 ? bpm : (Tone.getTransport()?.bpm?.value || 120);
     const baseCycleSeconds = (60 / currentBpm) * 4;
-    const cycleDurationSeconds = baseCycleSeconds / Math.max(0.1, parsed.rateModifier);
+    const effectiveRate = Math.max(0.1, parsed.effectiveBarRate ?? parsed.rateModifier ?? 1.0);
+    const cycleDurationSeconds = baseCycleSeconds / effectiveRate;
+    const SLICES_PER_CYCLE = 16;
+    const sliceDurationSeconds = cycleDurationSeconds / SLICES_PER_CYCLE;
+
+    // Pre-bucket each cycle into 16 slices so each transport tick only schedules events in the current 16th-note window
+    const bucketedCycles = patternCycles.map((cycleEvents) => {
+      const buckets: typeof cycleEvents[] = Array.from({ length: SLICES_PER_CYCLE }, () => []);
+      for (const ev of cycleEvents) {
+        const idx = Math.min(SLICES_PER_CYCLE - 1, Math.max(0, Math.floor(ev.time * SLICES_PER_CYCLE)));
+        buckets[idx].push(ev);
+      }
+      return buckets;
+    });
 
     if (Tone.getTransport()?.scheduleRepeat) {
+      let tickCounter = 0;
+      let filterModifiedInCycle = false;
       const scheduleId = Tone.getTransport().scheduleRepeat((time) => {
-        for (const event of parsed.events) {
-          const eventTime = time + event.time * cycleDurationSeconds;
+        const cycleIdx = Math.floor(tickCounter / SLICES_PER_CYCLE) % bucketedCycles.length;
+        const sliceIdx = tickCounter % SLICES_PER_CYCLE;
+        tickCounter++;
+        const sliceEvents = bucketedCycles[cycleIdx]?.[sliceIdx];
+        if (!sliceEvents || sliceEvents.length === 0) return;
+
+        const sliceStartFraction = sliceIdx / SLICES_PER_CYCLE;
+
+        for (const event of sliceEvents) {
+          const offsetSeconds = Math.max(0, (event.time - sliceStartFraction) * cycleDurationSeconds);
+          const eventTime = time + offsetSeconds;
           const eventDuration = Math.max(0.05, event.duration * cycleDurationSeconds);
           const vel = Math.max(0.05, Math.min(1, event.gain ?? 0.8));
 
           if (event.pan !== undefined) {
-            nodes.panner.pan.rampTo(Math.max(-1, Math.min(1, event.pan)), 0.02);
+            const targetPan = Math.max(-1, Math.min(1, event.pan));
+            if (nodes.lastPan !== targetPan) {
+              nodes.lastPan = targetPan;
+              nodes.panner.pan.rampTo(targetPan, 0.02);
+            }
           }
           if (event.lpf !== undefined) {
-            nodes.filter.type = 'lowpass';
-            nodes.filter.frequency.rampTo(Math.max(40, Math.min(20000, event.lpf)), 0.02);
+            const targetCutoff = Math.max(40, Math.min(20000, event.lpf));
+            if (nodes.lastFilterType !== 'lowpass') {
+              nodes.lastFilterType = 'lowpass';
+              nodes.filter.type = 'lowpass';
+            }
+            if (nodes.lastFilterCutoff !== targetCutoff) {
+              nodes.lastFilterCutoff = targetCutoff;
+              nodes.filter.frequency.rampTo(targetCutoff, 0.02);
+            }
+            filterModifiedInCycle = true;
           } else if (event.hpf !== undefined) {
-            nodes.filter.type = 'highpass';
-            nodes.filter.frequency.rampTo(Math.max(20, Math.min(18000, event.hpf)), 0.02);
+            const targetCutoff = Math.max(20, Math.min(18000, event.hpf));
+            if (nodes.lastFilterType !== 'highpass') {
+              nodes.lastFilterType = 'highpass';
+              nodes.filter.type = 'highpass';
+            }
+            if (nodes.lastFilterCutoff !== targetCutoff) {
+              nodes.lastFilterCutoff = targetCutoff;
+              nodes.filter.frequency.rampTo(targetCutoff, 0.02);
+            }
+            filterModifiedInCycle = true;
+          } else if (filterModifiedInCycle) {
+            const defaultFilter = track?.fx?.filter;
+            const targetType = defaultFilter?.enabled ? defaultFilter.type : 'lowpass';
+            const targetCutoff = defaultFilter?.enabled ? defaultFilter.cutoff : 20000;
+            if (nodes.lastFilterType !== targetType) {
+              nodes.lastFilterType = targetType;
+              nodes.filter.type = targetType;
+            }
+            if (nodes.lastFilterCutoff !== targetCutoff) {
+              nodes.lastFilterCutoff = targetCutoff;
+              nodes.filter.frequency.rampTo(targetCutoff, 0.02);
+            }
+            filterModifiedInCycle = false;
           }
           if (event.room !== undefined) {
-            nodes.reverb?.wet.rampTo(Math.max(0, Math.min(1, event.room)), 0.03);
+            const targetRoom = Math.max(0, Math.min(1, event.room));
+            if (nodes.lastRoomWet !== targetRoom) {
+              nodes.lastRoomWet = targetRoom;
+              nodes.reverb?.wet.rampTo(targetRoom, 0.03);
+            }
           }
           if (event.delay !== undefined) {
-            nodes.delay?.wet.rampTo(Math.max(0, Math.min(1, event.delay)), 0.03);
+            const targetDelay = Math.max(0, Math.min(1, event.delay));
+            if (nodes.lastDelayWet !== targetDelay) {
+              nodes.lastDelayWet = targetDelay;
+              nodes.delay?.wet.rampTo(targetDelay, 0.03);
+            }
           }
 
           if (event.type === 'sound') {
             this.playDrum(nodes, event.value, eventTime, vel);
           } else if (event.type === 'note') {
-            if (event.synthSound && (nodes.polySynth as any)?.set) {
+            const targetSynthSound = event.synthSound || 'triangle';
+            if (nodes.lastSynthSound !== targetSynthSound && (nodes.polySynth as any)?.set) {
+              nodes.lastSynthSound = targetSynthSound;
               try {
-                (nodes.polySynth as any).set({ oscillator: { type: event.synthSound } });
+                (nodes.polySynth as any).set({ oscillator: { type: targetSynthSound } });
               } catch {}
             }
             nodes.polySynth?.triggerAttackRelease(event.value, eventDuration, eventTime, vel);
           }
         }
-      }, cycleDurationSeconds);
+      }, sliceDurationSeconds);
 
       this.strudelScheduleIds.set(trackId, scheduleId);
+      this.strudelScheduledKeys.set(trackId, scheduleKey);
     }
   }
 
