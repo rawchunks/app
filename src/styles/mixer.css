@@ -45,7 +45,7 @@
   border: 1px solid rgba(255, 255, 255, 0.16);
   color: rgba(255, 255, 255, 0.85);
   font-family: var(--font-family);
-  font-size: var(--daw-badge-font, clamp(0.6875rem, 0.58rem + 0.25vw, 0.74rem));
+  font-size: var(--daw-badge-font, clamp(0.75rem, 0.58rem + 0.25vw, 0.74rem));
   font-weight: 800;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -98,7 +98,7 @@
 }
 
 .mixer-subnav-fullname {
-  font-size: var(--daw-badge-font, clamp(0.6875rem, 0.58rem + 0.25vw, 0.74rem));
+  font-size: var(--daw-badge-font, clamp(0.75rem, 0.58rem + 0.25vw, 0.74rem));
   font-weight: 700;
   color: rgba(255, 255, 255, 0.82);
   padding-left: 0.24rem;
@@ -114,7 +114,7 @@
   justify-content: center;
   padding: 0 0.24rem;
   border-radius: 2px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 900;
   line-height: 1.25;
 }
@@ -134,7 +134,7 @@
   align-items: center;
   gap: 0.3rem;
   margin-left: auto;
-  font-size: var(--daw-badge-font, clamp(0.6875rem, 0.58rem + 0.25vw, 0.74rem));
+  font-size: var(--daw-badge-font, clamp(0.75rem, 0.58rem + 0.25vw, 0.74rem));
   color: var(--text-muted, #94a3b8);
   white-space: nowrap;
 }
@@ -189,7 +189,7 @@
   align-items: center;
   justify-content: center;
   min-height: var(--daw-badge-h, clamp(1.32rem, 2.3dvh, 1.55rem));
-  font-size: var(--daw-badge-font, clamp(0.6875rem, 0.58rem + 0.25vw, 0.74rem));
+  font-size: var(--daw-badge-font, clamp(0.75rem, 0.58rem + 0.25vw, 0.74rem));
   font-weight: 900;
   color: #000000;
   background: var(--accent-color, var(--accent));
@@ -201,7 +201,7 @@
 }
 
 .mixer-strip-title {
-  font-size: var(--daw-badge-font, clamp(0.6875rem, 0.58rem + 0.25vw, 0.74rem));
+  font-size: var(--daw-badge-font, clamp(0.75rem, 0.58rem + 0.25vw, 0.74rem));
   font-weight: 800;
   color: #f8fafc;
   overflow: hidden;
@@ -242,7 +242,7 @@
   border-radius: 3px;
   color: rgba(255, 255, 255, 0.9);
   font-family: var(--font-family);
-  font-size: var(--daw-badge-font, clamp(0.6875rem, 0.58rem + 0.25vw, 0.74rem));
+  font-size: var(--daw-badge-font, clamp(0.75rem, 0.58rem + 0.25vw, 0.74rem));
   font-weight: 800;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -327,7 +327,7 @@
 }
 
 .mixer-fader-readout {
-  font-size: var(--daw-badge-font, clamp(0.6875rem, 0.58rem + 0.25vw, 0.74rem));
+  font-size: var(--daw-badge-font, clamp(0.75rem, 0.58rem + 0.25vw, 0.74rem));
   font-weight: 800;
   color: #f8fafc;
   font-family: var(--font-family, monospace);
@@ -393,6 +393,25 @@
 .mixer-param-cell-warning {
   border-color: rgba(255, 170, 0, 0.45);
   background: rgba(255, 170, 0, 0.08);
+}
+
+/* Tooltip wrappers inherit the layout role of the wrapped element */
+.mixer-horiz-fader-row > .daw-tooltip-wrapper {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.mixer-horiz-fader-well > .daw-tooltip-wrapper {
+  flex-shrink: 0;
+}
+
+.mixer-horiz-matrix > .daw-tooltip-wrapper {
+  align-items: stretch;
+  min-width: 0;
+}
+
+.mixer-horiz-matrix > .daw-tooltip-wrapper > .mixer-param-cell {
+  flex: 1 1 auto;
 }
 
 .mixer-param-header {

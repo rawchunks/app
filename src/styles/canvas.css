@@ -1,40 +1,6 @@
-/* ==========================================================================
-   LYRICS CANVAS & SIDE-PANEL STYLES
-   ========================================================================== */
 
-.floating-toolbox.with-lyrics-panel {
-  width: clamp(580px, 68vw, 960px);
-}
 
-.toolbox-studio-split {
-  display: flex;
-  flex-direction: row;
-  align-items: stretch;
-  gap: 12px;
-  width: 100%;
-  min-height: 0;
-}
-
-.toolbox-studio-main,
-.toolbox-studio-split > .toolbox-studio-content {
-  flex: 1 1 320px;
-  min-width: 0;
-}
-
-.toolbox-lyrics-trigger-row {
-  flex-wrap: wrap;
-  margin-top: 6px;
-}
-
-.toolbox-lyrics-trigger-row label {
-  min-width: 56px;
-  color: var(--text-secondary);
-  cursor: pointer;
-}
-
-.toolbox-lyrics-lang-pill,
-.toolbox-lyrics-toggle-btn,
-.toolbox-lyrics-extract-btn {
+.toolbox-lyrics-lang-pill{
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -42,7 +8,7 @@
   padding: 0 clamp(6px, 0.9vw, 10px);
   border-radius: 3px;
   font-family: var(--font-family);
-  font-size: var(--daw-badge-font, clamp(11px, 11px + 0.25vw, 12px));
+  font-size: var(--daw-badge-font, clamp(12px, 12px + 0.25vw, 12px));
   font-weight: 800;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -63,38 +29,13 @@
   background: rgba(0, 255, 65, 0.1);
 }
 
-.toolbox-lyrics-toggle-btn {
-  background: rgba(0, 255, 65, 0.1);
-  border: 1px solid rgba(0, 255, 65, 0.4);
-  color: var(--primary);
-}
-
-.toolbox-lyrics-toggle-btn:hover {
-  background: rgba(0, 255, 65, 0.2);
-  border-color: var(--primary);
-}
-
-.toolbox-lyrics-toggle-btn.active {
-  background: var(--primary);
-  border-color: var(--primary);
-  color: #000000;
-}
-
-.toolbox-lyrics-toggle-btn.is-icon-only {
-  width: var(--daw-badge-h, clamp(23px, 2.9dvh, 27px));
-  height: var(--daw-badge-h, clamp(23px, 2.9dvh, 27px));
-  padding: 0;
-  flex-shrink: 0;
-}
-
 @keyframes toolboxSpin {
   from {
     transform: rotate(0deg);
   }
   to {
     transform: rotate(360deg);
-  }
-}
+  }}
 
 .toolbox-spin-icon {
   animation: toolboxSpin 0.9s linear infinite;
@@ -174,6 +115,22 @@
   touch-action: none;
 }
 
+/* Tooltip wrappers inherit the layout role of the wrapped element */
+.daw-tooltip-wrapper.canvas-resizer-wrap {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 5px;
+  z-index: 20;
+}
+
+.canvas-resizer-wrap > .canvas-dock-resizer {
+  position: static;
+  width: 100%;
+  height: 100%;
+}
+
 .canvas-dock-resizer:hover,
 .canvas-dock-resizer:active {
   background: var(--primary);
@@ -202,7 +159,7 @@
 
 .toolbox-lyrics-sidepanel-title {
   font-family: var(--font-family);
-  font-size: var(--daw-badge-font, clamp(11px, 11px + 0.25vw, 12px));
+  font-size: var(--daw-badge-font, clamp(12px, 12px + 0.25vw, 12px));
   font-weight: 800;
   letter-spacing: 0.06em;
   color: var(--primary);
@@ -229,7 +186,7 @@
   border: 1px solid var(--border-bright);
   background: rgba(255, 255, 255, 0.06);
   color: var(--text-secondary);
-  font-size: var(--daw-badge-font, clamp(11px, 11px + 0.25vw, 12px));
+  font-size: var(--daw-badge-font, clamp(12px, 12px + 0.25vw, 12px));
   cursor: pointer;
   transition: all 0.15s ease;
 }
@@ -260,7 +217,7 @@
   min-height: clamp(21px, 2.6dvh, 24px);
   padding: 2px 7px;
   font-family: var(--font-family);
-  font-size: var(--daw-badge-font, clamp(11px, 11px + 0.2vw, 11.5px));
+  font-size: var(--daw-badge-font, clamp(12px, 12px + 0.2vw, 12px));
   font-weight: 700;
   border-radius: 3px;
   border: 1px solid var(--border-bright);
@@ -288,7 +245,7 @@
   padding: clamp(8px, 1.2vw, 12px);
   color: var(--text);
   font-family: var(--font-family);
-  font-size: clamp(11.5px, 11px + 0.25vw, 13.5px);
+  font-size: clamp(12px, 12px + 0.25vw, 13.5px);
   line-height: 1.55;
   resize: none;
   box-sizing: border-box;
@@ -309,7 +266,7 @@
   background: rgba(255, 255, 255, 0.06);
   color: var(--text);
   font-family: var(--font-family);
-  font-size: var(--daw-badge-font, clamp(11px, 11px + 0.2vw, 11.5px));
+  font-size: var(--daw-badge-font, clamp(12px, 12px + 0.2vw, 12px));
   font-weight: 800;
   letter-spacing: 0.04em;
   cursor: pointer;
@@ -356,7 +313,7 @@
 
 .toolbox-lyrics-selection-badge {
   font-family: var(--font-family);
-  font-size: var(--daw-badge-font, clamp(11px, 11px + 0.2vw, 11px));
+  font-size: var(--daw-badge-font, clamp(12px, 12px + 0.2vw, 12px));
   font-weight: 800;
   letter-spacing: 0.06em;
   color: var(--accent);
@@ -366,7 +323,7 @@
 
 .toolbox-lyrics-selection-count {
   font-family: var(--font-family);
-  font-size: var(--daw-badge-font, clamp(11px, 11px + 0.2vw, 11px));
+  font-size: var(--daw-badge-font, clamp(12px, 12px + 0.2vw, 12px));
   font-weight: 700;
   color: var(--text-secondary);
   white-space: nowrap;
@@ -381,6 +338,17 @@
   gap: 4px;
   background: rgba(0, 0, 0, 0.55);
   resize: none;
+}
+
+/* Tooltip wrappers inherit the layout role of the wrapped element */
+.daw-tooltip-wrapper.canvas-scroll-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
 }
 
 .toolbox-lyrics-canvas-line {
@@ -432,7 +400,7 @@
 
 .toolbox-lyrics-sync-section-tag {
   font-family: var(--font-family);
-  font-size: var(--daw-badge-font, clamp(11px, 11px + 0.2vw, 11.5px));
+  font-size: var(--daw-badge-font, clamp(12px, 12px + 0.2vw, 12px));
   font-weight: 800;
   letter-spacing: 0.05em;
   color: var(--primary);
@@ -441,7 +409,7 @@
 
 .toolbox-lyrics-sync-timestamp {
   font-family: var(--font-family);
-  font-size: var(--daw-badge-font, clamp(11px, 11px + 0.2vw, 11px));
+  font-size: var(--daw-badge-font, clamp(12px, 12px + 0.2vw, 12px));
   font-weight: 700;
   color: var(--text-muted);
   cursor: pointer;
@@ -456,7 +424,7 @@
 .toolbox-lyrics-sync-sel-pill {
   margin-left: auto;
   font-family: var(--font-family);
-  font-size: clamp(11px, 11px + 0.18vw, 11px);
+  font-size: clamp(12px, 12px + 0.18vw, 12px);
   font-weight: 800;
   letter-spacing: 0.05em;
   padding: 1px 5px;
@@ -476,7 +444,7 @@
 
 .toolbox-lyrics-sync-word {
   font-family: var(--font-family);
-  font-size: clamp(11.5px, 11px + 0.2vw, 13px);
+  font-size: clamp(12px, 12px + 0.2vw, 13px);
   color: var(--text-secondary);
   padding: 1px 3px;
   border-radius: 2px;
@@ -516,7 +484,7 @@
   background: rgba(255, 255, 255, 0.02);
   border-top: 1px solid var(--border);
   font-family: var(--font-family);
-  font-size: var(--daw-badge-font, clamp(11px, 11px + 0.2vw, 11px));
+  font-size: var(--daw-badge-font, clamp(12px, 12px + 0.2vw, 12px));
   font-weight: 700;
   letter-spacing: 0.05em;
   color: var(--text-muted);
@@ -527,7 +495,7 @@
 
 .toolbox-lyrics-footer-time {
   font-family: var(--font-family);
-  font-size: var(--daw-badge-font, clamp(11px, 11px + 0.2vw, 11px));
+  font-size: var(--daw-badge-font, clamp(12px, 12px + 0.2vw, 12px));
   font-weight: 800;
   letter-spacing: 0.05em;
   color: var(--text-secondary);
@@ -555,32 +523,15 @@
   width: 280px;
   padding: 10px;
   font-family: var(--font-family);
-  font-size: clamp(11.5px, 11px + 0.25vw, 13.5px);
+  font-size: clamp(12px, 12px + 0.25vw, 13.5px);
   line-height: 1.55;
-}
-
-/* Vocal Language Modal Helpers */
-.studio-lang-modal-content {
-  gap: 10px;
 }
 
 .studio-lang-selected-strip .studio-field-label {
   margin: 0;
 }
 
-.studio-lang-modal-actions {
-  margin-top: 2px;
-  padding-top: 8px;
-}
-
 @media (max-width: 768px) {
-  .toolbox-studio-split {
-    flex-direction: column;
-  }
-
-  .toolbox-pocket-bar {
-    display: flex;
-  }
 
   .toolbox-lyrics-sidepanel {
     max-width: 100%;
@@ -594,7 +545,8 @@
     border-right: none;
   }
 
-  .board-canvas-dock .canvas-dock-resizer {
+  .board-canvas-dock .canvas-dock-resizer,
+  .board-canvas-dock .canvas-resizer-wrap {
     display: none !important;
   }
 
@@ -610,22 +562,13 @@
   .toolbox-lyrics-tag-btn {
     min-height: 24px;
     padding: 2px 8px;
-    font-size: 11px;
+    font-size: 12px;
   }
 
   .toolbox-lyrics-canvas {
     font-size: clamp(12.5px, 3.5vw, 14px);
     padding: 10px 12px;
-  }
-
-  .toolbox-studio-split[data-pocket="params"] .toolbox-lyrics-sidepanel {
-    display: none;
-  }
-
-  .toolbox-studio-split[data-palette="lyrics"] .toolbox-studio-main {
-    display: none;
-  }
-}
+  }}
 
 /* ==========================================================================
    LYRICS OVERLAY MODAL OVERRIDES (WHEN RENDERED IN <Modal> FROM AI STUDIO)
@@ -649,7 +592,8 @@
   border-left: 1px solid var(--border-bright);
 }
 
-.toolbox-lyrics-overlay-modal .canvas-dock-resizer {
+.toolbox-lyrics-overlay-modal .canvas-dock-resizer,
+.toolbox-lyrics-overlay-modal .canvas-resizer-wrap {
   display: none !important;
 }
 
@@ -663,7 +607,7 @@
   border: 1px solid rgba(0, 204, 255, 0.45);
   color: var(--accent);
   font-family: var(--font-family);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.04em;
   white-space: nowrap;
@@ -677,7 +621,7 @@
   padding: 0 7px;
   border-radius: 3px;
   font-family: var(--font-family);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.04em;
   white-space: nowrap;
@@ -713,5 +657,3 @@
   border-color: var(--primary);
   color: #000000;
 }
-
-

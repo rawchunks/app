@@ -56,7 +56,7 @@
   position: absolute;
   top: calc(100% + 4px);
   right: 0;
-  z-index: 80;
+  z-index: var(--z-popover);
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -78,7 +78,7 @@
   background: transparent;
   color: var(--text);
   font-family: var(--font-family);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.04em;
   cursor: pointer;
@@ -100,7 +100,7 @@
   padding: 0.12rem 0.5rem;
   border-radius: var(--radius-sm);
   font-family: var(--font-family);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   cursor: pointer;
   display: inline-flex;
@@ -130,7 +130,7 @@
   align-items: center;
   gap: 6px;
   font-family: var(--font-family);
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-dim);
   flex-wrap: nowrap;
   flex-shrink: 0;
@@ -150,7 +150,7 @@
 
 .board-time-label {
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.03em;
 }
 
@@ -225,7 +225,7 @@
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1;
   font-family: var(--font-family);
   color: var(--text-muted);
@@ -302,7 +302,7 @@
   border: 1px solid rgba(0, 240, 255, 0.45);
   color: var(--accent);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 900;
   letter-spacing: 0.04em;
   line-height: 1;
@@ -333,7 +333,7 @@
   border: 1px solid rgba(0, 240, 255, 0.28);
   color: rgba(226, 232, 240, 0.88);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.02em;
   animation: board-hint-fade 9s ease forwards;
@@ -380,7 +380,7 @@
 
 .board-stems-card-title {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 900;
   letter-spacing: 0.06em;
   color: var(--text-secondary);
@@ -405,7 +405,7 @@
   background: rgba(0, 240, 255, 0.12);
   color: var(--accent);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.03em;
   cursor: pointer;
@@ -498,7 +498,7 @@
 
 .board-segment-hud-range {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 900;
   letter-spacing: 0.03em;
   color: #fbbf24;
@@ -518,7 +518,7 @@
   background: rgba(255, 255, 255, 0.06);
   color: var(--text);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.03em;
   white-space: nowrap;
@@ -541,17 +541,6 @@
   border-color: rgba(0, 255, 65, 0.55);
   background: rgba(0, 255, 65, 0.16);
   color: var(--primary);
-}
-
-.board-segment-hud-btn.clear {
-  padding: 0 6px;
-  color: var(--text-secondary);
-}
-
-.board-segment-hud-btn.clear:hover {
-  border-color: rgba(244, 63, 94, 0.55);
-  background: rgba(244, 63, 94, 0.18);
-  color: #fb7185;
 }
 
 /* Vault Trigger & Popover for > 4 Background Tracks/Takes */
@@ -585,7 +574,7 @@
   background: rgba(12, 16, 24, 0.95);
   color: var(--accent);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 900;
   cursor: pointer;
   box-sizing: border-box;
@@ -609,7 +598,7 @@
   background: rgba(10, 12, 18, 0.98);
   border: 1px solid rgba(0, 240, 255, 0.58);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.88), 0 0 18px rgba(0, 240, 255, 0.16);
-  z-index: 220;
+  z-index: var(--z-popover);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -626,7 +615,7 @@
   align-items: center;
   justify-content: space-between;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 900;
   color: var(--accent);
   letter-spacing: 0.05em;
@@ -649,7 +638,7 @@
 
 .board-vault-item-name {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--text-secondary);
   white-space: nowrap;
@@ -751,7 +740,7 @@
 .board-lane-title-label,
 .board-take-interval-label {
   font-family: var(--font-mono, monospace);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--text-secondary);
   white-space: nowrap;
@@ -819,7 +808,7 @@
 
 .board-mini-empty-label {
   font-family: var(--font-mono, monospace);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.03em;
   white-space: nowrap;
@@ -853,7 +842,7 @@
   background: rgba(0, 0, 0, 0.65);
   color: var(--text-secondary);
   font-family: var(--font-mono, monospace);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 800;
   line-height: 1;
   display: inline-flex;
@@ -882,7 +871,7 @@
 
 .board-mini-square-flag {
   font-family: var(--font-mono, monospace);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 900;
   padding: 0 3px;
   border-radius: 2px;
@@ -901,7 +890,7 @@
   border: 1px solid rgba(255, 255, 255, 0.22);
   background: rgba(0, 0, 0, 0.65);
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 12px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1080,7 +1069,7 @@
   display: flex;
   align-items: center;
   gap: clamp(4px, 0.5vw, 8px);
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-secondary);
   flex-shrink: 0;
   margin-left: auto;
@@ -1115,8 +1104,13 @@
   border: none;
 }
 
+.daw-tooltip-wrapper.board-fader-slider-wrap {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
 .board-fader-val {
-  font-size: 11px;
+  font-size: 12px;
   font-family: var(--font-family);
   color: var(--text-dim);
   min-width: 3ch;
@@ -1373,7 +1367,7 @@
   }
 
   .board-stage-role-tag {
-    font-size: 11px;
+    font-size: 12px;
     padding: 1px 4px;
   }
 
@@ -1396,7 +1390,7 @@
   }
 
   .board-segment-hud-time {
-    font-size: 10px;
+    font-size: 12px;
     padding: 0 3px;
   }
 
@@ -1662,7 +1656,7 @@
   background: rgba(9, 9, 14, 0.78);
   color: var(--text);
   font-family: var(--font-family);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   cursor: pointer;
   line-height: 1;
@@ -1709,7 +1703,7 @@
   border: 1px solid var(--border-bright, rgba(255, 255, 255, 0.15));
   border-radius: 6px;
   margin-top: 6px;
-  font-size: var(--font-xs, 11px);
+  font-size: var(--font-xs, 12px);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
   flex-shrink: 0;
   width: 100%;
@@ -1723,7 +1717,7 @@
 }
 
 .daw-pincher-label {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -1737,7 +1731,7 @@
   border-radius: 3px;
   padding: 2px 4px;
   text-align: center;
-  font-size: 11px;
+  font-size: 12px;
   font-family: monospace;
   outline: none;
   transition: border-color 0.15s ease;
@@ -1748,7 +1742,7 @@
 }
 
 .daw-pincher-badge {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   color: #fff;
   border: 1px solid #3f3f46;
@@ -1869,14 +1863,14 @@
 .board-overlay-wave { width: 100%; height: 100%; padding: 0; border: 0; background: transparent; cursor: grab; touch-action: none; }
 .board-overlay-actions { --board-overlay-actions-w: clamp(6rem, 15vw, 7.5rem); position: absolute; inset-block-end: 2px; left: clamp(0px, var(--actions-left, 0%), max(0px, calc(100% - var(--board-overlay-actions-w)))); z-index: 6; display: flex; flex-wrap: nowrap; max-width: 100%; width: var(--board-overlay-actions-w); box-sizing: border-box; pointer-events: auto; background: var(--surface); border: 1px solid var(--accent); }
 .board-overlay-actions .daw-tooltip-wrapper { flex: 1; min-width: 0; }
-.board-overlay-actions button { width: 100%; height: 28px; display: grid; place-items: center; flex: 1 1 auto; border: 0; background: transparent; color: var(--accent); font: inherit; font-size: 11px; padding: 6px; cursor: pointer; }
+.board-overlay-actions button { width: 100%; height: 28px; display: grid; place-items: center; flex: 1 1 auto; border: 0; background: transparent; color: var(--accent); font: inherit; font-size: 12px; padding: 6px; cursor: pointer; }
 .board-overlay-actions button[aria-pressed="true"] { background: var(--primary); color: var(--bg); }
 .board-overlay-actions button:disabled { opacity: .4; cursor: wait; }
 .board-overlay-player { flex: 1; min-width: 0; height: 28px; display: grid; grid-template-rows: 16px 12px; }
 .board-overlay-choices { display: flex; min-width: 0; }
 .board-overlay-player > .daw-tooltip-wrapper button { height: 16px; padding: 0; }
-.board-overlay-choices button { height: 12px; padding: 0; font-size: 11px; line-height: 1; }
-.board-operation { display: flex; flex-wrap: wrap; gap: 12px; padding: 10px; border-block-end: 1px solid var(--accent); font-size: 11px; }
+.board-overlay-choices button { height: 12px; padding: 0; font-size: 12px; line-height: 1; }
+.board-operation { display: flex; flex-wrap: wrap; gap: 12px; padding: 12px; border-block-end: 1px solid var(--accent); font-size: 12px; }
 
 .board-master-badges {
   display: inline-flex;
@@ -1947,7 +1941,7 @@
   border: none;
   color: var(--text);
   font-family: var(--font-family);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: bold;
   outline: none;
 }
@@ -2005,7 +1999,7 @@
 }
 
 .board-track-name-compact {
-  font-size: 11px;
+  font-size: 12px;
 }
 
 /* ==========================================================================

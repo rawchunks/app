@@ -14,11 +14,11 @@
 }
 
 /* ==========================================================================
-   ROW 1: EDITOR HEADER BAR ([BACK] | [TITLE] | [GUIDE+SESSION+PROFILE])
+   ROW 1: UNIFIED EDITOR HEADER & TRANSPORT BAR
    ========================================================================== */
 .editor-header-bar {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
   gap: clamp(6px, 0.9vw, 12px);
   padding: 2px 4px 4px;
@@ -27,16 +27,17 @@
   min-width: 0;
 }
 
-/* ==========================================================================
-   ROW 1B: DEDICATED TRANSPORT ROW ([RTZ | PLAY | LOOP | TIME | SCRUBBER | UNDO/REDO | SNAP])
-   ========================================================================== */
-.editor-transport-row {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  flex-shrink: 0;
-  min-width: 0;
+@media (max-width: 960px) {
+  .editor-header-bar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    row-gap: 4px;
+  }
+
+  .editor-header-bar > .editor-transport-deck {
+    grid-column: 1 / -1;
+    justify-self: center;
+    order: 3;
+  }
 }
 
 .editor-header-left {
@@ -144,7 +145,7 @@
   background: rgba(0, 255, 65, 0.16);
   color: var(--primary);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 900;
   letter-spacing: 0.06em;
   cursor: pointer;
@@ -171,7 +172,7 @@
   justify-content: center;
   gap: clamp(3px, 0.4vw, 5px);
   font-family: var(--font-mono);
-  font-size: clamp(11px, 1.15vw, 14px);
+  font-size: clamp(12px, 1.15vw, 14px);
   font-weight: 900;
   font-variant-numeric: tabular-nums;
   color: var(--text);
@@ -244,7 +245,7 @@
 
 .editor-bpm-trigger-unit {
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.04em;
 }
 
@@ -264,7 +265,7 @@
 .editor-bpm-nudge {
   min-width: clamp(32px, 6vw, 40px);
   min-height: clamp(32px, 4.4vh, 38px);
-  font-size: clamp(11px, 1.1vw, 13px);
+  font-size: clamp(12px, 1.1vw, 13px);
 }
 
 .editor-bpm-typer-wrap {
@@ -301,7 +302,7 @@
 
 .editor-bpm-typer-unit {
   font-family: var(--font-mono);
-  font-size: clamp(11px, 1vw, 12px);
+  font-size: clamp(12px, 1vw, 12px);
   font-weight: 800;
   color: var(--text-secondary);
   letter-spacing: 0.05em;
@@ -336,7 +337,7 @@
 }
 
 .editor-bpm-preset-num {
-  font-size: clamp(11px, 1vw, 13px);
+  font-size: clamp(12px, 1vw, 13px);
   font-weight: 900;
   color: var(--text);
 }
@@ -346,7 +347,7 @@
 }
 
 .editor-bpm-preset-tag {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-dim);
   letter-spacing: 0.03em;
 }
@@ -525,7 +526,7 @@
   }
 
   .editor-header-time {
-    font-size: 11px;
+    font-size: 12px;
     padding: 2px 6px;
   }
 
@@ -535,11 +536,18 @@
     padding: 0 6px;
   }
 
+  .editor-header-text {
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+  }
+
   .editor-track-sub {
     display: flex;
     align-items: center;
-    gap: 6px;
-    margin-top: 2px;
+    gap: 4px;
+    margin-top: 0;
+    flex-shrink: 0;
   }
 
   .editor-track-sub > span:nth-child(-n+4) {
