@@ -32,8 +32,8 @@ export function writeCachedCredits(address: string, balance: CreditBalance): voi
             balance,
             updatedAt: Date.now(),
         } satisfies CachedCreditsSnapshot));
-        if (balance.paypalClientId) {
-            writeCachedPayPalClientId(balance.paypalClientId, balance.environment);
+        if (balance.paypalClientId || balance.packs?.length || balance.promo) {
+            writeCachedPayPalClientId(balance.paypalClientId, balance.environment, balance.packs, balance.promo);
         }
     } catch { }
 }
@@ -55,16 +55,25 @@ export function writePreferredFundingSource(owner: string | null | undefined, so
     } catch { }
 }
 
-export function readCachedPayPalClientId(): { paypalClientId: string; environment: 'sandbox' | 'live' } | null {
+export interface CachedPublicCreditsConfig {
+    paypalClientId: string;
+    environment: 'sandbox' | 'live';
+    packs?: CreditBalance['packs'];
+    promo?: CreditBalance['promo'];
+}
+
+export function readCachedPayPalClientId(): CachedPublicCreditsConfig | null {
     if (typeof window === "undefined") return null;
     try {
         const raw = localStorage.getItem(PAYPAL_CONFIG_KEY);
         if (!raw) return null;
         const parsed = JSON.parse(raw);
-        if (typeof parsed?.paypalClientId === "string" && parsed.paypalClientId.length > 0) {
+        if (parsed && typeof parsed === "object") {
             return {
-                paypalClientId: parsed.paypalClientId,
+                paypalClientId: typeof parsed.paypalClientId === "string" ? parsed.paypalClientId : "",
                 environment: parsed.environment === "live" ? "live" : "sandbox",
+                ...(Array.isArray(parsed.packs) && parsed.packs.length > 0 ? { packs: parsed.packs } : {}),
+                ...(parsed.promo && typeof parsed.promo === "object" ? { promo: parsed.promo } : {}),
             };
         }
         return null;
@@ -73,10 +82,34 @@ export function readCachedPayPalClientId(): { paypalClientId: string; environmen
     }
 }
 
-export function writeCachedPayPalClientId(paypalClientId: string, environment: 'sandbox' | 'live' = 'sandbox'): void {
-    if (typeof window === "undefined" || !paypalClientId) return;
+export function writeCachedPayPalClientId(
+    paypalClientId: string,
+    environment: 'sandbox' | 'live' = 'sandbox',
+    packs?: CreditBalance['packs'],
+    promo?: CreditBalance['promo'],
+): void {
+    if (typeof window === "undefined") return;
     try {
-        localStorage.setItem(PAYPAL_CONFIG_KEY, JSON.stringify({ paypalClientId, environment }));
+        const existing = readCachedPayPalClientId();
+        const publicPromo: CreditBalance['promo'] | undefined = promo
+            ? {
+                eligible: promo.remaining > 0,
+                claimed: false,
+                remaining: promo.remaining,
+                maxClaims: promo.maxClaims,
+                amountAtomics: promo.amountAtomics,
+                availableAtomics: '0',
+                reservedAtomics: '0',
+                spentAtomics: '0',
+                ...(promo.remaining <= 0 ? { reason: 'exhausted' as const } : {}),
+            }
+            : existing?.promo;
+        localStorage.setItem(PAYPAL_CONFIG_KEY, JSON.stringify({
+            paypalClientId: paypalClientId || existing?.paypalClientId || '',
+            environment: environment || existing?.environment || 'sandbox',
+            ...(packs?.length ? { packs } : existing?.packs ? { packs: existing.packs } : {}),
+            ...(publicPromo ? { promo: publicPromo } : {}),
+        }));
     } catch { }
 }
 
