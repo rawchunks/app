@@ -40,8 +40,8 @@
   --letter-spacing-wide: clamp(1.5px, 0.25vw, 3px);
 
   /* Fluid Font Sizes — Strict >= 11px Legibility Floor */
-  --font-xs: clamp(11px, 0.65vw + 0.3vh, 12px);
-  --font-sm: clamp(11px, 0.75vw + 0.35vh, 13px);
+  --font-xs: clamp(12px, 0.65vw + 0.3vh, 12px);
+  --font-sm: clamp(12px, 0.75vw + 0.35vh, 13px);
   --font-md: clamp(12px, 0.9vw + 0.4vh, 14px);
   --font-base: var(--font-md);
   --font-lg: clamp(15px, 1.1vw + 0.5vh, 18px);
@@ -84,23 +84,18 @@
      Tier 2 (95%):  All track leading badges ('stems'/lanes & 'extracted' categories)
      Tier 3 (90%):  Internal sub-badges ('stems' & 'extracts' inside 'MST', 'versions' everywhere) */
   --badge-mst-h: clamp(18px, 2.05dvh, 21px);
-  --badge-mst-font: clamp(11px, 0.72vw + 0.18vh, 12px);
+  --badge-mst-font: clamp(12px, 0.72vw + 0.18vh, 12px);
   --badge-track-h: calc(var(--badge-mst-h) * 0.95);
-  --badge-track-font: 11px;
+  --badge-track-font: 12px;
   --badge-sub-h: calc(var(--badge-mst-h) * 0.90);
-  --badge-sub-font: 11px;
+  --badge-sub-font: 12px;
 
   /* Standardized DRY DAW Badge & Control Tokens */
   --daw-badge-font: var(--badge-track-font);
   --daw-badge-h: var(--badge-track-h);
   --daw-badge-pad: 0 clamp(4px, 0.4vw, 7px);
-  --daw-ctrl-font: clamp(11px, 0.7vw + 0.18vh, 12px);
+  --daw-ctrl-font: clamp(12px, 0.7vw + 0.18vh, 12px);
   --daw-ctrl-h: clamp(20px, 2.2dvh, 24px);
-
-  /* Fluid Header Brand Scaling System */
-  --header-brand-font: clamp(12px, 1.1vw + 0.45vh, 26px);
-  --header-brand-tag-font: clamp(11px, 0.45vw + 0.25vh, 12px);
-  --header-brand-tag-pad: clamp(1px, 0.2vh, 3px) clamp(4px, 0.35vw, 8px);
 
   /* Fluid Button Dimensions & Proportional Scaling Engine */
   --btn-h-xs: clamp(26px, 2vh + 1vw, 34px);
@@ -113,15 +108,15 @@
   --btn-pad-md: clamp(7px, 1vh, 11px) clamp(12px, 1.5vw, 22px);
   --btn-pad-lg: clamp(10px, 1.4vh, 16px) clamp(18px, 2.2vw, 30px);
 
-  --btn-font-xs: clamp(11px, 0.65vw + 0.3vh, 12px);
-  --btn-font-sm: clamp(11px, 0.75vw + 0.35vh, 13px);
-  --btn-font-md: clamp(11.5px, 0.85vw + 0.4vh, 14px);
+  --btn-font-xs: clamp(12px, 0.65vw + 0.3vh, 12px);
+  --btn-font-sm: clamp(12px, 0.75vw + 0.35vh, 13px);
+  --btn-font-md: clamp(12px, 0.85vw + 0.4vh, 14px);
   --btn-font-lg: clamp(13px, 1.05vw + 0.5vh, 17px);
 
   /* Fluid Header Actions & Connector Scaling */
   --header-btn-h: clamp(30px, 2vw + 1.5vh, 40px);
   --header-btn-pad: clamp(4px, 0.6vh, 8px) clamp(8px, 1.1vw, 18px);
-  --header-btn-font: clamp(11px, 0.7vw + 0.3vh, 13px);
+  --header-btn-font: clamp(12px, 0.7vw + 0.3vh, 13px);
   --header-btn-min-w: clamp(32px, 6vw, 140px);
   --header-icon-size: clamp(13px, 1vw + 0.2vh, 17px);
 
@@ -129,7 +124,7 @@
   --modal-w: min(94vw, clamp(300px, 32vw + 12vh, 520px));
   --modal-pad: clamp(12px, 1.5vw + 0.7vh, 26px);
   --modal-btn-h: clamp(36px, 2.2vw + 1.6vh, 48px);
-  --modal-font: clamp(11px, 0.8vw + 0.35vh, 14px);
+  --modal-font: clamp(12px, 0.8vw + 0.35vh, 14px);
   --modal-icon-size: clamp(16px, 1.2vw, 22px);
 
   /* Safe Area Insets for Mobile Notches & Navigation Bars */
@@ -137,6 +132,18 @@
   --sab: env(safe-area-inset-bottom, 0px);
   --sal: env(safe-area-inset-left, 0px);
   --sar: env(safe-area-inset-right, 0px);
+
+  /* Layer Scale (app chrome -> overlays) */
+  --z-header: 50;
+  --z-player: 60;
+  --z-tabbar: 60;
+  --z-popover: 220;
+  --z-guide-overlay: 940;
+  --z-guide-ring: 941;
+  --z-guide-card: 942;
+  --z-scanlines: 999;
+  --z-modal: 1000;
+  --z-tooltip: 10000;
 
   /* Industry-Standard Stem Audio Palette (All 12 Canonical ACE-Step 1.5 XL Classes) */
   --stem-master: #a855f7;
@@ -154,6 +161,24 @@
   --stem-fx: #818cf8;
   --stem-other: #00e676;
   --stem-instrumental: #3b82f6;
+
+  /* Interactive Guide Tour */
+  --guide-accent: #6366f1;
+  --guide-accent-deep: #4f46e5;
+  --guide-accent-soft: #a5b4fc;
+  --guide-ring: #818cf8;
+  --guide-badge: #34d399;
+  --guide-badge-base: #10b981;
+  --guide-card-bg: rgba(13, 16, 24, 0.96);
+  --guide-card-shadow: rgba(0, 0, 0, 0.72);
+  --guide-text: #f3f4f6;
+  --guide-text-desc: #d1d5db;
+  --guide-text-bullet: #cbd5e1;
+  --guide-text-strong: #f8fafc;
+  --guide-text-dim: #94a3b8;
+  --guide-text-muted: #9ca3af;
+  --guide-text-arrow: #e2e8f0;
+  --guide-text-hover: #f1f5f9;
 }
 
 /* ==========================================================================
@@ -241,7 +266,7 @@
 
 .daw-field-label {
   font-family: var(--font-family);
-  font-size: clamp(11px, 0.68vw + 0.2vh, 12px);
+  font-size: clamp(12px, 0.68vw + 0.2vh, 12px);
   font-weight: 800;
   letter-spacing: 0.05em;
   color: var(--text-secondary);
@@ -262,7 +287,7 @@
   border: 1px solid rgba(0, 240, 255, 0.42);
   color: var(--accent);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 900;
   line-height: 1;
   letter-spacing: 0.02em;

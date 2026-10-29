@@ -23,7 +23,7 @@
     --board-header-w: clamp(134px, 38vw, 168px);
     --toolbox-compact-h: clamp(192px, 28dvh, 212px);
     --badge-mst-h: clamp(20px, 2.5dvh, 22px);
-    --badge-mst-font: 11px;
+    --badge-mst-font: 12px;
   }
 
   /* Studio: Enable Pocket Switcher Bar */
@@ -62,44 +62,13 @@
     gap: clamp(4px, 1vw, 8px);
   }
 
-  .header-brand-tag {
+  /* Navigation moves to the bottom TabBar on mobile */
+  .service-switcher {
     display: none;
   }
 
-  .service-switcher {
-    padding: 2px;
-    gap: 3px;
-  }
-
-  .service-nav-btn {
-    padding: 0 7px !important;
-    font-size: var(--header-btn-font);
-    height: var(--header-btn-h);
-    min-height: var(--header-btn-h);
-    min-width: unset;
-  }
-
-  .service-nav-label {
-    display: none !important;
-  }
-
-  .network-trigger-name {
-    display: none !important;
-  }
-
-  .header-network-trigger,
-  .header-session-trigger {
-    padding: 0 clamp(5px, 1.2vw, 8px) !important;
-    gap: 4px !important;
-  }
-
-  .session-trigger-label {
-    display: none !important;
-  }
-
-  .session-trigger-amount {
-    font-size: 11px;
-    letter-spacing: 0;
+  .tabbar {
+    display: flex;
   }
 
   .session-grid {
@@ -114,7 +83,7 @@
     flex: 1 1 calc(50% - 6px);
   }
 
-  /* Wallet connector in header - Compact Avatar/Icon-Only on Mobile */
+  /* Account chip in header - Compact Avatar/Icon-Only on Mobile (LOGIN keeps its label) */
   .connect,
   .tw-connect-wallet {
     padding: 0 !important;
@@ -126,7 +95,14 @@
     gap: 0 !important;
   }
 
-  .connect-address,
+  .btn-solid.connect {
+    width: auto !important;
+    min-width: var(--header-btn-h) !important;
+    max-width: none !important;
+    padding: var(--header-btn-pad) !important;
+  }
+
+  .btn-ghost.connect .connect-address,
   .connect-balance,
   .connect .icon-fold {
     display: none !important;
@@ -144,10 +120,11 @@
     max-width: calc(100vw - 16px);
   }
 
-  /* Bottom Player Mobile Ergonomics */
+  /* Bottom Player Mobile Ergonomics (safe-area padding lives on the TabBar below) */
   .app-player {
     height: auto;
     min-height: 60px;
+    padding-bottom: 0;
   }
 
   .player-transport-row {
@@ -258,7 +235,7 @@
   :root {
     --board-header-w: clamp(126px, 38vw, 152px);
     --badge-mst-h: clamp(19px, 2.4dvh, 21px);
-    --badge-mst-font: 11px;
+    --badge-mst-font: 12px;
   }
 
   .app-header {
@@ -270,17 +247,6 @@
     gap: 4px;
   }
 
-  .header-network-trigger,
-  .header-session-trigger {
-    padding: 0 5px !important;
-    height: 28px;
-    min-height: 28px;
-  }
-
-  .header-network-trigger .icon-fold {
-    display: none;
-  }
-
   .connect,
   .tw-connect-wallet {
     padding: 0 !important;
@@ -289,6 +255,20 @@
     max-width: 28px !important;
     height: 28px !important;
     min-height: 28px !important;
+  }
+
+  .btn-solid.connect {
+    width: auto !important;
+    min-width: 28px !important;
+    max-width: none !important;
+    padding: 0 8px !important;
+  }
+
+  .session-trigger-btn {
+    height: 28px;
+    min-height: 28px;
+    padding: 0 7px;
+    font-size: 11px;
   }
 
   .connect-avatar {
@@ -315,11 +295,11 @@
 
   .modal-inner-card {
     padding: 12px;
-    max-height: 94dvh;
+    max-height: none;
   }
 
   .dialog-content {
-    max-height: 94dvh;
+    max-height: none;
     max-width: calc(100vw - 16px);
   }
 
@@ -329,11 +309,7 @@
 
   .dialog-body {
     padding: 10px 14px;
-    gap: 10px;
-  }
-
-  .terms {
-    max-height: clamp(110px, 20vh, 160px);
+    gap: 8px;
   }
 
   .dialog-actions {
@@ -361,24 +337,6 @@
     width: auto;
   }
 
-  .service-switcher {
-    gap: 1px;
-    padding: 1px;
-  }
-
-  .service-nav-btn {
-    padding: 0 5px !important;
-    height: 26px;
-    min-height: 26px;
-  }
-
-  .header-network-trigger,
-  .header-session-trigger {
-    padding: 0 4px !important;
-    height: 26px;
-    min-height: 26px;
-  }
-
   .session-active-indicator {
     width: 5px;
     height: 5px;
@@ -392,6 +350,20 @@
     max-width: 26px !important;
     height: 26px !important;
     min-height: 26px !important;
+  }
+
+  .btn-solid.connect {
+    width: auto !important;
+    min-width: 26px !important;
+    max-width: none !important;
+    padding: 0 7px !important;
+  }
+
+  .session-trigger-btn {
+    height: 26px;
+    min-height: 26px;
+    padding: 0 6px;
+    font-size: 11px;
   }
 
   .connect-avatar {
@@ -416,14 +388,40 @@
     transform: translate(-50%, -50%) !important;
     width: var(--modal-w) !important;
     max-width: min(var(--modal-w), calc(100vw - 20px)) !important;
-    max-height: 92dvh !important;
-    overflow-y: auto !important;
-    -webkit-overflow-scrolling: touch !important;
+    max-height: none !important;
+    overflow: hidden !important;
     border-radius: 4px !important;
     border: 1px solid var(--primary) !important;
     box-shadow: 0 0 35px rgba(0, 255, 65, 0.25), 0 20px 60px rgba(0, 0, 0, 0.95) !important;
     padding-bottom: 0 !important;
     margin: 0 !important;
     box-sizing: border-box !important;
+  }
+}
+
+/* ==========================================================================
+   TOUCH TARGET FLOOR (COARSE POINTERS)
+   ========================================================================== */
+@media (pointer: coarse) {
+  .header-brand,
+  .service-nav-btn,
+  .player-controls .btn {
+    min-height: 44px;
+  }
+
+  .connect,
+  .tw-connect-wallet,
+  .session-trigger-btn {
+    height: 30px !important;
+    min-height: 30px !important;
+  }
+
+  .editor-transport-btn,
+  .editor-transport-play-btn {
+    min-height: 26px;
+  }
+
+  .player-scrubber {
+    height: 10px;
   }
 }

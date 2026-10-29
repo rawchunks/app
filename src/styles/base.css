@@ -54,7 +54,7 @@ html, body {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  z-index: 999;
+  z-index: var(--z-scanlines);
   background: linear-gradient(
     rgba(18, 16, 16, 0) 50%,
     rgba(0, 0, 0, 0.25) 50%
