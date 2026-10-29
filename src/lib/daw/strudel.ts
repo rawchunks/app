@@ -534,7 +534,6 @@ export function evaluateStrudelPattern(code: string): ParsedStrudelPattern {
  */
 function splitSubExpressions(code: string): string[] {
   const trimmed = code.trim();
-  // Unwrap stack(...) if the expression starts with stack(
   if (/^stack\s*\(/i.test(trimmed) && trimmed.endsWith(')')) {
     const openParen = trimmed.indexOf('(');
     const inner = trimmed.slice(openParen + 1, -1);
@@ -547,8 +546,8 @@ function splitSubExpressions(code: string): string[] {
   let inDoubleQuote = false;
   let bracketDepth = 0;
 
-  for (let i = 0; i < code.length; i++) {
-    const char = code[i];
+  for (let i = 0; i < trimmed.length; i++) {
+    const char = trimmed[i];
 
     if (char === "'" && !inDoubleQuote) {
       inSingleQuote = !inSingleQuote;
@@ -581,11 +580,12 @@ function splitSubExpressions(code: string): string[] {
   }
 
   return subExprs.flatMap((expr) => {
-    if (/^stack\s*\(/i.test(expr) && expr.endsWith(')')) {
-      const openParen = expr.indexOf('(');
-      return splitSubExpressions(expr.slice(openParen + 1, -1));
+    const cleanExpr = expr.trim();
+    if (/^stack\s*\(/i.test(cleanExpr) && cleanExpr.endsWith(')')) {
+      const openParen = cleanExpr.indexOf('(');
+      return splitSubExpressions(cleanExpr.slice(openParen + 1, -1));
     }
-    return [expr];
+    return [cleanExpr];
   });
 }
 
@@ -617,21 +617,28 @@ function splitByTopLevelComma(str: string): string[] {
  * or `[c3,eb3,g3](3,8)` into `[bd ~ ~ bd ~ ~ bd ~]`
  */
 function expandEuclideanRhythms(content: string): string {
-  return content.replace(/([a-zA-Z0-9_#]+)\((\d+)\s*,\s*(\d+)\)/g, (_, sound, kStr, nStr) => {
-    const k = parseInt(kStr, 10);
-    const n = parseInt(nStr, 10);
-    if (isNaN(k) || isNaN(n) || n <= 0) return sound;
+  return content.replace(
+    /(\[[^\]]+\]|[a-zA-Z0-9_#]+)\(\s*(-?\d+)\s*,\s*(-?\d+)(?:\s*,\s*(-?\d+))?\s*\)/g,
+    (_, sound, kStr, nStr, rStr) => {
+      const k = parseInt(kStr, 10);
+      const rawN = parseInt(nStr, 10);
+      const r = rStr !== undefined ? parseInt(rStr, 10) || 0 : 0;
+      if (isNaN(k) || isNaN(rawN) || rawN <= 0) return sound;
+      const n = Math.min(64, rawN);
+      if (k <= 0) return `[${new Array(n).fill('~').join(' ')}]`;
 
-    const steps: string[] = [];
-    for (let i = 0; i < n; i++) {
-      if ((i * k) % n < k) {
-        steps.push(sound);
-      } else {
-        steps.push('~');
+      const steps: string[] = [];
+      for (let i = 0; i < n; i++) {
+        const idx = (((i - r) % n) + n) % n;
+        if ((idx * k) % n < k) {
+          steps.push(sound);
+        } else {
+          steps.push('~');
+        }
       }
+      return `[${steps.join(' ')}]`;
     }
-    return `[${steps.join(' ')}]`;
-  });
+  );
 }
 
 function parseLane(
@@ -702,6 +709,8 @@ function tokenizeMiniNotation(str: string): string[] {
   const tokens: string[] = [];
   let current = '';
   let bracketDepth = 0;
+  let angleDepth = 0;
+  let parenDepth = 0;
 
   for (let i = 0; i < str.length; i++) {
     const char = str[i];
@@ -712,7 +721,19 @@ function tokenizeMiniNotation(str: string): string[] {
     } else if (char === ']') {
       bracketDepth = Math.max(0, bracketDepth - 1);
       current += char;
-    } else if (/\s/.test(char) && bracketDepth === 0) {
+    } else if (char === '<') {
+      angleDepth++;
+      current += char;
+    } else if (char === '>') {
+      angleDepth = Math.max(0, angleDepth - 1);
+      current += char;
+    } else if (char === '(') {
+      parenDepth++;
+      current += char;
+    } else if (char === ')') {
+      parenDepth = Math.max(0, parenDepth - 1);
+      current += char;
+    } else if (/\s/.test(char) && bracketDepth === 0 && angleDepth === 0 && parenDepth === 0) {
       if (current.trim()) {
         tokens.push(current.trim());
         current = '';
