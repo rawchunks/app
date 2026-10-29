@@ -269,7 +269,7 @@ export const Waveform: React.FC<Props> = ({
   const hasSculpt = useMemo(() => !isIdentityWaveSculpt(composedMasterVisualSculpt), [composedMasterVisualSculpt]);
   const [activeSculptNodeId, setActiveSculptNodeId] = useState<string | null>(null);
   const [activeAnchorId, setActiveAnchorId] = useState<string | null>(null);
-  const [hoverPeak, setHoverPeak] = useState<{ ratio: number; peakY: number } | null>(null);
+  const hoverPeakRef = useRef<{ ratio: number; peakY: number } | null>(null);
 
   const [loadedPeaks, setLoadedPeaks] = useState<number[]>(() => customPeaks?.length ? customPeaks : magnitudes(audioUrl));
 
@@ -948,12 +948,13 @@ export const Waveform: React.FC<Props> = ({
         });
       } else {
         // GRANULAR WAVE SHAPE DESIGN MODE: No artificial vertical lines or boxes — the wave contour itself deforms directly!
-        if (hoverPeak && !activeAnchorId) {
-          const hx = hoverPeak.ratio * virtualW;
+        const currentHoverPeak = hoverPeakRef.current;
+        if (currentHoverPeak && !activeAnchorId) {
+          const hx = currentHoverPeak.ratio * virtualW;
           ctx.strokeStyle = 'rgba(0, 255, 136, 0.55)';
           ctx.lineWidth = 1.2;
           ctx.beginPath();
-          ctx.arc(hx, hoverPeak.peakY, 4, 0, Math.PI * 2);
+          ctx.arc(hx, currentHoverPeak.peakY, 4, 0, Math.PI * 2);
           ctx.stroke();
         }
       }
@@ -984,7 +985,6 @@ export const Waveform: React.FC<Props> = ({
     sculptMode,
     activeSculptNodeId,
     activeAnchorId,
-    hoverPeak,
     interactive,
     customProgress,
     effectiveRatioSelection,
@@ -1004,6 +1004,16 @@ export const Waveform: React.FC<Props> = ({
   }, [renderWaveform]);
   const draw = useRef(renderWaveform);
   draw.current = renderWaveform;
+
+  const setHoverPeak = useCallback((next: { ratio: number; peakY: number } | null) => {
+    const prev = hoverPeakRef.current;
+    if (prev === next) return;
+    if (prev && next && Math.abs(prev.ratio - next.ratio) < 1e-5 && Math.abs(prev.peakY - next.peakY) < 0.25) {
+      return;
+    }
+    hoverPeakRef.current = next;
+    draw.current();
+  }, []);
 
   // Transient playhead subscription so 60fps playback redraws canvas without React re-renders
   useEffect(() => {
