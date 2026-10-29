@@ -176,6 +176,110 @@ function detectWindowedKeyAndChords(
  * Extracts a true 16th-note 3-band groove mask directly from a 1-bar slice of an AudioBuffer
  * so there is zero whole-song bin aliasing.
  */
+function extractBarGrooveFromBuffer(
+  buffer: AudioBuffer,
+  bpm: number,
+  barStartSec: number
+): { grooveLow: string; grooveMid: string; grooveHigh: string; openSpectrum: string } | null {
+  const rate = buffer.sampleRate;
+  const channel = buffer.getChannelData(0);
+  const barSec = (60 / Math.max(40, Math.min(240, bpm))) * 4;
+  const maxStart = Math.max(0, buffer.duration - barSec);
+  const startSec = Math.max(0, Math.min(barStartSec, maxStart));
+  const startSample = Math.floor(startSec * rate);
+  const barSamples = Math.floor(barSec * rate);
+  if (startSample + 16 >= channel.length || barSamples < 16) return null;
+
+  const stepSamples = Math.max(1, Math.floor(barSamples / 16));
+  const lowEnergy = new Float64Array(16);
+  const midEnergy = new Float64Array(16);
+  const highEnergy = new Float64Array(16);
+
+  // One-pole crossover filters at ~180Hz and ~2400Hz (strided to ~11kHz effective rate to reduce main-thread cost by 75%)
+  const stride = Math.max(1, Math.floor(rate / 11025));
+  const effectiveRate = rate / stride;
+  const alphaLow = Math.min(0.99, (2 * Math.PI * 180) / effectiveRate);
+  const alphaMid = Math.min(0.99, (2 * Math.PI * 2400) / effectiveRate);
+  let lp180 = 0;
+  let lp2400 = 0;
+
+  for (let s = 0; s < 16; s++) {
+    const sStart = startSample + s * stepSamples;
+    const sEnd = Math.min(channel.length, sStart + stepSamples);
+    if (sEnd <= sStart) continue;
+    let sumL = 0;
+    let sumM = 0;
+    let sumH = 0;
+    let count = 0;
+    for (let i = sStart; i < sEnd; i += stride) {
+      const x = channel[i];
+      lp180 += alphaLow * (x - lp180);
+      lp2400 += alphaMid * (x - lp2400);
+      const low = lp180;
+      const mid = lp2400 - lp180;
+      const high = x - lp2400;
+      sumL += low * low;
+      sumM += mid * mid;
+      sumH += high * high;
+      count++;
+    }
+    const n = Math.max(1, count);
+    lowEnergy[s] = Math.sqrt(sumL / n);
+    midEnergy[s] = Math.sqrt(sumM / n);
+    highEnergy[s] = Math.sqrt(sumH / n);
+  }
+
+  const meanL = lowEnergy.reduce((a, b) => a + b, 0) / 16;
+  const meanM = midEnergy.reduce((a, b) => a + b, 0) / 16;
+  const meanH = highEnergy.reduce((a, b) => a + b, 0) / 16;
+
+  const lowChars: string[] = [];
+  const midChars: string[] = [];
+  const highChars: string[] = [];
+
+  for (let s = 0; s < 16; s++) {
+    lowChars.push(meanL > 1e-4 && lowEnergy[s] > meanL * 1.05 ? 'x' : '.');
+    midChars.push(meanM > 1e-4 && midEnergy[s] > meanM * 1.08 ? 'x' : '.');
+    highChars.push(meanH > 1e-4 && highEnergy[s] > meanH * 1.02 ? 'x' : '.');
+  }
+
+  const totalBand = meanL + meanM + meanH + 1e-9;
+  const normL = meanL / totalBand;
+  const normM = meanM / totalBand;
+  const normH = meanH / totalBand;
+  const openBands: string[] = [];
+  if (normL < 0.32) openBands.push('sub-bass');
+  if (normM < 0.34) openBands.push('warm-mids');
+  if (normH < 0.25) openBands.push('high-air');
+  if (openBands.length === 0) openBands.push('syncopated-mid-high');
+
+  return {
+    grooveLow: lowChars.join(''),
+    grooveMid: midChars.join(''),
+    grooveHigh: highChars.join(''),
+    openSpectrum: openBands.join(','),
+  };
+}
+
+function inferTrackRole(name?: string, id?: string): string {
+  const s = `${name || ''} ${id || ''}`.toLowerCase();
+  if (s.includes('drum') || s.includes('perc') || s.includes('beat')) return 'drums';
+  if (s.includes('bass') || s.includes('sub') || s.includes('808')) return 'bass';
+  if (s.includes('vocal') || s.includes('vox') || s.includes('sing')) return 'vocals';
+  if (s.includes('guitar') || s.includes('gtr')) return 'guitar';
+  if (s.includes('key') || s.includes('piano') || s.includes('synth') || s.includes('pad')) return 'keys';
+  return 'master';
+}
+
+/**
+ * Extracts a deterministic, high-resolution `[SONG_CTX v2]` musical descriptor
+ * from the current DAW session:
+ * - Authoritative Key & Scale from song DB provenance (`state.keyScale` / `takes`)
+ * - Windowed 4-bar chord progression + explicit Strudel voicings around `selection.start` or `playhead`
+ * - True 16th-note 3-band onset groove masks (`L`, `M`, `H`) without whole-song aliasing
+ * - Target reference track role (`drums`, `bass`, `vocals`, `guitar`, `keys`, `master`)
+ * - Timestamped structural section (`[Intro]`, `[Verse]`, `[Chorus]`, `[Bridge]`) & active lyrics from `lyricsAlignment`
+ */
 export async function extractMusicalContext(targetTrackId?: string): Promise<string> {
   const state = useDawStore.getState();
   const bpm = Math.round(state.bpm || 120);
