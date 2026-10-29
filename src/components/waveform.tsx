@@ -134,7 +134,15 @@ function layerValues(clips: DAWTrack['clips'], duration: number, peaks: { bins: 
   return values;
 }
 
+const synthLayerValuesCache = new Map<string, number[]>();
+
 function synthLayerValues(lane: DAWTrack): number[] {
+  const cacheKey = `${lane.id}:${lane.type}:${lane.activeVersionId ?? ''}:${lane.strudelCode ?? ''}:${
+    lane.pianoRollNotes ? JSON.stringify(lane.pianoRollNotes) : ''
+  }:${lane.sequencerVoices ? JSON.stringify(lane.sequencerVoices.map(v => [v.muted, v.steps])) : ''}`;
+  const cached = synthLayerValuesCache.get(cacheKey);
+  if (cached) return cached;
+
   const values = new Array<number>(256).fill(0.14);
   if (lane.type === 'pianoroll') {
     const notes = lane.pianoRollNotes ?? [];
@@ -168,6 +176,11 @@ function synthLayerValues(lane: DAWTrack): number[] {
       values[bin] = Math.max(0.08, synth.maxs[bin]);
     }
   }
+  if (synthLayerValuesCache.size > 64) {
+    const oldestKey = synthLayerValuesCache.keys().next().value;
+    if (oldestKey !== undefined) synthLayerValuesCache.delete(oldestKey);
+  }
+  synthLayerValuesCache.set(cacheKey, values);
   return values;
 }
 
@@ -229,20 +242,28 @@ export const Waveform: React.FC<Props> = ({
     () => masterSculpt ?? createDefaultWaveSculpt(),
     [masterSculpt]
   );
+  const activeLaneSculptsKey = useMemo(
+    () => JSON.stringify(
+      tracks
+        .filter(t => t.id !== 'master' && t.mounted !== false && !t.muted)
+        .map(t => ({ id: t.id, sculpt: getTrackOwnSculpt(t) }))
+        .filter(entry => Boolean(entry.sculpt))
+    ),
+    [tracks]
+  );
   const composedMasterVisualSculpt = useMemo<WaveSculptState>(() => {
     let acc: WaveSculptState | undefined = effectiveSculpt;
-    for (const t of tracks) {
-      if (t.id === 'master' || t.mounted === false || t.muted) continue;
-      const laneSculpt = getTrackOwnSculpt(t);
-      if (laneSculpt) {
-        acc = composeWaveSculpts(acc, laneSculpt);
+    const entries = JSON.parse(activeLaneSculptsKey) as Array<{ id: string; sculpt?: WaveSculptState }>;
+    for (const entry of entries) {
+      if (entry.sculpt) {
+        acc = composeWaveSculpts(acc, entry.sculpt);
       }
     }
     return acc ?? effectiveSculpt;
-  }, [effectiveSculpt, tracks]);
+  }, [effectiveSculpt, activeLaneSculptsKey]);
   const hasAnyLaneSculpt = useMemo(
-    () => tracks.some(t => t.id !== 'master' && t.mounted !== false && !t.muted && Boolean(getTrackOwnSculpt(t))),
-    [tracks]
+    () => activeLaneSculptsKey !== '[]',
+    [activeLaneSculptsKey]
   );
   const sculptMode: WaveSculptMode = globalSculptMode ?? effectiveSculpt.mode ?? 'granular';
   const hasSculpt = useMemo(() => !isIdentityWaveSculpt(composedMasterVisualSculpt), [composedMasterVisualSculpt]);
@@ -289,17 +310,20 @@ export const Waveform: React.FC<Props> = ({
     }
   }, [customPeaks, audioUrl]);
 
-  const laneKey = JSON.stringify(
-    lanes.map(lane => ({
-      id: lane.id,
-      name: lane.name,
-      type: lane.type,
-      activeVersionId: lane.activeVersionId,
-      clips: lane.clips.map(({ url, offset, duration, startTime }) => ({ url, offset, duration, startTime })),
-      pianoRollNotes: lane.pianoRollNotes,
-      sequencerVoices: lane.sequencerVoices?.map(v => ({ muted: v.muted, steps: v.steps })),
-      strudelCode: lane.strudelCode,
-    }))
+  const laneKey = useMemo(
+    () => JSON.stringify(
+      lanes.map(lane => ({
+        id: lane.id,
+        name: lane.name,
+        type: lane.type,
+        activeVersionId: lane.activeVersionId,
+        clips: lane.clips.map(({ url, offset, duration, startTime }) => ({ url, offset, duration, startTime })),
+        pianoRollNotes: lane.pianoRollNotes,
+        sequencerVoices: lane.sequencerVoices?.map(v => ({ muted: v.muted, steps: v.steps })),
+        strudelCode: lane.strudelCode,
+      }))
+    ),
+    [lanes]
   );
   const sources = useMemo<DAWTrack[]>(() => JSON.parse(laneKey), [laneKey]);
   const storedLayers = useMemo(() => duration > 0 ? sources.flatMap(lane => {
@@ -312,17 +336,26 @@ export const Waveform: React.FC<Props> = ({
   }) : [], [sources, duration]);
   const [loadedLayers, setLayers] = useState<{ key: string; duration: number; values: typeof storedLayers } | null>(null);
   const rawLayers = loadedLayers?.key === laneKey && loadedLayers.duration === duration ? loadedLayers.values : storedLayers;
+  const rawLayerSculptsKey = useMemo(
+    () => JSON.stringify(
+      rawLayers.map(layer => {
+        const laneTrack = tracks.find(t => t.id === layer.id);
+        return getTrackOwnSculpt(laneTrack) ?? null;
+      })
+    ),
+    [rawLayers, tracks]
+  );
   const layers = useMemo(() => {
-    return rawLayers.map(layer => {
-      const laneTrack = tracks.find(t => t.id === layer.id);
-      const laneSculpt = getTrackOwnSculpt(laneTrack);
+    const laneSculpts = JSON.parse(rawLayerSculptsKey) as Array<WaveSculptState | null>;
+    return rawLayers.map((layer, idx) => {
+      const laneSculpt = laneSculpts[idx] ?? undefined;
       const composedSculpt = composeWaveSculpts(masterSculpt, laneSculpt);
       return {
         ...layer,
         values: transformMagnitudeArray(layer.values, composedSculpt),
       };
     });
-  }, [rawLayers, tracks, masterSculpt]);
+  }, [rawLayers, rawLayerSculptsKey, masterSculpt]);
 
   useEffect(() => {
     let current = true;

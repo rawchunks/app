@@ -267,7 +267,11 @@ export const Board: React.FC<BoardProps> = ({
 
   // Group tracks into: Master, Lanes (stems + custom tracks), and Extracted (Takes / isolates)
   const masterTrack = tracks.find((t) => t.id === 'master') || tracks[0];
-  const laneTracks = tracks.filter((t) => t.id !== 'master' && t.id !== t.activeTakeId);
+  const laneTracks = React.useMemo(
+    () => tracks.filter((t) => t.id !== 'master' && t.id !== t.activeTakeId),
+    [tracks]
+  );
+  const trackOrderKey = React.useMemo(() => tracks.map((t) => t.id).join('|'), [tracks]);
   const positions = useRef(new Map<string, number>());
   const movements = useRef(new Map<string, Animation>());
   useLayoutEffect(() => () => {
@@ -290,23 +294,43 @@ export const Board: React.FC<BoardProps> = ({
       ], { duration: 420, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' }));
     });
     positions.current = next;
-  }, [tracks, selectedTrackId]);
-  const hasExtractedStems = laneTracks.some(track => track.type === 'stem' && track.clips.length > 0);
-  const separated = laneTracks.filter(
-    track =>
-      track.mounted !== false &&
-      (track.clips.length > 0 ||
-        track.type === 'pianoroll' ||
-        track.type === 'sequencer' ||
-        track.type === 'strudel' ||
-        track.type === 'sample')
+  }, [trackOrderKey, selectedTrackId]);
+  const hasExtractedStems = React.useMemo(
+    () => laneTracks.some(track => track.type === 'stem' && track.clips.length > 0),
+    [laneTracks]
   );
-  const completeSeparation = ['drums', 'bass', 'other'].every(name => separated.some(track => track.name.toLowerCase() === name));
-  const masterLanes = separated.filter(track => !completeSeparation || track.name.toLowerCase() !== 'instrumental');
-  const selectedLane = separated.find(track => track.id === selectedTrackId);
-  const highlighted = completeSeparation && selectedLane?.name.toLowerCase() === 'instrumental'
-    ? masterLanes.filter(track => track.name.toLowerCase() !== 'vocals').map(track => track.id)
-    : [selectedTrackId];
+  const separated = React.useMemo(
+    () =>
+      laneTracks.filter(
+        track =>
+          track.mounted !== false &&
+          (track.clips.length > 0 ||
+            track.type === 'pianoroll' ||
+            track.type === 'sequencer' ||
+            (track.type === 'strudel' && Boolean(track.strudelCode?.trim())) ||
+            track.type === 'sample')
+      ),
+    [laneTracks]
+  );
+  const completeSeparation = React.useMemo(
+    () => ['drums', 'bass', 'other'].every(name => separated.some(track => track.name.toLowerCase() === name)),
+    [separated]
+  );
+  const masterLanes = React.useMemo(
+    () => separated.filter(track => !completeSeparation || track.name.toLowerCase() !== 'instrumental'),
+    [separated, completeSeparation]
+  );
+  const selectedLane = React.useMemo(
+    () => separated.find(track => track.id === selectedTrackId),
+    [separated, selectedTrackId]
+  );
+  const highlighted = React.useMemo(
+    () =>
+      completeSeparation && selectedLane?.name.toLowerCase() === 'instrumental'
+        ? masterLanes.filter(track => track.name.toLowerCase() !== 'vocals').map(track => track.id)
+        : [selectedTrackId],
+    [completeSeparation, selectedLane, masterLanes, selectedTrackId]
+  );
 
   // Format seconds to mm:ss.ms
   const formatTime = (sec: number) => {
