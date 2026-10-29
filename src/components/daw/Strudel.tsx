@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 import { useDawStore, DAWTrack } from '../../lib/daw/store';
 import { dawEngine } from '../../lib/daw/engine';
 import { extractMusicalContext } from '../../lib/daw/context';
+import { validateStrudelPattern } from '../../lib/daw/strudel';
 import { sdk } from '../../lib/sdk';
 import { Button } from '../button';
 import { Badge } from '../badge';
@@ -16,9 +17,9 @@ interface StrudelProps {
 }
 
 const STRUDEL_STARTERS: { label: string; code: string }[] = [
-  { label: '4/4 TECHNO', code: "s('bd*4, [~ cp]*2, hh*8').lpf(4200)" },
-  { label: 'BREAKBEAT', code: "s('bd [~ bd] sd [bd ~], hh*8').fast(1).room(0.25)" },
-  { label: 'ACID BASS', code: "note('c2 [c2 g2] eb2 [f2 bb1]').s('sawtooth').lpf(900).delay(0.2)" },
+  { label: 'TECHNO', code: "s('bd*4, [~ cp]*2, [~ hh]*4').lpf(4200)" },
+  { label: 'BREAKS', code: "s('<[bd [~ bd] sd [bd ~]] [bd [sd bd] [~ bd] sd]>, hh*8').room(0.25)" },
+  { label: 'ACID', code: "note('<[c2 [c2 g2] eb2 [f2 bb1]] [ab1 [ab1 eb2] f2 [g2 d2]]>').s('sawtooth').lpf(900).delay(0.2)" },
 ];
 
 export const Strudel: React.FC<StrudelProps> = ({ track }) => {
@@ -50,6 +51,37 @@ export const Strudel: React.FC<StrudelProps> = ({ track }) => {
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
 
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const codeSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastPushedCodeRef = useRef<string | undefined>(strudelTrack?.strudelCode);
+
+  const flushPendingCodeSync = (trackId: string, nextCode: string) => {
+    if (codeSyncTimerRef.current) {
+      clearTimeout(codeSyncTimerRef.current);
+      codeSyncTimerRef.current = null;
+    }
+    lastPushedCodeRef.current = nextCode;
+    updateStrudelCode(trackId, nextCode);
+  };
+
+  const scheduleCodeSync = (trackId: string, nextCode: string) => {
+    lastPushedCodeRef.current = nextCode;
+    if (codeSyncTimerRef.current) {
+      clearTimeout(codeSyncTimerRef.current);
+    }
+    codeSyncTimerRef.current = setTimeout(() => {
+      codeSyncTimerRef.current = null;
+      updateStrudelCode(trackId, nextCode);
+    }, 180);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (codeSyncTimerRef.current) {
+        clearTimeout(codeSyncTimerRef.current);
+        codeSyncTimerRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (strudelTrack && pendingModalTrackId === strudelTrack.id) {
@@ -59,7 +91,9 @@ export const Strudel: React.FC<StrudelProps> = ({ track }) => {
   }, [strudelTrack?.id, pendingModalTrackId, clearPendingModalTrackId]);
 
   useEffect(() => {
-    if (strudelTrack && strudelTrack.strudelCode !== undefined && strudelTrack.strudelCode !== code) {
+    if (!strudelTrack || strudelTrack.strudelCode === undefined) return;
+    if (!codeSyncTimerRef.current && strudelTrack.strudelCode !== code) {
+      lastPushedCodeRef.current = strudelTrack.strudelCode;
       setCode(strudelTrack.strudelCode);
     }
   }, [strudelTrack?.id, strudelTrack?.activeVersionId, strudelTrack?.strudelCode]);
@@ -98,7 +132,11 @@ export const Strudel: React.FC<StrudelProps> = ({ track }) => {
     }
 
     try {
-      updateStrudelCode(strudelTrack.id, targetCode);
+      const validation = validateStrudelPattern(targetCode);
+      if (!validation.valid) {
+        throw new Error(validation.errors.join(' ') || 'Invalid Strudel pattern syntax');
+      }
+      flushPendingCodeSync(strudelTrack.id, targetCode);
       if (!isPlaying) {
         await dawEngine.startTransport();
       }
@@ -134,10 +172,7 @@ export const Strudel: React.FC<StrudelProps> = ({ track }) => {
       ? baseCode.replace(regex, `.${method}(${formatted})`)
       : `${baseCode}.${method}(${formatted})`;
     setCode(nextCode);
-    updateStrudelCode(strudelTrack.id, nextCode);
-    if (isPlaying || isRunning) {
-      dawEngine.scheduleStrudel(strudelTrack.id, nextCode, bpm);
-    }
+    scheduleCodeSync(strudelTrack.id, nextCode);
   };
 
   const handleAiCompose = async () => {
@@ -188,7 +223,7 @@ export const Strudel: React.FC<StrudelProps> = ({ track }) => {
 
   const handleClear = () => {
     setCode('');
-    updateStrudelCode(strudelTrack.id, '');
+    flushPendingCodeSync(strudelTrack.id, '');
     setConsoleLogs((prev) => [
       ...prev.slice(-20),
       `[${new Date().toLocaleTimeString()}] [INFO] Buffer cleared`,
