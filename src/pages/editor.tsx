@@ -514,8 +514,10 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
           data.alignment.lines.some((l: any) => typeof l?.start === 'number')
         ) {
           setLyricsAlignment(data.alignment);
+          useDawStore.setState({ lyricsAlignment: data.alignment });
         }
         if (typeof data.lyrics === 'string' && data.lyrics.trim() && data.lyrics.trim() !== '[Instrumental]') {
+          useDawStore.setState({ lyrics: data.lyrics });
           setLyrics(prev => {
             if (!prev) return data.lyrics;
             if (prev.replace(/\s+/g, ' ').trim() === data.lyrics.replace(/\s+/g, ' ').trim()) {

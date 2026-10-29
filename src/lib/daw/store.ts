@@ -207,6 +207,10 @@ export interface DAWState {
   playhead: number;
   duration: number;
   bpm: number;
+  keyScale?: string;
+  stylePrompt?: string;
+  lyrics?: string;
+  lyricsAlignment?: LyricsAlignment | null;
   timeSignature: [number, number];
   loop: boolean;
   loopStart: number;
@@ -666,6 +670,20 @@ export const useDawStore = create<DAWState>((set, get) => ({
         : [],
     };
 
+    const takesList = project?.takes ?? [];
+    const baseTake = takesList.find(take => take.task === 'text2music') ?? takesList.find(take => take.is_active);
+    const baseParams = baseTake?.provenance?.parameters;
+    const resolvedKeyScale = baseParams?.submitted?.keyScale ?? baseParams?.submitted?.keyscale ?? baseParams?.resolved?.keyscale;
+    const resolvedStylePrompt = baseTake?.prompt ?? baseParams?.submitted?.prompt ?? baseParams?.submitted?.tags ?? baseParams?.resolved?.caption;
+    const resolvedLyrics =
+      takesList.find(t => t.is_active && t.lyrics && t.lyrics !== '[Instrumental]')?.lyrics ??
+      takesList.find(t => t.task === 'text2music' && t.lyrics && t.lyrics !== '[Instrumental]')?.lyrics ??
+      takesList.map(t => (t.provenance?.parameters as any)?.transcribedLyrics).find((l: any) => typeof l === 'string' && l.trim() && l.trim() !== '[Instrumental]');
+    const resolvedAlignment =
+      takesList
+        .map(t => (t.provenance?.parameters as any)?.lyricsAlignment as LyricsAlignment | undefined)
+        .find(a => a && Array.isArray(a.lines) && a.lines.some(l => typeof l?.start === 'number')) ?? null;
+
     set({
       songId,
       songTitle,
@@ -677,13 +695,17 @@ export const useDawStore = create<DAWState>((set, get) => ({
       sectionGain: 0,
       originalMasterUrl: masterUrl || null,
       legoContextTrackIds: ['master'],
-      takes: project?.takes ?? [],
+      takes: takesList,
       commits: project?.commits ?? [],
       isPlaying: false,
       playhead: 0,
       pendingTake: null,
       originals: [], operations: [], auditionId: null,
-      bpm: (() => { const take = project?.takes.find(take => take.task === 'text2music'); const p = take?.provenance?.parameters; return p?.submitted?.bpm ?? p?.resolved?.bpm ?? 128; })(),
+      bpm: baseParams?.submitted?.bpm ?? baseParams?.resolved?.bpm ?? 128,
+      keyScale: resolvedKeyScale ? String(resolvedKeyScale) : undefined,
+      stylePrompt: resolvedStylePrompt ? String(resolvedStylePrompt) : undefined,
+      lyrics: resolvedLyrics ? String(resolvedLyrics) : undefined,
+      lyricsAlignment: resolvedAlignment,
     });
     if (project) get().restoreSession(project.commits);
     if (project?.stems.length) get().syncStems(project.stems);
@@ -2408,7 +2430,34 @@ export const useDawStore = create<DAWState>((set, get) => ({
     const state = get();
     const tracks = retained(state.tracks, takes);
     for (const track of state.tracks) if (!tracks.includes(track)) dawEngine.disposeTrack(track.id);
-    set({ takes, tracks, ...(!state.takes.some(take => take.task === 'text2music') ? { bpm: takes.find(take => take.task === 'text2music')?.provenance?.parameters?.submitted?.bpm ?? takes.find(take => take.task === 'text2music')?.provenance?.parameters?.resolved?.bpm ?? state.bpm } : {}) });
+    const baseTake = takes.find(take => take.task === 'text2music') ?? takes.find(take => take.is_active);
+    const baseParams = baseTake?.provenance?.parameters;
+    const resolvedKeyScale = baseParams?.submitted?.keyScale ?? baseParams?.submitted?.keyscale ?? baseParams?.resolved?.keyscale ?? state.keyScale;
+    const resolvedStylePrompt = baseTake?.prompt ?? baseParams?.submitted?.prompt ?? baseParams?.submitted?.tags ?? baseParams?.resolved?.caption ?? state.stylePrompt;
+    const resolvedLyrics =
+      takes.find(t => t.is_active && t.lyrics && t.lyrics !== '[Instrumental]')?.lyrics ??
+      takes.find(t => t.task === 'text2music' && t.lyrics && t.lyrics !== '[Instrumental]')?.lyrics ??
+      takes.map(t => (t.provenance?.parameters as any)?.transcribedLyrics).find((l: any) => typeof l === 'string' && l.trim() && l.trim() !== '[Instrumental]') ??
+      state.lyrics;
+    const resolvedAlignment =
+      takes
+        .map(t => (t.provenance?.parameters as any)?.lyricsAlignment as LyricsAlignment | undefined)
+        .find(a => a && Array.isArray(a.lines) && a.lines.some(l => typeof l?.start === 'number')) ??
+      state.lyricsAlignment ??
+      null;
+    set({
+      takes,
+      tracks,
+      ...(!state.takes.some(take => take.task === 'text2music')
+        ? {
+            bpm: baseParams?.submitted?.bpm ?? baseParams?.resolved?.bpm ?? state.bpm,
+          }
+        : {}),
+      ...(resolvedKeyScale ? { keyScale: String(resolvedKeyScale) } : {}),
+      ...(resolvedStylePrompt ? { stylePrompt: String(resolvedStylePrompt) } : {}),
+      ...(resolvedLyrics ? { lyrics: String(resolvedLyrics) } : {}),
+      lyricsAlignment: resolvedAlignment,
+    });
     get().syncLayerTracks();
   },
   upsertTake: (take) => {
