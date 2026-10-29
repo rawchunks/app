@@ -734,6 +734,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
     }
   }, [song.id, tracks, lyricsAlignment, isTranscribingLyrics, isAligningLyrics, pollSongLyrics]);
 
+  const lastScheduledSynthRef = useRef<Map<string, string>>(new Map());
   const synthScheduleSignature = useMemo(() => {
     return tracks
       .filter((t) => t.type === 'pianoroll' || t.type === 'sequencer' || t.type === 'strudel')
@@ -752,11 +753,26 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
   }, [tracks]);
 
   useEffect(() => {
+    const currentMap = new Map<string, string>();
     for (const track of useDawStore.getState().tracks) {
       if (track.type === 'pianoroll' || track.type === 'sequencer' || track.type === 'strudel') {
-        dawEngine.scheduleTrack(track);
+        const trackSig = JSON.stringify({
+          type: track.type,
+          mounted: track.mounted,
+          muted: track.mixer?.muted ?? track.muted,
+          solo: track.mixer?.solo ?? track.solo,
+          activeVersionId: track.activeVersionId,
+          notes: track.pianoRollNotes,
+          voices: track.sequencerVoices,
+          code: track.strudelCode,
+        });
+        currentMap.set(track.id, trackSig);
+        if (lastScheduledSynthRef.current.get(track.id) !== trackSig) {
+          dawEngine.scheduleTrack(track);
+        }
       }
     }
+    lastScheduledSynthRef.current = currentMap;
   }, [synthScheduleSignature]);
 
   // Master Transport Controls
@@ -903,8 +919,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
 
   // Track Creation via '+' Tool Selector
   const handleAddTrack = (type: TrackType) => {
-    const newTrack = addTrack(type);
-    setSelectedTrackId(newTrack.id);
+    addTrack(type);
     if (type === 'sample') setActiveTool('sample');
     if (type === 'pianoroll') setActiveTool('keys');
     if (type === 'sequencer') setActiveTool('drums');
@@ -1147,7 +1162,6 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
         state.sectionMid !== previous.sectionMid ||
         state.sectionHigh !== previous.sectionHigh
       ) {
-        persistLocalAndRemote(state, false);
         if (saveTimer) clearTimeout(saveTimer);
         saveTimer = setTimeout(() => {
           saveTimer = null;

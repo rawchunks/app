@@ -1312,6 +1312,7 @@ export const useDawStore = create<DAWState>((set, get) => ({
 
   addTrack: (type, name) => {
     const isInstrumentModalTrack = type === 'sequencer' || type === 'pianoroll' || type === 'strudel';
+    const shouldAutoOpenModal = type === 'sequencer' || type === 'pianoroll';
     if (isInstrumentModalTrack) {
       const existing = type === 'sequencer'
         ? get().tracks.find(
@@ -1322,11 +1323,11 @@ export const useDawStore = create<DAWState>((set, get) => ({
         : get().tracks.find((t) => t.type === type);
       if (existing) {
         get().addSynthVersion(existing.id);
-        set({
+        set((state) => ({
           selectedTrackId: existing.id,
           activeView: type,
-          pendingModalTrackId: existing.id,
-        });
+          pendingModalTrackId: shouldAutoOpenModal ? existing.id : state.pendingModalTrackId,
+        }));
         return get().tracks.find((t) => t.id === existing.id) || existing;
       }
     }
@@ -1397,7 +1398,7 @@ export const useDawStore = create<DAWState>((set, get) => ({
       tracks: [...state.tracks, newTrack],
       selectedTrackId: id,
       activeView: type === 'sequencer' ? 'sequencer' : type === 'pianoroll' ? 'pianoroll' : type === 'strudel' ? 'strudel' : state.activeView,
-      pendingModalTrackId: isInstrumentModalTrack ? id : state.pendingModalTrackId,
+      pendingModalTrackId: shouldAutoOpenModal ? id : state.pendingModalTrackId,
     }));
 
     return newTrack;
@@ -2393,6 +2394,10 @@ export const useDawStore = create<DAWState>((set, get) => ({
   },
 
   updateStrudelCode: (trackId, strudelCode) => {
+    const prevTrack = get().tracks.find((t) => t.id === trackId);
+    const wasMutedOrUnmounted = Boolean(
+      prevTrack && (prevTrack.muted || prevTrack.mixer?.muted || prevTrack.mounted === false)
+    );
     set((state) => ({
       tracks: state.tracks.map((t) =>
         t.id === trackId
@@ -2410,7 +2415,9 @@ export const useDawStore = create<DAWState>((set, get) => ({
     const updated = get().tracks.find((t) => t.id === trackId);
     if (updated) {
       dawEngine.scheduleStrudel(trackId, strudelCode);
-      dawEngine.updateTrackMixer(trackId, updated.mixer as any);
+      if (wasMutedOrUnmounted) {
+        dawEngine.updateTrackMixer(trackId, updated.mixer as any);
+      }
     }
   },
 
