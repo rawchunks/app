@@ -58,6 +58,7 @@ export const Strudel: React.FC<StrudelProps> = ({ track }) => {
   const [isRunning, setIsRunning] = useState<boolean>(false);
   const [hasError, setHasError] = useState<boolean>(false);
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
+  const [focusPane, setFocusPane] = useState<'code' | 'prompt'>('code');
 
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const codeSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -111,16 +112,12 @@ export const Strudel: React.FC<StrudelProps> = ({ track }) => {
     return (
       <div className="strudel-wrap">
         <div className="strudel-empty-card">
-          <Terminal size={22} className="strudel-empty-icon" />
-          <p className="strudel-empty-desc">
-            Create a live coding pattern track to compose algorithmic music with Strudel REPL.
-          </p>
+          <Terminal size={20} className="strudel-empty-icon" />
           <Button
             size="sm"
             variant="default"
             onClick={() => {
-              addTrack('strudel', 'Live Code');
-              setIsModalOpen(true);
+              addTrack('strudel', 'Code');
             }}
           >
             <Plus size={13} /> CREATE CODE TRACK
@@ -347,8 +344,6 @@ export const Strudel: React.FC<StrudelProps> = ({ track }) => {
     }
   };
 
-  const lineCount = Math.max(8, code.split('\n').length);
-  const lastLog = consoleLogs[consoleLogs.length - 1] || '';
   const versions = strudelTrack.versions && strudelTrack.versions.length > 0
     ? strudelTrack.versions
     : [{ id: '1', number: 1, createdAt: 0 }];
@@ -383,7 +378,7 @@ export const Strudel: React.FC<StrudelProps> = ({ track }) => {
         <Badge variant={hasError ? 'warning' : isRunning ? 'default' : 'outline'}>
           {hasError ? 'ERROR' : isRunning && isPlaying ? 'PLAYING' : 'READY'}
         </Badge>
-        {inModal ? (
+        {inModal && (
           <div className="strudel-starters-group">
             {STRUDEL_STARTERS.map((preset) => (
               <Tooltip key={preset.label} title={`Load & evaluate ${preset.label}`}>
@@ -400,50 +395,31 @@ export const Strudel: React.FC<StrudelProps> = ({ track }) => {
               </Tooltip>
             ))}
           </div>
-        ) : (
-          <Tooltip title={lastLog} className="daw-preview-grow-wrap">
-            <span className="daw-instrument-preview-code">
-              {lastLog}
-            </span>
-          </Tooltip>
         )}
       </div>
 
       <div className="strudel-controls-cluster">
-        <div className="strudel-ai-bar">
-          <input
-            type="text"
-            className="toolbox-text-input strudel-ai-input"
-            value={aiPrompt}
-            onChange={(e) => setAiPrompt(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                void handleAiCompose();
-              }
-            }}
-            placeholder={
-              inModal
-                ? 'Describe pattern or transformation (e.g., "acid 303 bassline in C minor + syncopated hats")...'
-                : 'AI Live-Code prompt...'
-            }
-            aria-label="AI Strudel live-coding prompt"
-            disabled={isGenerating}
-          />
-          <Tooltip title="Compose or evolve Strudel pattern">
-            <Button
-              size="sm"
-              variant="secondary"
-              className="strudel-action-btn daw-ui-btn"
-              onClick={() => void handleAiCompose()}
-              disabled={isGenerating || !aiPrompt.trim()}
-              aria-label="Compose Strudel pattern with AI"
+        {audioTracks.length > 0 && (
+          <Tooltip
+            title="Reference Track"
+            description={`Lock groove, chords, and mix context to ${resolvedRefTrack?.name || 'Master'}`}
+          >
+            <select
+              className="toolbox-select-compact daw-ui-btn strudel-ref-select"
+              value={refTrackId}
+              onChange={(e) => setRefTrackId(e.target.value)}
+              aria-label="Reference track for AI Strudel context"
+              disabled={isGenerating}
             >
-              <Sparkles size={11} />
-              <span className="daw-btn-label">{isGenerating ? 'COMPOSING' : 'AI CODE'}</span>
-            </Button>
+              <option value="auto">REF: AUTO</option>
+              {audioTracks.map((t) => (
+                <option key={t.id} value={t.id}>
+                  REF: {t.id === 'master' ? 'MASTER' : t.name.toUpperCase()}
+                </option>
+              ))}
+            </select>
           </Tooltip>
-        </div>
+        )}
 
         <Tooltip title="Evaluate Pattern (Shift+Enter)">
           <Button
@@ -457,7 +433,7 @@ export const Strudel: React.FC<StrudelProps> = ({ track }) => {
           </Button>
         </Tooltip>
 
-        <Tooltip title="Clear Editor Buffer">
+        <Tooltip title="Clear Buffer">
           <Button
             size="sm"
             variant="outline"
@@ -468,57 +444,139 @@ export const Strudel: React.FC<StrudelProps> = ({ track }) => {
             <Trash2 size={11} />
           </Button>
         </Tooltip>
+
+        {!inModal && (
+          <Tooltip title="Open Full REPL Modal">
+            <Button
+              size="sm"
+              variant="outline"
+              className="strudel-action-btn daw-ui-btn"
+              onClick={() => setIsModalOpen(true)}
+              aria-label="Open full Strudel REPL modal"
+            >
+              <Maximize2 size={11} />
+            </Button>
+          </Tooltip>
+        )}
       </div>
     </div>
   );
+
+  const renderSplitWorkspace = (inModal = false) => {
+    const minLines = inModal ? (focusPane === 'code' ? 7 : 3) : (focusPane === 'code' ? 3 : 2);
+    const currentLineCount = Math.max(minLines, code.split('\n').length);
+
+    return (
+      <div
+        className="strudel-split-workspace"
+        data-focus={focusPane}
+        data-modal={inModal ? 'true' : 'false'}
+      >
+        {/* Code Section (Top) */}
+        <div className="strudel-code-pane" onClick={() => setFocusPane('code')}>
+          <div className="strudel-editor-box">
+            <div className="strudel-gutter">
+              {Array.from({ length: currentLineCount }).map((_, i) => (
+                <div key={i} className="strudel-line-num">
+                  {i + 1}
+                </div>
+              ))}
+            </div>
+
+            <textarea
+              ref={inModal ? textareaRef : undefined}
+              value={code}
+              onFocus={() => setFocusPane('code')}
+              onChange={(e) => {
+                const nextVal = e.target.value;
+                setCode(nextVal);
+                scheduleCodeSync(strudelTrack.id, nextVal);
+              }}
+              onKeyDown={handleKeyDown}
+              placeholder="// s('bd*2 [~ sd] hh*4').fast(2)"
+              className="strudel-textarea"
+              spellCheck={false}
+              autoCapitalize="none"
+              autoCorrect="off"
+              autoFocus={inModal}
+            />
+          </div>
+        </div>
+
+        {/* Prompt Section + Sparkle & Expander (Bottom) */}
+        <div className="strudel-prompt-pane">
+          <div
+            className="strudel-prompt-box-wrap"
+            data-expanded={focusPane === 'prompt' ? 'true' : 'false'}
+          >
+            <textarea
+              className="toolbox-text-input strudel-prompt-textarea"
+              rows={focusPane === 'prompt' ? 3 : 2}
+              value={aiPrompt}
+              onChange={(e) => setAiPrompt(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  void handleAiCompose();
+                }
+              }}
+              placeholder="Prompt pattern or transformation..."
+              aria-label="AI Strudel live-coding prompt"
+              disabled={isGenerating}
+            />
+            <Tooltip
+              title={focusPane === 'prompt' ? 'Focus Code' : 'Expand Prompt'}
+              className="strudel-prompt-expand-wrap"
+            >
+              <button
+                type="button"
+                className={`strudel-prompt-expand-btn ${focusPane === 'prompt' ? 'is-active' : ''}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setFocusPane((prev) => (prev === 'prompt' ? 'code' : 'prompt'));
+                }}
+                aria-label={focusPane === 'prompt' ? 'Focus code section' : 'Expand prompt section'}
+              >
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                  <polyline points="15 3 21 3 21 9" />
+                  <polyline points="9 21 3 21 3 15" />
+                  <line x1="21" y1="3" x2="14" y2="10" />
+                  <line x1="3" y1="21" x2="10" y2="14" />
+                </svg>
+              </button>
+            </Tooltip>
+          </div>
+
+          <Tooltip title={isGenerating ? 'Composing pattern...' : 'Compose with AI'}>
+            <Button
+              size="sm"
+              variant="secondary"
+              className="strudel-action-btn strudel-sparkle-btn daw-ui-btn"
+              onClick={() => void handleAiCompose()}
+              disabled={isGenerating || !aiPrompt.trim()}
+              aria-label="Compose Strudel pattern with AI"
+            >
+              <Sparkles size={13} />
+            </Button>
+          </Tooltip>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="strudel-wrap daw-compact-instrument-deck">
       {/* Row 1: Single-Row Command Bar */}
       {renderToolbar(false)}
 
-      {/* Row 2: Click-to-Expand Pattern Preview + Expand Modal Button */}
-      <div className="daw-instrument-preview-row">
-        <Tooltip
-          title="Click to open full Strudel Live Code REPL Modal"
-          className="daw-preview-grow-wrap"
-        >
-        <div
-          className="daw-instrument-preview-viz"
-          onClick={() => setIsModalOpen(true)}
-          role="button"
-          tabIndex={0}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              setIsModalOpen(true);
-            }
-          }}
-        >
-          <span className="daw-instrument-preview-badge">REPL</span>
-          <span className="daw-instrument-preview-code">
-            {code.trim()
-              ? code.replace(/\s+/g, ' ').trim()
-              : "// s('bd [sd hh]*2').fast(2) — Click to open Live Code Editor..."}
-          </span>
-        </div>
-        </Tooltip>
-
-        <button
-          type="button"
-          className="daw-expand-modal-btn"
-          onClick={() => setIsModalOpen(true)}
-        >
-          <Maximize2 size={12} />
-          <span>OPEN CODE REPL</span>
-        </button>
-      </div>
+      {/* Row 2+: Dynamic Focus Split Workspace (only mounted here when modal is closed) */}
+      {!isModalOpen && renderSplitWorkspace(false)}
 
       {/* Expanded Full-Featured Strudel Code REPL + Console Modal */}
       <Modal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
-        title={`STRUDEL LIVE CODE REPL • ${strudelTrack.name.toUpperCase()}`}
+        title={`STRUDEL REPL • ${strudelTrack.name.toUpperCase()}`}
         size="lg"
       >
         <div className="daw-instrument-modal-body">
@@ -527,7 +585,7 @@ export const Strudel: React.FC<StrudelProps> = ({ track }) => {
           {/* Bi-directional Live Macro Sliders */}
           <div className="strudel-macro-row">
             <Slider
-              label="SPEED (.fast)"
+              label="SPEED"
               min={0.25}
               max={4}
               step={0.25}
@@ -537,7 +595,7 @@ export const Strudel: React.FC<StrudelProps> = ({ track }) => {
               unit="x"
             />
             <Slider
-              label="LPF CUTOFF (.lpf)"
+              label="LPF"
               min={100}
               max={12000}
               step={100}
@@ -547,7 +605,7 @@ export const Strudel: React.FC<StrudelProps> = ({ track }) => {
               unit="Hz"
             />
             <Slider
-              label="REVERB (.room)"
+              label="REVERB"
               min={0}
               max={1}
               step={0.05}
@@ -557,7 +615,7 @@ export const Strudel: React.FC<StrudelProps> = ({ track }) => {
               formatValue={(val) => `${Math.round(val * 100)}%`}
             />
             <Slider
-              label="DELAY (.delay)"
+              label="DELAY"
               min={0}
               max={0.9}
               step={0.05}
@@ -568,38 +626,13 @@ export const Strudel: React.FC<StrudelProps> = ({ track }) => {
             />
           </div>
 
-          {/* Editor Box */}
-          <div className="strudel-editor-box">
-            <div className="strudel-gutter">
-              {Array.from({ length: lineCount }).map((_, i) => (
-                <div key={i} className="strudel-line-num">
-                  {i + 1}
-                </div>
-              ))}
-            </div>
-
-            <textarea
-              ref={textareaRef}
-              value={code}
-              onChange={(e) => {
-                setCode(e.target.value);
-                updateStrudelCode(strudelTrack.id, e.target.value);
-              }}
-              onKeyDown={handleKeyDown}
-              placeholder="// Enter Strudel pattern code (e.g., stack(s('bd*2 [~ sd] hh*4'), note('c2 [eb2 g2]').s('sawtooth').lpf(900)))&#10;// Press Shift+Enter to evaluate and sync to transport..."
-              className="strudel-textarea"
-              spellCheck={false}
-              autoCapitalize="none"
-              autoCorrect="off"
-              autoFocus
-            />
-          </div>
+          {/* Dynamic Focus Split Workspace (Code + Bottom Prompt/Sparkle/Expander) */}
+          {renderSplitWorkspace(true)}
 
           {/* Console Terminal Log */}
           <div className="strudel-console">
             <div className="strudel-console-header">
               <span className="strudel-console-title">LOG</span>
-              <span className="strudel-console-shortcut">Shift + Enter to Evaluate</span>
             </div>
             <div className="strudel-console-body">
               {consoleLogs.map((log, idx) => (
