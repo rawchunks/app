@@ -645,27 +645,78 @@ function parseLane(
   str: string,
   startTime: number,
   endTime: number,
-  defaultType: 'sound' | 'note'
+  defaultType: 'sound' | 'note',
+  scaleSpec?: { rootSemi: number; intervals: number[]; useFlats: boolean },
+  cycleIndex = 0
 ): StrudelEvent[] {
   const events: StrudelEvent[] = [];
-  const tokens = tokenizeMiniNotation(str);
+  const rawTokens = tokenizeMiniNotation(str);
+  if (rawTokens.length === 0) return events;
 
-  if (tokens.length === 0) return events;
+  // Expand step replications `token!N` and parse step weights `token@W`
+  const weightedTokens: { token: string; weight: number }[] = [];
+  for (const rawTok of rawTokens) {
+    let tok = rawTok;
+    let weight = 1;
+
+    // Check for !N replication (outside brackets)
+    const repMatch = tok.match(/^(\[.*\]|<.*>|[^[\]]+?)!(\d+)$/);
+    if (repMatch) {
+      const baseTok = repMatch[1];
+      const count = Math.min(16, Math.max(1, parseInt(repMatch[2], 10) || 1));
+      for (let r = 0; r < count; r++) {
+        weightedTokens.push({ token: baseTok, weight: 1 });
+      }
+      continue;
+    }
+
+    // Check for @W weight/elongation
+    const weightMatch = tok.match(/^(\[.*\]|<.*>|[^[\]]+?)@([\d.]+)$/);
+    if (weightMatch) {
+      tok = weightMatch[1];
+      const parsedWeight = parseFloat(weightMatch[2]);
+      if (Number.isFinite(parsedWeight) && parsedWeight > 0) {
+        weight = parsedWeight;
+      }
+    }
+
+    weightedTokens.push({ token: tok, weight });
+  }
+
+  const totalWeight = weightedTokens.reduce((sum, item) => sum + item.weight, 0);
+  if (totalWeight <= 0) return events;
 
   const totalDuration = endTime - startTime;
-  const stepDuration = totalDuration / tokens.length;
+  let currentSlotStart = startTime;
 
-  tokens.forEach((tok, index) => {
-    const slotStart = startTime + index * stepDuration;
-    const slotEnd = slotStart + stepDuration;
+  for (const { token: tok, weight } of weightedTokens) {
+    const slotDuration = (weight / totalWeight) * totalDuration;
+    const slotStart = currentSlotStart;
+    const slotEnd = slotStart + slotDuration;
+    currentSlotStart = slotEnd;
 
-    // Check for multipliers e.g. *N
+    // Check for multipliers e.g. *N and slow divisors /N
     let multiplier = 1;
     let content = tok;
-    const multMatch = tok.match(/^(.*?)\*(\d+)$/);
+    let probGainMultiplier: number | undefined;
+
+    // Strip probability degrade `?` or `?0.5`
+    const probMatch = content.match(/^(.*?)\?([\d.]*)$/);
+    if (probMatch && probMatch[1]) {
+      content = probMatch[1];
+      probGainMultiplier = 0.8;
+    }
+
+    // Handle slow divisor `/N` on token
+    const slowMatch = content.match(/^(.*?)\/([\d.]+)$/);
+    if (slowMatch && slowMatch[1]) {
+      content = slowMatch[1];
+    }
+
+    const multMatch = content.match(/^(.*?)\*(\d+)$/);
     if (multMatch) {
       content = multMatch[1];
-      multiplier = parseInt(multMatch[2], 10) || 1;
+      multiplier = Math.min(32, Math.max(1, parseInt(multMatch[2], 10) || 1));
     }
 
     const subStepDuration = (slotEnd - slotStart) / multiplier;
@@ -674,33 +725,93 @@ function parseLane(
       const repStart = slotStart + rep * subStepDuration;
       const repEnd = repStart + subStepDuration;
 
-      // Group [...] or Chord [a,b,c]
+      // Group [...] or Chord [a,b,c] or Choice [a|b|c]
       if (content.startsWith('[') && content.endsWith(']')) {
-        const inner = content.slice(1, -1);
+        const inner = content.slice(1, -1).trim();
+        // Check for top-level choice `|` inside brackets
+        if (inner.includes('|') && !inner.includes(',')) {
+          const choices = inner.split('|').map((s) => s.trim()).filter(Boolean);
+          if (choices.length > 0) {
+            const chosen = choices[(cycleIndex + rep) % choices.length];
+            events.push(...parseLane(chosen, repStart, repEnd, defaultType, scaleSpec, cycleIndex));
+            continue;
+          }
+        }
         const parallelVoices = splitByTopLevelComma(inner);
         if (parallelVoices.length > 1) {
           for (const voice of parallelVoices) {
-            events.push(...parseLane(voice, repStart, repEnd, defaultType));
+            events.push(...parseLane(voice, repStart, repEnd, defaultType, scaleSpec, cycleIndex));
           }
         } else {
-          events.push(...parseLane(inner, repStart, repEnd, defaultType));
+          events.push(...parseLane(inner, repStart, repEnd, defaultType, scaleSpec, cycleIndex));
+        }
+      } else if (content.includes('|')) {
+        const choices = content.split('|').map((s) => s.trim()).filter(Boolean);
+        if (choices.length > 0) {
+          const chosen = choices[(cycleIndex + rep) % choices.length];
+          events.push(...parseLane(chosen, repStart, repEnd, defaultType, scaleSpec, cycleIndex));
         }
       } else if (content === '~' || content === '.' || content === 'rest' || content === '_') {
         // Rest (silence)
       } else {
-        const isNote = /^[a-gA-G][#b]?\d$/.test(content);
-        const eventType = isNote ? 'note' : defaultType;
-        const value = isNote ? content.toUpperCase() : content.toLowerCase();
+        // 1. Check standard scientific pitch (e.g. c3, eb4, f#2)
+        const isNotePitch = /^[a-gA-G][#b]?\d$/.test(content);
+        if (isNotePitch) {
+          events.push({
+            time: repStart,
+            duration: repEnd - repStart,
+            type: 'note',
+            value: content.toUpperCase(),
+            ...(probGainMultiplier !== undefined ? { gain: probGainMultiplier } : {}),
+          });
+          continue;
+        }
 
+        // 2. Check chord symbol when in note mode (or explicit chord symbol like Cm7, Fm7, Abmaj7, G7)
+        const chordNotes = defaultType === 'note' ? expandChordSymbol(content, 3) : null;
+        if (chordNotes && chordNotes.length > 0) {
+          for (const chordPitch of chordNotes) {
+            events.push({
+              time: repStart,
+              duration: repEnd - repStart,
+              type: 'note',
+              value: chordPitch,
+              ...(probGainMultiplier !== undefined ? { gain: probGainMultiplier } : {}),
+            });
+          }
+          continue;
+        }
+
+        // 3. Check scale degree integer when .scale(...) is active (or in note mode)
+        if (defaultType === 'note' && /^-?\d+$/.test(content)) {
+          const deg = parseInt(content, 10);
+          const spec = scaleSpec ?? { rootSemi: 0, intervals: SCALE_INTERVALS.minor, useFlats: true };
+          const len = spec.intervals.length;
+          const octShift = Math.floor(deg / len);
+          const idx = ((deg % len) + len) % len;
+          const midi = 60 + spec.rootSemi + octShift * 12 + spec.intervals[idx];
+          events.push({
+            time: repStart,
+            duration: repEnd - repStart,
+            type: 'note',
+            value: semitoneToNoteName(midi, spec.useFlats),
+            ...(probGainMultiplier !== undefined ? { gain: probGainMultiplier } : {}),
+          });
+          continue;
+        }
+
+        // 4. Default sound / sample token (strip sample bank suffix `:0` if present, e.g. `bd:1` -> `bd`)
+        const cleanSound = content.split(':')[0].toLowerCase();
         events.push({
           time: repStart,
           duration: repEnd - repStart,
-          type: eventType,
-          value,
+          type: defaultType,
+          value: cleanSound,
+          ...(probGainMultiplier !== undefined ? { gain: probGainMultiplier } : {}),
         });
       }
     }
-  });
+  }
 
   return events;
 }
