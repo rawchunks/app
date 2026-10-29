@@ -66,6 +66,8 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
   // Cover generation & Album association
   const [coverUrl, setCoverUrl] = useState<string | null>(null);
   const [isGeneratingCover, setIsGeneratingCover] = useState(false);
+  const latestCoverUrlRef = useRef<string | null>(null);
+  const pendingCoverSongIdsRef = useRef<Set<string>>(new Set());
   const [albums, setAlbums] = useState<Album[]>([]);
   const [selectedAlbumId, setSelectedAlbumId] = useState<string>('');
   const [showNewAlbumModal, setShowNewAlbumModal] = useState(false);
@@ -232,6 +234,33 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
     toast.success('Structured lyrics updated');
   };
 
+  const { userAddress: userAddr, readAddress } = useSelectedUserAddress();
+
+  const applyResolvedCover = (imageUrl: string | null) => {
+    latestCoverUrlRef.current = imageUrl;
+    setCoverUrl(imageUrl);
+    if (!imageUrl || pendingCoverSongIdsRef.current.size === 0) return;
+    const ids = Array.from(pendingCoverSongIdsRef.current);
+    for (const id of ids) {
+      store.updateSong(id, { image: imageUrl });
+      if (userAddr) {
+        const cached = readSongs(userAddr);
+        if (cached && cached.some((s) => s.id === id)) {
+          writeSongs(
+            cached.map((s) => (s.id === id ? { ...s, image: imageUrl } : s)),
+            userAddr
+          );
+        }
+        void sdk.fetch(`/api/songs/${encodeURIComponent(id)}`, {
+          method: 'PATCH',
+          userAddress: userAddr,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: imageUrl }),
+        }).catch(() => { });
+      }
+    }
+  };
+
   const handleCoverFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -242,7 +271,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
       const response = await sdk.fetch('/api/generation/cover', { method: 'POST', body: data });
       const result = await response.json();
       if (!response.ok || !result.imageUrl) throw new Error(result.error || 'Could not upload cover');
-      setCoverUrl(result.imageUrl);
+      applyResolvedCover(result.imageUrl);
       toast.success('Cover uploaded');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Could not upload cover');
@@ -251,7 +280,6 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
     }
   };
 
-  const { userAddress: userAddr, readAddress } = useSelectedUserAddress();
   const { refreshSession, refreshCredits } = useSession();
   const { voices, loading: loadingVoices, error: voicesError, refresh: refreshVoices, remember: rememberVoice } = useVoices(readAddress);
   const voiceOutput = model === 'sft' ? 'sft' : 'turbo';
@@ -319,6 +347,8 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
       return;
     }
     if (!await openGate({ steps: ['login', 'funding'] })) return;
+    pendingCoverSongIdsRef.current.clear();
+    latestCoverUrlRef.current = null;
     setIsGeneratingCover(true);
     try {
       const res = await sdk.fetch('/api/generation/cover', {
@@ -337,7 +367,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
       }
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to generate cover');
-      setCoverUrl(data.imageUrl);
+      applyResolvedCover(data.imageUrl);
       toast.success('Cover generated');
     } catch (err: any) {
       toast.error(err.message || 'Error generating cover');
@@ -734,14 +764,21 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
           setLyrics((prev) => prev + event.delta);
           return;
         }
+        if (event.type === 'songwriter_ready') {
+          setIsVibing(false);
+          setVibeStep(null);
+          return;
+        }
         if (event.type === 'cover_start') {
+          pendingCoverSongIdsRef.current.clear();
+          latestCoverUrlRef.current = null;
           setIsGeneratingCover(true);
           return;
         }
         if (event.type === 'cover') {
           setIsGeneratingCover(false);
           if (typeof event.imageUrl === 'string' && event.imageUrl) {
-            setCoverUrl(event.imageUrl);
+            applyResolvedCover(event.imageUrl);
           }
           return;
         }
@@ -825,7 +862,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
   };
 
   const handleGenerate = async () => {
-    if (state.isGenerating || isGeneratingCover || isVibing || !canSubmitGeneration) return;
+    if (state.isGenerating || isVibing || !canSubmitGeneration) return;
 
     if (!userAddr) {
       void openGate({ steps: ['login', 'terms', 'funding'] });
@@ -845,6 +882,8 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
   const executeGenerate = async (retry = false) => {
     if (!userAddr) return;
     const scope = scopeRef.current;
+    const initialCover = latestCoverUrlRef.current || coverUrl || '';
+    const coverPendingAtStart = isGeneratingCover && !initialCover;
     store.setGenerating(true);
 
     try {
@@ -888,13 +927,14 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
       }
       if (scope !== scopeRef.current) return;
 
+      const currentCover = latestCoverUrlRef.current || coverUrl || undefined;
       const res = await sdk.fetch('/api/generation/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           creatorAddress: userAddr,
           title: title.trim() || undefined,
-          image: coverUrl || undefined,
+          image: currentCover,
           albumId: selectedAlbumId || undefined,
           prompt,
           lyrics: instrumental ? undefined : (lyrics.trim() ? lyrics : undefined),
@@ -923,9 +963,13 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
       }
 
       const { taskId, songId } = await res.json();
+      if (coverPendingAtStart && songId) {
+        pendingCoverSongIdsRef.current.add(songId);
+      }
       const now = Date.now();
       const untitledCount = (state.songs || []).filter((s) => s.title && s.title.startsWith('Untitled')).length;
       const baseTitle = title.trim() || `Untitled #${untitledCount + 1}`;
+      const resolvedTrackCover = latestCoverUrlRef.current || coverUrl || '';
 
       const songA: Song = {
         id: songId,
@@ -934,7 +978,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
         tags: activeTags,
         creator: userAddr,
         public: false,
-        image: coverUrl || '',
+        image: resolvedTrackCover,
         album_id: selectedAlbumId || null,
         licenses: licenses,
         stream_price: streamPrice,
@@ -947,6 +991,14 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
       store.addTracks([
         { id: trackAId, song: songA, variation: 1, status: 'generating', progress: 15 },
       ]);
+      if (coverPendingAtStart && resolvedTrackCover && songId) {
+        void sdk.fetch(`/api/songs/${encodeURIComponent(songId)}`, {
+          method: 'PATCH',
+          userAddress: userAddr,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: resolvedTrackCover }),
+        }).catch(() => { });
+      }
       setMobilePocket('feed');
 
       toast.info('Generating tracks...');
@@ -959,22 +1011,34 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
           if (!result.status) return false;
           if (result.status === 'ready') {
             if (!Array.isArray(result.audioUrls) || !result.audioUrls.length || result.audioUrls.some((url: unknown) => typeof url !== 'string' || !url)) throw new Error('Generation returned no audio');
+            const finalCover = latestCoverUrlRef.current || coverUrl || '';
             const songs: Song[] = [];
             for (let index = 0; index < result.audioUrls.length; index++) {
               const id = index === 0 ? result.songAId : result.songBId;
               if (!id) throw new Error('Generation returned no song ID');
+              if (coverPendingAtStart && !finalCover) {
+                pendingCoverSongIdsRef.current.add(id);
+              }
               const song = {
                 ...songA,
                 id,
                 url: result.audioUrls[index],
                 duration: result.durations?.[index],
                 title: `${baseTitle}${result.audioUrls.length > 1 ? ` (Var ${index + 1})` : ''}`,
-                image: coverUrl || '',
+                image: finalCover,
                 album_id: selectedAlbumId || null,
               };
               store.addSong(song); songs.push(song);
               if (index === 0) store.updateTrack(trackAId, { status: 'ready', progress: 100, song });
               else store.addTracks([{ id: `${trackAId}-${index}`, song, variation: 2, status: 'ready', progress: 100 }]);
+              if (coverPendingAtStart && finalCover) {
+                void sdk.fetch(`/api/songs/${encodeURIComponent(id)}`, {
+                  method: 'PATCH',
+                  userAddress: userAddr,
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ image: finalCover }),
+                }).catch(() => { });
+              }
             }
             const cached = readSongs(userAddr) ?? [];
             writeSongs([...songs, ...cached.filter(song => !songs.some(result => result.id === song.id))], userAddr);
@@ -1376,7 +1440,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                                 className="studio-avatar-remove"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  setCoverUrl(null);
+                                  applyResolvedCover(null);
                                   if (coverFileInputRef.current) {
                                     coverFileInputRef.current.value = '';
                                   }
