@@ -40,14 +40,39 @@ export const zeroCredits: CreditBalance = {
   paypalClientId: DEFAULT_PAYPAL_CLIENT_ID,
   environment: 'sandbox',
 };
-export async function creditsApi<T>(path: string, body?: unknown, idempotencyKey?: string): Promise<T> {
+export interface CreditsRequestOptions {
+  userAddress?: string | null;
+  authToken?: string | null;
+}
+
+export async function creditsApi<T>(
+  path: string,
+  body?: unknown,
+  idempotencyKey?: string,
+  options?: CreditsRequestOptions,
+): Promise<T> {
+  const headers: Record<string, string> = {};
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  if (idempotencyKey) headers['x-idempotency-key'] = idempotencyKey;
+  if (options?.userAddress) headers['x-session-user-address'] = options.userAddress;
+  if (options?.authToken) headers['x-wallet-auth-token'] = options.authToken;
+
   const response = await sdk.fetch(`/api/credits/${path}`, {
     method: body === undefined ? 'GET' : 'POST',
-    headers: { ...(body === undefined ? {} : { 'Content-Type': 'application/json' }), ...(idempotencyKey ? { 'x-idempotency-key': idempotencyKey } : {}) },
+    headers,
+    ...(options?.userAddress ? { userAddress: options.userAddress } : {}),
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
-  const result = await response.json();
-  if (!response.ok) throw new Error(typeof result.error === 'string' ? result.error : result.message || `Credits request failed (${response.status})`);
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message =
+      typeof result?.message === 'string' && result.message
+        ? result.message
+        : typeof result?.error === 'string' && result.error
+          ? result.error
+          : `Credits request failed (${response.status})`;
+    throw new Error(message);
+  }
   return result;
 }
 function compact(value: bigint, unit: bigint, places: number): string {
