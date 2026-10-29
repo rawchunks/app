@@ -33,6 +33,7 @@ vi.mock("@/lib/sdk", () => ({ setCreditRequestContext: vi.fn(), sdk: {
 } }));
 
 import { SessionProvider, useSession, emptySession, readSession, writeSession, sameScope, requireSessionSupport } from "@/components/session";
+import { zeroCredits } from "@/lib/credits";
 import { deriveSwigConfigAddress } from "@/lib/svm/account";
 const DEVNET = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1";
 const MAINNET = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";
@@ -259,4 +260,29 @@ test("disconnect clears live session and cached addresses cannot sign", async ()
 test("session support requires v2 upto for the exact selected network", () => {
   expect(() => requireSessionSupport({ kinds: [{ x402Version: 1, scheme: "upto", network: DEVNET }], extensions: [] }, DEVNET)).toThrow();
   expect(() => requireSessionSupport({ kinds: [{ x402Version: 2, scheme: "upto", network: MAINNET }], extensions: [] }, DEVNET)).toThrow();
+});
+
+test("zeroCredits separates promo accounting and SessionProvider always fetches Compose Market USDC session", async () => {
+  expect(zeroCredits.availableAtomics).toBe("0");
+  expect(zeroCredits.promo).toBeUndefined();
+  expect(zeroCredits.packs).toEqual([]);
+
+  mock.fetch.mockImplementation(async () => response({
+    hasSession: true,
+    network: DEVNET,
+    keyId: "compose-key-1",
+    token: "compose-jwt-1",
+    budgetLimit: "5000000",
+    budgetUsed: "0",
+    budgetRemaining: "5000000",
+    expiresAt: Date.now() + 60_000,
+    status: { isActive: true },
+  }));
+  await mount();
+  expect(context.session.active).toBe(true);
+  expect(context.session.fundingSource).toBe("wallet");
+  expect(context.session.budgetRemaining).toBe("5000000");
+  expect(context.hasBudget).toBe(true);
+  expect(context.hasStreamBudget).toBe(true);
+  expect(context.activeSource).toBe("usdc");
 });

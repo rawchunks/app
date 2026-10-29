@@ -18,18 +18,24 @@ vi.mock("thirdweb/extensions/erc20", async original => ({ ...await original<type
 vi.mock("thirdweb/react", () => ({ ConnectButton: (props: any) => { mock.button(props); return null; }, useActiveAccount: () => null,
   useActiveWallet: () => null, useActiveWalletConnectionStatus: () => "disconnected", useConnectModal: () => ({ connect: mock.button, isConnecting: false }), useAutoConnect: mock.autoConnect }));
 vi.mock("thirdweb/wallets", () => ({ inAppWallet: () => ({}), createWallet: () => ({}) }));
-vi.mock("@/contexts/Network", () => ({ NetworkGlyph: () => null, useChain: () => ({ chains: mock.chains, defaultNetwork: "eip155:8453",
+vi.mock("@/contexts/Network", () => ({ useChain: () => ({ chains: mock.chains, defaultNetwork: "eip155:8453",
   paymentNetwork: mock.selected, getChainByNetworkId: (id: string) => mock.chains.find(chain => chain.network === id) }) }));
 vi.mock("@/hooks/use-multichain", () => ({ useTotalBalance: () => ({ formatted: "0", isLoading: false }) }));
 vi.mock("@/hooks/use-address", () => ({ useSelectedUserAddress: () => ({}) }));
 vi.mock("@/hooks/use-profile", () => ({ useProfile: () => ({}) }));
 vi.mock("@/hooks/use-disclaimer", () => ({ useDisclaimerConsent: () => ({ hasConsented: true, isLoading: false }) }));
-vi.mock("@/components/disclaimer", () => ({ DisclaimerModal: () => null }));
+vi.mock("@/components/disclaimer", () => ({ DisclaimerBody: () => null }));
 vi.mock("@/components/profile-modal", () => ({ ProfileModal: () => null }));
-vi.mock("@/hooks/use-session", () => ({ useSession: () => ({ credits: { availableAtomics: "0", packs: [] }, creditsEnabled: false, creditsLoading: false, creditsError: null }) }));
+vi.mock("@/components/session", () => ({ FundingPanel: () => null }));
+vi.mock("@/components/network", () => ({ NetworkSelector: () => null }));
+vi.mock("@/components/guide/Tour", () => ({ useGuide: () => ({ activePage: "studio", startFlow: vi.fn() }) }));
+vi.mock("@/lib/gate", () => ({ useGate: () => ({ request: null, cancel: vi.fn() }), unsatisfiedStep: () => null, closeGate: vi.fn() }));
+vi.mock("@/hooks/use-session", () => ({ useSession: () => ({ credits: { availableAtomics: "0", packs: [] }, creditsEnabled: false,
+  creditsLoading: false, creditsError: null, session: { active: false, budgetRemaining: "0" } }) }));
 vi.mock("@/lib/connector", () => ({ thirdwebCustomTheme: {} }));
 
-import { WalletConnector, approveTempoSession, prepareTempoTransaction } from "@/components/connector";
+import { AccountChip } from "@/components/account";
+import { approveTempoSession, prepareTempoTransaction } from "@/components/connector";
 import { getChainObject, setChainRegistry } from "@/lib/chains";
 
 const adminAddress = "0x1111111111111111111111111111111111111111";
@@ -55,26 +61,26 @@ beforeEach(() => {
 });
 
 afterEach(cleanup);
-test("payment selection including Tempo does not change the connector login chain; API refresh updates its fields", () => {
+test("payment selection including Tempo does not change the account login chain; API refresh updates its fields", () => {
   mock.chains = [8453, 84532, 42431].map(id => ({ network: `eip155:${id}`, namespace: "eip155", name: `Chain ${id}`,
     rpcUrl: `https://rpc.test/${id}`, explorer: `https://explorer.test/${id}`, assetAddress: "0x1111111111111111111111111111111111111111", asset: "USDC", decimals: 6, schemes: ["upto"] }));
   mock.selected = "eip155:8453";
   setChainRegistry(mock.chains, "eip155:8453");
-  const result = render(<WalletConnector />);
-  fireEvent.click(screen.getByRole("button", { name: "CONNECT" }));
+  const result = render(<AccountChip />);
+  fireEvent.click(screen.getByRole("button", { name: "LOGIN" }));
   const initial = mock.button.mock.calls.at(-1)![0];
   expect(initial.chain.id).toBe(8453);
   expect(initial.chain.rpc).toBe("https://rpc.test/8453");
   mock.selected = "eip155:42431";
-  result.rerender(<WalletConnector />);
-  fireEvent.click(screen.getByRole("button", { name: "CONNECT" }));
+  result.rerender(<AccountChip />);
+  fireEvent.click(screen.getByRole("button", { name: "LOGIN" }));
   expect(mock.button.mock.calls.at(-1)![0].chain).toBe(initial.chain);
   expect(mock.autoConnect.mock.calls.at(-1)![0].accountAbstraction.chain).toBe(initial.chain);
   expect(getChainObject(42431)).toMatchObject({ id: 42431, rpc: "https://rpc.test/42431", blockExplorers: [{ url: "https://explorer.test/42431" }] });
   mock.chains = mock.chains.map(c => c.network === "eip155:8453" ? { ...c, rpcUrl: "https://new.rpc" } : c);
   setChainRegistry(mock.chains, "eip155:8453");
-  result.rerender(<WalletConnector />);
-  fireEvent.click(screen.getByRole("button", { name: "CONNECT" }));
+  result.rerender(<AccountChip />);
+  fireEvent.click(screen.getByRole("button", { name: "LOGIN" }));
   expect(mock.button.mock.calls.at(-1)![0].chain).toMatchObject({ id: 8453, rpc: "https://new.rpc" });
 });
 

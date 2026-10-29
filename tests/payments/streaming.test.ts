@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { store } from '@/lib/store';
 import { audio } from '@/lib/audio';
 import { sdk } from '@/lib/sdk';
-import { toast } from 'sonner';
+import { closeGate, GATE_EVENT } from '@/lib/gate';
 
 vi.mock('@/lib/audio', () => ({
   audio: {
@@ -11,6 +11,7 @@ vi.mock('@/lib/audio', () => ({
     play: vi.fn(),
     pause: vi.fn(),
     seek: vi.fn(),
+    reset: vi.fn(),
     setVolume: vi.fn(),
     hasSource: vi.fn(() => false),
     setOnTimeUpdate: vi.fn(),
@@ -43,13 +44,14 @@ describe('Streaming Session Gate and Playback', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    closeGate(false);
     store.setActiveSong(null);
   });
 
-  it('blocks non-creator playback when no session token is present and dispatches open-session event', async () => {
-    let modalOpened = false;
-    const listener = () => { modalOpened = true; };
-    window.addEventListener('rawchunks:open-session', listener);
+  it('blocks non-creator playback when no session token is present and dispatches open-gate event', async () => {
+    let gateOpened = false;
+    const listener = () => { gateOpened = true; };
+    window.addEventListener(GATE_EVENT, listener);
 
     // Set non-creator user
     store.setUserAddress('0xListenerNonCreator');
@@ -63,12 +65,9 @@ describe('Streaming Session Gate and Playback', () => {
     expect(started).toBe(false);
     expect(store.getState().isPlaying).toBe(false);
     expect(audio.play).not.toHaveBeenCalled();
-    expect(modalOpened).toBe(true);
-    expect(toast.error).toHaveBeenCalledWith(
-      expect.stringContaining('active session is required to stream music')
-    );
+    expect(gateOpened).toBe(true);
 
-    window.removeEventListener('rawchunks:open-session', listener);
+    window.removeEventListener(GATE_EVENT, listener);
   });
 
   it('allows creator to stream their own song without paying session fees', async () => {
@@ -111,10 +110,10 @@ describe('Streaming Session Gate and Playback', () => {
     expect(audio.play).toHaveBeenCalled();
   });
 
-  it('blocks playback and opens session modal when backend returns 402 payment required', async () => {
-    let modalOpened = false;
-    const listener = () => { modalOpened = true; };
-    window.addEventListener('rawchunks:open-session', listener);
+  it('blocks playback and opens the funding gate when backend returns 402 payment required', async () => {
+    let gateOpened = false;
+    const listener = () => { gateOpened = true; };
+    window.addEventListener(GATE_EVENT, listener);
 
     store.setUserAddress('0xListenerNonCreator');
     store.setActiveSong(song);
@@ -130,11 +129,8 @@ describe('Streaming Session Gate and Playback', () => {
     expect(started).toBe(false);
     expect(store.getState().isPlaying).toBe(false);
     expect(audio.play).not.toHaveBeenCalled();
-    expect(modalOpened).toBe(true);
-    expect(toast.error).toHaveBeenCalledWith(
-      expect.stringContaining('Session payment required or budget exhausted')
-    );
+    expect(gateOpened).toBe(true);
 
-    window.removeEventListener('rawchunks:open-session', listener);
+    window.removeEventListener(GATE_EVENT, listener);
   });
 });
