@@ -32,6 +32,10 @@ export const Strudel: React.FC<StrudelProps> = ({ track }) => {
   const bpm = useDawStore((s) => s.bpm);
   const timeSignature = useDawStore((s) => s.timeSignature);
   const isPlaying = useDawStore((s) => s.isPlaying);
+  const songId = useDawStore((s) => s.songId);
+  const keyScale = useDawStore((s) => s.keyScale);
+  const stylePrompt = useDawStore((s) => s.stylePrompt);
+  const selection = useDawStore((s) => s.selection);
   const pendingModalTrackId = useDawStore((s) => s.pendingModalTrackId);
   const clearPendingModalTrackId = useDawStore((s) => s.clearPendingModalTrackId);
 
@@ -40,8 +44,13 @@ export const Strudel: React.FC<StrudelProps> = ({ track }) => {
     tracks.find((t) => t.id === selectedTrackId && t.type === 'strudel') ||
     tracks.find((t) => t.type === 'strudel');
 
+  const audioTracks = tracks.filter(
+    (t) => t.type !== 'strudel' && t.type !== 'pianoroll' && t.type !== 'sequencer'
+  );
+
   const [code, setCode] = useState<string>(strudelTrack?.strudelCode || '');
   const [aiPrompt, setAiPrompt] = useState<string>('');
+  const [refTrackId, setRefTrackId] = useState<string>('auto');
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [consoleLogs, setConsoleLogs] = useState<string[]>([
     `[${new Date().toLocaleTimeString()}] REPL READY • BPM: ${bpm}`,
@@ -175,37 +184,138 @@ export const Strudel: React.FC<StrudelProps> = ({ track }) => {
     scheduleCodeSync(strudelTrack.id, nextCode);
   };
 
+  const resolvedRefTrack =
+    refTrackId !== 'auto'
+      ? audioTracks.find((t) => t.id === refTrackId) || audioTracks[0]
+      : audioTracks.find((t) => t.id === selectedTrackId && t.id !== 'master') ||
+      audioTracks.find((t) => t.id === 'master') ||
+      audioTracks[0];
+
   const handleAiCompose = async () => {
     const trimmed = aiPrompt.trim();
     if (!trimmed || isGenerating) return;
     setIsGenerating(true);
+    const refLabel = resolvedRefTrack?.name || 'Master';
     setConsoleLogs((prev) => [
       ...prev.slice(-20),
-      `[${new Date().toLocaleTimeString()}] [AI] Analyzing song context & composing: "${trimmed}"...`,
+      `[${new Date().toLocaleTimeString()}] [AI] Analyzing ${refLabel.toUpperCase()} context & composing: "${trimmed}"...`,
     ]);
     try {
       const activeStems = tracks
         .filter((t) => t.id !== 'master' && t.id !== strudelTrack.id)
         .map((t) => t.name);
-      const musicalContext = await extractMusicalContext(strudelTrack.id);
-      const res = await sdk.fetch('/api/editing/strudel', {
+      const targetRefTrackId = resolvedRefTrack?.id || 'master';
+      const musicalContext = await extractMusicalContext(targetRefTrackId);
+      const trackPayload = tracks
+        .filter((t) => t.id !== 'master')
+        .map((t) => ({
+          id: t.id,
+          name: t.name,
+          type: t.type,
+          muted: t.muted,
+          solo: t.solo,
+        }));
+      const res = await sdk.fetch('/api/strudel', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/x-ndjson',
+        },
         body: JSON.stringify({
+          songId: songId || undefined,
           prompt: trimmed,
           currentCode: code.trim() || undefined,
           bpm,
+          keyScale: keyScale || undefined,
+          stylePrompt: stylePrompt || undefined,
           timeSignature: Array.isArray(timeSignature) ? `${timeSignature[0]}/${timeSignature[1]}` : undefined,
+          selectedTrack: refLabel,
+          selection: selection
+            ? { start: selection.start, end: selection.end }
+            : undefined,
+          playhead: useDawStore.getState().playhead,
           stems: activeStems.length ? activeStems : undefined,
+          tracks: trackPayload,
           musicalContext,
+          stream: true,
         }),
       });
-      const data = await res.json();
-      if (!res.ok || !data?.code) {
-        throw new Error(data?.error || 'Failed to generate Strudel pattern');
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData?.error || `Failed to generate Strudel pattern (${res.status})`);
       }
-      setCode(data.code);
-      await handleEvaluate(data.code);
+
+      const contentType = res.headers.get('content-type') || '';
+      let finalCode = '';
+
+      if (contentType.includes('application/x-ndjson') && res.body) {
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        const processLine = (rawLine: string) => {
+          const line = rawLine.trim();
+          if (!line) return;
+          let evt: any;
+          try {
+            evt = JSON.parse(line);
+          } catch {
+            return;
+          }
+          if (evt.type === 'graph') {
+            setConsoleLogs((prev) => [
+              ...prev.slice(-20),
+              `[${new Date().toLocaleTimeString()}] [GRAPH] ${String(evt.intent || 'compose').toUpperCase()} [${(evt.targetLayers || []).join('+')}] -> libs:(${(evt.mountedLibraries || []).join(',')}) • ${evt.archetypeLabel || evt.archetypeId} (${evt.estimatedTokens} tok)`,
+            ]);
+          } else if (evt.type === 'status' && evt.step) {
+            setConsoleLogs((prev) => [
+              ...prev.slice(-20),
+              `[${new Date().toLocaleTimeString()}] [REACT] ${evt.step}`,
+            ]);
+          } else if (evt.type === 'reasoning' && evt.text) {
+            setConsoleLogs((prev) => [
+              ...prev.slice(-20),
+              `[${new Date().toLocaleTimeString()}] [REASON] ${evt.text}`,
+            ]);
+          } else if (evt.type === 'code' && evt.code) {
+            finalCode = evt.code;
+            setCode(evt.code);
+          } else if (evt.type === 'done' && evt.code) {
+            finalCode = evt.code;
+            setCode(evt.code);
+          } else if (evt.type === 'error') {
+            throw new Error(evt.message || 'Algorithmic Composer stream failed');
+          }
+        };
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+          for (const line of lines) {
+            processLine(line);
+          }
+        }
+        if (buffer.trim()) {
+          processLine(buffer);
+        }
+      } else {
+        const data = await res.json();
+        if (!data?.code) {
+          throw new Error(data?.error || 'Failed to generate Strudel pattern');
+        }
+        finalCode = data.code;
+        setCode(finalCode);
+      }
+
+      if (!finalCode) {
+        throw new Error('Failed to generate Strudel pattern');
+      }
+
+      await handleEvaluate(finalCode);
       setAiPrompt('');
       toast.success('Strudel pattern composed and synced to transport');
     } catch (err: any) {
