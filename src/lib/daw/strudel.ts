@@ -415,15 +415,22 @@ const strudelPeaksCache = new Map<string, BipolarPeaks>();
 
 export function parseStrudelPattern(code: string): ParsedStrudelPattern {
   if (!code || typeof code !== 'string') {
-    return { events: [], rateModifier: 1.0, rawCode: code || '' };
+    return { events: [], cycles: [[]], cycleCount: 1, effectiveBarRate: 1.0, rateModifier: 1.0, rawCode: code || '' };
+  }
+
+  const cached = parsePatternCache.get(code);
+  if (cached) {
+    return { ...cached };
   }
 
   const rawCode = code;
-  const subExprs = splitSubExpressions(code);
+  const cleanedCode = stripCommentsAndPrefixes(code);
+  const subExprs = splitSubExpressions(cleanedCode);
 
   let overallRateModifier = 1.0;
-  const allEvents: StrudelEvent[] = [];
-  const globalReversed = /\.rev\(\)/.test(rawCode);
+  const globalReversed = /\.rev\(\)/.test(cleanedCode);
+  const plans: SubExpressionPlan[] = [];
+  let totalCycles = 1;
 
   for (const sub of subExprs) {
     const trimmed = sub.trim();
@@ -453,7 +460,8 @@ export function parseStrudelPattern(code: string): ParsedStrudelPattern {
       subRateModifier *= val;
     }
 
-    overallRateModifier *= subRateModifier;
+    subRateModifier = Math.min(16, Math.max(0.125, subRateModifier));
+    overallRateModifier = Math.min(16, Math.max(0.125, overallRateModifier * subRateModifier));
 
     const gain = parseModifierNumber(trimmed, 'gain');
     const lpf = parseModifierNumber(trimmed, 'lpf');
@@ -461,20 +469,23 @@ export function parseStrudelPattern(code: string): ParsedStrudelPattern {
     const pan = parseModifierNumber(trimmed, 'pan');
     const room = parseModifierNumber(trimmed, 'room');
     const delay = parseModifierNumber(trimmed, 'delay');
+    const scaleStr = parseModifierString(trimmed, 'scale');
+    const scaleSpec = parseScaleSpec(scaleStr);
     const subReversed = /\.rev\(\)/.test(trimmed) || globalReversed;
 
-    // Extract content inside note("...") and/or s("...") / .s("...")
+    // Extract content inside note("..."), chord("..."), and/or s("...") / .s("...") / .sound("...")
     let patternType: 'sound' | 'note' = 'sound';
     let patternContent = trimmed;
     let synthSound: string | undefined;
 
-    const noteMatch = trimmed.match(/note\(\s*["']([^"']+)["']\s*\)/);
-    const sMatch = trimmed.match(/(?:^|[^.a-zA-Z0-9_])s\(\s*["']([^"']+)["']\s*\)/);
-    const chainedSMatch = trimmed.match(/\.s\(\s*["']([^"']+)["']\s*\)/);
+    const noteMatch = trimmed.match(/(?:^|[^.a-zA-Z0-9_])(?:note|n|chord)\(\s*["']([^"']+)["']\s*\)/);
+    const chainedNoteMatch = trimmed.match(/\.(?:note|n|chord)\(\s*["']([^"']+)["']\s*\)/);
+    const sMatch = trimmed.match(/(?:^|[^.a-zA-Z0-9_])(?:s|sound)\(\s*["']([^"']+)["']\s*\)/);
+    const chainedSMatch = trimmed.match(/\.(?:s|sound)\(\s*["']([^"']+)["']\s*\)/);
 
-    if (noteMatch) {
+    if (noteMatch || chainedNoteMatch) {
       patternType = 'note';
-      patternContent = noteMatch[1];
+      patternContent = (noteMatch ?? chainedNoteMatch)![1];
       if (chainedSMatch) {
         synthSound = chainedSMatch[1].trim().toLowerCase();
       } else if (sMatch) {
@@ -484,45 +495,128 @@ export function parseStrudelPattern(code: string): ParsedStrudelPattern {
       patternType = 'sound';
       patternContent = (sMatch ?? chainedSMatch)![1];
     } else {
-      // Strip trailing chained functions (.fast, .slow, .speed, .jux, .room, etc.)
-      patternContent = patternContent.replace(/\.[a-zA-Z0-9_]+\([^)]*\)/g, '').trim();
-      if (/[a-gA-G][#b]?\d/.test(patternContent)) {
+      // Check for unquoted note([c3, e3]) or s([bd, sd])
+      const unquotedNote = trimmed.match(/(?:^|[^.a-zA-Z0-9_])(?:note|n|chord)\(\s*([^)]+)\s*\)/);
+      const unquotedS = trimmed.match(/(?:^|[^.a-zA-Z0-9_])(?:s|sound)\(\s*([^)]+)\s*\)/);
+      if (unquotedNote) {
         patternType = 'note';
+        patternContent = unquotedNote[1].trim();
+      } else if (unquotedS) {
+        patternType = 'sound';
+        patternContent = unquotedS[1].trim();
+      } else {
+        patternContent = patternContent.replace(/\.[a-zA-Z0-9_]+\([^)]*\)/g, '').trim();
+        if (/[a-gA-G][#b]?\d/.test(patternContent) || scaleSpec) {
+          patternType = 'note';
+        }
       }
     }
 
-    // Expand Euclidean notation sound(k,n) or note(k,n) e.g. bd(3,8) -> [bd ~ ~ bd ~ ~ bd ~]
+    // Expand Euclidean notation sound(k,n) or sound(k,n,r)
     patternContent = expandEuclideanRhythms(patternContent);
 
-    // Split polyphonic multi-lane layers separated by top-level commas inside the sub-expression content
-    const lanes = splitByTopLevelComma(patternContent);
+    const exprCycles = detectAngleBracketCycles(patternContent);
+    totalCycles = lcm(totalCycles, exprCycles);
+    if (plans.length > 0 && subRateModifier < 1.0 && subRateModifier >= 0.125) {
+      const slowSpan = Math.round(1 / subRateModifier);
+      if (slowSpan > 1) totalCycles = lcm(totalCycles, slowSpan);
+    }
 
-    for (const lane of lanes) {
-      const laneEvents = parseLane(lane, 0.0, 1.0, patternType).map((ev) => {
-        const time = subReversed ? Math.max(0, 1 - ev.time - ev.duration) : ev.time;
-        return {
-          ...ev,
-          time,
-          ...(synthSound ? { synthSound } : {}),
-          ...(gain !== undefined ? { gain } : {}),
-          ...(lpf !== undefined ? { lpf } : {}),
-          ...(hpf !== undefined ? { hpf } : {}),
-          ...(pan !== undefined ? { pan } : {}),
-          ...(room !== undefined ? { room } : {}),
-          ...(delay !== undefined ? { delay } : {}),
-        };
-      });
-      allEvents.push(...laneEvents);
+    plans.push({
+      patternType,
+      patternContent,
+      synthSound,
+      scaleSpec,
+      subRateModifier,
+      gain,
+      lpf,
+      hpf,
+      pan,
+      room,
+      delay,
+      subReversed,
+    });
+  }
+
+  // Re-check slowSpan if there are multiple sub-expressions
+  if (plans.length > 1) {
+    for (const p of plans) {
+      if (p.subRateModifier < 1.0 && p.subRateModifier >= 0.125) {
+        const slowSpan = Math.round(1 / p.subRateModifier);
+        if (slowSpan > 1) totalCycles = lcm(totalCycles, slowSpan);
+      }
     }
   }
 
-  return {
-    events: allEvents,
+  const isMultiLayer = plans.length > 1;
+  const cycles: StrudelEvent[][] = [];
+
+  for (let c = 0; c < totalCycles; c++) {
+    const cycleEvents: StrudelEvent[] = [];
+
+    for (const plan of plans) {
+      // Determine how this layer maps onto cycle `c`
+      // For single-expression patterns, preserve exact legacy behavior where rateModifier scales the transport clock.
+      // For multi-layer stack() patterns, bake integer .fast(N) repetitions into the bar so layers stay time-aligned!
+      const layerFastReps =
+        isMultiLayer && plan.subRateModifier > 1.0 && Number.isFinite(plan.subRateModifier)
+          ? Math.min(8, Math.max(1, Math.round(plan.subRateModifier)))
+          : 1;
+
+      for (let rep = 0; rep < layerFastReps; rep++) {
+        const effectiveCycleIdx = c * layerFastReps + rep;
+        const resolvedContent = resolveCycleAlternations(plan.patternContent, effectiveCycleIdx);
+        const lanes = splitByTopLevelComma(resolvedContent);
+
+        const sliceStart = rep / layerFastReps;
+        const sliceEnd = (rep + 1) / layerFastReps;
+
+        for (const lane of lanes) {
+          if (cycleEvents.length >= 256) break;
+          const rawLaneEvents = parseLane(lane, sliceStart, sliceEnd, plan.patternType, plan.scaleSpec, effectiveCycleIdx);
+          for (const ev of rawLaneEvents) {
+            if (cycleEvents.length >= 256) break;
+            const time = plan.subReversed ? Math.max(0, 1 - ev.time - ev.duration) : ev.time;
+            cycleEvents.push({
+              ...ev,
+              time,
+              cycle: c,
+              ...(plan.synthSound ? { synthSound: plan.synthSound } : {}),
+              ...(plan.gain !== undefined ? { gain: ev.gain !== undefined ? ev.gain * plan.gain : plan.gain } : {}),
+              ...(plan.lpf !== undefined ? { lpf: plan.lpf } : {}),
+              ...(plan.hpf !== undefined ? { hpf: plan.hpf } : {}),
+              ...(plan.pan !== undefined ? { pan: plan.pan } : {}),
+              ...(plan.room !== undefined ? { room: plan.room } : {}),
+              ...(plan.delay !== undefined ? { delay: plan.delay } : {}),
+            });
+          }
+        }
+      }
+    }
+
+    cycles.push(cycleEvents);
+  }
+
+  const primaryEvents = cycles[0] ?? [];
+
+  const result: ParsedStrudelPattern = {
+    events: primaryEvents,
+    cycles,
+    cycleCount: totalCycles,
+    effectiveBarRate: isMultiLayer ? 1.0 : overallRateModifier,
     rateModifier: overallRateModifier,
     isReversed: globalReversed,
     isValid: true,
     rawCode,
   };
+
+  if (parsePatternCache.size >= PARSE_CACHE_LIMIT) {
+    const oldestKey = parsePatternCache.keys().next().value;
+    if (oldestKey !== undefined) parsePatternCache.delete(oldestKey);
+  }
+  parsePatternCache.set(code, result);
+
+  return { ...result };
 }
 
 export function evaluateStrudelPattern(code: string): ParsedStrudelPattern {
