@@ -626,6 +626,73 @@ export function evaluateStrudelPattern(code: string): ParsedStrudelPattern {
 /**
  * Validates a Strudel code snippet and returns structured errors/warnings plus the parsed pattern.
  */
+export function validateStrudelPattern(code: string): StrudelValidationResult {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  if (!code || !code.trim()) {
+    errors.push('Pattern code is empty.');
+    return {
+      valid: false,
+      errors,
+      warnings,
+      pattern: { events: [], cycles: [[]], cycleCount: 1, effectiveBarRate: 1.0, rateModifier: 1.0, isValid: false, errors, rawCode: code || '' },
+    };
+  }
+
+  const cleaned = stripCommentsAndPrefixes(code);
+
+  // Check balanced delimiters outside quotes
+  let inSingle = false;
+  let inDouble = false;
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let angleDepth = 0;
+
+  for (let i = 0; i < cleaned.length; i++) {
+    const ch = cleaned[i];
+    if (ch === "'" && !inDouble) inSingle = !inSingle;
+    else if (ch === '"' && !inSingle) inDouble = !inDouble;
+    else if (!inSingle && !inDouble) {
+      if (ch === '(') parenDepth++;
+      else if (ch === ')') parenDepth--;
+      else if (ch === '[') bracketDepth++;
+      else if (ch === ']') bracketDepth--;
+    } else {
+      if (ch === '[') bracketDepth++;
+      else if (ch === ']') bracketDepth--;
+      else if (ch === '<') angleDepth++;
+      else if (ch === '>') angleDepth--;
+    }
+  }
+
+  if (inSingle || inDouble) errors.push('Unclosed string quote in pattern.');
+  if (parenDepth !== 0) errors.push(`Unbalanced parentheses (delta: ${parenDepth}).`);
+  if (bracketDepth !== 0) errors.push(`Unbalanced square brackets (delta: ${bracketDepth}).`);
+  if (angleDepth !== 0) errors.push(`Unbalanced angle brackets <...> (delta: ${angleDepth}).`);
+
+  const pattern = parseStrudelPattern(code);
+  const totalEventsAcrossCycles = (pattern.cycles ?? [pattern.events]).reduce((acc, cyc) => acc + cyc.length, 0);
+  if (totalEventsAcrossCycles === 0) {
+    errors.push('Pattern produced 0 playable sound or note events.');
+  }
+
+  pattern.isValid = errors.length === 0;
+  if (errors.length > 0) pattern.errors = errors;
+
+  return {
+    valid: errors.length === 0,
+    errors,
+    warnings,
+    pattern,
+  };
+}
+
+/**
+ * Unwraps outer `stack(...)` calls and splits top-level code into sub-expressions
+ * separated by comma `,`, newline `\n`, or semicolon `;` while preserving commas
+ * inside brackets/parentheses and string quotes.
+ */
 function splitSubExpressions(code: string): string[] {
   const trimmed = code.trim();
   if (/^stack\s*\(/i.test(trimmed) && trimmed.endsWith(')')) {
@@ -961,6 +1028,13 @@ function tokenizeMiniNotation(str: string): string[] {
  */
 export function synthesizeStrudelBipolarPeaks(code: string, bins = 512, bpm = 120): BipolarPeaks {
   const count = Math.max(16, Math.floor(bins));
+  const safeBpm = Math.max(30, bpm || 120);
+  const cacheKey = `${count}:${safeBpm}:${code || ''}`;
+  const cached = strudelPeaksCache.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
   const mins = new Float32Array(count);
   const maxs = new Float32Array(count);
   const rms = new Float32Array(count);
@@ -969,17 +1043,26 @@ export function synthesizeStrudelBipolarPeaks(code: string, bins = 512, bpm = 12
   const high = new Float32Array(count);
 
   const parsed = parseStrudelPattern(code);
-  const rate = Math.max(0.125, parsed.rateModifier || 1.0);
-  const duration = ((60 / Math.max(30, bpm || 120)) * 4) / rate;
-  if (!parsed.events.length) {
-    return { mins, maxs, rms, low, mid, high, bins: count, duration };
+  const rate = Math.max(0.125, parsed.effectiveBarRate ?? parsed.rateModifier ?? 1.0);
+  const patternCycles = parsed.cycles && parsed.cycles.length > 0 ? parsed.cycles : [parsed.events];
+  const hasAnyEvents = patternCycles.some((cyc) => cyc.length > 0);
+  const duration = ((60 / safeBpm) * 4) / rate;
+  if (!hasAnyEvents) {
+    const emptyResult = { mins, maxs, rms, low, mid, high, bins: count, duration };
+    if (strudelPeaksCache.size >= PEAKS_CACHE_LIMIT) {
+      const oldestKey = strudelPeaksCache.keys().next().value;
+      if (oldestKey !== undefined) strudelPeaksCache.delete(oldestKey);
+    }
+    strudelPeaksCache.set(cacheKey, emptyResult);
+    return emptyResult;
   }
 
-  const cycles = Math.max(1, Math.min(8, Math.round(rate * 2)));
-  const freqFactor = Math.max(0.5, Math.min(2.5, bpm / 120));
+  const cycles = Math.max(patternCycles.length, Math.min(8, Math.round(rate * 2)));
+  const freqFactor = Math.max(0.5, Math.min(2.5, safeBpm / 120));
 
   for (let c = 0; c < cycles; c++) {
-    for (const ev of parsed.events) {
+    const cycleEvents = patternCycles[c % patternCycles.length];
+    for (const ev of cycleEvents) {
       const startNorm = (c + ev.time) / cycles;
       const durNorm = Math.max(1 / count, ev.duration / cycles);
       if (startNorm >= 1) continue;
@@ -991,7 +1074,7 @@ export function synthesizeStrudelBipolarPeaks(code: string, bins = 512, bpm = 12
 
       const isKick = ev.value.includes('bd') || ev.value.includes('kick');
       const isSnare = ev.value.includes('sd') || ev.value.includes('snare') || ev.value.includes('cp');
-      const isHat = ev.value.includes('hh') || ev.value.includes('hat');
+      const isHat = ev.value.includes('hh') || ev.value.includes('hat') || ev.value.includes('oh') || ev.value.includes('ride');
       const decayRate = isKick ? 5.5 : isSnare ? 4.5 : isHat ? 9.0 : 2.8;
       const bandLow = isKick ? 0.8 : isSnare ? 0.2 : isHat ? 0.05 : 0.3;
       const bandMid = isKick ? 0.15 : isSnare ? 0.55 : isHat ? 0.2 : 0.5;
@@ -1018,5 +1101,11 @@ export function synthesizeStrudelBipolarPeaks(code: string, bins = 512, bpm = 12
     }
   }
 
-  return { mins, maxs, rms, low, mid, high, bins: count, duration };
+  const result = { mins, maxs, rms, low, mid, high, bins: count, duration };
+  if (strudelPeaksCache.size >= PEAKS_CACHE_LIMIT) {
+    const oldestKey = strudelPeaksCache.keys().next().value;
+    if (oldestKey !== undefined) strudelPeaksCache.delete(oldestKey);
+  }
+  strudelPeaksCache.set(cacheKey, result);
+  return result;
 }
