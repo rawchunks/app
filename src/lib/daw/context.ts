@@ -283,37 +283,93 @@ function inferTrackRole(name?: string, id?: string): string {
 export async function extractMusicalContext(targetTrackId?: string): Promise<string> {
   const state = useDawStore.getState();
   const bpm = Math.round(state.bpm || 120);
-  const playhead = state.playhead || 0;
+  const barSec = (60 / Math.max(40, Math.min(240, bpm))) * 4;
+  const rawFocusTime = state.selection ? state.selection.start : (state.playhead || 0);
+  // Quantize analysis window start to bar boundary
+  const windowStartSec = Math.max(0, Math.floor(rawFocusTime / barSec) * barSec);
+  const windowEndSec = state.selection && state.selection.end > state.selection.start
+    ? state.selection.end
+    : windowStartSec + barSec * 4;
 
-  // Locate primary reference track (selected audio stem, or Master)
-  const selectedTrack = state.tracks.find((t) => t.id === (targetTrackId || state.selectedTrackId));
+  // Locate primary reference track:
+  // 1. Explicit targetTrackId if it has audio clips (never pick the empty strudel track itself!)
+  // 2. Currently selected track in DAW if it has audio clips
+  // 3. Any soloed audio stem track
+  // 4. Master track
   const masterTrack = state.tracks.find((t) => t.id === 'master');
-  const refTrack =
-    selectedTrack && selectedTrack.clips.length > 0 && selectedTrack.clips[0]?.url
-      ? selectedTrack
-      : masterTrack;
-  const refClip = refTrack?.clips[0];
+  const explicitTrack = targetTrackId ? state.tracks.find((t) => t.id === targetTrackId) : undefined;
+  const selectedTrack = state.tracks.find((t) => t.id === state.selectedTrackId);
+  const soloAudioTrack = state.tracks.find((t) => t.solo && t.type !== 'strudel' && t.clips.length > 0 && t.clips[0]?.url);
 
-  let keyName = 'C';
-  let scaleName: 'major' | 'minor' = 'minor';
-  let chords = '<Cm7 Fm7 Abmaj7 G7>';
+  const refTrack =
+    explicitTrack && explicitTrack.type !== 'strudel' && explicitTrack.clips.length > 0 && explicitTrack.clips[0]?.url
+      ? explicitTrack
+      : selectedTrack && selectedTrack.type !== 'strudel' && selectedTrack.clips.length > 0 && selectedTrack.clips[0]?.url
+        ? selectedTrack
+        : soloAudioTrack || masterTrack;
+
+  const refClip = refTrack?.clips[0];
+  const targetRole = inferTrackRole(refTrack?.name, refTrack?.id);
+
+  // Resolve authoritative keyScale & stylePrompt from store or base take provenance
+  const baseTake = state.takes.find((t) => t.task === 'text2music') ?? state.takes.find((t) => t.is_active);
+  const baseParams = baseTake?.provenance?.parameters;
+  const authoritativeKeyScale =
+    state.keyScale ||
+    baseParams?.submitted?.keyScale ||
+    baseParams?.submitted?.keyscale ||
+    baseParams?.resolved?.keyscale;
+  const stylePrompt =
+    state.stylePrompt ||
+    baseTake?.prompt ||
+    baseParams?.submitted?.prompt ||
+    baseParams?.submitted?.tags ||
+    baseParams?.resolved?.caption ||
+    '';
+
+  const scaleRef = getScaleAndChordReference(authoritativeKeyScale || 'C minor');
+  let keyName = scaleRef.root;
+  let scaleName: 'major' | 'minor' = scaleRef.mode;
+  let chords = `<${scaleRef.defaultProgression.join(' ')}>`;
+  let voicings = `<${scaleRef.diatonicChords.slice(0, 4).map((c) => c.voicing).join(' ')}>`;
   let grooveLow = 'x...x...x...x...';
   let grooveMid = '....x.......x...';
   let grooveHigh = 'x.x.x.x.x.x.x.x.';
   let openSpectrum = 'mid-high,high-air';
 
-  if (refTrack && refClip) {
-    const buffer = dawEngine.getClipAudioBuffer(refTrack.id, refClip.id);
+  if (refTrack && refClip?.url) {
+    let buffer = dawEngine.getClipAudioBuffer(refTrack.id, refClip.id);
+    if (!buffer) {
+      try {
+        buffer = await getDecodedAudioBuffer(refClip.url, 'high');
+      } catch {
+        // If decoding fails in headless test environment, fall back to windowed peaks below
+      }
+    }
+
     if (buffer) {
-      const detected = detectKeyAndChordsFromAudioBuffer(buffer, bpm);
+      // Pick the active window, or if the intro at 0s is silent, advance to the first active bar
+      const probeSec =
+        windowStartSec === 0 && buffer.duration > barSec * 4
+          ? Math.min(barSec * 2, buffer.duration - barSec * 4)
+          : windowStartSec;
+      const detected = detectWindowedKeyAndChords(buffer, bpm, probeSec, authoritativeKeyScale);
       keyName = detected.key;
       scaleName = detected.scale;
       chords = detected.chords;
-    }
+      voicings = detected.voicings;
 
-    try {
-      if (refClip.url) {
-        const peaks = await extractBipolarPeaksFromUrl(refClip.url, 256, 0, undefined, 'high');
+      const barGroove = extractBarGrooveFromBuffer(buffer, bpm, probeSec);
+      if (barGroove) {
+        grooveLow = barGroove.grooveLow;
+        grooveMid = barGroove.grooveMid;
+        grooveHigh = barGroove.grooveHigh;
+        openSpectrum = barGroove.openSpectrum;
+      }
+    } else {
+      try {
+        // Extract 64 bins over a 1-bar window (4 bins per 16th-note step — no whole-song aliasing!)
+        const peaks = await extractBipolarPeaksFromUrl(refClip.url, 64, windowStartSec, barSec, 'high');
         if (peaks && peaks.bins >= 16) {
           const lowArr = peaks.low;
           const midArr = peaks.mid;
@@ -321,30 +377,15 @@ export async function extractMusicalContext(targetTrackId?: string): Promise<str
           const rmsArr = peaks.rms;
 
           let meanRms = 0;
-          let sumLow = 0;
-          let sumMid = 0;
-          let sumHigh = 0;
-          for (let i = 0; i < peaks.bins; i++) {
-            meanRms += rmsArr[i];
-            if (lowArr && midArr && highArr) {
-              sumLow += lowArr[i];
-              sumMid += midArr[i];
-              sumHigh += highArr[i];
-            }
-          }
+          for (let i = 0; i < peaks.bins; i++) meanRms += rmsArr[i];
           meanRms /= peaks.bins;
 
-          // Build 16-step onset mask from a 1-bar window around current playhead (or first active bar)
-          const barSec = (60 / bpm) * 4;
-          const startSec = playhead > 0 && playhead + barSec < peaks.duration ? playhead : Math.min(peaks.duration * 0.25, Math.max(0, peaks.duration - barSec));
           const lowChars: string[] = [];
           const midChars: string[] = [];
           const highChars: string[] = [];
 
           for (let step = 0; step < 16; step++) {
-            const stepSec = startSec + (step / 16) * barSec;
-            const norm = peaks.duration > 0 ? Math.max(0, Math.min(1, stepSec / peaks.duration)) : step / 16;
-            const bin = Math.min(peaks.bins - 1, Math.floor(norm * (peaks.bins - 1)));
+            const bin = Math.min(peaks.bins - 1, Math.floor((step / 16) * peaks.bins));
             const e = rmsArr[bin];
             const l = lowArr ? lowArr[bin] * e : e * 0.35;
             const m = midArr ? midArr[bin] * e : e * 0.35;
@@ -357,24 +398,14 @@ export async function extractMusicalContext(targetTrackId?: string): Promise<str
           grooveLow = lowChars.join('');
           grooveMid = midChars.join('');
           grooveHigh = highChars.join('');
-
-          if (lowArr && midArr && highArr) {
-            const avgL = sumLow / peaks.bins;
-            const avgM = sumMid / peaks.bins;
-            const avgH = sumHigh / peaks.bins;
-            const openBands: string[] = [];
-            if (avgL < 0.34) openBands.push('sub-bass');
-            if (avgM < 0.36) openBands.push('warm-mids');
-            if (avgH < 0.36) openBands.push('high-air');
-            if (openBands.length === 0) openBands.push('syncopated-mid-high');
-            openSpectrum = openBands.join(',');
-          }
         }
+      } catch {
+        // Non-fatal
       }
-    } catch {
-      // Non-fatal if peak extraction is still in flight
     }
   }
+
+  const finalScaleRef = getScaleAndChordReference(`${keyName} ${scaleName}`);
 
   // Extract active Keys (PianoRoll) MIDI notes if present
   const keysTrack = state.tracks.find((t) => t.type === 'pianoroll');
@@ -385,13 +416,6 @@ export async function extractMusicalContext(targetTrackId?: string): Promise<str
       .slice(0, 12)
       .map((n) => `${n.pitch}@${n.startTime.toFixed(1)}`);
     keysSummary = `[${sortedNotes.join(' ')}]`;
-    // Refine key root from user's MIDI notes if audio buffer wasn't decoded yet
-    if (!refClip || !dawEngine.getClipAudioBuffer(refTrack!.id, refClip.id)) {
-      const rootPitch = String(keysTrack.pianoRollNotes[0].pitch || 'C4').replace(/[0-9-]+$/, '');
-      if (rootPitch) {
-        keyName = rootPitch;
-      }
-    }
   }
 
   // Extract active Drums (Sequencer) 16-step pattern if present
@@ -409,145 +433,81 @@ export async function extractMusicalContext(targetTrackId?: string): Promise<str
     }
   }
 
-  // Extract active Lyric line / section context
-  let sectionHint = `@${playhead.toFixed(1)}s`;
-  const activeLyrics = state.takes.find((tk) => tk.is_active && tk.lyrics)?.lyrics;
-  if (activeLyrics && activeLyrics.trim().length > 0) {
-    const lines = activeLyrics
-      .split('\n')
-      .map((l: string) => l.trim())
-      .filter(Boolean);
-    const activeHeader = lines.find((l: string) => /^\[.*\]$/.test(l)) ?? lines[0]?.slice(0, 48);
-    if (activeHeader) {
-      sectionHint = `${activeHeader} @${playhead.toFixed(1)}s`;
+  // Extract timestamped structural section & active vocal lyric line at rawFocusTime
+  let sectionName = 'Main Groove';
+  let activeLyricSnippet = '';
+  const alignment =
+    state.lyricsAlignment ??
+    state.takes
+      .map((t) => (t.provenance?.parameters as any)?.lyricsAlignment)
+      .find((a) => a && Array.isArray(a.lines) && a.lines.some((l: any) => typeof l?.start === 'number'));
+
+  if (alignment && Array.isArray(alignment.lines) && alignment.lines.length > 0) {
+    let currentTag = '[Intro]';
+    const matchingLines: string[] = [];
+    for (const line of alignment.lines) {
+      const txt = String(line.text || '').trim();
+      if (!txt) continue;
+      if (line.isTag || /^\[.*\]$/.test(txt)) {
+        if (line.start === null || line.start === undefined || line.start <= rawFocusTime + barSec) {
+          currentTag = txt;
+        }
+        continue;
+      }
+      if (typeof line.start === 'number' && typeof line.end === 'number') {
+        if (line.start <= rawFocusTime + 0.5 && currentTag === '[Intro]') {
+          // Keep advancing tag context
+        }
+        if (line.end >= windowStartSec && line.start <= windowEndSec) {
+          matchingLines.push(txt);
+        }
+      }
+    }
+    sectionName = currentTag;
+    if (matchingLines.length > 0) {
+      activeLyricSnippet = matchingLines.slice(0, 2).join(' / ').slice(0, 90);
+    }
+  } else {
+    const activeLyrics =
+      state.lyrics ||
+      state.takes.find((tk) => tk.is_active && tk.lyrics)?.lyrics ||
+      state.takes.find((tk) => tk.task === 'text2music' && tk.lyrics)?.lyrics;
+    if (activeLyrics && activeLyrics.trim().length > 0 && activeLyrics.trim() !== '[Instrumental]') {
+      const lines = activeLyrics
+        .split('\n')
+        .map((l: string) => l.trim())
+        .filter(Boolean);
+      const tags = lines.filter((l: string) => /^\[.*\]$/.test(l));
+      if (tags.length > 0) {
+        const progress = state.duration > 0 ? Math.max(0, Math.min(0.99, rawFocusTime / state.duration)) : 0;
+        const tagIdx = Math.min(tags.length - 1, Math.floor(progress * tags.length));
+        sectionName = tags[tagIdx];
+      }
+    }
+  }
+
+  const sectionHint = `${sectionName} @${windowStartSec.toFixed(1)}s..${windowEndSec.toFixed(1)}s${activeLyricSnippet ? ` | vocals="${activeLyricSnippet}"` : ''}`;
+  const timeSig = Array.isArray(state.timeSignature) ? `${state.timeSignature[0]}/${state.timeSignature[1]}` : '4/4';
+  const syncSlots: number[] = [];
+  for (let i = 0; i < 16; i++) {
+    if (grooveLow[i] === '.' && grooveMid[i] === '.') {
+      syncSlots.push(i + 1);
     }
   }
 
   return [
-    '[SONG_CTX v1]',
-    `tempo:${bpm} meter:4/4 key:${keyName}:${scaleName}`,
+    '[SONG_CTX v2]',
+    `tempo:${bpm} meter:${timeSig} key:${keyName}:${scaleName}`,
+    ...(stylePrompt ? [`style:${String(stylePrompt).slice(0, 180)}`] : []),
+    `target_track:${refTrack?.name || 'Master'} role:${targetRole}`,
+    `scale_notes:${finalScaleRef.scaleNotes.join(' ')} bass_roots:${finalScaleRef.bassRoots.join(' ')}`,
     `chords:${chords}`,
+    `voicings:${voicings}`,
     `groove16:L=${grooveLow} M=${grooveMid} H=${grooveHigh}`,
+    `sync_slots:${syncSlots.length > 0 ? syncSlots.join(',') : '2,4,6,8,10,12,14,16'}`,
     `keys:${keysSummary}`,
     `drums:${drumsSummary}`,
     `spectrum:open=${openSpectrum}`,
     `section:${sectionHint}`,
   ].join('\n');
-}function detectKeyAndChordsFromAudioBuffer(
-  buffer: AudioBuffer,
-  bpm: number
-): { key: string; scale: 'major' | 'minor'; chords: string } {
-  const rate = buffer.sampleRate;
-  const channel = buffer.getChannelData(0);
-  const length = channel.length;
-  const chroma = new Float64Array(12);
-
-  // Goertzel-style pitch-class energy accumulation across 3 octaves (C2..B4)
-  const stride = Math.max(1, Math.floor(rate / 4000));
-  const decimatedRate = rate / stride;
-  const maxFrames = Math.min(length, Math.floor(rate * 45));
-  const barDurationSec = (60 / Math.max(40, Math.min(240, bpm))) * 4;
-  const numBars = Math.max(1, Math.min(8, Math.floor(buffer.duration / barDurationSec)));
-  const barChroma: Float64Array[] = Array.from({ length: numBars }, () => new Float64Array(12));
-
-  for (let pc = 0; pc < 12; pc++) {
-    for (let oct = 2; oct <= 4; oct++) {
-      const midi = (oct + 1) * 12 + pc;
-      const freq = 440 * Math.pow(2, (midi - 69) / 12);
-      const omega = (2 * Math.PI * freq) / decimatedRate;
-      const coeff = 2 * Math.cos(omega);
-
-      for (let b = 0; b < numBars; b++) {
-        const barStart = Math.floor(b * barDurationSec * rate);
-        const barEnd = Math.min(maxFrames, Math.floor((b + 1) * barDurationSec * rate));
-        if (barEnd <= barStart) continue;
-        let s1 = 0;
-        let s2 = 0;
-        let count = 0;
-        for (let idx = barStart; idx < barEnd; idx += stride) {
-          const s0 = channel[idx] + coeff * s1 - s2;
-          s2 = s1;
-          s1 = s0;
-          count++;
-        }
-        if (count > 0) {
-          const power = (s1 * s1 + s2 * s2 - coeff * s1 * s2) / (count * count);
-          chroma[pc] += power;
-          barChroma[b][pc] += power;
-        }
-      }
-    }
-  }
-
-  // Krumhansl-Kessler correlation for global key & scale
-  let bestRoot = 0;
-  let bestScale: 'major' | 'minor' = 'minor';
-  let bestScore = -Infinity;
-
-  for (let root = 0; root < 12; root++) {
-    let majScore = 0;
-    let minScore = 0;
-    for (let i = 0; i < 12; i++) {
-      const val = chroma[(root + i) % 12];
-      majScore += val * KK_MAJOR[i];
-      minScore += val * KK_MINOR[i];
-    }
-    if (majScore > bestScore) {
-      bestScore = majScore;
-      bestRoot = root;
-      bestScale = 'major';
-    }
-    if (minScore > bestScore) {
-      bestScore = minScore;
-      bestRoot = root;
-      bestScale = 'minor';
-    }
-  }
-
-  // Bar-by-bar diatonic/chromatic triad+7th template matching
-  const chordTokens: string[] = [];
-  for (let b = 0; b < numBars; b++) {
-    const bc = barChroma[b];
-    let barRoot = bestRoot;
-    let barQuality = bestScale === 'minor' ? 'm7' : 'maj7';
-    let barBest = -Infinity;
-    for (let r = 0; r < 12; r++) {
-      const maj3 = bc[r] * 1.4 + bc[(r + 4) % 12] * 1.15 + bc[(r + 7) % 12] * 1.1 + bc[(r + 11) % 12] * 0.5;
-      const min3 = bc[r] * 1.4 + bc[(r + 3) % 12] * 1.15 + bc[(r + 7) % 12] * 1.1 + bc[(r + 10) % 12] * 0.55;
-      const dom7 = bc[r] * 1.35 + bc[(r + 4) % 12] * 1.1 + bc[(r + 7) % 12] * 1.05 + bc[(r + 10) % 12] * 0.7;
-      if (maj3 > barBest) {
-        barBest = maj3;
-        barRoot = r;
-        barQuality = 'maj7';
-      }
-      if (min3 > barBest) {
-        barBest = min3;
-        barRoot = r;
-        barQuality = 'm7';
-      }
-      if (dom7 > barBest) {
-        barBest = dom7;
-        barRoot = r;
-        barQuality = '7';
-      }
-    }
-    chordTokens.push(`${PITCH_CLASSES[barRoot]}${barQuality}`);
-  }
-
-  const deduped = chordTokens.length > 0 ? `<${chordTokens.join(' ')}>` : `<${PITCH_CLASSES[bestRoot]}${bestScale === 'minor' ? 'm7' : 'maj7'}>`;
-  return {
-    key: PITCH_CLASSES[bestRoot],
-    scale: bestScale,
-    chords: deduped,
-  };
 }
-
-/**
- * Extracts a deterministic, lossless, token-compact (~150 tokens) `[SONG_CTX v1]`
- * musical descriptor from the current DAW session (Master/stem audio buffer,
- * 16th-note 3-band onset groove masks, spectral occupancy, active Keys MIDI notes,
- * active Drums step grid, and active lyrics section) so the Strudel AI operator
- * improvises in exact key, tempo, chord progression, and groove pocket.
- */
-
-
