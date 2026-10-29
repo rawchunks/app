@@ -81,7 +81,7 @@ export type FundingSource = 'usdc' | 'card' | 'promo';
 
 export interface CreditRequestContext {
   userAddress: string;
-  authToken: string;
+  authToken?: string | null;
   preferredSource?: FundingSource;
   usdcActive?: boolean;
   cardAvailableAtomics?: string;
@@ -105,20 +105,20 @@ function parseAtomics(value?: string | null): bigint {
 }
 
 export function hasStreamBudget(): boolean {
-  const hasCard = Boolean(creditContext?.authToken && parseAtomics(creditContext.cardAvailableAtomics) > 0n);
+  const hasCard = Boolean(creditContext?.userAddress && parseAtomics(creditContext.cardAvailableAtomics) > 0n);
   const hasUsdc = Boolean(creditContext?.usdcActive || sdk.keys.currentToken());
   const hasExplicit = creditContext?.creditSource === 'card';
   return hasCard || hasUsdc || hasExplicit;
 }
 
 export function hasStudioBudget(): boolean {
-  const hasPromo = Boolean(creditContext?.authToken && parseAtomics(creditContext.promoAvailableAtomics) > 0n);
+  const hasPromo = Boolean(creditContext?.userAddress && parseAtomics(creditContext.promoAvailableAtomics) > 0n);
   const hasExplicitPromo = creditContext?.creditSource === 'promo';
   return hasPromo || hasExplicitPromo || hasStreamBudget();
 }
 
 export function hasPromoCreditsOnly(): boolean {
-  const hasPromo = Boolean(creditContext?.authToken && parseAtomics(creditContext.promoAvailableAtomics) > 0n);
+  const hasPromo = Boolean(creditContext?.userAddress && parseAtomics(creditContext.promoAvailableAtomics) > 0n);
   return hasPromo && !hasStreamBudget();
 }
 
@@ -145,9 +145,9 @@ function buildCandidateSources(pathname: string, body?: BodyInit | null): Fundin
     }
   }
 
-  const hasAuth = Boolean(creditContext?.authToken);
-  const promoAvail = hasAuth ? parseAtomics(creditContext?.promoAvailableAtomics) > 0n : false;
-  const cardAvail = hasAuth ? parseAtomics(creditContext?.cardAvailableAtomics) > 0n : false;
+  const hasUser = Boolean(creditContext?.userAddress);
+  const promoAvail = hasUser ? parseAtomics(creditContext?.promoAvailableAtomics) > 0n : false;
+  const cardAvail = hasUser ? parseAtomics(creditContext?.cardAvailableAtomics) > 0n : false;
   const usdcAvail = Boolean(creditContext?.usdcActive || sdk.keys.currentToken());
   const pref = creditContext?.preferredSource;
 
@@ -211,8 +211,10 @@ sdk.fetch = async function patchedFetch(
     for (const name of ["authorization", "payment-signature", "x-x402-max-amount-wei"]) {
       headers.delete(name);
     }
-    if (creditContext?.authToken) {
+    if (creditContext?.authToken && !headers.has("x-wallet-auth-token")) {
       headers.set("x-wallet-auth-token", creditContext.authToken);
+    }
+    if (creditContext?.userAddress && !headers.has("x-session-user-address")) {
       headers.set("x-session-user-address", creditContext.userAddress);
     }
     if (effectiveUserAddress && !headers.has("x-session-user-address")) {
@@ -232,13 +234,15 @@ sdk.fetch = async function patchedFetch(
 
   for (let i = 0; i < candidates.length; i++) {
     const source = candidates[i];
-    const usePrepaidCredits = (source === 'promo' || source === 'card') && Boolean(creditContext?.authToken);
+    const usePrepaidCredits = (source === 'promo' || source === 'card') && Boolean(effectiveUserAddress);
     const headers = new Headers(init?.headers);
     headers.delete("x-wallet-auth-token");
     headers.delete("x-credit-source");
 
     if (creditContext?.authToken) {
       headers.set("x-wallet-auth-token", creditContext.authToken);
+    }
+    if (creditContext?.userAddress) {
       headers.set("x-session-user-address", creditContext.userAddress);
     }
     if (effectiveUserAddress && !headers.has("x-session-user-address")) {

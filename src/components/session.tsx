@@ -195,30 +195,23 @@ export function SessionProvider({ children, userAddress: propUserAddress }: Sess
     return preferredSource ?? 'usdc';
   }, [preferredSource, usdcActive, cardAvailable, promoAvailable]);
 
+  const effectiveCreditAddr = liveAddress ?? readAddress;
+  if (effectiveCreditAddr) {
+    setCreditRequestContext({
+      userAddress: effectiveCreditAddr,
+      authToken: credits.authToken ?? '',
+      preferredSource: activeSource,
+      usdcActive,
+      cardAvailableAtomics: credits.balance.availableAtomics || '0',
+      promoAvailableAtomics: credits.balance.promo?.availableAtomics || '0',
+    });
+  } else {
+    setCreditRequestContext(null);
+  }
+
   useEffect(() => {
-    const effectiveAddr = liveAddress ?? readAddress;
-    if (effectiveAddr) {
-      setCreditRequestContext({
-        userAddress: effectiveAddr,
-        authToken: credits.authToken ?? '',
-        preferredSource: activeSource,
-        usdcActive,
-        cardAvailableAtomics: credits.balance.availableAtomics || '0',
-        promoAvailableAtomics: credits.balance.promo?.availableAtomics || '0',
-      });
-    } else {
-      setCreditRequestContext(null);
-    }
     return () => setCreditRequestContext(null);
-  }, [
-    liveAddress,
-    readAddress,
-    credits.authToken,
-    activeSource,
-    usdcActive,
-    credits.balance.availableAtomics,
-    credits.balance.promo?.availableAtomics,
-  ]);
+  }, []);
 
   const [creation, setCreation] = useState<{ key: string | null; generation: number; pending: boolean; error: string | null }>({ key: null, generation: 0, pending: false, error: null });
   const creating = useRef<number | null>(null);
