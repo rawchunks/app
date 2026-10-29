@@ -7,12 +7,13 @@ import { creditsApi, DEFAULT_PAYPAL_CLIENT_ID, purchaseCacheKey, zeroCredits, ty
 export function useCreditAccount() {
   const admin = useAdminWallet(), active = useActiveWallet();
   const wallet = admin ?? active;
-  const { userAddress, readAddress, accountId, isReconnecting } = useSelectedUserAddress();
-  const owner = accountId ?? readAddress?.toLowerCase() ?? null;
+  const { userAddress, readAddress, accountId } = useSelectedUserAddress();
+  const effectiveAddress = userAddress ?? readAddress ?? null;
+  const owner = accountId ?? effectiveAddress?.toLowerCase() ?? null;
   const authToken = wallet?.getAuthToken?.() ?? null;
-  const identity = `${owner}:${authToken}`;
-  const latest = useRef({ identity, owner, userAddress });
-  latest.current = { identity, owner, userAddress };
+  const identity = `${owner ?? 'anon'}:${effectiveAddress ?? ''}`;
+  const latest = useRef({ identity, owner, effectiveAddress, authToken });
+  latest.current = { identity, owner, effectiveAddress, authToken };
   const mutationGenRef = useRef(0);
 
   const [state, setState] = useState<{ identity: string; owner: string | null; balance: CreditBalance; error: string | null }>(() => {
@@ -22,17 +23,20 @@ export function useCreditAccount() {
     const initialBalance: CreditBalance = cachedSnap?.balance
       ? {
           ...cachedSnap.balance,
-          packs: cachedSnap.balance.packs ?? [],
+          promo: cachedSnap.balance.promo ?? cachedPayPal?.promo,
+          packs: cachedSnap.balance.packs?.length ? cachedSnap.balance.packs : (cachedPayPal?.packs ?? []),
           paypalClientId: cachedSnap.balance.paypalClientId || cachedPayPal?.paypalClientId || DEFAULT_PAYPAL_CLIENT_ID,
           environment: cachedSnap.balance.environment || cachedPayPal?.environment || 'sandbox',
         }
       : {
           ...zeroCredits,
+          promo: cachedPayPal?.promo,
+          packs: cachedPayPal?.packs ?? [],
           paypalClientId: cachedPayPal?.paypalClientId || DEFAULT_PAYPAL_CLIENT_ID,
           environment: cachedPayPal?.environment || 'sandbox',
         };
     return {
-      identity: `${initialOwner}:${authToken}`,
+      identity,
       owner: initialOwner,
       balance: initialBalance,
       error: null,
@@ -47,14 +51,15 @@ export function useCreditAccount() {
         balance: cachedSnapForOwner?.balance
           ? {
               ...cachedSnapForOwner.balance,
-              packs: cachedSnapForOwner.balance.packs ?? [],
+              promo: cachedSnapForOwner.balance.promo ?? cachedPayPal?.promo,
+              packs: cachedSnapForOwner.balance.packs?.length ? cachedSnapForOwner.balance.packs : (state.balance.packs?.length ? state.balance.packs : (cachedPayPal?.packs ?? [])),
               paypalClientId: cachedSnapForOwner.balance.paypalClientId || state.balance.paypalClientId || cachedPayPal?.paypalClientId || DEFAULT_PAYPAL_CLIENT_ID,
               environment: cachedSnapForOwner.balance.environment || state.balance.environment || cachedPayPal?.environment || 'sandbox',
             }
           : {
               ...zeroCredits,
-              promo: owner === null ? state.balance.promo : zeroCredits.promo,
-              packs: state.balance.packs,
+              promo: cachedPayPal?.promo ?? (owner === null ? state.balance.promo : zeroCredits.promo),
+              packs: state.balance.packs?.length ? state.balance.packs : (cachedPayPal?.packs ?? []),
               paypalClientId: state.balance.paypalClientId || cachedPayPal?.paypalClientId || DEFAULT_PAYPAL_CLIENT_ID,
               environment: state.balance.environment || cachedPayPal?.environment || 'sandbox',
             },
@@ -62,18 +67,18 @@ export function useCreditAccount() {
       };
 
   const [loading, setLoading] = useState(false);
-  const enabled = Boolean(owner && userAddress && authToken);
+  const enabled = Boolean(owner && effectiveAddress);
 
   useEffect(() => {
-    if (owner || isReconnecting) return;
+    if (enabled) return;
     let cancelled = false;
     setLoading(true);
     void creditsApi<Partial<CreditBalance>>('promo')
       .then((data) => {
-        if (cancelled || latest.current.owner !== null) return;
+        if (cancelled || latest.current.effectiveAddress !== null) return;
         const paypalClientId = data.paypalClientId || readCachedPayPalClientId()?.paypalClientId || DEFAULT_PAYPAL_CLIENT_ID;
         const environment = data.environment || readCachedPayPalClientId()?.environment || 'sandbox';
-        if (data.paypalClientId) writeCachedPayPalClientId(data.paypalClientId, environment);
+        writeCachedPayPalClientId(paypalClientId, environment, data.packs, data.promo);
         setState((prev) => ({
           ...prev,
           identity: latest.current.identity,
@@ -90,18 +95,22 @@ export function useCreditAccount() {
       })
       .catch(() => {})
       .finally(() => {
-        if (!cancelled && latest.current.owner === null) setLoading(false);
+        if (!cancelled && latest.current.effectiveAddress === null) setLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [owner, isReconnecting]);
+  }, [enabled]);
 
   const refresh = useCallback(async () => {
-    if (!enabled) return;
+    const { effectiveAddress: reqAddr, authToken: reqToken, owner: reqOwner } = latest.current;
+    if (!reqOwner || !reqAddr) return;
     const gen = mutationGenRef.current;
     try {
-      const rawBalance = await creditsApi<CreditBalance>('balance');
+      const rawBalance = await creditsApi<CreditBalance>('balance', undefined, undefined, {
+        userAddress: reqAddr,
+        authToken: reqToken,
+      });
       if (latest.current.identity !== identity || mutationGenRef.current !== gen) return;
       const balance: CreditBalance = {
         ...rawBalance,
@@ -111,21 +120,33 @@ export function useCreditAccount() {
       if (latest.current.owner) {
         writeCachedCredits(latest.current.owner, balance);
       }
-      if (balance.paypalClientId) {
-        writeCachedPayPalClientId(balance.paypalClientId, balance.environment || 'sandbox');
-      }
+      writeCachedPayPalClientId(
+        balance.paypalClientId,
+        balance.environment || 'sandbox',
+        balance.packs,
+        balance.promo,
+      );
       setState({ identity, owner: latest.current.owner, balance, error: null });
     } catch (error) {
       if (latest.current.identity === identity && mutationGenRef.current === gen) {
+        const fallbackConfig = readCachedPayPalClientId();
         setState(previous => ({
-          ...(previous.owner === latest.current.owner ? previous : { balance: zeroCredits }),
+          balance: previous.owner === latest.current.owner
+            ? previous.balance
+            : {
+                ...zeroCredits,
+                promo: fallbackConfig?.promo ?? previous.balance.promo,
+                packs: previous.balance.packs?.length ? previous.balance.packs : (fallbackConfig?.packs ?? []),
+                paypalClientId: previous.balance.paypalClientId || fallbackConfig?.paypalClientId || DEFAULT_PAYPAL_CLIENT_ID,
+                environment: previous.balance.environment || fallbackConfig?.environment || 'sandbox',
+              },
           identity,
           owner: latest.current.owner,
           error: error instanceof Error ? error.message : 'Credits unavailable',
         }));
       }
     }
-  }, [identity, enabled]);
+  }, [identity]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -138,7 +159,11 @@ export function useCreditAccount() {
   }, [refresh, identity, enabled]);
 
   const completePurchase = useCallback(async (operationId: string) => {
-    const operation = await creditsApi<{ status: string }>(`operations/${operationId}`);
+    const { effectiveAddress: reqAddr, authToken: reqToken } = latest.current;
+    const operation = await creditsApi<{ status: string }>(`operations/${operationId}`, undefined, undefined, {
+      userAddress: reqAddr,
+      authToken: reqToken,
+    });
     if (operation.status !== 'credited') throw new Error('Payment is still being confirmed');
     mutationGenRef.current += 1;
     await refresh();
@@ -159,9 +184,15 @@ export function useCreditAccount() {
   }, [identity, enabled, owner, completePurchase]);
 
   const claimPromo = useCallback(async () => {
-    if (!enabled) throw new Error('Connect your account first');
+    const { effectiveAddress: reqAddr, authToken: reqToken } = latest.current;
+    const liveToken = wallet?.getAuthToken?.() ?? reqToken;
+    if (!enabled || !reqAddr) throw new Error('Connect your account first');
+    if (!liveToken) throw new Error('A verified email or social account is required to claim Campaign Credits');
     mutationGenRef.current += 1;
-    const rawBalance = await creditsApi<CreditBalance>('promo/claim', {}, crypto.randomUUID());
+    const rawBalance = await creditsApi<CreditBalance>('promo/claim', {}, crypto.randomUUID(), {
+      userAddress: reqAddr,
+      authToken: liveToken,
+    });
     if (latest.current.identity !== identity) throw new Error('The account changed');
     const balance: CreditBalance = {
       ...rawBalance,
@@ -172,7 +203,7 @@ export function useCreditAccount() {
       writeCachedCredits(latest.current.owner, balance);
     }
     setState({ identity, owner: latest.current.owner, balance, error: null });
-  }, [enabled, identity]);
+  }, [enabled, identity, wallet]);
 
   return {
     owner,
