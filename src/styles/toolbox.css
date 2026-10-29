@@ -1948,32 +1948,108 @@
   box-shadow: var(--glow-primary);
 }
 
+/* Dynamic Focus Split Workspace: Code (top) <-> Prompt + Sparkle + Expander (bottom) */
+.strudel-split-workspace {
+  flex: 1 1 0;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: clamp(0.14rem, 0.35dvh, 0.32rem);
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.strudel-code-pane {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  transition: flex 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.strudel-prompt-pane {
+  display: flex;
+  align-items: stretch;
+  gap: clamp(0.2rem, 0.45vw, 0.35rem);
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  transition: flex 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.strudel-split-workspace[data-focus="code"] .strudel-code-pane {
+  flex: 2.2 1 0;
+  min-height: 0;
+}
+
+.strudel-split-workspace[data-focus="code"] .strudel-prompt-pane {
+  flex: 1 1 0;
+  min-height: 0;
+  max-height: clamp(2.35rem, 5dvh, 3rem);
+}
+
+.strudel-split-workspace[data-focus="prompt"] .strudel-code-pane {
+  flex: 1 1 0;
+  min-height: 0;
+  max-height: clamp(2.1rem, 4.4dvh, 2.75rem);
+}
+
+.strudel-split-workspace[data-focus="prompt"] .strudel-prompt-pane {
+  flex: 2.2 1 0;
+  min-height: 0;
+  max-height: none;
+}
+
+.strudel-split-workspace[data-modal="true"][data-focus="code"] .strudel-prompt-pane {
+  min-height: clamp(2.5rem, 5.4dvh, 3.3rem);
+  max-height: clamp(2.9rem, 6.4dvh, 3.8rem);
+}
+
+.strudel-split-workspace[data-modal="true"][data-focus="prompt"] .strudel-code-pane {
+  flex: 1 1 0;
+  max-height: clamp(4.2rem, 11dvh, 6.5rem);
+}
+
+.strudel-split-workspace[data-modal="true"][data-focus="prompt"] .strudel-prompt-pane {
+  flex: 2.4 1 0;
+}
+
 .strudel-editor-box {
   flex: 1 1 0;
-  min-height: 120px;
+  min-height: 0;
+  width: 100%;
   display: flex;
   border: 1px solid var(--border);
   border-radius: 4px;
   background: #08090c;
   overflow: hidden;
   font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.strudel-split-workspace[data-focus="code"] .strudel-editor-box {
+  border-color: rgba(166, 226, 46, 0.38);
 }
 
 .strudel-gutter {
-  width: 32px;
+  width: clamp(1.35rem, 2.2vw, 1.75rem);
   flex-shrink: 0;
   background: #050608;
   border-right: 1px solid var(--border);
-  padding: 8px 0;
+  padding: clamp(0.2rem, 0.45dvh, 0.35rem) 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   user-select: none;
+  overflow: hidden;
 }
 
 .strudel-line-num {
-  font-size: 12px;
-  line-height: 20px;
+  font-size: clamp(0.62rem, 0.54rem + 0.15vw, 0.72rem);
+  line-height: 1.35;
   color: #3f3f46;
   font-family: monospace;
 }
@@ -1982,13 +2058,14 @@
   flex: 1 1 0;
   width: 100%;
   height: 100%;
+  min-height: 0;
   background: transparent;
   border: none;
   outline: none;
-  padding: 8px 10px;
+  padding: clamp(0.2rem, 0.45dvh, 0.35rem) clamp(0.35rem, 0.7vw, 0.55rem);
   font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
-  font-size: 12px;
-  line-height: 20px;
+  font-size: clamp(0.68rem, 0.58rem + 0.18vw, 0.76rem);
+  line-height: 1.35;
   color: #a6e22e;
   resize: none;
   overflow: auto;
@@ -1996,9 +2073,100 @@
   box-sizing: border-box;
 }
 
-.strudel-console {
-  height: 72px;
+/* Bottom Prompt Box + Embedded Expander Icon + Sparkle Button */
+.strudel-prompt-box-wrap {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: rgba(6, 8, 13, 0.9);
+  overflow: hidden;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.strudel-prompt-box-wrap[data-expanded="true"] {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 8px rgba(0, 240, 255, 0.1);
+}
+
+.strudel-prompt-textarea {
+  flex: 1 1 0;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  border: none !important;
+  background: transparent !important;
+  outline: none;
+  resize: none;
+  padding: clamp(0.2rem, 0.42dvh, 0.32rem) 1.7rem clamp(0.2rem, 0.42dvh, 0.32rem) clamp(0.38rem, 0.7vw, 0.52rem) !important;
+  font-family: var(--font-family);
+  font-size: clamp(0.68rem, 0.58rem + 0.18vw, 0.75rem) !important;
+  line-height: 1.3;
+  color: var(--text);
+  box-sizing: border-box;
+  overflow-y: auto;
+}
+
+.strudel-prompt-expand-wrap {
+  position: absolute !important;
+  top: 0.18rem;
+  right: 0.18rem;
+  z-index: 4;
+  display: inline-flex !important;
+  width: auto !important;
+  flex: 0 0 auto !important;
+}
+
+.strudel-prompt-expand-btn {
+  width: clamp(1.1rem, 2.1dvh, 1.28rem);
+  height: clamp(1.1rem, 2.1dvh, 1.28rem);
+  padding: 0;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(8, 12, 18, 0.88);
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.strudel-prompt-expand-btn:hover,
+.strudel-prompt-expand-btn.is-active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(0, 240, 255, 0.14);
+}
+
+.strudel-prompt-pane > .daw-tooltip-wrapper {
+  display: flex;
+  align-items: stretch;
   flex-shrink: 0;
+}
+
+.strudel-sparkle-btn {
+  height: 100% !important;
+  min-height: var(--daw-badge-h, clamp(1.32rem, 2.6dvh, 1.52rem));
+  padding: 0 clamp(0.42rem, 0.8vw, 0.6rem) !important;
+  border-color: rgba(0, 240, 255, 0.42) !important;
+  background: rgba(0, 240, 255, 0.12) !important;
+  color: var(--accent) !important;
+}
+
+.strudel-sparkle-btn:hover:not(:disabled) {
+  background: var(--accent) !important;
+  color: #000 !important;
+  box-shadow: 0 0 10px rgba(0, 240, 255, 0.32);
+}
+
+.strudel-console {
+  flex: 0 0 clamp(3.4rem, 9dvh, 4.6rem);
+  min-height: 0;
   border: 1px solid var(--border);
   border-radius: 4px;
   background: #050608;
@@ -2012,29 +2180,25 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 3px 8px;
+  padding: 0.15rem 0.45rem;
   background: #0a0b0f;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  font-size: var(--daw-badge-font, clamp(0.75rem, 0.56rem + 0.2vw, 0.7rem));
+  font-size: var(--daw-badge-font, clamp(0.66rem, 0.56rem + 0.2vw, 0.7rem));
   font-weight: 700;
   color: var(--text-muted);
-}
-
-.strudel-console-shortcut {
-  color: #52525b;
 }
 
 .strudel-console-body {
   flex: 1 1 0;
   overflow-y: auto;
-  padding: 4px 8px;
+  padding: 0.2rem 0.45rem;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 0.1rem;
 }
 
 .strudel-log-line {
-  font-size: 12px;
+  font-size: clamp(0.66rem, 0.56rem + 0.15vw, 0.74rem);
   color: #a1a1aa;
 }
 
@@ -2237,8 +2401,7 @@
 }
 
 .pianoroll-empty-desc,
-.sequencer-empty-desc,
-.strudel-empty-desc {
+.sequencer-empty-desc {
   flex: 1 1 0;
   min-width: 0;
   max-width: none;
@@ -2258,8 +2421,7 @@
   white-space: nowrap;
 }
 
-.daw-instrument-modal-body .sequencer-toolbar,
-.daw-instrument-modal-body .strudel-toolbar {
+.daw-instrument-modal-body .sequencer-toolbar {
   flex-wrap: wrap;
   overflow-x: visible;
   overflow-y: visible;
@@ -2578,14 +2740,14 @@
 
 /* Bottom Dock: [MRU - PREVIEW] | [TOOL ICON] | [TOOL ICON] | [TOOL ICON] | [+N] */
 .toolbox-bottom-dock {
-  flex: 0 0 38px;
-  height: 38px;
-  min-height: 38px;
+  flex: 0 0 clamp(1.65rem, 4.2dvh, 2.38rem);
+  height: clamp(1.65rem, 4.2dvh, 2.38rem);
+  min-height: 0;
   width: 100%;
   display: flex;
   align-items: stretch;
   gap: 5px;
-  padding: 4px 6px;
+  padding: clamp(0.12rem, 0.35dvh, 0.25rem) 6px;
   background: rgba(6, 8, 13, 0.94);
   border-top: 1px solid rgba(255, 255, 255, 0.1);
   box-sizing: border-box;
@@ -3456,5 +3618,42 @@
 
   .studio-selected-header .studio-param-trigger-btn svg {
     display: none;
+  }
+
+  .strudel-macro-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .strudel-action-btn .daw-btn-label {
+    display: none;
+  }
+}
+
+@media (max-height: 640px) {
+  .strudel-toolbar {
+    padding: 0.08rem 0.28rem;
+  }
+
+  .strudel-gutter,
+  .strudel-textarea {
+    padding-top: 0.08rem;
+    padding-bottom: 0.08rem;
+    line-height: 1.15;
+  }
+
+  .strudel-prompt-textarea {
+    padding-top: 0.08rem !important;
+    padding-bottom: 0.08rem !important;
+    line-height: 1.15;
+  }
+
+  .strudel-prompt-expand-wrap {
+    top: 0.08rem;
+    right: 0.12rem;
+  }
+
+  .strudel-prompt-expand-btn {
+    width: clamp(0.88rem, 2dvh, 1.12rem);
+    height: clamp(0.88rem, 2dvh, 1.12rem);
   }
 }
