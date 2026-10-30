@@ -15,10 +15,14 @@ export interface SelectProps {
   value: string;
   onValueChange: (value: string) => void;
   children: React.ReactNode;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
-export function Select({ value, onValueChange, children }: SelectProps) {
-  const [open, setOpen] = useState(false);
+export function Select({ value, onValueChange, children, open: controlledOpen, onOpenChange }: SelectProps) {
+  const [localOpen, setLocalOpen] = useState(false);
+  const open = controlledOpen ?? localOpen;
+  const setOpen = (next: boolean) => { setLocalOpen(next); onOpenChange?.(next); };
   const containerRef = useRef<HTMLDivElement>(null);
 
   useDismiss(open, () => setOpen(false), containerRef);
@@ -32,20 +36,18 @@ export function Select({ value, onValueChange, children }: SelectProps) {
   );
 }
 
-export interface SelectTriggerProps {
-  className?: string;
-  children: React.ReactNode;
-  "aria-label"?: string;
-}
+export interface SelectTriggerProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {}
 
-export function SelectTrigger({ className, children, "aria-label": ariaLabel }: SelectTriggerProps) {
+export function SelectTrigger({ className, children, ...props }: SelectTriggerProps) {
   const ctx = useContext(SelectContext);
   if (!ctx) throw new Error("SelectTrigger must be used within Select");
 
   return (
     <button
       type="button"
-      aria-label={ariaLabel}
+      {...props}
+      aria-expanded={ctx.open}
+      aria-haspopup="listbox"
       onClick={() => ctx.setOpen(!ctx.open)}
       className={cn(
         "select-trigger",
@@ -57,19 +59,16 @@ export function SelectTrigger({ className, children, "aria-label": ariaLabel }: 
   );
 }
 
-export interface SelectContentProps {
-  className?: string;
-  children: React.ReactNode;
-}
+export interface SelectContentProps extends React.HTMLAttributes<HTMLDivElement> {}
 
-export function SelectContent({ className, children }: SelectContentProps) {
+export function SelectContent({ className, children, ...props }: SelectContentProps) {
   const ctx = useContext(SelectContext);
   if (!ctx) throw new Error("SelectContent must be used within Select");
 
   if (!ctx.open) return null;
 
   return (
-    <div className={cn("select-content", className)}>
+    <div {...props} role="listbox" className={cn("select-content", className)}>
       {children}
     </div>
   );
@@ -89,8 +88,12 @@ export function SelectItem({ value, className, children }: SelectItemProps) {
 
   return (
     <div
-      role="button"
+      role="option"
+      aria-selected={isSelected}
       tabIndex={0}
+      onKeyDown={event => {
+        if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); ctx.onValueChange(value); ctx.setOpen(false); }
+      }}
       onClick={() => {
         ctx.onValueChange(value);
         ctx.setOpen(false);
