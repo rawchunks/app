@@ -315,3 +315,30 @@
     font-size: 12px;
   }
 }
+
+.guide-spotlight-ring {
+  position: fixed;
+  z-index: var(--z-guide-ring);
+  pointer-events: none;
+  border: 1.5px solid var(--guide-ring);
+  border-radius: 8px;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--guide-ring) 15%, transparent);
+}
+.guide-card { overflow: auto; transition: none; }
+.guide-card-header, .guide-flow-label { display: flex; align-items: center; gap: 7px; }
+.guide-card-header { justify-content: space-between; margin-bottom: 8px; }
+.guide-flow-label { color: var(--guide-text-muted); font-size: 11px; }
+.guide-control-group { display: inline-flex; gap: 4px; }
+[data-guide-overlay-host] { pointer-events: none; }
+.account-sheet-guides { flex-wrap: wrap; }
+/* Let inline tool controls scroll into view during short-screen walkthroughs. */
+@media (max-width: 960px) and (max-height: 500px) {
+  body:has(.guide-card:is([data-guide-step^="X"], [data-guide-step^="Q"], [data-guide-step^="T"], [data-guide-step="H3"], [data-guide-step="E5"])) .editor-board-wrapper {
+    overflow-y: auto;
+  }
+
+  body:has(.guide-card:is([data-guide-step^="X"], [data-guide-step^="Q"], [data-guide-step^="T"], [data-guide-step="H3"], [data-guide-step="E5"])) .editor-board-wrapper > .board-container {
+    flex: 0 0 auto;
+    min-height: 480px;
+  }
+}
