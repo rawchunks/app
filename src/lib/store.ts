@@ -66,20 +66,52 @@ class Store {
 
   constructor() {
     let initialSong: Song | null = null;
-    let initialPlayhead = 0;
     let initialDuration = 0;
+    let initialRepeat: RepeatMode = 'all';
+    let initialShuffle = false;
+    let initialQueue: Song[] = [];
+    let initialQueueIndex = -1;
+
     if (typeof window !== 'undefined') {
       try {
-        const raw = localStorage.getItem('rawchunks:playback');
+        const raw = localStorage.getItem(STORAGE_KEYS.playback);
         if (raw) {
           const parsed = JSON.parse(raw);
           if (parsed?.song && typeof parsed.song.id === 'string') {
             initialSong = parsed.song as Song;
-            initialPlayhead = typeof parsed.playhead === 'number' && parsed.playhead >= 0 ? parsed.playhead : 0;
             initialDuration = typeof parsed.duration === 'number' && parsed.duration > 0 ? parsed.duration : (initialSong.duration || 0);
           }
         }
-      } catch { }
+        const savedRepeat = localStorage.getItem(STORAGE_KEYS.repeat);
+        if (savedRepeat === 'off' || savedRepeat === 'all' || savedRepeat === 'one') {
+          initialRepeat = savedRepeat;
+        }
+        const savedShuffle = localStorage.getItem(STORAGE_KEYS.shuffle);
+        if (savedShuffle !== null) {
+          initialShuffle = savedShuffle === 'true';
+        }
+        const savedQueue = localStorage.getItem(STORAGE_KEYS.queue);
+        if (savedQueue) {
+          const parsedQueue = JSON.parse(savedQueue);
+          if (Array.isArray(parsedQueue)) {
+            initialQueue = parsedQueue.filter((item): item is Song => Boolean(item && typeof item.id === 'string'));
+          }
+        }
+      } catch {}
+    }
+
+    if (initialSong && initialQueue.length === 0) {
+      initialQueue = [initialSong];
+      initialQueueIndex = 0;
+    } else if (initialSong) {
+      const foundIdx = initialQueue.findIndex((s) => s.id === initialSong!.id);
+      if (foundIdx >= 0) {
+        initialQueue = initialQueue.slice(foundIdx);
+        initialQueueIndex = 0;
+      } else {
+        initialQueue = [initialSong, ...initialQueue];
+        initialQueueIndex = 0;
+      }
     }
 
     this.state = {
@@ -88,13 +120,19 @@ class Store {
       activeSong: initialSong,
       editingSong: null,
       isPlaying: false,
-      playhead: initialPlayhead,
+      playhead: 0,
       duration: initialDuration,
       selection: null,
       isGenerating: false,
       userAddress: '',
       evmAddress: null,
       svmAddress: null,
+      queue: initialQueue,
+      queueIndex: initialQueueIndex,
+      repeatMode: initialRepeat,
+      shuffle: initialShuffle,
+      activePlaylistId: null,
+      activeContextId: null,
     };
 
     bus.registerPlayer(() => {
@@ -115,6 +153,7 @@ class Store {
       const songChanged = this.state.activeSong?.id !== song?.id;
       if (songChanged) {
         this.authorizedSongId = null;
+        this.userSeekedWhilePaused = false;
         audio.reset();
       }
       this.state = {
@@ -136,15 +175,44 @@ class Store {
     });
 
     audio.setOnTimeUpdate((time) => {
+      if (!this.state.isPlaying) return;
       this.state = { ...this.state, playhead: time };
       this.notify();
       const now = Date.now();
-      if (this.state.isPlaying && this.state.activeSong && now - this.lastBroadcastAt >= 1000) {
+      if (this.state.activeSong && now - this.lastBroadcastAt >= 1000) {
         this.lastBroadcastAt = now;
         bus.broadcastPlayback(this.state.activeSong, time, this.state.duration, true);
       }
 
-      if (this.state.isPlaying && !this.isExemptCreator) {
+      if (this.state.activeSong) {
+        if (time >= 0.8) {
+          this.preloadUpcomingTrack();
+        }
+
+        if (time >= 3.5 && this.playCountedSongId !== this.state.activeSong.id) {
+          this.playCountedSongId = this.state.activeSong.id;
+          void this.recordSongPlay(this.state.activeSong.id);
+        }
+
+        const dur = this.state.duration || this.state.activeSong.duration || 0;
+        if (dur >= 4 && time > 0) {
+          const remaining = dur - time;
+          if (
+            remaining <= 0.14 &&
+            remaining > 0.02 &&
+            this.autoCrossfadedSongId !== this.state.activeSong.id
+          ) {
+            const nextCandidate = this.peekNextSong();
+            if (nextCandidate) {
+              this.autoCrossfadedSongId = this.state.activeSong.id;
+              this.pendingAutoAdvanceOverlap = true;
+              void this.playNextTrack(true);
+            }
+          }
+        }
+      }
+
+      if (!this.isExemptCreator) {
         if (this.lastPlayhead > 0 && time > this.lastPlayhead && (time - this.lastPlayhead) < 5) {
           this.accumulatedListenedSeconds += (time - this.lastPlayhead);
         }
@@ -186,8 +254,14 @@ class Store {
       this.accumulatedListenedSeconds = 0;
       this.lastReportedSeconds = 0;
       this.lastPlayhead = 0;
-      this.state = { ...this.state, isPlaying: false, playhead: 0 };
-      this.notify();
+
+      // Advance continuously through the queue
+      void this.playNextTrack(true).then((advanced) => {
+        if (!advanced) {
+          this.state = { ...this.state, isPlaying: false, playhead: 0 };
+          this.notify();
+        }
+      });
     });
   }
 
