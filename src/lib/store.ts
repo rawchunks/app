@@ -5,6 +5,8 @@ import { sdk, hasStreamBudget, hasPromoCreditsOnly } from './sdk';
 import { toast } from 'sonner';
 import { openGate, type GateOptions } from './gate';
 
+export type RepeatMode = 'off' | 'all' | 'one';
+
 export interface State {
   songs: Song[];
   tracks: Track[];
@@ -18,9 +20,22 @@ export interface State {
   userAddress: string;
   evmAddress?: string | null;
   svmAddress?: string | null;
+  queue: Song[];
+  queueIndex: number;
+  repeatMode: RepeatMode;
+  shuffle: boolean;
+  activePlaylistId: string | null;
+  activeContextId: string | null;
 }
 
 type Listener = (state: State) => void;
+
+const STORAGE_KEYS = {
+  playback: 'rawchunks:playback',
+  repeat: 'rawchunks:repeatMode',
+  shuffle: 'rawchunks:shuffle',
+  queue: 'rawchunks:queue',
+};
 
 class Store {
   private state: State;
@@ -34,6 +49,20 @@ class Store {
   private lastReportedSeconds: number = 0;
   private lastPlayhead: number = 0;
   private lastBroadcastAt: number = 0;
+  private pendingAutoAdvanceOverlap: boolean = false;
+  private userSeekedWhilePaused: boolean = false;
+  private autoCrossfadedSongId: string | null = null;
+  private preloadedNextSongId: string | null = null;
+  private playCountedSongId: string | null = null;
+  private playedHistory: Song[] = [];
+
+  private pushPlayedHistory(song: Song | null | undefined) {
+    if (!song || !song.id) return;
+    this.playedHistory = [
+      song,
+      ...this.playedHistory.filter((s) => s.id !== song.id),
+    ].slice(0, 50);
+  }
 
   constructor() {
     let initialSong: Song | null = null;
@@ -160,6 +189,13 @@ class Store {
       this.state = { ...this.state, isPlaying: false, playhead: 0 };
       this.notify();
     });
+  }
+
+  private persistQueue(queue: Song[]) {
+    if (typeof window === 'undefined') return;
+    try {
+      localStorage.setItem(STORAGE_KEYS.queue, JSON.stringify(queue.slice(0, 100)));
+    } catch {}
   }
 
   private async reportStreamCheckpoint(isTerminal = false) {
@@ -295,6 +331,150 @@ class Store {
     };
     this.notify();
     bus.broadcastPlayback(song, 0, dur, false);
+  }
+
+  public setQueue(
+    songs: Song[],
+    startIndex = 0,
+    playlistId: string | null = null,
+    contextId?: string | null
+  ) {
+    const clean = songs.filter((s): s is Song => Boolean(s && s.id));
+    const clampedIdx = clean.length > 0 ? Math.min(Math.max(startIndex, 0), clean.length - 1) : -1;
+    this.state = {
+      ...this.state,
+      queue: clean,
+      queueIndex: clampedIdx,
+      activePlaylistId: playlistId,
+      activeContextId: contextId !== undefined ? contextId : this.state.activeContextId,
+    };
+    this.persistQueue(clean);
+    this.notify();
+  }
+
+  public addToQueue(song: Song) {
+    const exists = this.state.queue.some((s) => s.id === song.id);
+    const nextQueue = exists ? [...this.state.queue] : [...this.state.queue, song];
+    const nextIndex = this.state.queueIndex >= 0 ? this.state.queueIndex : 0;
+    this.state = {
+      ...this.state,
+      queue: nextQueue,
+      queueIndex: nextIndex,
+    };
+    this.persistQueue(nextQueue);
+    this.notify();
+    toast.success(exists ? `"${song.title}" is already in queue` : `Added "${song.title}" to queue`);
+  }
+
+  public removeFromQueue(index: number) {
+    if (index < 0 || index >= this.state.queue.length) return;
+    const removed = this.state.queue[index];
+    const nextQueue = this.state.queue.filter((_, idx) => idx !== index);
+    let nextIndex = this.state.queueIndex;
+
+    if (index < nextIndex) {
+      nextIndex--;
+    } else if (index === nextIndex) {
+      if (nextQueue.length === 0) {
+        this.setActiveSong(null);
+        this.state = { ...this.state, queue: [], queueIndex: -1 };
+        this.persistQueue([]);
+        this.notify();
+        return;
+      }
+      nextIndex = Math.min(nextIndex, nextQueue.length - 1);
+      const replacement = nextQueue[nextIndex];
+      const wasPlaying = this.state.isPlaying;
+      this.state = { ...this.state, queue: nextQueue, queueIndex: nextIndex };
+      this.persistQueue(nextQueue);
+      this.setActiveSong(replacement, undefined, undefined, undefined, true);
+      if (wasPlaying) {
+        void this.setPlaying(true);
+      }
+      return;
+    }
+
+    this.state = {
+      ...this.state,
+      queue: nextQueue,
+      queueIndex: nextQueue.length === 0 ? -1 : nextIndex,
+      activeSong: removed?.id === this.state.activeSong?.id && nextQueue.length === 0 ? null : this.state.activeSong,
+    };
+    this.persistQueue(nextQueue);
+    this.notify();
+  }
+
+  public moveQueueItem(fromIndex: number, toIndex: number) {
+    const q = [...this.state.queue];
+    if (fromIndex < 0 || fromIndex >= q.length || toIndex < 0 || toIndex >= q.length || fromIndex === toIndex) {
+      return;
+    }
+    const activeAtTop = Boolean(this.state.activeSong && q[0]?.id === this.state.activeSong.id);
+    if (activeAtTop && fromIndex === 0) {
+      return;
+    }
+    const targetToIndex = activeAtTop && toIndex === 0 ? 1 : toIndex;
+    if (fromIndex === targetToIndex) return;
+    const activeId = this.state.activeSong?.id;
+    const [moved] = q.splice(fromIndex, 1);
+    q.splice(targetToIndex, 0, moved);
+    const nextIndex = activeId ? q.findIndex((s) => s.id === activeId) : this.state.queueIndex;
+    this.state = {
+      ...this.state,
+      queue: q,
+      queueIndex: nextIndex,
+    };
+    this.persistQueue(q);
+    this.notify();
+  }
+
+  public clearQueue() {
+    const active = this.state.activeSong;
+    const nextQueue = active ? [active] : [];
+    const nextIndex = active ? 0 : -1;
+    this.state = {
+      ...this.state,
+      queue: nextQueue,
+      queueIndex: nextIndex,
+      activePlaylistId: null,
+    };
+    this.persistQueue(nextQueue);
+    this.notify();
+  }
+
+  public setRepeatMode(mode: RepeatMode) {
+    this.state = { ...this.state, repeatMode: mode };
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem(STORAGE_KEYS.repeat, mode);
+      } catch {}
+    }
+    this.notify();
+  }
+
+  public toggleRepeatMode() {
+    const order: RepeatMode[] = ['off', 'all', 'one'];
+    const next = order[(order.indexOf(this.state.repeatMode) + 1) % order.length];
+    this.setRepeatMode(next);
+  }
+
+  public setShuffle(shuffle: boolean) {
+    this.state = { ...this.state, shuffle };
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem(STORAGE_KEYS.shuffle, String(shuffle));
+      } catch {}
+    }
+    this.notify();
+  }
+
+  public toggleShuffle() {
+    this.setShuffle(!this.state.shuffle);
+  }
+
+  public setActivePlaylistId(id: string | null) {
+    this.state = { ...this.state, activePlaylistId: id };
+    this.notify();
   }
 
   public clearUserWorkspace(broadcast = false) {
