@@ -3,7 +3,7 @@ import { Tooltip } from './daw/Tooltip';
 
 export function Versions({ songs, selected, onSelect }: { songs: Song[]; selected: string; onSelect: (song: Song) => void }) {
   if (songs.length < 2) return null;
-  return <div className="board-category-badges-list" aria-label="Song versions">
+  return <div data-guide="card.version-menu" className="board-category-badges-list" aria-label="Song versions">
     {songs.map(song => (
       <Tooltip key={song.id} title={`VERSION #${song.version ?? 1}`} description="Switch to this song version" position="top">
         <button type="button"

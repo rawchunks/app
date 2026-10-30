@@ -345,23 +345,31 @@ const PublicSongPricingBox: React.FC<{ song: Song }> = ({ song }) => {
   return (
     <div className="market-pricing-box">
       <div className="market-price-item">
-        <span className="market-price-label">STREAM</span>
+        <Tooltip title="Stream">
+          <span className="market-price-label" aria-label="Stream">
+            <Headphones size={12} />
+          </span>
+        </Tooltip>
         <span className="market-price-val market-price-val-stream">
           ${song.stream_price.toFixed(2)}
           <span className="market-price-unit">/m</span>
         </span>
       </div>
       <div className="market-price-item">
-        <span className="market-price-label">LICENSES</span>
+        <Tooltip title="Licenses">
+          <span className="market-price-label" aria-label="Licenses">
+            <Tag size={12} />
+          </span>
+        </Tooltip>
         <div className="mypage-license-stats-row">
           <Tooltip title="Licenses Sold" description={`${soldCount} licenses sold`}>
             <span className="mypage-stat-badge sold">
-              <Tag size={9} /> {soldCount}
+              <Tag size={11} /> {soldCount}
             </span>
           </Tooltip>
           <Tooltip title="Licenses Remaining" description={`${remaining} licenses remaining`}>
             <span className="mypage-stat-badge left">
-              <Tag size={9} /> {remaining}
+              <Tag size={11} /> {remaining}
             </span>
           </Tooltip>
         </div>
@@ -408,6 +416,8 @@ export const Card: React.FC<CardProps> = ({
   onSelectVersion,
   selectedGenres,
   onSelectGenre,
+  onSelectCreator,
+  onAddToPlaylist,
   isMenuOpen = false,
   onToggleMenu,
   onEditDetails,
@@ -418,13 +428,48 @@ export const Card: React.FC<CardProps> = ({
   publicPending = false,
   isRemixLicensed = false,
 }) => {
+  const [marketMenuOpen, setMarketMenuOpen] = useState(false);
+  const marketMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!marketMenuOpen) return;
+    const handleOutside = (e: MouseEvent) => {
+      if (marketMenuRef.current && !marketMenuRef.current.contains(e.target as Node)) {
+        setMarketMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutside);
+    return () => document.removeEventListener('mousedown', handleOutside);
+  }, [marketMenuOpen]);
+
+  useGuideOwner({
+    id: 'card',
+    scope: `${variant}:${song.id}`,
+    handles: (step) => ['K5', 'K7', 'M4'].includes(step.id),
+    prepare: ({ step, bind }) => {
+      const id = bind('song', song.id);
+      if (id !== song.id) return;
+      if (step.id === 'K5' && (!versions || versions.length < 2))
+        return {
+          target: 'card.version-status',
+          entity: song.id,
+          description: 'This track has one version.',
+        };
+      return { entity: song.id, focus: step.id === 'K5' ? '[aria-pressed="true"]' : undefined };
+    },
+  });
+
   const tags = normalizeTags(song.tags);
-  const maxVisibleTags = isRemixLicensed ? 1 : 2;
+  const maxVisibleTags = isRemixLicensed || albumTitle ? 1 : 2;
   const visibleTags = tags.slice(0, maxVisibleTags);
   const overflowCount = Math.max(0, tags.length - maxVisibleTags);
 
   return (
-    <div className={`market-card ${isPlayingThis ? 'playing' : ''}`}>
+    <div
+      data-guide-entity={song.id}
+      ref={marketMenuRef}
+      className={`market-card ${isPlayingThis ? 'playing' : ''}`}
+    >
       {/* 1. Artwork Media Container */}
       <CoverArt
         image={song.image}
@@ -439,6 +484,7 @@ export const Card: React.FC<CardProps> = ({
         txHash={song.tx_hash}
         txUrl={song.tx_url}
         duration={song.duration}
+        plays={song.plays}
         topRightActions={
           variant === 'mypage' && !isRemixLicensed && onToggleMenu ? (
             <div className="mypage-menu-wrap">
@@ -457,21 +503,37 @@ export const Card: React.FC<CardProps> = ({
                 </button>
               </Tooltip>
             </div>
+          ) : variant === 'market' ? (
+            <div className="mypage-menu-wrap">
+              <Tooltip title="Queue & Actions" description="Play next, add to queue, or save to playlist">
+                <button
+                  type="button"
+                  className="mypage-card-more-btn"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setMarketMenuOpen((prev) => !prev);
+                  }}
+                  aria-label="Song actions"
+                >
+                  <MoreHorizontal size={13} />
+                </button>
+              </Tooltip>
+            </div>
           ) : null
         }
       />
 
-      {/* Card-level Dropdown Menu (avoids overflow clipping on artwork) */}
+      {/* My-Page Private/Studio Card Menu */}
       {variant === 'mypage' && !isRemixLicensed && isMenuOpen && (
         <div className="mypage-menu-dropdown" onClick={(e) => e.stopPropagation()}>
           {!song.public && !song.tx_hash && !song.metadata_cid && onEditDetails && (
             <button
               type="button"
               className="mypage-menu-item mypage-item-details"
-              data-guide="mypage-card-details"
+              data-guide="card.details-item"
               onClick={() => onEditDetails(song)}
             >
-              <Sliders size={11} />
+              <Sliders size={12} />
               <span>SONG DETAILS</span>
             </button>
           )}
@@ -479,10 +541,10 @@ export const Card: React.FC<CardProps> = ({
             <button
               type="button"
               className="mypage-menu-item mypage-item-edit"
-              data-guide="mypage-card-editor"
+              data-guide="card.editor-item"
               onClick={() => onEditInStudio(song)}
             >
-              <Pencil size={11} />
+              <Pencil size={12} />
               <span>AUDIO EDITOR</span>
             </button>
           )}
@@ -492,7 +554,7 @@ export const Card: React.FC<CardProps> = ({
               className="mypage-menu-item mypage-item-download"
               onClick={() => onDownload(song)}
             >
-              <Download size={11} />
+              <Download size={12} />
               <span>DOWNLOAD</span>
             </button>
           )}
@@ -502,45 +564,84 @@ export const Card: React.FC<CardProps> = ({
               className="mypage-menu-item mypage-item-delete"
               onClick={() => onDelete(song.id)}
             >
-              <Trash2 size={11} />
+              <Trash2 size={12} />
               <span>DELETE</span>
             </button>
           )}
         </div>
       )}
 
-      {/* 2. Structured Information Body */}
+      {/* Market Streaming & Curation Menu (Implied Discovery - Market Only) */}
+      {variant === 'market' && marketMenuOpen && (
+        <div className="mypage-menu-dropdown market-discovery-dropdown" onClick={(e) => e.stopPropagation()}>
+          <button
+            type="button"
+            className="mypage-menu-item"
+            onClick={() => {
+              store.addToQueue(song);
+              setMarketMenuOpen(false);
+            }}
+          >
+            <ListPlus size={12} />
+            <span>QUEUE</span>
+          </button>
+          {onAddToPlaylist && (
+            <button
+              type="button"
+              className="mypage-menu-item"
+              onClick={() => {
+                setMarketMenuOpen(false);
+                onAddToPlaylist(song);
+              }}
+            >
+              <FolderPlus size={12} />
+              <span>PLAYLIST</span>
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* 2. Structured Proportional Information Body */}
       <div className="market-card-body">
-        {/* Row 1: Title */}
-        <Tooltip title={song.title} description="Track title" className="mypage-card-title-tooltip">
-          <div className="market-card-row-title">{song.title}</div>
-        </Tooltip>
-
-        {/* Row 2: Album (uniform height reserved) */}
-        {albumTitle ? (
-          <Tooltip title={`Album: ${albumTitle}`}>
-            <div className="market-card-row-album">
-              <Disc3 size={10} className="market-album-icon" />
-              <span className="market-album-text">{albumTitle}</span>
-            </div>
+        {/* Zone 1: Title + Creator / Album Identity */}
+        <div className="market-card-identity">
+          <Tooltip title={song.title} className="mypage-card-title-tooltip">
+            <div className="market-card-row-title">{song.title}</div>
           </Tooltip>
-        ) : (
-          <div className="market-card-row-album empty" aria-hidden="true">
-            <span>&nbsp;</span>
-          </div>
-        )}
 
-        {/* Row 3: Creator (shown on Market) */}
-        {variant === 'market' && <CreatorSlot address={song.creator} network={song.network} />}
+          {variant === 'market' ? (
+            <CreatorSlot
+              address={song.creator}
+              network={song.network}
+              onSelectCreator={onSelectCreator}
+            />
+          ) : albumTitle ? (
+            <Tooltip title={`Album: ${albumTitle}`}>
+              <div className="market-card-row-album">
+                <Disc3 size={12} className="market-album-icon" />
+                <span className="market-album-text">{albumTitle}</span>
+              </div>
+            </Tooltip>
+          ) : null}
+        </div>
 
-        {/* Row 4: Proportional Styles / Genres Tags */}
+        {/* Zone 2: Proportional Album & Genre Tags Row */}
         <div
-          className={`market-card-row-tags ${tags.length === 0 && !isRemixLicensed ? 'empty' : ''}`}
+          className={`market-card-row-tags ${tags.length === 0 && !isRemixLicensed && !(variant === 'market' && albumTitle) ? 'empty' : ''
+            }`}
         >
           {isRemixLicensed && (
             <Badge variant="warning" className="mypage-remix-badge">
               REMIX
             </Badge>
+          )}
+          {variant === 'market' && albumTitle && (
+            <Tooltip title={`Album: ${albumTitle}`}>
+              <Badge variant="secondary" className="card-album-tag">
+                <Disc3 size={11} />
+                <span>{albumTitle}</span>
+              </Badge>
+            </Tooltip>
           )}
           {visibleTags.length > 0 ? (
             <>
@@ -577,23 +678,31 @@ export const Card: React.FC<CardProps> = ({
                 </Tooltip>
               )}
             </>
-          ) : !isRemixLicensed ? (
+          ) : !isRemixLicensed && !(variant === 'market' && albumTitle) ? (
             <span aria-hidden="true">&nbsp;</span>
           ) : null}
         </div>
 
-        {/* Row 5: Pricing Box */}
+        {/* Zone 3: Proportional Pricing Strip */}
         {variant === 'mypage' && isRemixLicensed ? (
           <div className="market-pricing-box">
             <div className="market-price-item">
-              <span className="market-price-label">STREAM</span>
+              <Tooltip title="Stream">
+                <span className="market-price-label" aria-label="Stream">
+                  <Headphones size={12} />
+                </span>
+              </Tooltip>
               <span className="market-price-val market-price-val-stream">
                 ${song.stream_price.toFixed(2)}
                 <span className="market-price-unit">/m</span>
               </span>
             </div>
             <div className="market-price-item">
-              <span className="market-price-label">STATUS</span>
+              <Tooltip title="License">
+                <span className="market-price-label" aria-label="License">
+                  <Tag size={12} />
+                </span>
+              </Tooltip>
               <span className="market-price-val market-price-val-license">LICENSED</span>
             </div>
           </div>
@@ -602,14 +711,22 @@ export const Card: React.FC<CardProps> = ({
         ) : (
           <div className="market-pricing-box">
             <div className="market-price-item">
-              <span className="market-price-label">STREAM</span>
+              <Tooltip title="Stream">
+                <span className="market-price-label" aria-label="Stream">
+                  <Headphones size={12} />
+                </span>
+              </Tooltip>
               <span className="market-price-val market-price-val-stream">
                 ${song.stream_price.toFixed(2)}
                 <span className="market-price-unit">/m</span>
               </span>
             </div>
             <div className="market-price-item">
-              <span className="market-price-label">LICENSE</span>
+              <Tooltip title="License">
+                <span className="market-price-label" aria-label="License">
+                  <Tag size={12} />
+                </span>
+              </Tooltip>
               <span className="market-price-val market-price-val-license">
                 {song.source ? (
                   <span className="market-price-remix">REMIX</span>
@@ -621,7 +738,7 @@ export const Card: React.FC<CardProps> = ({
           </div>
         )}
 
-        {/* Row 6: Actions Toolbar (Icon + Tooltip) */}
+        {/* Zone 4: Actions Toolbar */}
         <div className="market-card-actions" data-guide={variant === 'market' ? 'market-card-license' : undefined}>
           <Tooltip
             title={isPlayingThis ? 'Pause' : 'Stream'}
@@ -634,11 +751,12 @@ export const Card: React.FC<CardProps> = ({
             <Button
               variant={isPlayingThis ? 'primary' : 'ghost'}
               size="sm"
+              data-guide="card.stream"
               onClick={onPlayToggle}
               aria-label={isPlayingThis ? 'Pause' : 'Stream'}
               className="market-btn-icon"
             >
-              {isPlayingThis ? <Pause size={13} /> : <Play size={13} />}
+              {isPlayingThis ? <Pause size={12} /> : <Play size={12} />}
             </Button>
           </Tooltip>
 
