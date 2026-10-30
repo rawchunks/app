@@ -262,15 +262,38 @@ class Store {
   }
 
   public setSongs(songs: Song[]) {
+    // If queue has not been seeded yet, seed with public songs so continuous play works out of the box
+    let nextQueue = this.state.queue;
+    let nextQueueIndex = this.state.queueIndex;
+    if (nextQueue.length <= 1 && songs.length > 1) {
+      const publicPool = songs.filter((s) => s.public);
+      if (publicPool.length > 0) {
+        nextQueue = publicPool;
+        if (this.state.activeSong) {
+          const idx = nextQueue.findIndex((s) => s.id === this.state.activeSong!.id);
+          if (idx >= 0) {
+            nextQueue = [...nextQueue.slice(idx), ...nextQueue.slice(0, idx)];
+            nextQueueIndex = 0;
+          } else {
+            nextQueue = [this.state.activeSong, ...nextQueue];
+            nextQueueIndex = 0;
+          }
+        }
+      }
+    }
+
     this.state = {
       ...this.state,
       songs,
+      queue: nextQueue,
+      queueIndex: nextQueueIndex,
     };
     this.notify();
   }
 
   public addSong(song: Song) {
     const dur = typeof song.duration === 'number' && song.duration > 0 ? song.duration : 0;
+    const nextQueue = [song, ...this.state.queue.filter((s) => s.id !== song.id)];
     this.state = {
       ...this.state,
       songs: [song, ...this.state.songs],
@@ -278,7 +301,10 @@ class Store {
       duration: dur,
       playhead: 0,
       isPlaying: false,
+      queue: nextQueue,
+      queueIndex: 0,
     };
+    this.persistQueue(nextQueue);
     this.notify();
   }
 
@@ -286,7 +312,8 @@ class Store {
     this.state = {
       ...this.state,
       songs: this.state.songs.map((s) => (s.id === id ? { ...s, ...updates } : s)),
-      tracks: this.state.tracks.map(track => track.song.id === id ? { ...track, song: { ...track.song, ...updates } } : track),
+      tracks: this.state.tracks.map((track) => (track.song.id === id ? { ...track, song: { ...track.song, ...updates } } : track)),
+      queue: this.state.queue.map((s) => (s.id === id ? { ...s, ...updates } : s)),
       activeSong: this.state.activeSong?.id === id ? { ...this.state.activeSong, ...updates } : this.state.activeSong,
       editingSong: this.state.editingSong?.id === id ? { ...this.state.editingSong, ...updates } : this.state.editingSong,
     };
@@ -294,12 +321,19 @@ class Store {
   }
 
   public deleteSong(id: string) {
+    const nextQueue = this.state.queue.filter((s) => s.id !== id);
+    const activeRemoved = this.state.activeSong?.id === id;
+    const nextActive = activeRemoved ? null : this.state.activeSong;
+    const nextQueueIndex = nextActive ? nextQueue.findIndex((s) => s.id === nextActive.id) : -1;
     this.state = {
       ...this.state,
       songs: this.state.songs.filter((s) => s.id !== id),
-      activeSong: this.state.activeSong?.id === id ? null : this.state.activeSong,
+      queue: nextQueue,
+      queueIndex: nextQueueIndex,
+      activeSong: nextActive,
       editingSong: this.state.editingSong?.id === id ? null : this.state.editingSong,
     };
+    this.persistQueue(nextQueue);
     this.notify();
   }
 
@@ -309,28 +343,186 @@ class Store {
     this.updateSong(id, { public: !song.public });
   }
 
-  public setActiveSong(song: Song | null) {
-    if (this.currentPaymentIntentId && this.accumulatedListenedSeconds > this.lastReportedSeconds) {
+  public setActiveSong(
+    song: Song | null,
+    contextSongs?: Song[],
+    playlistId?: string | null,
+    contextId?: string | null,
+    forceRestart = false
+  ) {
+    const isSameSong = Boolean(song && this.state.activeSong?.id === song.id);
+    if (!isSameSong && this.state.activeSong) {
+      this.pushPlayedHistory(this.state.activeSong);
+    }
+    if (!isSameSong && this.currentPaymentIntentId && this.accumulatedListenedSeconds > this.lastReportedSeconds) {
       void this.reportStreamCheckpoint(true);
     }
+
     this.playRequestId++;
-    audio.reset();
-    this.authorizedSongId = null;
-    this.isExemptCreator = false;
-    this.currentPaymentIntentId = null;
-    this.accumulatedListenedSeconds = 0;
-    this.lastReportedSeconds = 0;
-    this.lastPlayhead = 0;
+
+    if (!song) {
+      audio.reset();
+    } else if (!isSameSong || forceRestart) {
+      // Stop outgoing deck immediately on manual song switch so there is zero lingering fade or timeupdate bleed
+      audio.stopImmediate();
+    }
+
+    if (!isSameSong || forceRestart) {
+      this.authorizedSongId = null;
+      this.isExemptCreator = false;
+      this.currentPaymentIntentId = null;
+      this.accumulatedListenedSeconds = 0;
+      this.lastReportedSeconds = 0;
+      this.lastPlayhead = 0;
+      this.autoCrossfadedSongId = null;
+      this.preloadedNextSongId = null;
+      this.playCountedSongId = null;
+      this.userSeekedWhilePaused = false;
+    }
+
+    let nextQueue = this.state.queue;
+    let nextQueueIndex = this.state.queueIndex;
+
+    if (song) {
+      if (Array.isArray(contextSongs) && contextSongs.length > 0) {
+        const cleanContext = contextSongs.filter((s): s is Song => Boolean(s && s.id));
+        const startIdx = cleanContext.findIndex((s) => s.id === song.id);
+        const upcomingFromContext = startIdx >= 0 ? cleanContext.slice(startIdx) : [song, ...cleanContext];
+        const upcomingIds = new Set(upcomingFromContext.map((s) => s.id));
+        const unplayedCurrentQueue =
+          this.state.queueIndex >= 0 ? nextQueue.slice(this.state.queueIndex) : nextQueue;
+        const restOfQueue = unplayedCurrentQueue.filter((q) => q && !upcomingIds.has(q.id));
+        nextQueue = [...upcomingFromContext, ...restOfQueue];
+        nextQueueIndex = 0;
+      } else {
+        const existingIdx = nextQueue.findIndex((s) => s.id === song.id);
+        if (existingIdx >= 0) {
+          for (let i = 0; i < existingIdx; i++) {
+            this.pushPlayedHistory(nextQueue[i]);
+          }
+          nextQueue = nextQueue.slice(existingIdx);
+          nextQueueIndex = 0;
+        } else if (nextQueue.length === 0 && this.state.songs.length > 0) {
+          const publicPool = this.state.songs.filter((s) => s.public);
+          const poolIdx = publicPool.findIndex((s) => s.id === song.id);
+          if (poolIdx >= 0) {
+            nextQueue = [...publicPool.slice(poolIdx), ...publicPool.slice(0, poolIdx)];
+            nextQueueIndex = 0;
+          } else {
+            nextQueue = [song, ...publicPool];
+            nextQueueIndex = 0;
+          }
+        } else {
+          const unplayed = this.state.queueIndex >= 0 ? nextQueue.slice(this.state.queueIndex) : nextQueue;
+          nextQueue = [song, ...unplayed.filter((q) => q && q.id !== song.id)];
+          nextQueueIndex = 0;
+        }
+      }
+      this.persistQueue(nextQueue);
+    }
+
     const dur = typeof song?.duration === 'number' && song.duration > 0 ? song.duration : 0;
+    const preserveSameState = isSameSong && !forceRestart;
     this.state = {
       ...this.state,
       activeSong: song,
-      duration: dur,
-      playhead: 0,
-      isPlaying: false,
+      duration: preserveSameState ? (this.state.duration || dur) : dur,
+      playhead: preserveSameState ? this.state.playhead : 0,
+      isPlaying: preserveSameState ? this.state.isPlaying : false,
+      queue: nextQueue,
+      queueIndex: nextQueueIndex,
+      activePlaylistId: playlistId !== undefined ? playlistId : this.state.activePlaylistId,
+      activeContextId: contextId !== undefined ? contextId : this.state.activeContextId,
     };
     this.notify();
-    bus.broadcastPlayback(song, 0, dur, false);
+    bus.broadcastPlayback(song, this.state.playhead, this.state.duration, this.state.isPlaying);
+  }
+
+  public async playCollection(
+    songs: Song[],
+    contextId: string,
+    playlistId?: string | null
+  ): Promise<boolean> {
+    const validSongs = songs.filter((s): s is Song => Boolean(s && s.id));
+    if (validSongs.length === 0) return false;
+
+    const isSameContext = this.state.activeContextId === contextId;
+    const activeInCollection = Boolean(
+      this.state.activeSong && validSongs.some((s) => s.id === this.state.activeSong!.id)
+    );
+
+    const collectionIds = new Set(validSongs.map((s) => s.id));
+    const unplayedCurrentQueue =
+      this.state.queueIndex >= 0 ? this.state.queue.slice(this.state.queueIndex) : this.state.queue;
+    const restOfQueue = unplayedCurrentQueue.filter((q) => q && !collectionIds.has(q.id));
+    const mergedQueue = [...validSongs, ...restOfQueue];
+
+    if (isSameContext && activeInCollection && this.state.activeSong && this.authorizedSongId === this.state.activeSong.id && audio.hasSource()) {
+      const idx = mergedQueue.findIndex((s) => s.id === this.state.activeSong!.id);
+      const sliced = idx >= 0 ? mergedQueue.slice(idx) : mergedQueue;
+      this.setQueue(sliced, 0, playlistId ?? null, contextId);
+      return await this.setPlaying(!this.state.isPlaying);
+    }
+
+    this.setActiveSong(validSongs[0], mergedQueue, playlistId ?? null, contextId, true);
+    return await this.setPlaying(true);
+  }
+
+  public async playSong(
+    song: Song,
+    contextSongs?: Song[],
+    playlistId?: string | null,
+    contextId?: string | null,
+    restart = false
+  ): Promise<boolean> {
+    const sameSong = this.state.activeSong?.id === song.id;
+    const sameContext = contextId === undefined || this.state.activeContextId === contextId;
+    if (!restart && sameSong && sameContext && this.authorizedSongId === song.id && audio.hasSource()) {
+      if (Array.isArray(contextSongs) && contextSongs.length > 0) {
+        const cleanContext = contextSongs.filter((s): s is Song => Boolean(s && s.id));
+        const startIdx = cleanContext.findIndex((s) => s.id === song.id);
+        const upcomingFromContext = startIdx >= 0 ? cleanContext.slice(startIdx) : [song, ...cleanContext];
+        const upcomingIds = new Set(upcomingFromContext.map((s) => s.id));
+        const unplayedCurrentQueue =
+          this.state.queueIndex >= 0 ? this.state.queue.slice(this.state.queueIndex) : this.state.queue;
+        const restOfQueue = unplayedCurrentQueue.filter((q) => q && !upcomingIds.has(q.id));
+        const mergedQueue = [...upcomingFromContext, ...restOfQueue];
+        this.setQueue(mergedQueue, 0, playlistId ?? null, contextId);
+      }
+      return await this.setPlaying(!this.state.isPlaying);
+    }
+    this.setActiveSong(song, contextSongs, playlistId, contextId, true);
+    return await this.setPlaying(true);
+  }
+
+  public async playQueueIndex(index: number): Promise<boolean> {
+    if (index < 0 || index >= this.state.queue.length) return false;
+    const targetSong = this.state.queue[index];
+    if (!targetSong) return false;
+
+    const isCurrentActive =
+      (index === this.state.queueIndex || index === 0) &&
+      this.state.activeSong?.id === targetSong.id;
+
+    if (isCurrentActive) {
+      if (this.authorizedSongId === targetSong.id && audio.hasSource()) {
+        return await this.setPlaying(!this.state.isPlaying);
+      }
+      return await this.setPlaying(true);
+    }
+
+    for (let i = 0; i < index; i++) {
+      this.pushPlayedHistory(this.state.queue[i]);
+    }
+    const remainingQueue = this.state.queue.slice(index);
+    this.state = {
+      ...this.state,
+      queue: remainingQueue,
+      queueIndex: 0,
+    };
+    this.persistQueue(remainingQueue);
+    this.setActiveSong(targetSong, undefined, undefined, undefined, true);
+    return await this.setPlaying(true);
   }
 
   public setQueue(
@@ -440,6 +632,132 @@ class Store {
     };
     this.persistQueue(nextQueue);
     this.notify();
+  }
+
+  private preloadUpcomingTrack() {
+    const nextCandidate = this.peekNextSong();
+    if (
+      nextCandidate &&
+      nextCandidate.id !== this.preloadedNextSongId &&
+      nextCandidate.url &&
+      !nextCandidate.url.endsWith('/stream')
+    ) {
+      this.preloadedNextSongId = nextCandidate.id;
+      audio.preloadNext(nextCandidate.url);
+    }
+  }
+
+  private peekNextSong(): Song | null {
+    const { queue, queueIndex, repeatMode, shuffle, activeSong } = this.state;
+    if (queue.length === 0) return null;
+    if (repeatMode === 'one' && activeSong) return activeSong;
+    if (shuffle && queue.length > 1) {
+      const candidates = queue.filter((_, idx) => idx !== queueIndex);
+      return candidates[0] || null;
+    }
+    const nextIdx = queueIndex + 1;
+    if (nextIdx < queue.length) {
+      return queue[nextIdx];
+    }
+    if (repeatMode === 'all') {
+      return this.playedHistory[0] || queue[0] || null;
+    }
+    return null;
+  }
+
+  public async playNextTrack(fromAutoAdvance = false): Promise<boolean> {
+    const { queue, queueIndex, repeatMode, shuffle, activeSong } = this.state;
+    if (queue.length === 0) return false;
+
+    if (fromAutoAdvance && repeatMode === 'one' && activeSong) {
+      this.setPlayhead(0);
+      return await this.setPlaying(true);
+    }
+
+    const currentIdx = queueIndex >= 0 ? queueIndex : 0;
+    const finishedSong = queue[currentIdx] || activeSong;
+    if (finishedSong) {
+      this.pushPlayedHistory(finishedSong);
+    }
+
+    let remaining = queue.slice(currentIdx + 1);
+
+    if (remaining.length === 0) {
+      if (repeatMode === 'all' || !fromAutoAdvance) {
+        const refill = [...this.playedHistory].reverse().filter((s) => s && s.id !== finishedSong?.id);
+        if (refill.length > 0) {
+          remaining = refill;
+          this.playedHistory = [];
+        } else if (finishedSong) {
+          remaining = [finishedSong];
+        }
+      } else {
+        this.setActiveSong(null);
+        this.state = { ...this.state, queue: [], queueIndex: -1, isPlaying: false };
+        this.persistQueue([]);
+        this.notify();
+        return false;
+      }
+    }
+
+    if (remaining.length === 0) {
+      return false;
+    }
+
+    if (shuffle && remaining.length > 1) {
+      const randIdx = Math.floor(Math.random() * remaining.length);
+      const [picked] = remaining.splice(randIdx, 1);
+      remaining = [picked, ...remaining];
+    }
+
+    const nextSong = remaining[0];
+    if (!nextSong) return false;
+
+    this.state = {
+      ...this.state,
+      queue: remaining,
+      queueIndex: 0,
+    };
+    this.persistQueue(remaining);
+
+    if (nextSong.id === activeSong?.id) {
+      this.setPlayhead(0);
+      this.notify();
+      return await this.setPlaying(true);
+    }
+
+    this.setActiveSong(nextSong, undefined, undefined, undefined, true);
+    return await this.setPlaying(true);
+  }
+
+  public async playPreviousTrack(): Promise<boolean> {
+    const { queue, playhead } = this.state;
+    if (playhead > 3.5) {
+      this.setPlayhead(0);
+      if (!this.state.isPlaying) {
+        return await this.setPlaying(true);
+      }
+      return true;
+    }
+
+    if (this.playedHistory.length > 0) {
+      const prevSong = this.playedHistory.pop()!;
+      const nextQueue = [prevSong, ...queue.filter((s) => s.id !== prevSong.id)];
+      this.state = {
+        ...this.state,
+        queue: nextQueue,
+        queueIndex: 0,
+      };
+      this.persistQueue(nextQueue);
+      this.setActiveSong(prevSong, undefined, undefined, undefined, true);
+      return await this.setPlaying(true);
+    }
+
+    this.setPlayhead(0);
+    if (queue.length > 0 && !this.state.isPlaying) {
+      return await this.setPlaying(true);
+    }
+    return false;
   }
 
   public setRepeatMode(mode: RepeatMode) {
