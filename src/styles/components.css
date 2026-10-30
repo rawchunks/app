@@ -493,8 +493,8 @@ textarea.cyber-input-field {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  max-height: none;
-  overflow: hidden;
+  max-height: min(88dvh, 720px);
+  overflow-y: auto;
   border-radius: 4px;
   box-sizing: border-box;
 }
@@ -849,7 +849,7 @@ textarea.cyber-input-field {
 .dialog-body {
   flex: 1 1 auto;
   min-height: 0;
-  overflow: hidden;
+  overflow-y: auto;
   padding: clamp(10px, 2vw, 14px) clamp(12px, 2.5vw, 18px);
   display: flex;
   flex-direction: column;
@@ -862,13 +862,14 @@ textarea.cyber-input-field {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  max-height: none;
-  overflow: visible;
+  min-height: clamp(110px, 20dvh, 220px);
+  max-height: clamp(140px, 30dvh, 280px);
+  overflow-y: auto;
   padding: 6px 10px;
   background: rgba(0, 0, 0, 0.4);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 4px;
-  flex-shrink: 0;
+  flex: 1 1 auto;
 }
 
 .spec {
@@ -1049,8 +1050,8 @@ textarea.cyber-input-field {
 }
 
 .account-network-trigger {
-  height: 30px;
-  min-height: 30px;
+  height: var(--header-btn-h);
+  min-height: var(--header-btn-h);
   padding: 0 10px;
   font-size: var(--font-sm);
   font-family: var(--font-family);
@@ -1076,7 +1077,7 @@ textarea.cyber-input-field {
 }
 
 .account-network-name {
-  font-size: clamp(12px, 0.75vw + 0.3vh, 12px);
+  font-size: var(--font-xs);
   font-weight: 700;
   letter-spacing: var(--letter-spacing-base);
   text-transform: uppercase;
@@ -1084,8 +1085,9 @@ textarea.cyber-input-field {
 }
 
 .account-network-content {
-  right: 0 !important;
-  left: auto !important;
+  right: 0;
+  left: auto;
+  max-width: calc(100vw - 16px);
 }
 
 .session-active-indicator {

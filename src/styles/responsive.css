@@ -26,7 +26,7 @@
     --badge-mst-font: 12px;
   }
 
-  /* Studio: Enable Pocket Switcher Bar */
+  /* Studio: Enable Pocket Toggle Button */
   .studio-container {
     display: flex;
     flex-direction: column;
@@ -34,8 +34,9 @@
     gap: 8px;
   }
 
-  .studio-pocket-bar {
-    display: flex;
+  .daw-tooltip-wrapper.studio-pocket-wrap,
+  .studio-pocket-toggle {
+    display: inline-flex;
   }
 
   .studio-panel-config,
@@ -114,9 +115,7 @@
   }
 
   .dropdown-menu-content {
-    right: 0 !important;
-    left: auto !important;
-    min-width: min(280px, calc(100vw - 24px));
+    min-width: min(240px, calc(100vw - 24px));
     max-width: calc(100vw - 16px);
   }
 
@@ -233,6 +232,7 @@
    ========================================================================== */
 @media (max-width: 480px) {
   :root {
+    --header-btn-h: 28px;
     --board-header-w: clamp(126px, 38vw, 152px);
     --badge-mst-h: clamp(19px, 2.4dvh, 21px);
     --badge-mst-font: 12px;
@@ -250,34 +250,30 @@
   .connect,
   .tw-connect-wallet {
     padding: 0 !important;
-    width: 28px !important;
-    min-width: 28px !important;
-    max-width: 28px !important;
-    height: 28px !important;
-    min-height: 28px !important;
+    width: var(--header-btn-h) !important;
+    min-width: var(--header-btn-h) !important;
+    max-width: var(--header-btn-h) !important;
+    height: var(--header-btn-h) !important;
+    min-height: var(--header-btn-h) !important;
   }
 
   .btn-solid.connect {
     width: auto !important;
-    min-width: 28px !important;
+    min-width: var(--header-btn-h) !important;
     max-width: none !important;
     padding: 0 8px !important;
   }
 
   .session-trigger-btn {
-    height: 28px;
-    min-height: 28px;
+    height: var(--header-btn-h);
+    min-height: var(--header-btn-h);
     padding: 0 7px;
     font-size: 11px;
   }
 
   .connect-avatar {
-    width: 22px;
-    height: 22px;
-  }
-
-  .studio-pricing-grid {
-    grid-template-columns: 1fr;
+    width: calc(var(--header-btn-h) - 6px);
+    height: calc(var(--header-btn-h) - 6px);
   }
 
   .player-track-info {
@@ -295,11 +291,11 @@
 
   .modal-inner-card {
     padding: 12px;
-    max-height: none;
+    max-height: calc(100dvh - 24px);
   }
 
   .dialog-content {
-    max-height: none;
+    max-height: calc(100dvh - 24px);
     max-width: calc(100vw - 16px);
   }
 
@@ -327,6 +323,10 @@
    ULTRA-COMPACT PHONES (<= 380px)
    ========================================================================== */
 @media (max-width: 380px) {
+  :root {
+    --header-btn-h: 26px;
+  }
+
   .app-header {
     padding: 0 4px;
     gap: 3px;
@@ -342,33 +342,13 @@
     height: 5px;
   }
 
-  .connect,
-  .tw-connect-wallet {
-    padding: 0 !important;
-    width: 26px !important;
-    min-width: 26px !important;
-    max-width: 26px !important;
-    height: 26px !important;
-    min-height: 26px !important;
-  }
-
   .btn-solid.connect {
-    width: auto !important;
-    min-width: 26px !important;
-    max-width: none !important;
     padding: 0 7px !important;
   }
 
   .session-trigger-btn {
-    height: 26px;
-    min-height: 26px;
     padding: 0 6px;
     font-size: 11px;
-  }
-
-  .connect-avatar {
-    width: 20px;
-    height: 20px;
   }
 }
 

@@ -165,7 +165,7 @@ export function DisclaimerBody({ onSigned, onCancel, readOnly = false }: Disclai
           : `Review and sign the generation pass-through terms (version ${DISCLAIMER_POLICY_VERSION}) before you create, edit, or publish on RawChunks.`}
       </p>
 
-      <div className="terms">
+      <div className="scrollable terms">
         {POINTS.map((point, index) => (
           <div key={point.term} className="spec">
             <span className="spec-num">{String(index + 1).padStart(2, "0")}</span>
