@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import { useGuideOwner } from './guide/owners';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Play,
   Pause,
@@ -12,6 +13,9 @@ import {
   Sliders,
   Tag,
   MoreHorizontal,
+  ListPlus,
+  FolderPlus,
+  Headphones,
 } from 'lucide-react';
 import { Button } from './button';
 import { Badge } from './badge';
@@ -35,7 +39,7 @@ export const normalizeTags = (tags?: string[] | null): string[] => {
   for (const raw of tags) {
     if (typeof raw !== 'string') continue;
     for (const part of raw.split(/[,;|•]+/)) {
-      const trimmed = part.trim();
+      const trimmed = part.trim().replace(/^genre:/i, '').trim();
       if (!trimmed) continue;
       const key = trimmed.toLowerCase();
       if (!seen.has(key)) {
@@ -94,9 +98,13 @@ export const resolveTxUrl = (
 };
 
 /**
- * Compact Creator Slot with avatar, nickname (or short address) and explorer link icon with tooltip.
+ * Compact Creator Slot with avatar, nickname (or short address), optional click-to-filter, and explorer link.
  */
-export const CreatorSlot: React.FC<{ address?: string; network?: string }> = ({ address, network }) => {
+export const CreatorSlot: React.FC<{
+  address?: string;
+  network?: string;
+  onSelectCreator?: (address: string) => void;
+}> = ({ address, network, onSelectCreator }) => {
   const { nickname, avatar } = useProfile(address);
 
   if (!address) {
@@ -130,17 +138,29 @@ export const CreatorSlot: React.FC<{ address?: string; network?: string }> = ({ 
 
   return (
     <div className="market-card-row-creator">
-      <Tooltip title={displayName} className="market-creator-info-wrap">
-        <div className="market-creator-info">
+      <Tooltip
+        title={displayName}
+        description={onSelectCreator ? 'Filter by creator' : address}
+        className="market-creator-info-wrap"
+      >
+        <button
+          type="button"
+          className={`market-creator-info ${onSelectCreator ? 'clickable' : ''}`}
+          onClick={(e) => {
+            if (!onSelectCreator) return;
+            e.stopPropagation();
+            onSelectCreator(address);
+          }}
+        >
           {avatar ? (
             <img src={avatar} alt={displayName} className="market-creator-avatar" />
           ) : (
             <div className="market-creator-avatar-placeholder">
-              <User size={10} />
+              <User size={12} />
             </div>
           )}
           <span className="market-creator-name">{displayName}</span>
-        </div>
+        </button>
       </Tooltip>
 
       <Tooltip title="Creator's Address" description={address}>
@@ -152,7 +172,7 @@ export const CreatorSlot: React.FC<{ address?: string; network?: string }> = ({ 
           onClick={(e) => e.stopPropagation()}
           aria-label="Creator's Address"
         >
-          <ExternalLink size={11} />
+          <ExternalLink size={12} />
         </a>
       </Tooltip>
     </div>
@@ -161,7 +181,8 @@ export const CreatorSlot: React.FC<{ address?: string; network?: string }> = ({ 
 
 /**
  * Responsive Cover Art with brand mark fallback, centered play overlay,
- * top-left version switcher, top-right network link + custom actions, and bottom-right duration badge.
+ * top-left play count badge, top-right network link + contextual actions,
+ * bottom-left version switcher, and bottom-right duration badge.
  */
 export const CoverArt: React.FC<{
   image?: string;
@@ -176,6 +197,7 @@ export const CoverArt: React.FC<{
   txHash?: string;
   txUrl?: string;
   duration?: number;
+  plays?: number;
   topRightActions?: React.ReactNode;
 }> = ({
   image,
@@ -190,6 +212,7 @@ export const CoverArt: React.FC<{
   txHash,
   txUrl,
   duration,
+  plays,
   topRightActions,
 }) => {
     const [imgError, setImgError] = useState(false);
@@ -227,6 +250,14 @@ export const CoverArt: React.FC<{
         ) : (
           <div className="market-card-fallback-art">
             <img src="/branding/mark.svg" alt="Rawchunks" className="market-card-fallback-logo" />
+          </div>
+        )}
+
+        {/* Top Left: Verified Plays Counter (when > 0) */}
+        {typeof plays === 'number' && plays > 0 && (
+          <div className="market-card-plays-badge" title={`${plays} stream${plays === 1 ? '' : 's'}`}>
+            <Headphones size={12} />
+            <span>{plays >= 1000 ? `${(plays / 1000).toFixed(1)}k` : plays}</span>
           </div>
         )}
 
@@ -268,6 +299,7 @@ export const CoverArt: React.FC<{
           >
             <button
               type="button"
+              data-guide="card.stream"
               className={`market-overlay-play-btn ${isPlayingThis ? 'active' : ''}`}
               onClick={(e) => {
                 e.stopPropagation();
@@ -275,7 +307,7 @@ export const CoverArt: React.FC<{
               }}
               aria-label={isPlayingThis ? 'Pause' : 'Stream'}
             >
-              {isPlayingThis ? <Pause size={16} /> : <Play size={16} className="market-play-icon-offset" />}
+              {isPlayingThis ? <Pause size={15} /> : <Play size={15} className="market-play-icon-offset" />}
             </button>
           </Tooltip>
         </div>
@@ -289,7 +321,14 @@ export const CoverArt: React.FC<{
 
         {/* Bottom Right: Duration Badge */}
         {displayDuration !== undefined && displayDuration > 0 && (
-          <div className="market-card-duration-badge">{formatDuration(displayDuration)}</div>
+          <div
+            data-guide="card.version-status"
+            tabIndex={-1}
+            aria-label="Song version"
+            className="market-card-duration-badge"
+          >
+            {formatDuration(displayDuration)}
+          </div>
         )}
       </div>
     );
@@ -342,6 +381,8 @@ export interface CardProps {
   onSelectVersion: (version: Song) => void;
   selectedGenres?: string[];
   onSelectGenre?: (genre: string) => void;
+  onSelectCreator?: (creator: string) => void;
+  onAddToPlaylist?: (song: Song) => void;
   isMenuOpen?: boolean;
   onToggleMenu?: () => void;
   onEditDetails?: (song: Song) => void;
