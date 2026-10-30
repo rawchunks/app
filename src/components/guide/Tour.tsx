@@ -1,644 +1,255 @@
-import React, {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  ChevronLeft,
-  ChevronRight,
-  X,
-  Sparkles,
-} from 'lucide-react';
+import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { sdk } from '@/lib/sdk';
 import { readCachedGuides, writeCachedGuides } from '@/lib/cache';
 import { useSelectedUserAddress } from '@/hooks/use-address';
 import { useDisclaimerConsent } from '@/hooks/use-disclaimer';
-import { Tooltip } from '../daw/Tooltip';
-import {
-  GUIDE_FLOWS,
-  type GuideFlowId,
-  type GuideStep,
-  type GuideStepAction,
-} from './Steps';
+import { ownEscape } from '@/hooks/dismissal';
+import { GUIDE_FLOWS, type GuideFlowId, type GuidePageId, type GuideStep } from './Steps';
+import { GuideRegistry, anchor, visibleRect, focusAnchor, type Preparation } from './registry';
+import { RegistryContext } from './owners';
+import { guideSeen, normalizeGuides, setGuideStatus } from './status';
 import '../../styles/guide.css';
 
+interface StartOptions { entity?: string; initialStep?: number; guestOnly?: boolean }
 interface GuideContextValue {
   activeFlow: GuideFlowId | null;
   stepIndex: number;
-  activePage: Exclude<GuideFlowId, 'welcome'>;
-  startFlow: (flow: GuideFlowId) => void;
+  activePage: GuidePageId;
+  startFlow: (flow: GuideFlowId, options?: StartOptions) => void;
   closeGuide: () => void;
-  resetAllGuides: () => void;
 }
-
 const GuideContext = createContext<GuideContextValue | null>(null);
-
-function dispatchGuideAction(action?: GuideStepAction): void {
-  if (!action || typeof window === 'undefined') return;
-  window.dispatchEvent(new CustomEvent('rawchunks:guide-action', { detail: action }));
+const saveQueues = new Map<string, Promise<unknown>>();
+const epochs = new Map<string, number>();
+const pendingWrites = new Set<string>();
+const CONNECT_KEY = 'rawchunks:has-connected';
+const CONNECT_DISMISSED = 'rawchunks:connect-guide-dismissed';
+function browserFlag(key: string) { try { return !!localStorage.getItem(key); } catch { return false; } }
+function setBrowserFlag(key: string) { try { localStorage.setItem(key, '1'); } catch {} }
+function samePreparation(a: Preparation, b: Preparation) {
+  return ['target', 'focus', 'entity', 'title', 'description', 'unavailable', 'rect'].every(key => a[key as keyof Preparation] === b[key as keyof Preparation]);
 }
 
-function resolveTargetElement(selectorList: string): HTMLElement | null {
-  if (typeof document === 'undefined') return null;
-  const selectors = selectorList
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-  for (const sel of selectors) {
-    try {
-      const nodes = document.querySelectorAll<HTMLElement>(sel);
-      for (const node of Array.from(nodes)) {
-        const rect = node.getBoundingClientRect();
-        const style = window.getComputedStyle(node);
-        if (
-          rect.width > 4 &&
-          rect.height > 4 &&
-          style.visibility !== 'hidden' &&
-          style.display !== 'none' &&
-          Number(style.opacity || '1') > 0.05
-        ) {
-          return node;
-        }
-      }
-    } catch { }
-  }
-  return null;
-}
-
-interface CutoutRect {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-export const GuideProvider: React.FC<{
-  activePage: Exclude<GuideFlowId, 'welcome'>;
-  children: React.ReactNode;
-}> = ({ activePage, children }) => {
+export function GuideProvider({ activePage, children }: { activePage: GuidePageId; children: React.ReactNode }) {
   const queryClient = useQueryClient();
   const { accountId, isReconnecting } = useSelectedUserAddress();
   const { hasConsented, isLoading: consentLoading } = useDisclaimerConsent();
-  const activeUser = accountId;
-  const userScope = activeUser ?? 'guest';
-
+  const scope = accountId ?? 'guest';
+  const registry = useMemo(() => new GuideRegistry(), []);
   const [activeFlow, setActiveFlow] = useState<GuideFlowId | null>(null);
-  const [stepIndex, setStepIndex] = useState<number>(0);
-  const [cutout, setCutout] = useState<CutoutRect | null>(null);
-  const [viewport, setViewport] = useState<{ w: number; h: number }>({
-    w: typeof window !== 'undefined' ? window.innerWidth : 1280,
-    h: typeof window !== 'undefined' ? window.innerHeight : 800,
-  });
-
-  const cardRef = useRef<HTMLDivElement | null>(null);
-  const [cardHeight, setCardHeight] = useState<number>(230);
-  const scrolledStepRef = useRef<string | null>(null);
-  const prevScopeRef = useRef<string>(userScope);
+  const [stepIndex, setStepIndex] = useState(0);
+  const [runRevision, setRunRevision] = useState(0);
+  const [guestOnly, setGuestOnly] = useState(false);
+  const [prepared, setPrepared] = useState<Preparation>({});
+  const [rect, setRect] = useState<DOMRect | null>(null);
+  const [host, setHost] = useState<Element | null>(null);
+  const hostRef = useRef(host); hostRef.current = host;
+  const [missing, setMissing] = useState(false);
+  const [paused, setPaused] = useState(false);
+  const [draftBlocked, setDraftBlocked] = useState(false);
+  const [viewport, setViewport] = useState({ x: 0, y: 0, w: window.innerWidth, h: window.innerHeight });
+  const [cardHeight, setCardHeight] = useState(190);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const bindings = useRef(new Map<string, string>());
+  const entryRef = useRef<ReturnType<GuideRegistry['enter']> | null>(null);
+  const dismissedPage = useRef<string | null>(null);
+  const opener = useRef<HTMLElement | null>(null);
 
   const guidesQuery = useQuery({
-    queryKey: ['user-guides', userScope],
-    initialData: () => readCachedGuides(userScope) ?? undefined,
+    queryKey: ['user-guides', scope], initialData: () => normalizeGuides(readCachedGuides(scope) ?? []), initialDataUpdatedAt: 0,
     queryFn: async () => {
-      if (!activeUser) {
-        return readCachedGuides('guest') ?? [];
-      }
+      if (!accountId) return normalizeGuides(readCachedGuides(scope));
+      const epoch = epochs.get(scope) ?? 0;
       try {
-        const response = await sdk.fetch(`/api/user/guides/${encodeURIComponent(activeUser)}`);
-        if (!response.ok) return readCachedGuides(activeUser) ?? [];
+        const response = await sdk.fetch(`/api/user/guides/${encodeURIComponent(accountId)}`);
+        if (!response.ok) return normalizeGuides(readCachedGuides(scope));
         const data = await response.json();
-        const remote = Array.isArray(data?.guides)
-          ? data.guides.filter((id: unknown): id is string => typeof id === 'string')
-          : [];
-        const local = readCachedGuides(activeUser) ?? [];
-        const merged = Array.from(new Set([...local, ...remote]));
-        writeCachedGuides(activeUser, merged);
-        return merged;
-      } catch {
-        return readCachedGuides(activeUser) ?? [];
-      }
-    },
-    enabled: Boolean(activeUser) || !isReconnecting,
-    staleTime: 5 * 60 * 1000,
+        const values = normalizeGuides(!pendingWrites.has(scope) && epoch === (epochs.get(scope) ?? 0) ? [...normalizeGuides(readCachedGuides(scope)), ...normalizeGuides(data.guides)] : readCachedGuides(scope));
+        writeCachedGuides(scope, values);
+        return values;
+      } catch { return normalizeGuides(readCachedGuides(scope)); }
+    }, enabled: !!accountId || !isReconnecting, staleTime: 300_000,
   });
-
-  const seenFlows = useMemo<string[]>(
-    () => guidesQuery.data ?? readCachedGuides(userScope) ?? [],
-    [guidesQuery.data, userScope]
-  );
-
-  const hasSeenFlow = useCallback(
-    (flowId: GuideFlowId): boolean => seenFlows.includes(flowId),
-    [seenFlows]
-  );
-
-  const markFlowSeen = useCallback(
-    (flowId: GuideFlowId): void => {
-      const current = readCachedGuides(userScope) ?? guidesQuery.data ?? [];
-      const updated = Array.from(new Set([...current, flowId]));
-      writeCachedGuides(userScope, updated);
-      queryClient.setQueryData(['user-guides', userScope], updated);
-      if (activeUser) {
-        void sdk
-          .fetch('/api/user/guides', {
-            method: 'POST',
-            userAddress: activeUser,
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ address: activeUser, guides: updated }),
-          })
-          .catch(() => {});
-      }
-    },
-    [userScope, activeUser, guidesQuery.data, queryClient]
-  );
-
+  const persist = useCallback((values: string[]) => {
+    const canonical = normalizeGuides(values);
+    const mutationEpoch = (epochs.get(scope) ?? 0) + 1;
+    epochs.set(scope, mutationEpoch);
+    writeCachedGuides(scope, canonical);
+    queryClient.setQueryData(['user-guides', scope], canonical);
+    if (!accountId) return Promise.resolve();
+    pendingWrites.add(scope);
+    const save = (saveQueues.get(scope) ?? Promise.resolve()).catch(() => {}).then(async () => {
+      const response = await sdk.fetch('/api/user/guides', { method: 'POST', userAddress: accountId,
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ address: accountId, guides: canonical }) });
+      if (!response.ok) throw new Error('Could not save guide status');
+      if (mutationEpoch === epochs.get(scope)) pendingWrites.delete(scope);
+    });
+    saveQueues.set(scope, save);
+    return save;
+  }, [scope, accountId, queryClient]);
   useEffect(() => {
-    if (prevScopeRef.current !== userScope) {
-      const previousScope = prevScopeRef.current;
-      prevScopeRef.current = userScope;
-      if (previousScope === 'guest' && activeUser) {
-        const guestFlows = readCachedGuides('guest') ?? [];
-        if (guestFlows.length > 0) {
-          const localFlows = readCachedGuides(activeUser) ?? [];
-          const merged = Array.from(new Set([...localFlows, ...guestFlows]));
-          writeCachedGuides(activeUser, merged);
-          queryClient.setQueryData(['user-guides', userScope], merged);
-        }
-      }
-      setActiveFlow(null);
-      setStepIndex(0);
-      setCutout(null);
-    }
-  }, [userScope, activeUser, queryClient]);
-
-  const startFlow = useCallback((flow: GuideFlowId) => {
-    scrolledStepRef.current = null;
-    const firstStep = GUIDE_FLOWS[flow]?.steps[0];
-    if (firstStep?.action) {
-      dispatchGuideAction(firstStep.action);
-    }
-    setStepIndex(0);
-    setActiveFlow(flow);
+    const retry = () => { if (pendingWrites.has(scope)) void persist(readCachedGuides(scope) ?? []).catch(() => {}); };
+    window.addEventListener('online', retry);
+    return () => window.removeEventListener('online', retry);
+  }, [scope, persist]);
+  const leave = useCallback((force = false, next?: GuideStep) => {
+    if (!force && entryRef.current && !entryRef.current.canLeave(next)) { setDraftBlocked(true); return false; }
+    entryRef.current?.leave(next); entryRef.current = null;
+    setDraftBlocked(false); return true;
   }, []);
-
+  const stop = useCallback((force = false) => {
+    if (!leave(force)) return false;
+    setActiveFlow(null); setRect(null); setPrepared({}); setHost(null);
+    if (opener.current?.isConnected) opener.current.focus({ preventScroll: true });
+    return true;
+  }, [leave]);
   const closeGuide = useCallback(() => {
-    if (activeFlow) {
-      markFlowSeen(activeFlow);
-    }
-    setActiveFlow(null);
-    setStepIndex(0);
-    setCutout(null);
-  }, [activeFlow, markFlowSeen]);
+    if (!activeFlow || !stop()) return;
+    dismissedPage.current = activePage;
+    if (guestOnly) setBrowserFlag(CONNECT_DISMISSED);
+    else void persist(setGuideStatus(readCachedGuides(scope) ?? [], activeFlow, 'dismissed')).catch(() => {});
+  }, [activeFlow, activePage, guestOnly, persist, scope, stop]);
+  const startFlow = useCallback((flow: GuideFlowId, options: StartOptions = {}) => {
+    if (!GUIDE_FLOWS[flow].pages.includes(activePage) || !leave()) return;
+    opener.current = document.activeElement as HTMLElement | null;
+    bindings.current = new Map([['page', activePage]]);
+    if (options.entity) bindings.current.set('song', options.entity);
+    setGuestOnly(!!options.guestOnly); setPrepared({}); setRect(null);
+    setStepIndex(options.initialStep ?? 0); setActiveFlow(flow); setRunRevision(value => value + 1);
+  }, [activePage, leave]);
 
-  const resetAllGuides = useCallback(() => {
-    writeCachedGuides(userScope, []);
-    queryClient.setQueryData(['user-guides', userScope], []);
-  }, [userScope, queryClient]);
 
-  // Automatic first-visit trigger per user per page (and global 'welcome' on first landing)
+  useEffect(() => { stop(true); dismissedPage.current = null; }, [activePage, scope]);
+  useEffect(() => { registry.onBoundaryChange = () => { dismissedPage.current = activePage; stop(true); }; return () => { registry.onBoundaryChange = undefined; }; }, [registry, activePage, stop]);
   useEffect(() => {
-    if (activeFlow) return;
-    if (!activeUser && isReconnecting) return;
-    if (activeUser && (consentLoading || !hasConsented)) return;
-    if (guidesQuery.isLoading) return;
-    const timer = window.setTimeout(() => {
-      if (typeof document !== 'undefined' && document.querySelector('.modal-overlay')) return;
-      if (!hasSeenFlow('welcome')) {
-        startFlow('welcome');
-        return;
-      }
-      if (!hasSeenFlow(activePage)) {
-        startFlow(activePage);
-      }
-    }, 480);
-    return () => window.clearTimeout(timer);
-  }, [
-    activePage,
-    activeFlow,
-    activeUser,
-    isReconnecting,
-    consentLoading,
-    hasConsented,
-    guidesQuery.isLoading,
-    hasSeenFlow,
-    startFlow,
-  ]);
-
-  const flowObj = activeFlow ? GUIDE_FLOWS[activeFlow] : null;
-  const currentStep: GuideStep | null =
-    flowObj && flowObj.steps[stepIndex] ? flowObj.steps[stepIndex] : null;
-
-  // Trigger step state actions before measuring DOM
-  useEffect(() => {
-    if (!currentStep) return;
-    if (currentStep.action) {
-      dispatchGuideAction(currentStep.action);
-    }
-  }, [currentStep]);
-
-  // Track target bounding rect continuously while active
-  useEffect(() => {
-    if (!currentStep) {
-      setCutout(null);
-      return;
-    }
-
-    let rafId = 0;
-    let active = true;
-
-    const updateRect = () => {
-      if (!active) return;
-      const vw = window.innerWidth;
-      const vh = window.innerHeight;
-      setViewport((prev) => (prev.w === vw && prev.h === vh ? prev : { w: vw, h: vh }));
-
-      if (cardRef.current) {
-        const ch = cardRef.current.offsetHeight;
-        if (ch > 40) setCardHeight((prev) => (Math.abs(prev - ch) > 2 ? ch : prev));
-      }
-
-      const target = resolveTargetElement(currentStep.selector);
-      if (target) {
-        const raw = target.getBoundingClientRect();
-        if (scrolledStepRef.current !== currentStep.id) {
-          scrolledStepRef.current = currentStep.id;
-          const outOfView = raw.top < 12 || raw.bottom > vh - 12;
-          if (outOfView) {
-            try {
-              target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
-            } catch { }
-          }
+    if (accountId) setBrowserFlag(CONNECT_KEY);
+    if (activeFlow || guidesQuery.isFetching || isReconnecting || dismissedPage.current === activePage) return;
+    if (accountId && (consentLoading || !hasConsented)) return;
+    const timer = setTimeout(() => {
+      if (document.querySelector('.modal-overlay:not([aria-hidden="true"]), [aria-busy="true"], [data-recording="true"]')) return;
+      const automaticallyStart = (id: GuideFlowId) => { startFlow(id); void persist(setGuideStatus(readCachedGuides(scope) ?? [], id, 'dismissed')).catch(() => {}); };
+      if (!accountId) {
+        if (!browserFlag(CONNECT_KEY) && !browserFlag(CONNECT_DISMISSED) && !browserFlag('last_account')) {
+          startFlow('welcome', { guestOnly: true }); setBrowserFlag(CONNECT_DISMISSED);
         }
+      } else if (!guideSeen(guidesQuery.data ?? [], 'welcome')) automaticallyStart('welcome');
+      else if (!guideSeen(guidesQuery.data ?? [], activePage)) automaticallyStart(activePage);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [accountId, activePage, activeFlow, consentLoading, hasConsented, isReconnecting, guidesQuery.isFetching, guidesQuery.data, startFlow, persist, scope]);
+  const flow = activeFlow ? GUIDE_FLOWS[activeFlow] : null;
+  const steps = flow ? guestOnly ? flow.steps.slice(0, 1) : activeFlow === 'catalog' && activePage === 'market' ? flow.steps.filter(step => step.id === 'K5') : flow.steps : [];
+  const step = steps[stepIndex];
 
-        const pad = 6;
-        const x = Math.max(4, raw.left - pad);
-        const y = Math.max(4, raw.top - pad);
-        const right = Math.min(vw - 4, raw.right + pad);
-        const bottom = Math.min(vh - 4, raw.bottom + pad);
-        const width = Math.max(24, right - x);
-        const height = Math.max(24, bottom - y);
-
-        setCutout((prev) => {
-          if (
-            prev &&
-            Math.abs(prev.x - x) < 1 &&
-            Math.abs(prev.y - y) < 1 &&
-            Math.abs(prev.width - width) < 1 &&
-            Math.abs(prev.height - height) < 1
-          ) {
-            return prev;
-          }
-          return { x, y, width, height };
-        });
-      } else {
-        setCutout(null);
-      }
-
-      rafId = window.requestAnimationFrame(updateRect);
-    };
-
-    rafId = window.requestAnimationFrame(updateRect);
-    return () => {
-      active = false;
-      window.cancelAnimationFrame(rafId);
-    };
-  }, [currentStep]);
-
-  const handleNext = useCallback(() => {
-    if (!flowObj || !activeFlow) return;
-    if (stepIndex < flowObj.steps.length - 1) {
-      const nextStep = flowObj.steps[stepIndex + 1];
-      if (nextStep?.action) dispatchGuideAction(nextStep.action);
-      setStepIndex((i) => i + 1);
-    } else {
-      markFlowSeen(activeFlow);
-      // If user just finished 'welcome' and hasn't seen the current page guide yet, chain smoothly into it
-      if (activeFlow === 'welcome' && !hasSeenFlow(activePage)) {
-        startFlow(activePage);
-      } else {
-        setActiveFlow(null);
-        setStepIndex(0);
-        setCutout(null);
-      }
-    }
-  }, [flowObj, activeFlow, stepIndex, activePage, startFlow, markFlowSeen, hasSeenFlow]);
-
-  const handlePrev = useCallback(() => {
-    if (!flowObj || stepIndex <= 0) return;
-    const prevStep = flowObj.steps[stepIndex - 1];
-    if (prevStep?.action) dispatchGuideAction(prevStep.action);
-    setStepIndex((i) => Math.max(0, i - 1));
-  }, [flowObj, stepIndex]);
-
-  // Keyboard navigation (ArrowLeft, ArrowRight, Escape)
   useEffect(() => {
-    if (!activeFlow) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        closeGuide();
-      } else if (e.key === 'ArrowRight') {
-        e.preventDefault();
-        handleNext();
-      } else if (e.key === 'ArrowLeft') {
-        e.preventDefault();
-        handlePrev();
+    if (!step) return;
+    let cancelled = false;
+    // Strict Mode's discarded mount never performs preparation.
+    queueMicrotask(() => {
+      if (cancelled) return;
+      const entry = registry.enter(step, bindings.current, result => {
+        if (!cancelled) setPrepared(old => samePreparation(old, result) ? old : result);
+      });
+      entryRef.current = entry;
+    });
+    return () => { cancelled = true; entryRef.current?.leave(); entryRef.current = null; };
+  }, [registry, step, activeFlow, runRevision]);
+
+  useEffect(() => {
+    if (!step) return;
+    let frame = 0, focused: HTMLElement | null = null, scrolled: HTMLElement | null = null, scrolledLayout = '';
+    setMissing(false); setPaused(false);
+    const measure = () => {
+      frame = 0;
+      const visual = window.visualViewport;
+      const nextViewport = { x: visual?.offsetLeft ?? 0, y: visual?.offsetTop ?? 0, w: visual?.width ?? window.innerWidth, h: visual?.height ?? window.innerHeight };
+      setViewport(old => Object.keys(old).every(key => old[key as keyof typeof old] === nextViewport[key as keyof typeof old]) ? old : nextViewport);
+      const target = anchor(prepared.target ?? step.target, prepared.entity);
+      const previousOverlay = hostRef.current?.isConnected ? hostRef.current.closest('.modal-overlay') : null;
+      const overlay = target?.closest('.modal-overlay') ?? (!target ? previousOverlay : null);
+      const top = [...document.querySelectorAll('.modal-overlay:not([aria-hidden="true"])')].at(-1);
+      const unrelated = !!top && top !== overlay;
+      setPaused(unrelated);
+      const nextHost = overlay?.querySelector('[data-guide-overlay-host]') ?? document.body;
+      setHost(old => old === nextHost ? old : nextHost);
+      if (unrelated || !target) { setRect(null); return; }
+      const bounds = target.getBoundingClientRect();
+      const layout = `${bounds.x}:${bounds.y}:${bounds.width}:${bounds.height}`;
+      if (scrolled !== target || !visibleRect(target) && layout !== scrolledLayout) {
+        scrolled = target;
+        scrolledLayout = layout;
+        target.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
+        schedule(); return;
       }
+      const visible = prepared.rect ? prepared.rect() : visibleRect(target);
+      setRect(old => old && visible && ['x', 'y', 'width', 'height'].every(key => Math.abs(old[key as keyof DOMRect] as number - (visible[key as keyof DOMRect] as number)) < 1) ? old : visible);
+      if (visible && focused !== target) { focused = target; focusAnchor(target, prepared.focus); }
+      const height = cardRef.current?.offsetHeight;
+      if (height !== undefined) setCardHeight(old => old === height ? old : height);
     };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [activeFlow, closeGuide, handleNext, handlePrev]);
+    const schedule = () => { if (!frame) frame = requestAnimationFrame(measure); };
+    const observer = new MutationObserver(records => {
+      if (records.some(record => !(record.target as HTMLElement).closest?.('[data-guide-navigation], .guide-spotlight-ring, .guide-scrim'))) schedule();
+    });
+    observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['class', 'style', 'hidden', 'inert', 'aria-hidden', 'data-guide-dirty'] });
+    const resize = new ResizeObserver(schedule); resize.observe(document.body);
+    window.addEventListener('scroll', schedule, true); window.addEventListener('resize', schedule);
+    window.visualViewport?.addEventListener('resize', schedule); window.visualViewport?.addEventListener('scroll', schedule);
+    const release = registry.subscribe(schedule);
+    const missingTimer = setTimeout(() => { setMissing(true); schedule(); }, 1500);
+    schedule();
+    return () => { clearTimeout(missingTimer); cancelAnimationFrame(frame); observer.disconnect(); resize.disconnect(); release();
+      window.removeEventListener('scroll', schedule, true); window.removeEventListener('resize', schedule);
+      window.visualViewport?.removeEventListener('resize', schedule); window.visualViewport?.removeEventListener('scroll', schedule); };
+  }, [step, prepared.target, prepared.focus, prepared.entity, prepared.rect, registry, runRevision]);
 
-  // Compute position-aware card coordinates
-  const cardPositionStyle = useMemo<React.CSSProperties>(() => {
-    const isMobile = viewport.w <= 900;
-    if (isMobile) {
-      if (!cutout) {
-        return {
-          left: '12px',
-          right: '12px',
-          bottom: '16px',
-        };
-      }
-      const targetCenterY = cutout.y + cutout.height / 2;
-      if (targetCenterY > viewport.h * 0.54) {
-        return {
-          left: '12px',
-          right: '12px',
-          top: '54px',
-        };
-      }
-      return {
-        left: '12px',
-        right: '12px',
-        bottom: '14px',
-      };
-    }
-
-    const cardWidth = Math.min(380, viewport.w - 32);
-    const gap = 14;
-    if (!cutout) {
-      return {
-        width: `${cardWidth}px`,
-        left: `${Math.round((viewport.w - cardWidth) / 2)}px`,
-        top: `${Math.round(Math.max(24, (viewport.h - cardHeight) / 2))}px`,
-      };
-    }
-
-    const spaceBottom = viewport.h - (cutout.y + cutout.height) - gap;
-    const spaceTop = cutout.y - gap;
-    const spaceRight = viewport.w - (cutout.x + cutout.width) - gap;
-    const spaceLeft = cutout.x - gap;
-
-    let placement = currentStep?.placement || 'bottom';
-
-    const fits = (dir: string) => {
-      if (dir === 'bottom') return spaceBottom >= cardHeight + 12;
-      if (dir === 'top') return spaceTop >= cardHeight + 12;
-      if (dir === 'right') return spaceRight >= cardWidth + 16;
-      if (dir === 'left') return spaceLeft >= cardWidth + 16;
-      return false;
-    };
-
-    if (!fits(placement)) {
-      const candidates: Array<{ dir: 'bottom' | 'top' | 'right' | 'left'; space: number }> = [
-        { dir: 'bottom', space: spaceBottom },
-        { dir: 'top', space: spaceTop },
-        { dir: 'right', space: spaceRight },
-        { dir: 'left', space: spaceLeft },
-      ];
-      const fitting = candidates.find((c) => fits(c.dir));
-      if (fitting) {
-        placement = fitting.dir;
-      } else {
-        candidates.sort((a, b) => b.space - a.space);
-        placement = candidates[0].dir;
-      }
-    }
-
-    let top = 24;
-    let left = 24;
-
-    if (placement === 'bottom') {
-      top = cutout.y + cutout.height + gap;
-      left = cutout.x + cutout.width / 2 - cardWidth / 2;
-    } else if (placement === 'top') {
-      top = cutout.y - cardHeight - gap;
-      left = cutout.x + cutout.width / 2 - cardWidth / 2;
-    } else if (placement === 'right') {
-      top = cutout.y + Math.min(24, cutout.height / 4);
-      left = cutout.x + cutout.width + gap;
-    } else if (placement === 'left') {
-      top = cutout.y + Math.min(24, cutout.height / 4);
-      left = cutout.x - cardWidth - gap;
-    }
-
-    const clampedLeft = Math.max(16, Math.min(viewport.w - cardWidth - 16, Math.round(left)));
-    const clampedTop = Math.max(16, Math.min(viewport.h - cardHeight - 16, Math.round(top)));
-
-    return {
-      width: `${cardWidth}px`,
-      left: `${clampedLeft}px`,
-      top: `${clampedTop}px`,
-    };
-  }, [cutout, viewport, cardHeight, currentStep?.placement]);
-
-  const contextVal = useMemo<GuideContextValue>(
-    () => ({
-      activeFlow,
-      stepIndex,
-      activePage,
-      startFlow,
-      closeGuide,
-      resetAllGuides,
-    }),
-    [activeFlow, stepIndex, activePage, startFlow, closeGuide, resetAllGuides]
-  );
-
-  const maskId = 'rawchunks-guide-spotlight-mask';
-
-  return (
-    <GuideContext.Provider value={contextVal}>
-      {children}
-      {activeFlow &&
-        flowObj &&
-        currentStep &&
-        typeof document !== 'undefined' &&
-        createPortal(
-          <div className="guide-portal-root" role="dialog" aria-modal="false" aria-label={flowObj.label}>
-            {/* Dimmed SVG spotlight backdrop with rounded cutout */}
-            <svg
-              className="guide-spotlight-svg"
-              width={viewport.w}
-              height={viewport.h}
-              viewBox={`0 0 ${viewport.w} ${viewport.h}`}
-              aria-hidden="true"
-            >
-              <defs>
-                <mask id={maskId}>
-                  <rect x="0" y="0" width={viewport.w} height={viewport.h} fill="white" />
-                  {cutout && (
-                    <rect
-                      x={cutout.x}
-                      y={cutout.y}
-                      width={cutout.width}
-                      height={cutout.height}
-                      rx="10"
-                      ry="10"
-                      fill="black"
-                    />
-                  )}
-                </mask>
-              </defs>
-              <rect
-                x="0"
-                y="0"
-                width={viewport.w}
-                height={viewport.h}
-                fill="rgba(5, 7, 12, 0.76)"
-                mask={`url(#${maskId})`}
-              />
-            </svg>
-
-            {/* Highlight ring around target (pointer-events: none so target stays clickable) */}
-            {cutout && (
-              <div
-                className="guide-cutout-ring"
-                style={{
-                  left: `${cutout.x}px`,
-                  top: `${cutout.y}px`,
-                  width: `${cutout.width}px`,
-                  height: `${cutout.height}px`,
-                }}
-              />
-            )}
-
-            {/* Floating Guide Tooltip Card */}
-            <div ref={cardRef} className="guide-card" style={cardPositionStyle}>
-              <div className="guide-card-top">
-                <div className="guide-card-meta">
-                  <span className="guide-flow-pill">
-                    <Sparkles size={11} />
-                    {flowObj.label}
-                  </span>
-                  {currentStep.badge && (
-                    <span className="guide-step-badge">{currentStep.badge}</span>
-                  )}
-                </div>
-                <Tooltip title="Close guide (Esc)">
-                  <button
-                    type="button"
-                    className="guide-close-btn"
-                    onClick={closeGuide}
-                    aria-label="Close guide"
-                  >
-                    <X size={14} />
-                  </button>
-                </Tooltip>
-              </div>
-
-              <h3 className="guide-card-title">{currentStep.title}</h3>
-              <p className="guide-card-desc">{currentStep.description}</p>
-
-              {currentStep.bullets && currentStep.bullets.length > 0 && (
-                <ul className="guide-card-bullets">
-                  {currentStep.bullets.map((item, idx) => {
-                    const colonIdx = item.indexOf(':');
-                    if (colonIdx > 0 && colonIdx < 32) {
-                      const lead = item.slice(0, colonIdx);
-                      const rest = item.slice(colonIdx + 1);
-                      return (
-                        <li key={idx}>
-                          <strong>{lead}:</strong>
-                          {rest}
-                        </li>
-                      );
-                    }
-                    return <li key={idx}>{item}</li>;
-                  })}
-                </ul>
-              )}
-
-              <div className="guide-card-footer">
-                <div className="guide-progress-wrap">
-                  <span className="guide-step-counter">
-                    {stepIndex + 1} / {flowObj.steps.length}
-                  </span>
-                  <div className="guide-dots">
-                    {flowObj.steps.map((s, idx) => (
-                      <button
-                        key={s.id}
-                        type="button"
-                        className={`guide-dot ${idx === stepIndex ? 'active' : idx < stepIndex ? 'done' : ''}`}
-                        onClick={() => {
-                          const targetStep = flowObj.steps[idx];
-                          if (targetStep?.action) dispatchGuideAction(targetStep.action);
-                          setStepIndex(idx);
-                        }}
-                        aria-label={`Go to step ${idx + 1}`}
-                      />
-                    ))}
-                  </div>
-                </div>
-
-                <div className="guide-nav-btns">
-                  <button
-                    type="button"
-                    className="guide-skip-btn"
-                    onClick={closeGuide}
-                  >
-                    Skip
-                  </button>
-                  <Tooltip title="Previous (←)">
-                    <button
-                      type="button"
-                      className="guide-arrow-btn"
-                      onClick={handlePrev}
-                      disabled={stepIndex === 0}
-                      aria-label="Previous step"
-                    >
-                      <ChevronLeft size={15} />
-                    </button>
-                  </Tooltip>
-                  <Tooltip title="Next (→)">
-                    <button
-                      type="button"
-                      className="guide-next-btn"
-                      onClick={handleNext}
-                      aria-label={stepIndex === flowObj.steps.length - 1 ? 'Finish guide' : 'Next step'}
-                    >
-                      <span>
-                        {stepIndex === flowObj.steps.length - 1
-                          ? activeFlow === 'welcome' && !hasSeenFlow(activePage)
-                            ? `${GUIDE_FLOWS[activePage].label} `
-                            : 'Done'
-                          : 'Next'}
-                      </span>
-                      <ChevronRight size={14} />
-                    </button>
-                  </Tooltip>
-                </div>
-              </div>
-            </div>
-          </div>,
-          document.body
-        )}
-    </GuideContext.Provider>
-  );
-};
-
-export function useGuide(): GuideContextValue {
-  const ctx = useContext(GuideContext);
-  if (!ctx) {
-    throw new Error('useGuide must be used within a GuideProvider');
-  }
-  return ctx;
+  const navigate = (direction: number) => {
+    if (!leave(false, steps[stepIndex + direction])) return;
+    if (direction > 0 && stepIndex === steps.length - 1) {
+      if (guestOnly) setBrowserFlag(CONNECT_DISMISSED);
+      else if (activeFlow) void persist(setGuideStatus(readCachedGuides(scope) ?? [], activeFlow, 'completed')).catch(() => {});
+      dismissedPage.current = activePage; stop(true);
+    } else { setPrepared({}); setRect(null); setStepIndex(index => Math.max(0, index + direction)); }
+  };
+  useEffect(() => { if (activeFlow && !paused) return ownEscape(closeGuide, 10); }, [activeFlow, paused, closeGuide]);
+  const width = Math.min(360, viewport.w - 24);
+  const gap = 12;
+  const targetRect = rect;
+  const left = Math.max(viewport.x + 12, Math.min(viewport.x + viewport.w - width - 12, targetRect ? targetRect.left : viewport.x + (viewport.w - width) / 2));
+  let top = targetRect && targetRect.bottom + cardHeight + gap < viewport.y + viewport.h ? targetRect.bottom + gap : targetRect ? targetRect.top - cardHeight - gap : viewport.y + viewport.h - cardHeight - 16;
+  if (targetRect && top < viewport.y + 12 && targetRect.right + width + gap < viewport.x + viewport.w) top = targetRect.top;
+  top = Math.max(viewport.y + 12, Math.min(viewport.y + viewport.h - cardHeight - 12, top));
+  const cardLeft = targetRect && targetRect.right + width + gap < viewport.x + viewport.w && targetRect.height > viewport.h / 2 ? targetRect.right + gap : left;
+  const context = useMemo(() => ({ activeFlow, stepIndex, activePage, startFlow, closeGuide }), [activeFlow, stepIndex, activePage, startFlow, closeGuide]);
+  return <RegistryContext.Provider value={registry}><GuideContext.Provider value={context}>
+    {children}
+    {step && !paused && host && createPortal(<>
+      {rect && <div className="guide-spotlight-ring" aria-hidden style={{ left: rect.x - 4, top: rect.y - 4, width: rect.width + 8, height: rect.height + 8 }} />}
+      <div ref={cardRef} className="guide-card" data-guide-navigation data-guide-step={step.id}
+        role="region" aria-label={`${flow!.label} guide`} style={{ left: cardLeft, top, width, maxHeight: viewport.h - 24 }}
+        onKeyDown={event => {
+          if (event.defaultPrevented || event.nativeEvent.isComposing || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+          if (event.key === 'ArrowRight') { event.preventDefault(); navigate(1); }
+          if (event.key === 'ArrowLeft' && stepIndex) { event.preventDefault(); navigate(-1); }
+        }}>
+        <div className="guide-card-header"><span className="guide-flow-label">{flow!.label}</span>
+          <button className="guide-close-btn" aria-label="Close guide" onClick={closeGuide}><X size={14} /></button></div>
+        <h3 className="guide-card-title">{prepared.title ?? step.title}</h3>
+        <p className="guide-card-desc">{!rect && missing ? prepared.unavailable ?? 'This control is not available in the current view.' : prepared.description ?? step.description}</p>
+        {draftBlocked && <p className="guide-card-desc" role="status">Use this dialog's Save, Done or Cancel action before leaving.</p>}
+        <div className="guide-card-footer"><span className="guide-step-counter">{stepIndex + 1} / {steps.length}</span>
+          <div className="guide-nav-btns"><button type="button" className="guide-skip-btn" onClick={closeGuide}>Skip</button>
+            <button className="guide-arrow-btn" aria-label="Previous step" disabled={!stepIndex} onClick={() => navigate(-1)}><ChevronLeft size={14} /></button>
+            <button className="guide-next-btn" onClick={() => navigate(1)}>{stepIndex === steps.length - 1 ? 'Done' : 'Next'}<ChevronRight size={14} /></button></div></div>
+      </div>
+    </>, host)}
+  </GuideContext.Provider></RegistryContext.Provider>;
+}
+export function useGuide() {
+  const context = useContext(GuideContext);
+  if (!context) throw new Error('useGuide requires GuideProvider');
+  return context;
 }
