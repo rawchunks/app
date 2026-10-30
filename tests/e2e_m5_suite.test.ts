@@ -4,7 +4,7 @@
  */
 
 import { useDawStore } from '../src/lib/daw/store';
-import { parseStrudelPattern, evaluateStrudelPattern } from '../src/lib/daw/strudelEvaluator';
+import { parseStrudelPattern, evaluateStrudelPattern } from '../src/lib/daw/strudel';
 import { extractPeaksFromUrl } from '../src/lib/daw/peaks';
 
 async function runE2ESuite() {
