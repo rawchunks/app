@@ -14,7 +14,8 @@ import { toast } from 'sonner';
 import { Modal } from '../components/modal';
 import { Languages } from '../components/languages';
 import { Tooltip } from '../components/daw/Tooltip';
-import { Mic2, UploadCloud, FileAudio, Play, Pause, Sliders, Globe, Lock } from 'lucide-react';
+import { useDismiss } from '../hooks/use-dismiss';
+import { Mic2, UploadCloud, FileAudio, Play, Pause, Sliders, Globe, Lock, ListMusic, ArrowLeft, FolderOpen } from 'lucide-react';
 import { useOptions } from '@/hooks/use-options';
 import { useVoices, voiceReady, voiceStatus } from '@/hooks/use-voices';
 import {
@@ -73,6 +74,10 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
   const [showNewAlbumModal, setShowNewAlbumModal] = useState(false);
   const [newAlbumTitle, setNewAlbumTitle] = useState('');
   const [creatingAlbum, setCreatingAlbum] = useState(false);
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const modelMenuRef = useRef<HTMLDivElement>(null);
+  useDismiss(modelMenuOpen, () => setModelMenuOpen(false), modelMenuRef);
+  const [tagSearch, setTagSearch] = useState('');
 
   // Accordion sections: primary workspace ('details' | 'params') + compact financials drawer
   const [activeSection, setActiveSection] = useState<'details' | 'params'>('details');
@@ -1106,28 +1111,9 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
       className={`studio-container ${className}`}
       data-pocket={mobilePocket}
     >
-      {/* Mobile Pocket Tab Switcher */}
-      <div className="studio-pocket-bar">
-        <button
-          type="button"
-          className={`studio-pocket-btn ${mobilePocket === 'create' ? 'active' : ''}`}
-          onClick={() => setMobilePocket('create')}
-        >
-          <span>✦ CREATE</span>
-        </button>
-        <button
-          type="button"
-          className={`studio-pocket-btn ${mobilePocket === 'feed' ? 'active' : ''}`}
-          onClick={() => setMobilePocket('feed')}
-        >
-          <span>FEED ({state.tracks.length})</span>
-        </button>
-      </div>
-
       {/* Control Configuration Panel */}
       <div className="studio-panel-config panel">
         <div className="studio-panel-header">
-          <Glitch text="STUDIO_CREATE" />
           <div className="studio-mode-badge-switch" role="group" aria-label="Studio Flow">
             <button
               type="button"
@@ -1143,6 +1129,86 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
             >
               CONTROL
             </button>
+          </div>
+
+          <div className="studio-panel-header-right">
+            <div className="studio-model-dropdown" ref={modelMenuRef}>
+              <button
+                type="button"
+                className={`studio-model-trigger ${model === 'turbo' ? 'mode-fast' : 'mode-master'}`}
+                aria-haspopup="listbox"
+                aria-expanded={modelMenuOpen}
+                onClick={() => setModelMenuOpen((v) => !v)}
+              >
+                <span className="studio-model-trigger-name">
+                  {model === 'turbo' ? 'FAST' : 'MASTER'}
+                </span>
+                <span className="studio-model-trigger-meta">
+                  · {model === 'turbo' ? 5 : 10} CR
+                </span>
+                <span className="studio-model-trigger-caret">▾</span>
+              </button>
+              {modelMenuOpen && (
+                <div
+                  className="studio-dropdown-popover studio-model-popover"
+                  role="listbox"
+                  aria-label="Generation model"
+                >
+                  {(generation?.modes
+                    .slice()
+                    .sort((a, b) => Number(b.id === 'turbo') - Number(a.id === 'turbo')) ?? [
+                      { id: 'turbo' },
+                      { id: 'sft' },
+                    ]).map((mode) => {
+                      const isFast = mode.id === 'turbo';
+                      const isActive = model === mode.id;
+                      return (
+                        <button
+                          key={mode.id}
+                          type="button"
+                          role="option"
+                          aria-selected={isActive}
+                          className={`studio-model-option ${isFast ? 'mode-fast' : 'mode-master'} ${isActive ? 'selected' : ''}`}
+                          onClick={() => {
+                            setModel(mode.id);
+                            setModelMenuOpen(false);
+                          }}
+                        >
+                          <div className="studio-model-option-head">
+                            <span className="studio-model-option-title">
+                              {isFast ? 'FAST' : 'MASTER'}
+                            </span>
+                            {isActive && <span className="studio-model-option-check">✓</span>}
+                          </div>
+                          <span className="studio-model-option-sub">
+                            {isFast
+                              ? 'Fast: ~10 sec generation ° 5 credits'
+                              : 'Master: ~40 sec generation ° 10 credits'}
+                          </span>
+                        </button>
+                      );
+                    })}
+                </div>
+              )}
+            </div>
+
+            <Tooltip
+              title="Variations Feed"
+              description={`${state.tracks.length} generated tracks`}
+              className="studio-pocket-wrap"
+            >
+              <button
+                type="button"
+                className="studio-pocket-toggle"
+                onClick={() => setMobilePocket('feed')}
+                aria-label="Open generated songs feed"
+              >
+                <ListMusic size={14} />
+                {state.tracks.length > 0 && (
+                  <span className="studio-pocket-badge">{state.tracks.length}</span>
+                )}
+              </button>
+            </Tooltip>
           </div>
         </div>
         {options.error && <span role="alert">{options.error.message}</span>}
@@ -1334,7 +1400,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                           <line x1="12" y1="19" x2="12" y2="22" />
                         </svg>
                         <span className="studio-vibe-dropzone-text">
-                          RECORD HUM / VOICE
+                          HUM / SPEAK
                         </span>
                       </button>
                     )}
@@ -1375,49 +1441,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                   <div className="studio-card-body">
                     {/* Aligned Identity Inputs & Avatar Upload Frame */}
                     <div className="studio-identity-grid">
-                      <div className="studio-identity-inputs">
-                        <div className="studio-field-group">
-                          <label className="studio-field-label">
-                            <span>TITLE</span>
-                            <span className="studio-field-optional">OPTIONAL</span>
-                          </label>
-                          <input
-                            type="text"
-                            className="cyber-input-field"
-                            placeholder="Untitled"
-                            value={title}
-                            onChange={(e) => setTitle(e.target.value)}
-                          />
-                        </div>
-
-                        <div className="studio-field-group">
-                          <label className="studio-field-label">
-                            <span>ALBUM</span>
-                            <span className="studio-field-optional">OPTIONAL</span>
-                          </label>
-                          <select
-                            className="cyber-input-field"
-                            value={selectedAlbumId}
-                            onChange={(e) => {
-                              if (e.target.value === '__NEW__') {
-                                setShowNewAlbumModal(true);
-                              } else {
-                                setSelectedAlbumId(e.target.value);
-                              }
-                            }}
-                          >
-                            <option value="">NONE</option>
-                            {albums.map((a) => (
-                              <option key={a.id} value={a.id}>
-                                {a.title}
-                              </option>
-                            ))}
-                            <option value="__NEW__">+ NEW ALBUM...</option>
-                          </select>
-                        </div>
-                      </div>
-
-                      <div className={`studio-avatar-box ${coverUrl ? 'has-image' : ''}`}>
+                      <div className={`studio-avatar-box ${coverUrl ? 'has-image' : ''} ${isGeneratingCover ? 'is-generating' : ''}`}>
                         <input
                           type="file"
                           ref={coverFileInputRef}
@@ -1451,21 +1475,21 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                               </button>
                             </Tooltip>
                             <Tooltip title="Regenerate Cover with AI" className="studio-avatar-sparkle-wrap">
-                            <button
-                              type="button"
-                              className="studio-avatar-sparkle-btn"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleGenerateCover();
-                              }}
-                              disabled={isGeneratingCover || (!prompt.trim() && !lyrics.trim() && !title.trim())}
-                            >
-                              {isGeneratingCover ? '...' : (
-                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                                  <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
-                                </svg>
-                              )}
-                            </button>
+                              <button
+                                type="button"
+                                className="studio-avatar-sparkle-btn"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleGenerateCover();
+                                }}
+                                disabled={isGeneratingCover || (!prompt.trim() && !lyrics.trim() && !title.trim())}
+                              >
+                                {isGeneratingCover ? '...' : (
+                                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
+                                  </svg>
+                                )}
+                              </button>
                             </Tooltip>
                           </>
                         ) : (
@@ -1474,14 +1498,23 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                               className="studio-avatar-upload-trigger"
                               onClick={() => coverFileInputRef.current?.click()}
                             >
-                              <span className="studio-avatar-upload-icon">
-                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#00ccff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                                  <polyline points="17 8 12 3 7 8" />
-                                  <line x1="12" y1="3" x2="12" y2="15" />
-                                </svg>
-                              </span>
-                              <span className="studio-avatar-label">UPLOAD COVER</span>
+                              {isGeneratingCover ? (
+                                <>
+                                  <span className="studio-avatar-spinner" aria-hidden="true" />
+                                  <span className="studio-avatar-label">ART...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <span className="studio-avatar-upload-icon">
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#00ccff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                      <polyline points="17 8 12 3 7 8" />
+                                      <line x1="12" y1="3" x2="12" y2="15" />
+                                    </svg>
+                                  </span>
+                                  <span className="studio-avatar-label">COVER</span>
+                                </>
+                              )}
                             </div>
                             <Tooltip title="Generate Cover with AI" className="studio-avatar-sparkle-wrap">
                               <button
@@ -1819,34 +1852,13 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
           )}
         </div>
 
-        {/* Inner FAST | MASTER selector & Main Action Button */}
+        {/* Main Action Button */}
         <div className="studio-main-action-wrap">
-          <div className="studio-inner-mode-switch" role="group" aria-label="Generation Mode">
-            {(generation?.modes
-              .slice()
-              .sort((a, b) => Number(b.id === 'turbo') - Number(a.id === 'turbo')) ?? [
-                { id: 'turbo' },
-                { id: 'sft' },
-              ]).map((mode) => {
-                const isFast = mode.id === 'turbo';
-                const isActive = model === mode.id;
-                return (
-                  <button
-                    key={mode.id}
-                    type="button"
-                    className={`studio-mode-badge-btn ${isFast ? 'mode-fast' : 'mode-master'} ${isActive ? 'active' : ''}`}
-                    onClick={() => setModel(mode.id)}
-                  >
-                    {isFast ? 'FAST' : 'MASTER'}
-                  </button>
-                );
-              })}
-          </div>
           {studioFlow === 'vibe' ? (
             <Button
               variant="primary"
               size="lg"
-              disabled={isVibing || state.isGenerating || isGeneratingCover || !canSubmitVibe}
+              disabled={isVibing || state.isGenerating || !canSubmitVibe}
               onClick={() => handleVibe()}
               className="studio-generate-btn studio-vibe-btn"
             >
@@ -1856,7 +1868,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
             <Button
               variant="primary"
               size="lg"
-              disabled={state.isGenerating || isGeneratingCover || isVibing || !canSubmitGeneration || !generation || !model}
+              disabled={state.isGenerating || isVibing || !canSubmitGeneration || !generation || !model}
               onClick={() => handleGenerate()}
               className="studio-generate-btn"
             >
@@ -1870,7 +1882,23 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
       <div className="studio-panel-feed panel scrollable">
         <div className="studio-feed-header">
           <Glitch text="VARIATIONS_FEED" />
-          <span className="studio-feed-count">{state.tracks.length} GENERATIONS</span>
+          <div className="studio-feed-header-right">
+            <span className="studio-feed-count">{state.tracks.length} GENERATIONS</span>
+            <Tooltip
+              title="Create Studio"
+              description="Return to generator"
+              className="studio-pocket-wrap"
+            >
+              <button
+                type="button"
+                className="studio-pocket-toggle"
+                onClick={() => setMobilePocket('create')}
+                aria-label="Return to create studio"
+              >
+                <ArrowLeft size={14} />
+              </button>
+            </Tooltip>
+          </div>
         </div>
 
         {state.tracks.length === 0 ? (
