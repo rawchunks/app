@@ -1,4 +1,5 @@
 import { useEffect, useRef, type RefObject } from 'react';
+import { ownEscape } from './dismissal';
 
 export function useDismiss(
   open: boolean,
@@ -13,6 +14,7 @@ export function useDismiss(
     if (!open) return;
     const isInside = (target: HTMLElement | null) => {
       if (!target) return false;
+      if (target.closest('[data-guide-navigation]')) return true;
       if (anchor?.current?.contains(target)) return true;
       if (ignoreSelectors?.some((sel) => target.closest(sel))) return true;
       return false;
@@ -20,14 +22,11 @@ export function useDismiss(
     const onPointerDown = (e: PointerEvent) => {
       if (!isInside(e.target as HTMLElement | null)) closeRef.current();
     };
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') closeRef.current();
-    };
+    const releaseEscape = ownEscape(() => closeRef.current(), 30);
     window.addEventListener('pointerdown', onPointerDown);
-    window.addEventListener('keydown', onKeyDown);
     return () => {
       window.removeEventListener('pointerdown', onPointerDown);
-      window.removeEventListener('keydown', onKeyDown);
+      releaseEscape();
     };
   }, [open, anchor, ignoreSelectors]);
 }
