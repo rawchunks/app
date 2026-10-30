@@ -74,8 +74,9 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
   const [newAlbumTitle, setNewAlbumTitle] = useState('');
   const [creatingAlbum, setCreatingAlbum] = useState(false);
 
-  // Single-expanded accordion section (strictly one open at a time)
-  const [activeSection, setActiveSection] = useState<'details' | 'params' | 'financials'>('details');
+  // Accordion sections: primary workspace ('details' | 'params') + compact financials drawer
+  const [activeSection, setActiveSection] = useState<'details' | 'params'>('details');
+  const [financialsOpen, setFinancialsOpen] = useState(false);
   const [studioFlow, setStudioFlow] = useState<'vibe' | 'control'>('vibe');
   const [isVibing, setIsVibing] = useState(false);
   const [vibeStep, setVibeStep] = useState<string | null>(null);
@@ -112,7 +113,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
       } else if (detail.section === 'params') {
         setActiveSection('params');
       } else if (detail.section === 'financials') {
-        setActiveSection('financials');
+        setFinancialsOpen(true);
       }
     };
     window.addEventListener('rawchunks:guide-action', onGuideAction);
@@ -120,7 +121,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
   }, []);
 
   // Selectable parameters modal state
-  const [activeModal, setActiveModal] = useState<'duration' | 'bpm' | 'key' | 'voice' | 'language' | 'lyrics' | 'cover' | null>(null);
+  const [activeModal, setActiveModal] = useState<'collection' | 'duration' | 'bpm' | 'key' | 'voice' | 'language' | 'lyrics' | 'cover' | 'tags' | null>(null);
   const [audioDurationSeconds, setAudioDurationSeconds] = useState<number | null>(null);
   const [bpm, setBpm] = useState<number | null>(null);
   const [keyScale, setKeyScale] = useState<string>('');
@@ -1502,6 +1503,22 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                           </>
                         )}
                       </div>
+
+                      <div className="studio-identity-inputs">
+                        <div className="studio-field-group">
+                          <label className="studio-field-label">
+                            <span>TITLE</span>
+                            <span className="studio-field-optional">OPTIONAL</span>
+                          </label>
+                          <input
+                            type="text"
+                            className="cyber-input-field"
+                            placeholder="Untitled"
+                            value={title}
+                            onChange={(e) => setTitle(e.target.value)}
+                          />
+                        </div>
+                      </div>
                     </div>
 
                     {/* Prompt Input */}
@@ -1622,7 +1639,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                         <line x1="17" y1="16" x2="23" y2="16" />
                       </svg>
                     </span>
-                    <span className="studio-card-title">GLOBAL PARAMETERS</span>
+                    <span className="studio-card-title">MORE OPTIONS</span>
                     <span className="studio-card-badge">{activeTags.length} TAGS</span>
                   </div>
                   <span className="studio-card-chevron">▲</span>
@@ -1630,33 +1647,41 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
 
                 {activeSection === 'params' && (
                   <div className="studio-card-body">
-                    {/* Tags Selection */}
-                    <div className="studio-field-group">
-                      <label className="studio-field-label">
-                        <span>STYLE TAGS</span>
-                        <span className="studio-field-optional">({activeTags.length}/5 SELECTED)</span>
-                      </label>
-                      <div className="studio-tags-container">
-                        {(options.data?.editing?.promptTags ?? []).map((rawTag) => {
-                          const t = rawTag.toUpperCase();
-                          const isSelected = activeTags.includes(t);
-                          return (
-                            <Badge
-                              key={t}
-                              clickable
-                              active={isSelected}
-                              variant={isSelected ? 'primary' : 'muted'}
-                              onClick={() => toggleTag(t)}
-                            >
-                              {t}
-                            </Badge>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {/* 2x2 Parameter Trigger Cards (Modals) */}
+                    {/* 2x3 Parameter Trigger Cards (Collection + Style Tags + Duration + Tempo + Key + Voice) */}
                     <div className="studio-params-pills-grid">
+                      <button
+                        type="button"
+                        className={`studio-param-pill ${selectedAlbumId ? 'configured' : ''}`}
+                        onClick={() => setActiveModal('collection')}
+                      >
+                        <div className="studio-param-pill-header">
+                          <span className="studio-param-pill-label">COLLECTION</span>
+                          <span className="studio-param-pill-icon">⚙</span>
+                        </div>
+                        <div className="studio-param-pill-val">
+                          {albums.find((a) => a.id === selectedAlbumId)?.title.toUpperCase() ||
+                            'WORKSPACE'}
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        className={`studio-param-pill ${activeTags.length > 0 ? 'configured' : ''}`}
+                        onClick={() => setActiveModal('tags')}
+                      >
+                        <div className="studio-param-pill-header">
+                          <span className="studio-param-pill-label">STYLE TAGS</span>
+                          <span className="studio-param-pill-icon">⚙</span>
+                        </div>
+                        <div className="studio-param-pill-val">
+                          {activeTags.length > 0
+                            ? activeTags.length <= 2
+                              ? activeTags.join(' · ')
+                              : `${activeTags.slice(0, 2).join(' · ')} +${activeTags.length - 2}`
+                            : 'NONE'}
+                        </div>
+                      </button>
+
                       <button
                         type="button"
                         className={`studio-param-pill ${audioDurationSeconds ? 'configured' : ''}`}
@@ -1718,10 +1743,10 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
               </div>
 
               {/* 3. FINANCIALS Section */}
-              <div className={`studio-card-section financials ${activeSection === 'financials' ? 'active' : ''}`}>
+              <div className={`studio-card-section financials ${financialsOpen ? 'active' : ''}`}>
                 <div
                   className="studio-card-header"
-                  onClick={() => setActiveSection('financials')}
+                  onClick={() => setFinancialsOpen((v) => !v)}
                 >
                   <div className="studio-card-header-left">
                     <span className="studio-card-icon">
@@ -1737,12 +1762,12 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                   <span className="studio-card-chevron">▲</span>
                 </div>
 
-                {activeSection === 'financials' && (
+                {financialsOpen && (
                   <div className="studio-card-body">
                     <div className="studio-pricing-grid">
                       <div className="studio-pricing-input-wrap">
                         <label className="studio-field-label">
-                          STREAM ($/MIN)
+                          STREAM ($/M)
                         </label>
                         <input
                           type="number"
@@ -1961,6 +1986,84 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
       </div>
 
 
+
+      {/* Collection Modal */}
+      <Modal
+        isOpen={activeModal === 'collection'}
+        onClose={() => setActiveModal(null)}
+        title="COLLECTION"
+        size="sm"
+      >
+        <div className="studio-param-modal-content">
+          <div className="studio-voice-list">
+            <button
+              type="button"
+              className={`studio-voice-card ${!selectedAlbumId ? 'active' : ''}`}
+              onClick={() => {
+                setSelectedAlbumId('');
+                setActiveModal(null);
+              }}
+            >
+              <div className="studio-voice-card-header">
+                <div className="studio-voice-card-title-wrap">
+                  <FolderOpen size={13} className="studio-voice-card-icon" />
+                  <span className="studio-voice-card-name">WORKSPACE</span>
+                </div>
+                <div className="studio-voice-card-badges">
+                  <Badge variant={!selectedAlbumId ? 'primary' : 'muted'}>DEFAULT</Badge>
+                  {!selectedAlbumId && <span className="studio-voice-card-check">✓</span>}
+                </div>
+              </div>
+            </button>
+
+            {albums.map((a) => {
+              const isSelected = selectedAlbumId === a.id;
+              return (
+                <button
+                  key={a.id}
+                  type="button"
+                  className={`studio-voice-card ${isSelected ? 'active' : ''}`}
+                  onClick={() => {
+                    setSelectedAlbumId(a.id);
+                    setActiveModal(null);
+                  }}
+                >
+                  <div className="studio-voice-card-header">
+                    <div className="studio-voice-card-title-wrap">
+                      <FolderOpen size={13} className="studio-voice-card-icon" />
+                      <span className="studio-voice-card-name">{a.title.toUpperCase()}</span>
+                    </div>
+                    <div className="studio-voice-card-badges">
+                      <Badge variant={isSelected ? 'primary' : 'muted'}>ALBUM</Badge>
+                      {isSelected && <span className="studio-voice-card-check">✓</span>}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="studio-param-actions-row">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                setActiveModal(null);
+                setShowNewAlbumModal(true);
+              }}
+            >
+              + CREATE NEW
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => setActiveModal(null)}
+            >
+              DONE
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       {/* New Album Modal */}
       <Modal
@@ -2869,6 +2972,85 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                 DONE
               </Button>
             </div>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Style Tags Modal */}
+      <Modal
+        isOpen={activeModal === 'tags'}
+        onClose={() => {
+          setActiveModal(null);
+          setTagSearch('');
+        }}
+        title="STYLE TAGS"
+        size="md"
+      >
+        <div className="studio-param-modal-content">
+          <div className="studio-lang-search-wrap">
+            <input
+              type="text"
+              className="cyber-input-field studio-lang-search-input"
+              placeholder="Filter style tags..."
+              value={tagSearch}
+              onChange={(e) => setTagSearch(e.target.value)}
+            />
+            {tagSearch && (
+              <button
+                type="button"
+                className="studio-lang-search-clear"
+                onClick={() => setTagSearch('')}
+                aria-label="Clear tag filter"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+
+          <div className="studio-field-label">
+            <span>SELECTED</span>
+            <span className="studio-highlight">{activeTags.length} / 5</span>
+          </div>
+
+          <div className="studio-tags-modal-grid scrollable">
+            {(options.data?.editing?.promptTags ?? [])
+              .map((rawTag) => rawTag.toUpperCase())
+              .filter((t) => !tagSearch.trim() || t.includes(tagSearch.trim().toUpperCase()))
+              .map((t) => {
+                const isSelected = activeTags.includes(t);
+                return (
+                  <Badge
+                    key={t}
+                    clickable
+                    active={isSelected}
+                    variant={isSelected ? 'primary' : 'muted'}
+                    onClick={() => toggleTag(t)}
+                  >
+                    {t}
+                  </Badge>
+                );
+              })}
+          </div>
+
+          <div className="studio-param-actions-row">
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={activeTags.length === 0}
+              onClick={() => setActiveTags([])}
+            >
+              CLEAR
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => {
+                setActiveModal(null);
+                setTagSearch('');
+              }}
+            >
+              DONE
+            </Button>
           </div>
         </div>
       </Modal>
