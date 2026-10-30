@@ -69,7 +69,54 @@ export interface Song {
   network?: string;
   tx_hash?: string;
   tx_url?: string;
+  plays?: number;
+  last_played_at?: string | null;
   created_at?: string;
+}
+
+export interface Playlist {
+  id: string;
+  title: string;
+  creator: string;
+  description?: string | null;
+  cover?: string | null;
+  song_ids: string[];
+  public: boolean;
+  plays: number;
+  created_at: string;
+  updated_at: string;
+  songs?: Song[];
+}
+
+export interface Fold {
+  key: string;
+  label: string;
+  total: number;
+  songs: Song[];
+}
+
+export interface Folds {
+  generatedAt: string;
+  foldLimit: number;
+  newReleases: {
+    total: number;
+    lastHourCount: number;
+    songs: Song[];
+  };
+  popular: {
+    total: number;
+    songs: Song[];
+  };
+  genres: Fold[];
+  creators: Fold[];
+}
+
+export interface Page {
+  items: Song[];
+  total: number;
+  limit: number;
+  offset: number;
+  hasMore: boolean;
 }
 
 export interface Album {
