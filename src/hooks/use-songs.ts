@@ -48,4 +48,39 @@ export interface PaginatedSongsOptions {
   refetchIntervalMs?: number | false;
 }
 
+export function usePaginatedSongs(options: PaginatedSongsOptions = {}) {
+  const {
+    sort = 'new',
+    limit = 20,
+    offset = 0,
+    creator,
+    genre,
+    search,
+    sinceMinutes,
+    enabled = true,
+    refetchIntervalMs = false,
+  } = options;
 
+  return useQuery({
+    queryKey: ['songs', 'paginated', { sort, limit, offset, creator, genre, search, sinceMinutes }],
+    enabled,
+    refetchInterval: refetchIntervalMs,
+    queryFn: async ({ signal }): Promise<Page> => {
+      const params = new URLSearchParams();
+      params.set('paginated', 'true');
+      params.set('sort', sort);
+      params.set('limit', String(limit));
+      params.set('offset', String(offset));
+      if (creator && creator !== 'all') params.set('creator', creator);
+      if (genre && genre !== 'all') params.set('genre', genre);
+      if (search && search.trim()) params.set('search', search.trim());
+      if (sinceMinutes && sinceMinutes > 0) params.set('sinceMinutes', String(sinceMinutes));
+
+      const response = await sdk.fetch(`/api/songs?${params.toString()}`, { signal });
+      if (!response.ok) throw new Error('Could not query public songs');
+      return await response.json();
+    },
+    staleTime: 15_000,
+    retry: false,
+  });
+}
