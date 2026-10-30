@@ -198,6 +198,27 @@ class Store {
     } catch {}
   }
 
+  private async recordSongPlay(songId: string) {
+    if (!songId) return;
+    try {
+      const effectiveUserAddress =
+        this.state.userAddress || this.state.evmAddress || this.state.svmAddress || sdk.wallets.current()?.address || '';
+      const res = await sdk.fetch(`/api/songs/${songId}/play`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(effectiveUserAddress ? { 'x-user-address': effectiveUserAddress } : {}),
+        },
+      });
+      if (res.ok) {
+        const data = await res.json().catch(() => null);
+        if (data && typeof data.plays === 'number') {
+          this.updateSong(songId, { plays: data.plays, last_played_at: data.last_played_at });
+        }
+      }
+    } catch {}
+  }
+
   private async reportStreamCheckpoint(isTerminal = false) {
     if (this.isExemptCreator || !this.currentPaymentIntentId || !this.authorizedSongId) {
       return;
@@ -238,7 +259,7 @@ class Store {
   }
 
   private resumeAfterGate(options: GateOptions): void {
-    void openGate(options).then(ready => {
+    void openGate(options).then((ready) => {
       if (!ready || this.streamResumeArmed) return;
       this.streamResumeArmed = true;
       void this.setPlaying(true).finally(() => {
@@ -872,6 +893,67 @@ class Store {
     return false;
   }
 
+  private async authorizeStreamInBackground(song: Song, requestId: number): Promise<void> {
+    const targetSongId = song.id;
+    const effectiveUserAddress =
+      this.state.userAddress ||
+      this.state.evmAddress ||
+      this.state.svmAddress ||
+      sdk.wallets.current()?.address ||
+      '';
+
+    try {
+      const response = await sdk.fetch(`/api/songs/${song.id}/stream`, {
+        userAddress: effectiveUserAddress || undefined,
+        headers: {
+          Accept: 'application/json',
+          ...(effectiveUserAddress ? { 'x-session-user-address': effectiveUserAddress } : {}),
+        },
+      });
+
+      if (requestId !== this.playRequestId || this.state.activeSong?.id !== targetSongId) {
+        return;
+      }
+
+      if (response.status === 402) {
+        audio.stopImmediate();
+        bus.release('player');
+        this.authorizedSongId = null;
+        this.state = { ...this.state, isPlaying: false, playhead: 0 };
+        this.notify();
+        bus.broadcastPlayback(song, 0, this.state.duration, false);
+        this.resumeAfterGate({
+          steps: ['login', 'funding'],
+          reason: 'Session budget exhausted',
+          force: true,
+        });
+        return;
+      }
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        toast.error(errData.error || `Stream authorization failed (${response.status})`);
+        audio.stopImmediate();
+        bus.release('player');
+        this.authorizedSongId = null;
+        this.state = { ...this.state, isPlaying: false, playhead: 0 };
+        this.notify();
+        bus.broadcastPlayback(song, 0, this.state.duration, false);
+        return;
+      }
+
+      const data = await response.json();
+      if (requestId !== this.playRequestId || this.state.activeSong?.id !== targetSongId) {
+        return;
+      }
+
+      this.isExemptCreator = Boolean(data.isCreator);
+      this.currentPaymentIntentId = data.paymentIntentId || null;
+    } catch {
+      // Background payment-intent attachment failure should not interrupt active playback if budget was pre-verified
+    }
+  }
+
   public async setPlaying(isPlaying: boolean): Promise<boolean> {
     if (!isPlaying) {
       this.playRequestId++;
@@ -890,29 +972,18 @@ class Store {
       return false;
     }
 
+    const allowOverlap = this.pendingAutoAdvanceOverlap;
+    this.pendingAutoAdvanceOverlap = false;
+
     const isCreator = this.isCreatorOfSong(song);
 
+    // Resuming the already-loaded active song from its current playhead
     if (this.authorizedSongId === song.id && audio.hasSource()) {
       bus.request('player');
       this.state = { ...this.state, isPlaying: true };
       this.lastPlayhead = this.state.playhead || 0;
       audio.play(this.state.playhead, this.state.duration);
-      this.notify();
-      bus.broadcastPlayback(song, this.state.playhead, this.state.duration, true);
-      return true;
-    }
-
-    if (isCreator && song.url && !song.url.endsWith('/stream')) {
-      this.authorizedSongId = song.id;
-      this.isExemptCreator = true;
-      this.currentPaymentIntentId = null;
-      this.accumulatedListenedSeconds = 0;
-      this.lastReportedSeconds = 0;
-      this.lastPlayhead = this.state.playhead || 0;
-      audio.load(song.url);
-      bus.request('player');
-      this.state = { ...this.state, isPlaying: true };
-      audio.play(this.state.playhead, this.state.duration);
+      this.preloadUpcomingTrack();
       this.notify();
       bus.broadcastPlayback(song, this.state.playhead, this.state.duration, true);
       return true;
@@ -932,15 +1003,48 @@ class Store {
       return false;
     }
 
+    // New track start: always start from 0:00 unless user explicitly dragged the scrubber while paused
+    const startOffset = this.userSeekedWhilePaused ? this.state.playhead : 0;
+    this.userSeekedWhilePaused = false;
+
     const requestId = ++this.playRequestId;
+
+    // Zero-latency direct CDN start when song.url is present
+    if (song.url && !song.url.endsWith('/stream')) {
+      this.authorizedSongId = song.id;
+      this.isExemptCreator = isCreator;
+      this.currentPaymentIntentId = null;
+      this.accumulatedListenedSeconds = 0;
+      this.lastReportedSeconds = 0;
+      this.lastPlayhead = startOffset;
+
+      audio.load(song.url, allowOverlap);
+      bus.request('player');
+      this.state = { ...this.state, playhead: startOffset, isPlaying: true };
+      audio.play(startOffset, this.state.duration);
+      this.preloadUpcomingTrack();
+      this.notify();
+      bus.broadcastPlayback(song, startOffset, this.state.duration, true);
+
+      if (!isCreator) {
+        void this.authorizeStreamInBackground(song, requestId);
+      }
+      return true;
+    }
+
     const targetSongId = song.id;
-    const effectiveUserAddress = this.state.userAddress || this.state.evmAddress || this.state.svmAddress || sdk.wallets.current()?.address || '';
+    const effectiveUserAddress =
+      this.state.userAddress ||
+      this.state.evmAddress ||
+      this.state.svmAddress ||
+      sdk.wallets.current()?.address ||
+      '';
 
     try {
       const response = await sdk.fetch(`/api/songs/${song.id}/stream`, {
         userAddress: effectiveUserAddress || undefined,
         headers: {
-          'Accept': 'application/json',
+          Accept: 'application/json',
           ...(effectiveUserAddress ? { 'x-session-user-address': effectiveUserAddress } : {}),
         },
       });
@@ -950,7 +1054,7 @@ class Store {
       }
 
       if (response.status === 402) {
-        this.state = { ...this.state, isPlaying: false };
+        this.state = { ...this.state, isPlaying: false, playhead: 0 };
         this.notify();
         this.resumeAfterGate({ steps: ['login', 'funding'], reason: 'Session budget exhausted', force: true });
         return false;
@@ -959,7 +1063,7 @@ class Store {
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
         toast.error(errData.error || `Stream authorization failed (${response.status})`);
-        this.state = { ...this.state, isPlaying: false };
+        this.state = { ...this.state, isPlaying: false, playhead: 0 };
         this.notify();
         return false;
       }
@@ -970,7 +1074,7 @@ class Store {
       }
       if (!data.url) {
         toast.error('Audio stream URL not returned by server');
-        this.state = { ...this.state, isPlaying: false };
+        this.state = { ...this.state, isPlaying: false, playhead: 0 };
         this.notify();
         return false;
       }
@@ -980,25 +1084,27 @@ class Store {
       this.currentPaymentIntentId = data.paymentIntentId || null;
       this.accumulatedListenedSeconds = 0;
       this.lastReportedSeconds = 0;
-      this.lastPlayhead = this.state.playhead || 0;
+      this.lastPlayhead = startOffset;
 
-      audio.load(data.url);
+      audio.load(data.url, allowOverlap);
       bus.request('player');
-      this.state = { ...this.state, isPlaying: true };
-      audio.play(this.state.playhead, this.state.duration);
+      this.state = { ...this.state, playhead: startOffset, isPlaying: true };
+      audio.play(startOffset, this.state.duration);
+      this.preloadUpcomingTrack();
       this.notify();
-      bus.broadcastPlayback(song, this.state.playhead, this.state.duration, true);
+      bus.broadcastPlayback(song, startOffset, this.state.duration, true);
       return true;
     } catch (err: any) {
       if (requestId !== this.playRequestId) return false;
       toast.error(err?.message || 'Failed to authorize stream playback');
-      this.state = { ...this.state, isPlaying: false };
+      this.state = { ...this.state, isPlaying: false, playhead: 0 };
       this.notify();
       return false;
     }
   }
 
   public setPlayhead(time: number) {
+    this.userSeekedWhilePaused = !this.state.isPlaying && time > 0;
     this.state = { ...this.state, playhead: time };
     audio.seek(time);
     this.lastPlayhead = time;
