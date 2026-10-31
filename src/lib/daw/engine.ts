@@ -1525,9 +1525,10 @@ class DAWEngine {
    */
   public scheduleSequencer(track: DAWTrack) {
     if (!this.isToneReady) return;
+    const transport = Tone.getTransport();
     const existingScheduleId = this.sequencerScheduleIds.get(track.id);
     if (existingScheduleId !== undefined) {
-      Tone.getTransport().clear(existingScheduleId);
+      transport.clear(existingScheduleId);
       this.sequencerScheduleIds.delete(track.id);
     }
 
@@ -1537,9 +1538,9 @@ class DAWEngine {
     const voices = track.sequencerVoices;
     const trackNode = this.getOrCreateTrackNodes(track);
 
-    const scheduleId = Tone.getTransport().scheduleRepeat((time) => {
-      const ticks = Tone.getTransport().getTicksAtTime(time);
-      const step = Math.floor(ticks / (Tone.getTransport().PPQ / BEAT_STEPS)) % DRUM_STEPS;
+    const scheduleId = transport.scheduleRepeat((time) => {
+      const ticks = transport.getTicksAtTime(time);
+      const step = Math.floor(ticks / (transport.PPQ / BEAT_STEPS)) % DRUM_STEPS;
       if (!this.offline) Tone.getDraw().schedule(() => {
         if (this.onStepCallback) {
           this.onStepCallback(step);
@@ -1762,13 +1763,16 @@ class DAWEngine {
 
   public schedulePiano(track: DAWTrack) {
     if (!this.isToneReady) return;
-    for (const id of this.pianoScheduleIds.get(track.id) ?? []) Tone.getTransport().clear(id);
+    const transport = Tone.getTransport();
+    for (const id of this.pianoScheduleIds.get(track.id) ?? []) transport.clear(id);
     this.pianoScheduleIds.delete(track.id);
     if (!track.pianoRollNotes?.length) return;
     const nodes = this.getOrCreateTrackNodes(track);
-    const schedules = track.pianoRollNotes.map(note => Tone.getTransport().scheduleRepeat(time => {
-      nodes.polySynth?.triggerAttackRelease(note.pitch, Tone.Time(note.duration * Tone.getTransport().PPQ / BEAT_STEPS, 'i').toSeconds(), time, note.velocity);
-    }, '2m', `${note.startTime * Tone.getTransport().PPQ / BEAT_STEPS}i`));
+    const ppq = transport.PPQ;
+    const schedules = track.pianoRollNotes.map(note => transport.scheduleRepeat(time => {
+      const durSec = ((note.duration * ppq) / BEAT_STEPS / ppq) * (60 / (Number(transport.bpm?.value) || 120));
+      nodes.polySynth?.triggerAttackRelease(note.pitch, Math.max(0.05, durSec), time, note.velocity);
+    }, '2m', `${note.startTime * ppq / BEAT_STEPS}i`));
     this.pianoScheduleIds.set(track.id, schedules);
   }
 
@@ -1806,10 +1810,16 @@ class DAWEngine {
     try {
       Tone.setContext(context);
       context.transport.bpm.value = state.bpm;
+      if (commit && !tracks.some(t => t.id === 'master')) {
+        const masterBusNodes = engine.getOrCreateTrackNodes('master');
+        masterBusNodes.volume.mute = false;
+        masterBusNodes.input.disconnect();
+        masterBusNodes.input.toDestination();
+      }
       for (const track of tracks) {
         const nodes = engine.getOrCreateTrackNodes(track);
         engine.updateTrackFx(track.id, track.fx);
-        nodes.volume.mute = track.id === 'master' ? false : (track.muted || (solo && !track.solo));
+        nodes.volume.mute = (track.id === 'master' || commit) ? false : (track.muted || (solo && !track.solo));
         if (commit && track.id === 'master') {
           nodes.input.disconnect();
           nodes.input.toDestination();
@@ -1863,13 +1873,13 @@ class DAWEngine {
             const player = new Tone.Player(effectiveBuf);
             player.connect(nodes.source ?? nodes.input);
             nodes.players.set(clip.id, player);
-            player.sync().start(clip.startTime, clip.offset, clip.duration);
+            const effectiveOffset = engine.resolveClipOffset(effectiveBuf?.duration ?? 0, clip.offset, clip.duration);
+            player.sync().start(clip.startTime, effectiveOffset, clip.duration);
           }
         }
         engine.scheduleTrack(track);
       }
       context.transport.start(0);
-      Tone.setContext(original);
       await Promise.all([...engine.trackNodes.values()].map(nodes => nodes.reverb?.ready));
       const result = await context.render();
       const startSample = startTime > 0 ? Math.max(0, Math.min(result.length, Math.round(startTime * result.sampleRate))) : 0;
@@ -1881,7 +1891,7 @@ class DAWEngine {
       if (!channels.some(channel => channel.some(value => Math.abs(value) > 0))) throw new Error('Selected reference lanes contain no audible sound');
       return this.encodeWavBlob(channels, result.sampleRate, numSamples, commit);
     } finally {
-      for (const track of tracks) engine.disposeTrack(track.id, context.transport);
+      for (const id of [...engine.trackNodes.keys()]) engine.disposeTrack(id, context.transport);
       engine.masterCompressor?.dispose();
       engine.masterLimiter?.dispose();
       Tone.setContext(original);
