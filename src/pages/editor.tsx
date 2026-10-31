@@ -342,19 +342,6 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
     return 'toolbox';
   });
 
-  // Sync with interactive Guide steps on /editor
-  useEffect(() => {
-    const onGuideAction = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (!detail || detail.type !== 'editor-focus') return;
-      if (detail.editorFocus === 'studio' || detail.editorFocus === 'toolbox') {
-        setMobileFocus(detail.editorFocus);
-      }
-    };
-    window.addEventListener('rawchunks:guide-action', onGuideAction);
-    return () => window.removeEventListener('rawchunks:guide-action', onGuideAction);
-  }, []);
-
   // Client-side Undo / Redo History Stack
   const historyRef = useRef<{
     past: Array<{ tracks: ReturnType<typeof useDawStore.getState>['tracks']; bpm: number; originals: ReturnType<typeof useDawStore.getState>['originals'] }>;
@@ -781,8 +768,22 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
       dawEngine.pauseTransport();
       setPlaying(false);
     } else {
-      try { await dawEngine.startTransport(); }
-      catch (error) { toast.error(error instanceof Error ? error.message : 'Could not play the arrangement'); }
+      try {
+        const state = useDawStore.getState();
+        const selId = state.selectedTrackId;
+        const isLaneSelected = Boolean(
+          selId &&
+          selId !== 'master' &&
+          state.tracks.some((t) => t.id === selId && !t.activeTakeId)
+        );
+        if (isLaneSelected && selId) {
+          dawEngine.auditionTrack(selId);
+        } else {
+          await dawEngine.startTransport();
+        }
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Could not play the arrangement');
+      }
     }
   };
 
