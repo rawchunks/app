@@ -1,3 +1,4 @@
+import { useGuideOwner } from '../guide/owners';
 import React, { useState, useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 import { useDawStore, DAWTrack } from '../../lib/daw/store';
@@ -13,6 +14,7 @@ import { Tooltip } from './Tooltip';
 import { Terminal, Play, Trash2, Plus, Maximize2, Sparkles } from 'lucide-react';
 
 interface StrudelProps {
+  active?: boolean;
   track?: DAWTrack;
 }
 
@@ -22,7 +24,7 @@ const STRUDEL_STARTERS: { label: string; code: string }[] = [
   { label: 'ACID', code: "note('<[c2 [c2 g2] eb2 [f2 bb1]] [ab1 [ab1 eb2] f2 [g2 d2]]>').s('sawtooth').lpf(900).delay(0.2)" },
 ];
 
-export const Strudel: React.FC<StrudelProps> = ({ track }) => {
+export const Strudel: React.FC<StrudelProps> = ({ track, active = true }) => {
   const tracks = useDawStore((s) => s.tracks);
   const selectedTrackId = useDawStore((s) => s.selectedTrackId);
   const addTrack = useDawStore((s) => s.addTrack);
@@ -108,12 +110,26 @@ export const Strudel: React.FC<StrudelProps> = ({ track }) => {
     }
   }, [strudelTrack?.id, strudelTrack?.activeVersionId, strudelTrack?.strudelCode]);
 
+  const guideTrackRef = useRef(strudelTrack?.id); guideTrackRef.current = strudelTrack?.id;
+  const guideOpenRef = useRef(isModalOpen); guideOpenRef.current = isModalOpen;
+  useGuideOwner({ id: 'code', scope: useDawStore.getState().songId ?? 'loading', handles: step => active && step.owner === 'code', prepare: ({ step, bind }) => {
+    if (!strudelTrack) return { retry: () => !!guideTrackRef.current, target: 'code.create', description: 'Create a Code track to write a pattern.' };
+    const lane = bind('code-lane', strudelTrack.id);
+    if (lane !== strudelTrack.id) return { unavailable: 'The selected lane changed. Reopen this guide from the lane you want.' };
+    const wasOpen = bind('code-was-open', isModalOpen ? 'yes' : 'no');
+    const wantsOpen = ["N1", "N2", "N3", "N4", "N5", "N6", "N7"].includes(step.id);
+    setIsModalOpen(wantsOpen);
+    if (step.id === 'N4') setFocusPane('prompt');
+    return { leave: next => { if (next?.owner === 'code') return; if (wasOpen === 'no' && guideOpenRef.current === wantsOpen) setIsModalOpen(false); },
+      focus: step.id === 'N1' ? 'textarea' : undefined };
+  } });
+
   if (!strudelTrack) {
     return (
       <div className="strudel-wrap">
         <div className="strudel-empty-card">
           <Terminal size={20} className="strudel-empty-icon" />
-          <Button
+          <Button data-guide="code.create"
             size="sm"
             variant="default"
             onClick={() => {
@@ -352,7 +368,7 @@ export const Strudel: React.FC<StrudelProps> = ({ track }) => {
   const renderToolbar = (inModal = false) => (
     <div className="strudel-toolbar daw-ui-toolbar">
       <div className="strudel-meta">
-        <div className="synth-version-pills">
+        <div data-guide="code.versions" className="synth-version-pills">
           {versions.map((ver) => (
             <Tooltip key={ver.id} title={`Code Version #${ver.number}`}>
               <button
@@ -379,7 +395,7 @@ export const Strudel: React.FC<StrudelProps> = ({ track }) => {
           {hasError ? 'ERROR' : isRunning && isPlaying ? 'PLAYING' : 'READY'}
         </Badge>
         {inModal && (
-          <div className="strudel-starters-group">
+          <div data-guide="code.starters" className="strudel-starters-group">
             {STRUDEL_STARTERS.map((preset) => (
               <Tooltip key={preset.label} title={`Load & evaluate ${preset.label}`}>
                 <button
@@ -408,7 +424,7 @@ export const Strudel: React.FC<StrudelProps> = ({ track }) => {
               className="toolbox-select-compact daw-ui-btn strudel-ref-select"
               value={refTrackId}
               onChange={(e) => setRefTrackId(e.target.value)}
-              aria-label="Reference track for AI Strudel context"
+              data-guide="code.reference" aria-label="Reference track for AI Strudel context"
               disabled={isGenerating}
             >
               <option value="auto">REF: AUTO</option>
@@ -425,7 +441,7 @@ export const Strudel: React.FC<StrudelProps> = ({ track }) => {
           <Button
             size="sm"
             variant="default"
-            className="strudel-action-btn daw-ui-btn run"
+            data-guide="code.run" className="strudel-action-btn daw-ui-btn run"
             onClick={() => handleEvaluate()}
           >
             <Play size={11} />
@@ -510,7 +526,7 @@ export const Strudel: React.FC<StrudelProps> = ({ track }) => {
             data-expanded={focusPane === 'prompt' ? 'true' : 'false'}
           >
             <textarea
-              className="toolbox-text-input strudel-prompt-textarea"
+              data-guide="code.ai-prompt" className="toolbox-text-input strudel-prompt-textarea"
               rows={focusPane === 'prompt' ? 3 : 2}
               value={aiPrompt}
               onChange={(e) => setAiPrompt(e.target.value)}
@@ -574,7 +590,7 @@ export const Strudel: React.FC<StrudelProps> = ({ track }) => {
 
       {/* Expanded Full-Featured Strudel Code REPL + Console Modal */}
       <Modal
-        isOpen={isModalOpen}
+        guideOwner="code" guideAnchor="code.repl" isOpen={isModalOpen && active}
         onClose={() => setIsModalOpen(false)}
         title={`STRUDEL REPL • ${strudelTrack.name.toUpperCase()}`}
         size="lg"
@@ -583,7 +599,7 @@ export const Strudel: React.FC<StrudelProps> = ({ track }) => {
           {renderToolbar(true)}
 
           {/* Bi-directional Live Macro Sliders */}
-          <div className="strudel-macro-row">
+          <div data-guide="code.macros" className="strudel-macro-row">
             <Slider
               label="SPEED"
               min={0.25}
@@ -630,7 +646,7 @@ export const Strudel: React.FC<StrudelProps> = ({ track }) => {
           {renderSplitWorkspace(true)}
 
           {/* Console Terminal Log */}
-          <div className="strudel-console">
+          <div data-guide="code.log" role="log" aria-label="Composer log" className="strudel-console">
             <div className="strudel-console-header">
               <span className="strudel-console-title">LOG</span>
             </div>

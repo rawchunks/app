@@ -1,3 +1,4 @@
+import { useGuideOwner } from '../guide/owners';
 import React, { useState, useRef, useEffect } from 'react';
 import { toast } from 'sonner';
 import { useDawStore, DAWClip } from '../../lib/daw/store';
@@ -9,10 +10,11 @@ import { Tooltip } from './Tooltip';
 import { Upload, Play, Pause, Plus, Mic, Square, RefreshCw } from 'lucide-react';
 
 interface SamplerProps {
+  active?: boolean;
   onImportComplete?: (trackId: string) => void;
 }
 
-export const Sampler: React.FC<SamplerProps> = ({ onImportComplete }) => {
+export const Sampler: React.FC<SamplerProps> = ({ onImportComplete, active = true }) => {
   const { songId, addTrack, addClip, isPlaying } = useDawStore();
   const [isDragging, setIsDragging] = useState(false);
   const [audioBuffer, setAudioBuffer] = useState<AudioBuffer | null>(null);
@@ -29,6 +31,10 @@ export const Sampler: React.FC<SamplerProps> = ({ onImportComplete }) => {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   useEffect(() => () => { if (fileUrl) URL.revokeObjectURL(fileUrl); }, [fileUrl]);
+
+  const guideBufferRef = useRef(audioBuffer); guideBufferRef.current = audioBuffer;
+  useGuideOwner({ id: 'sample', scope: songId ?? 'loading', handles: step => active && step.owner === 'sample', prepare: ({ step }) =>
+    !audioBuffer && step.id !== 'Q1' ? { retry: () => !!guideBufferRef.current, target: 'sample.source', description: 'Add audio before choosing a slice or importing it.' } : {} });
 
   const handleFileProcess = async (file: File | Blob, customName?: string) => {
     dawEngine.stopAuditionTake();
@@ -167,7 +173,7 @@ export const Sampler: React.FC<SamplerProps> = ({ onImportComplete }) => {
               <select
                 className="toolbox-text-input toolbox-select-compact"
                 aria-label="Slice count"
-                value={numSlices}
+                data-guide="sample.slices" value={numSlices}
                 onChange={(e) => {
                   setNumSlices(parseInt(e.target.value, 10));
                   setActiveSlice(null);
@@ -211,7 +217,7 @@ export const Sampler: React.FC<SamplerProps> = ({ onImportComplete }) => {
             <Button
               size="sm"
               variant={isRecording ? 'destructive' : 'outline'}
-              onClick={handleToggleVoiceRecord}
+              data-guide="sample.record" onClick={handleToggleVoiceRecord}
             >
               {isRecording ? <Square size={12} /> : <Mic size={12} color="#ff0055" />}
               <span className="daw-btn-label">{isRecording ? 'STOP' : 'RECORD'}</span>
@@ -220,7 +226,7 @@ export const Sampler: React.FC<SamplerProps> = ({ onImportComplete }) => {
 
           {audioBuffer && (
             <Tooltip title="Import Sample into DAW Workstation">
-              <Button size="sm" variant="default" onClick={handleImportToDaw} disabled={importing}>
+              <Button size="sm" variant="default" data-guide="sample.import" onClick={handleImportToDaw} disabled={importing}>
                 <Plus size={12} />
                 <span className="daw-btn-label">IMPORT</span>
               </Button>
@@ -235,7 +241,7 @@ export const Sampler: React.FC<SamplerProps> = ({ onImportComplete }) => {
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onClick={() => fileInputRef.current?.click()}
-          className={`sample-dropzone ${isDragging ? 'active' : ''}`}
+          data-guide="sample.source" role="button" tabIndex={0} aria-label="Upload sample" onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); fileInputRef.current?.click(); } }} className={`sample-dropzone ${isDragging ? 'active' : ''}`}
         >
           <Upload size={28} color={isDragging ? '#00ffff' : '#71717a'} className="sample-dropzone-icon" />
           <p className="sample-dropzone-title">
