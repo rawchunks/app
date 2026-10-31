@@ -2897,6 +2897,63 @@ export const Board: React.FC<BoardProps> = ({
     );
   };
 
+  const guideView = { masterExpanded, isCanvasOpen, isAddMenuOpen, isVaultOpen, guideDisplayId, guideTakeId };
+  const guideViewRef = useRef(guideView); guideViewRef.current = guideView;
+  const guideLanesRef = useRef({ tracks, takes }); guideLanesRef.current = { tracks, takes };
+  useGuideOwner({
+    id: 'board', scope: guideProjectId ?? 'loading', handles: step => step.owner === 'board' || ['E2', 'E3', 'E6', 'H1', 'I3'].includes(step.id),
+    prepare: ({ step, bind }) => {
+      const takeId = bind('take', activeExtractedTake?.id ?? allExtractedTakes[0]?.id);
+      const isNativeStemLane = (t: (typeof tracks)[number]) =>
+        t.type === 'stem' && t.hasOriginalStem !== false && !t.id.startsWith('layer-');
+      const canLaneMerge = (t: (typeof tracks)[number]) =>
+        !isNativeStemLane(t) || Boolean(t.activeVersionTakeId && t.activeVersionTakeId !== 'ORG');
+      const preferredLane =
+        step.id === 'T6'
+          ? (selectedTrackId !== 'master'
+            ? tracks.find((track) => track.id === selectedTrackId && canLaneMerge(track))
+            : undefined) ??
+          tracks.find((track) => track.id !== 'master' && canLaneMerge(track))
+          : (selectedTrackId !== 'master' && tracks.some((track) => track.id === selectedTrackId)
+            ? tracks.find((track) => track.id === selectedTrackId)
+            : undefined) ??
+          tracks.find((track) => track.id !== 'master' && track.clips.length);
+      const laneId = bind('lane', preferredLane?.id);
+      const lane = tracks.find(track => track.id === laneId);
+      const patch: Partial<typeof guideView> = { isAddMenuOpen: step.id === 'E3', isVaultOpen: step.id === 'T1' && vaultMatrixEntries.length > 0 };
+      if (['E2', 'T1', 'T2', 'T4', 'T7', 'T8', 'I9'].includes(step.id)) { patch.guideDisplayId = 'master'; patch.masterExpanded = true; }
+      if (['T1', 'T2', 'T4'].includes(step.id) && takeId) patch.guideTakeId = takeId;
+      if (['T5', 'T6'].includes(step.id) && lane) patch.guideDisplayId = lane.id;
+      if (step.id === 'I10') patch.isCanvasOpen = true;
+      const result = prepareViews(guideView, () => guideViewRef.current, { masterExpanded: setMasterExpanded, isCanvasOpen: setIsCanvasOpen, isAddMenuOpen: setIsAddMenuOpen, isVaultOpen: setIsVaultOpen, guideDisplayId: setGuideDisplayId, guideTakeId: setGuideTakeId }, patch);
+      if (['T1', 'T2', 'T4'].includes(step.id) && !takeId) return { ...result, target: 'board.takes-status', description: 'AI edits appear here when they finish.' };
+      if (step.id === 'R2' && selection || step.id === 'R3' && !selection || step.id === 'I3' && !selection) return { ...result, target: selection ? 'board.selection-actions' : 'board.section', description: selection ? 'A section is selected. Use its handles and actions here.' : 'Use SECTION to select a range, then open its actions.' };
+      if (step.id === 'R5' && sculptMode !== 'curve') return { ...result, target: 'board.sculpt-mode', description: 'Choose Smooth to use the fade handles.' };
+      if (step.id === 'I9' && hasExtractedStems) return { ...result, target: 'board.stems', focus: 'self', description: 'Your separated stems are here. Select one to work on it.' };
+      if (step.id === 'T5' && lane) {
+        const layers = takes.filter(take => isLayerTake(take) && !take.is_active && !take.provenance?.mergedInto && (layerTrackName(take) ?? 'other') === (lane.layerName || lane.name).toLowerCase().replace(/\s+/g, '_'));
+        if (!layers.length) return { ...result, target: 'board.stems', focus: 'self', description: 'Generate a Layer take for this lane to reveal its layer controls.' };
+        if (!layers.some(take => take.id === lane.activeVersionTakeId)) return {
+          ...result, target: 'board.layer-versions', entity: lane.id,
+          description: 'Choose a Layer version to reveal its Merge control.',
+          retry: () => layers.some(take => take.id === guideLanesRef.current.tracks.find(track => track.id === lane.id)?.activeVersionTakeId)
+        };
+      }
+      if (step.id === 'T6' && lane && takes.some(take => take.id === lane.activeVersionTakeId && isLayerTake(take) && !take.is_active && !take.provenance?.mergedInto)) return {
+        ...result, target: 'board.layer-merge', entity: lane.id,
+        description: 'Merge this Layer into its lane before merging the lane into Master.',
+        retry: () => !guideLanesRef.current.tracks.find(track => track.id === lane.id)?.activeVersionTakeId,
+      };
+      if (step.id === 'T6' && (!lane || !canLaneMerge(lane))) return { ...result, target: 'board.stems', description: 'Select an added lane to use its Merge into Master control.' };
+      if (['T5', 'T6'].includes(step.id) && !lane) return { ...result, target: 'board.stems', description: 'Select a populated lane to use its Merge control.' };
+      if (step.id === 'T8' && (!masterTrack?.activeVersionTakeId || masterTrack.activeVersionTakeId === 'MST')) return { ...result, target: 'board.master-focus', description: 'Restyle controls appear when a Restyle version is active on Master.' };
+      return {
+        ...result, target: step.id === 'T1' ? 'board.take-display' : step.id === 'R5' ? 'board.waveform' : undefined, entity: ['T1', 'T2', 'T4'].includes(step.id) ? takeId : ['T5', 'T6'].includes(step.id) ? laneId : undefined,
+        focus: step.id === 'H1' ? canUndo || canRedo ? 'button:not(:disabled)' : 'self' : step.id === 'T2' ? '[aria-label^="Original audio for Take"]' : undefined
+      };
+    },
+  });
+
   return (
     <div className="board-container">
       {/* Unified DAW Board Viewport + Foldable Right Canvas */}
