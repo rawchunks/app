@@ -187,7 +187,7 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="EDIT SONG DETAILS" size="md">
+    <Modal guideOwner="song-details" guideAnchor="song-details.form" guideDraft guideEntity={song?.id} isOpen={isOpen} onClose={onClose} title="EDIT SONG DETAILS" size="md">
       <div className="edit-song-content">
         {/* Title Field */}
         <div className="cyber-input-wrap">
@@ -270,7 +270,7 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={handleGenerateCover}
+                onClick={() => handleGenerateCover()}
                 disabled={generatingCover || uploading}
               >
                 <Sparkles size={12} />

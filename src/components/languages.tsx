@@ -42,7 +42,7 @@ export const Languages: React.FC<LanguagesProps> = ({
     : 'AUTO';
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="LANGUAGE" size="md">
+    <Modal guideOwner="studio" guideAnchor="studio.language-list" isOpen={isOpen} onClose={onClose} title="LANGUAGE" size="md">
       <div className="studio-param-modal-content studio-param-modal-compact">
         <div className="studio-lang-search-wrap">
           <span className="studio-lang-search-icon">🔍</span>

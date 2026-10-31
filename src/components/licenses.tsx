@@ -1,3 +1,4 @@
+import { useGuideOwner, prepareViews } from './guide/owners';
 import { useRef, useState } from 'react';
 import { Tag, GitFork, CreditCard, ShieldCheck } from 'lucide-react';
 import { Button } from './button';
@@ -53,6 +54,17 @@ export function Licenses({
     setCardError(null);
   };
 
+  const guideView = { confirm, cardMode };
+  const guideViewRef = useRef(guideView); guideViewRef.current = guideView;
+  useGuideOwner({ id: 'license', scope: `${placement}:${song.id}`, handles: step => step.id === 'M5', prepare: ({ bind }) => {
+    if (placement !== 'market') return;
+    const id = bind('song', song.id);
+    if (id !== song.id) return;
+    if (song.source || data?.owned || pending || song.licenses <= 0 || !song.chain_song_id) return { target: 'card.license-status', entity: song.id, description: 'A license purchase is not available for this track.' };
+    if (cardMode) return { unavailable: 'Finish or cancel the current card checkout before continuing.' };
+    return { ...prepareViews(guideView, () => guideViewRef.current, { confirm: setConfirm, cardMode: setCardMode }, { confirm: true }), target: 'license.review', entity: song.id, focus: '.session-balance-strip' };
+  } });
+
   if (song.source) {
     return (
       <Tooltip title="Remix Track" description="This song is derived from another work">
@@ -90,7 +102,7 @@ export function Licenses({
             size="sm"
             onClick={openModal}
             disabled={pending || song.licenses <= 0 || !song.chain_song_id}
-            aria-label="Buy License"
+            data-guide="card.license-status" aria-label="Buy License"
             className={compact ? 'market-btn-icon' : ''}
           >
             <Tag size={13} />
@@ -121,7 +133,7 @@ export function Licenses({
         </Tooltip>
       )}
 
-      <Modal isOpen={confirm} onClose={closeModal} title="BUY COMMERCIAL LICENSE" size="md">
+      <Modal guideOwner="license" guideAnchor="license.review" guideEntity={song.id} isOpen={confirm} onClose={closeModal} title="BUY COMMERCIAL LICENSE" size="md">
         <div className="session-modal-content">
           <div className="session-info-strip">
             <Tag className="session-info-icon" size={18} />
