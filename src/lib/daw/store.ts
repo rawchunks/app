@@ -1620,7 +1620,8 @@ export const useDawStore = create<DAWState>((set, get) => ({
   toggleTrackMounted: (trackId, explicitMounted) => {
     const track = get().tracks.find((t) => t.id === trackId);
     if (!track) return;
-    const nextMounted = explicitMounted !== undefined ? explicitMounted : track.mounted === false;
+    const currentlyMounted = track.mounted !== false;
+    const nextMounted = explicitMounted !== undefined ? explicitMounted : !currentlyMounted;
     const nextMuted = !nextMounted;
     const nextMixer = {
       volume: track.mixer?.volume ?? track.volume ?? 0.9,
@@ -2521,22 +2522,55 @@ export const useDawStore = create<DAWState>((set, get) => ({
   mergeTakes: async (takeIds, selectedRegion) => {
     const state = get();
     if (state.pendingTake || !takeIds.length) return;
+    const takeCandidates = takeIds
+      .map(id => state.takes.find(take => take.id === id))
+      .filter((take): take is Take => Boolean(take));
+    const laneTracksToMerge = takeIds
+      .filter(id => !state.takes.some(take => take.id === id))
+      .map(id => state.tracks.find(track => track.id === id && track.id !== 'master'))
+      .filter((track): track is DAWTrack => Boolean(track));
+    if (takeCandidates.length + laneTracksToMerge.length !== takeIds.length) return;
+
     const solo = state.tracks.some(track => track.solo);
-    if (takeIds.some(id => { const track = state.tracks.find(track => track.id === id); return !track || track.muted || solo && !track.solo; })) { toast.error('Enable the selected layers and clear other lane solos before merging'); return; }
-    const candidates = takeIds.map(id => state.takes.find(take => take.id === id)!);
-    if (candidates.some(take => !take)) return;
-    const placements = candidates.map(take => {
+    if (
+      takeCandidates.some(take => {
+        const track = state.tracks.find(track => track.id === take.id);
+        return !track || track.muted || (solo && !track.solo);
+      })
+    ) {
+      toast.error('Enable the selected layers and clear other lane solos before merging');
+      return;
+    }
+
+    if (laneTracksToMerge.length > 0) {
+      for (const track of state.tracks) {
+        if (track.solo) {
+          get().updateTrackMixer(track.id, { solo: false });
+        }
+      }
+      for (const lane of laneTracksToMerge) {
+        if (lane.muted || lane.mounted === false) {
+          get().toggleTrackMounted(lane.id, true);
+        }
+      }
+    }
+
+    const placements = takeCandidates.map(take => {
       const track = state.tracks.find(track => track.id === take.id && track.activeTakeId === take.id);
       const clip = track?.clips[0];
       return { takeId: take.id, shift: clip ? clip.startTime - (clip.origin ?? clips(take, state.duration)[0].startTime) : 0 };
     });
-    const ranges = candidates.flatMap(take => state.tracks.find(track => track.id === take.id)?.clips.map(clip => ({ start: clip.startTime, end: clip.startTime + clip.duration })) ?? [interval(take, state.duration)]);
-    const region = selectedRegion ?? { start: Math.min(...ranges.map(range => range.start)), end: Math.max(...ranges.map(range => range.end)) };
+    const ranges = takeCandidates.flatMap(take => state.tracks.find(track => track.id === take.id)?.clips.map(clip => ({ start: clip.startTime, end: clip.startTime + clip.duration })) ?? [interval(take, state.duration)]);
+    const region = selectedRegion ?? (
+      takeCandidates.length > 0 && laneTracksToMerge.length === 0
+        ? { start: Math.min(...ranges.map(range => range.start)), end: Math.max(...ranges.map(range => range.end)) }
+        : { start: 0, end: state.duration }
+    );
     const songId = state.songId;
     set({ pendingTake: takeIds[0] });
     try {
       const ids = ['master', ...takeIds];
-      const extendClips = candidates
+      const extendClips = takeCandidates
         .filter(take => take.task === 'extend')
         .flatMap(take => state.tracks.find(track => track.id === take.id)?.clips.map(clip => ({ startTime: clip.startTime, duration: clip.duration })) ?? []);
       const renderDuration = extendClips.length > 0
@@ -2547,25 +2581,49 @@ export const useDawStore = create<DAWState>((set, get) => ({
       const upload = await sdk.fetch(`/api/editing/source?songId=${encodeURIComponent(songId)}`, { method: 'POST', body: form });
       const data = await upload.json();
       if (!upload.ok || !data.url) throw new Error(data.error || 'Could not save the selected section');
-      const response = await sdk.fetch('/api/editing/activate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ songId, takeId: takeIds[0], action: 'merge', composition: { takeIds, placements, region, original: !state.tracks.find(track => track.id === 'master')?.muted && !state.originals.some(item => item.start <= region.start && item.end >= region.end), commitId: state.commits[0]?.id ?? null, srcAudioUrl: data.url } }) });
+      const layerNames = laneTracksToMerge.map(track => track.layerName || track.name.toLowerCase().replace(/\s+/g, '_'));
+      const compositionPayload = {
+        takeIds: takeCandidates.map(t => t.id),
+        ...(layerNames.length > 0 ? { layerNames } : {}),
+        placements,
+        region,
+        original: !state.tracks.find(track => track.id === 'master')?.muted && !state.originals.some(item => item.start <= region.start && item.end >= region.end),
+        commitId: state.commits[0]?.id ?? null,
+        srcAudioUrl: data.url,
+      };
+      const response = await sdk.fetch('/api/editing/activate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          songId,
+          takeId: takeCandidates[0]?.id ?? laneTracksToMerge[0]?.id ?? 'master',
+          action: 'merge',
+          composition: compositionPayload,
+        }),
+      });
       const result = await response.json();
       if (!response.ok || !result.success) throw new Error(result.error || 'Could not merge the section');
       const history = await sdk.fetch(`/api/editing/history/${encodeURIComponent(songId)}`);
       if (!history.ok) throw new Error('Could not refresh the saved master');
       const project = await history.json();
       if (get().songId !== songId) return;
-      for (const id of takeIds) {
+      for (const take of takeCandidates) {
+        const id = take.id;
         const track = get().tracks.find(track => track.id === id);
-        const take = project.takes.find((take: Take) => take.id === id);
+        const refreshedTake = project.takes.find((t: Take) => t.id === id);
         if (!track) continue;
-        if (!take || take.provenance?.mergedInto) get().removeTrack(id);
-        else if (take) {
+        if (!refreshedTake || refreshedTake.provenance?.mergedInto) get().removeTrack(id);
+        else if (refreshedTake) {
           const shift = placements.find(item => item.takeId === id)!.shift;
-          const pending = clips(take, result.take.provenance.outputDuration).map(clip => ({ ...clip, origin: clip.startTime, startTime: clip.startTime + shift }));
+          const pending = clips(refreshedTake, result.take.provenance.outputDuration).map(clip => ({ ...clip, origin: clip.startTime, startTime: clip.startTime + shift }));
           dawEngine.disposeTrack(id);
           set(current => ({ tracks: current.tracks.map(item => item.id === id ? { ...item, clips: pending } : item) }));
           for (const clip of pending) await dawEngine.loadClip(id, clip.id, clip.url, clip.startTime, clip.offset, clip.duration);
         }
+      }
+      for (const lane of laneTracksToMerge) {
+        get().toggleTrackMounted(lane.id, false);
+        get().resetTrackSculpt(lane.id);
       }
       const nextDuration = result.take.provenance.outputDuration;
       const nextMasterUrl = result.take.url;
@@ -2633,13 +2691,6 @@ export const useDawStore = create<DAWState>((set, get) => ({
       get().updateTrackMixer(lane.id, { muted: !lane.muted, solo: false });
       return;
     }
-    for (const existingTrack of initial.tracks) {
-      if (!existingTrack.activeTakeId || existingTrack.id === 'master' || existingTrack.stemId) continue;
-      const otherTake = initial.takes.find(item => item.id === existingTrack.activeTakeId);
-      if (otherTake && otherTake.id !== take.id && otherTake.task === take.task && (isMasterTargetTake(take) ? isMasterTargetTake(otherTake) : (otherTake.stem_id ?? null) === (take.stem_id ?? null))) {
-        get().removeTrack(existingTrack.id);
-      }
-    }
     const { tracks, duration, originals } = get();
     const range = preview(take);
     const clip: DAWClip = {
@@ -2664,7 +2715,7 @@ export const useDawStore = create<DAWState>((set, get) => ({
     set({
       tracks: [...tracks, track],
       originals: nextOriginals,
-      selectedTrackId: take.id,
+      selectedTrackId: 'master',
       selection: firstClip ? { start: firstClip.startTime, end: firstClip.startTime + firstClip.duration } : interval(take, duration),
     });
     if (isReplacement) dawEngine.syncOriginals();

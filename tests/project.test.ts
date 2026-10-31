@@ -58,7 +58,7 @@ describe('project initialization', () => {
       stems: [], takes: [], commits: [{ id: 'snapshot', timeline_snapshot: { tracks: [master, keys, drums], bpm: 96 } } as any],
     });
     const state = useDawStore.getState();
-    expect(state.tracks.map(track => track.id)).toEqual(['master', 'keys', 'drums']);
+    expect(state.tracks.map(track => track.id)).toEqual(['master', 'synth-pianoroll', 'synth-sequencer']);
     expect(state.tracks[0].clips[0].url).toBe('current.wav');
     expect(state.tracks[1]).toMatchObject({ volume: .4, pianoRollNotes: keys.pianoRollNotes });
     expect(state.tracks[2].sequencerVoices).toEqual(drums.sequencerVoices);
@@ -255,5 +255,117 @@ describe('candidate placement', () => {
     expect(after.originalMasterUrl).toBe('merged-master.wav');
     expect(after.originals).toEqual([]);
     expect(after.takes).toEqual([mergedTake]);
+  });
+
+  it('merges a CODE (strudel) or KEYS/DRUMS lane directly into Master and unmounts the baked lane afterward', async () => {
+    const { sdk } = await import('../src/lib/sdk.js');
+    vi.spyOn(dawEngine, 'syncOriginals').mockImplementation(() => { });
+    vi.spyOn(dawEngine, 'scheduleStrudel').mockImplementation(() => { });
+    vi.spyOn(dawEngine, 'updateTrackFx').mockImplementation(() => { });
+    vi.spyOn(dawEngine, 'updateTrackMixer').mockImplementation(() => { });
+    vi.spyOn(dawEngine, 'render').mockResolvedValue(new Blob(['wav'], { type: 'audio/wav' }));
+
+    useDawStore.getState().initProject('song', 'Session', 20, 'master.wav');
+    const master = useDawStore.getState().tracks[0];
+    const codeLane: DAWTrack = {
+      ...master,
+      id: 'synth-strudel',
+      name: 'Code',
+      type: 'strudel',
+      color: '#00ff66',
+      muted: true,
+      mounted: false,
+      clips: [],
+      strudelCode: 'note("c3 e3 g3 b3").s("sawtooth")',
+    };
+    useDawStore.getState().setTracks([master, codeLane]);
+
+    const mergedTake = {
+      id: 'take-merge-code',
+      song_id: 'song',
+      stem_id: 'stm-master-song',
+      take_number: 2,
+      task: 'merge',
+      url: 'merged-with-code.wav',
+      is_active: true,
+      provenance: { target: 'master', region: { start: 0, end: 20 }, outputDuration: 20, layerNames: ['code'] },
+    } as Take;
+
+    let capturedBody: any = null;
+    vi.spyOn(sdk, 'fetch').mockImplementation((async (url: string, init?: RequestInit) => {
+      if (url.startsWith('/api/editing/source')) {
+        return { ok: true, json: async () => ({ url: 'uploaded-code-master.wav' }) } as any;
+      }
+      if (url === '/api/editing/activate') {
+        capturedBody = JSON.parse(String(init?.body ?? '{}'));
+        return { ok: true, json: async () => ({ success: true, activeTakeId: mergedTake.id, take: mergedTake, versionState: 'merged' }) } as any;
+      }
+      if (url.startsWith('/api/editing/history/')) {
+        return { ok: true, json: async () => ({ stems: [], takes: [mergedTake], commits: [{ id: 'commit-code-1', timeline_snapshot: { action: 'merge', activeTakeId: mergedTake.id, provenance: mergedTake.provenance } }] }) } as any;
+      }
+      throw new Error(`Unexpected URL: ${url}`);
+    }) as any);
+
+    await useDawStore.getState().mergeTakes(['synth-strudel']);
+    expect(dawEngine.render).toHaveBeenCalledWith(['master', 'synth-strudel'], 20, true, 0);
+    expect(capturedBody?.action).toBe('merge');
+    expect(capturedBody?.composition?.layerNames).toEqual(['code']);
+    const after = useDawStore.getState();
+    expect(after.tracks.find(t => t.id === 'master')?.clips[0].url).toBe('merged-with-code.wav');
+    expect(after.tracks.find(t => t.id === 'synth-strudel')).toMatchObject({ mounted: false, muted: true });
+  });
+
+  it('merges a soloed CODE/KEYS/DRUMS lane into Master by clearing solo before offline render', async () => {
+    const { sdk } = await import('../src/lib/sdk.js');
+    vi.spyOn(dawEngine, 'syncOriginals').mockImplementation(() => { });
+    vi.spyOn(dawEngine, 'scheduleStrudel').mockImplementation(() => { });
+    vi.spyOn(dawEngine, 'updateTrackFx').mockImplementation(() => { });
+    vi.spyOn(dawEngine, 'updateTrackMixer').mockImplementation(() => { });
+    vi.spyOn(dawEngine, 'render').mockResolvedValue(new Blob(['wav'], { type: 'audio/wav' }));
+
+    useDawStore.getState().initProject('song', 'Session', 20, 'master.wav');
+    const master = useDawStore.getState().tracks[0];
+    const codeLane: DAWTrack = {
+      ...master,
+      id: 'synth-strudel',
+      name: 'Code',
+      type: 'strudel',
+      color: '#00ff66',
+      muted: false,
+      solo: true,
+      mounted: true,
+       mixer: { ...master.mixer!, muted: false, solo: true },
+      clips: [],
+      strudelCode: 'note("c3 e3 g3 b3").s("sawtooth")',
+    };
+    useDawStore.getState().setTracks([master, codeLane]);
+
+    const mergedTake = {
+      id: 'take-merge-solo-code',
+      song_id: 'song',
+      stem_id: 'stm-master-song',
+      take_number: 2,
+      task: 'merge',
+      url: 'merged-solo-code.wav',
+      is_active: true,
+      provenance: { target: 'master', region: { start: 0, end: 20 }, outputDuration: 20, layerNames: ['code'] },
+    } as Take;
+
+    vi.spyOn(sdk, 'fetch').mockImplementation((async (url: string) => {
+      if (url.startsWith('/api/editing/source')) {
+        return { ok: true, json: async () => ({ url: 'uploaded-solo-code.wav' }) } as any;
+      }
+      if (url === '/api/editing/activate') {
+        return { ok: true, json: async () => ({ success: true, activeTakeId: mergedTake.id, take: mergedTake, versionState: 'merged' }) } as any;
+      }
+      if (url.startsWith('/api/editing/history/')) {
+        return { ok: true, json: async () => ({ stems: [], takes: [mergedTake], commits: [{ id: 'commit-solo-code', timeline_snapshot: { action: 'merge', activeTakeId: mergedTake.id, provenance: mergedTake.provenance } }] }) } as any;
+      }
+      throw new Error(`Unexpected URL: ${url}`);
+    }) as any);
+
+    await useDawStore.getState().mergeTakes(['synth-strudel']);
+    expect(dawEngine.render).toHaveBeenCalledWith(['master', 'synth-strudel'], 20, true, 0);
+    expect(useDawStore.getState().tracks.find(t => t.id === 'synth-strudel')?.solo).toBe(false);
   });
 });
