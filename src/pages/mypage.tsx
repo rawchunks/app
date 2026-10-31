@@ -12,6 +12,14 @@ import {
   Volume2,
   User,
   RotateCcw,
+  ListMusic,
+  Lock,
+  Globe,
+  Play,
+  Pause,
+  Trash2,
+  Plus,
+  X,
 } from 'lucide-react';
 import { Tooltip } from '../components/daw/Tooltip';
 import { Glitch } from '../components/glitch';
@@ -19,7 +27,7 @@ import { Button } from '../components/button';
 import { Badge } from '../components/badge';
 import { Card } from '../components/card';
 import { store, State } from '../lib/store';
-import { Song, Album } from '../lib/schema';
+import { Song, Album, Playlist } from '../lib/schema';
 import { useSelectedUserAddress } from '../hooks/use-address';
 import { usePublic } from '../hooks/use-public';
 import { useMint } from '../hooks/use-mint';
@@ -27,6 +35,14 @@ import { useProfile } from '../hooks/use-profile';
 import { useSongs } from '../hooks/use-songs';
 import { useLicensedSongs } from '../hooks/use-license';
 import { useVoices, voiceStatus } from '../hooks/use-voices';
+import {
+  useCreatorPlaylists,
+  createPlaylistApi,
+  updatePlaylistApi,
+  removeSongFromPlaylistApi,
+  deletePlaylistApi,
+} from '../hooks/use-playlists';
+import { useQueryClient } from '@tanstack/react-query';
 import { ProfileModal } from '../components/profile-modal';
 import { EditSongModal } from '../components/edit-song';
 import { PublishModal } from '../components/publish';
@@ -70,12 +86,14 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
   );
   const [licensesOpen, setLicensesOpen] = useState(false);
   const [albumsOpen, setAlbumsOpen] = useState(false);
+  const [playlistsOpen, setPlaylistsOpen] = useState(false);
   const [voicesOpen, setVoicesOpen] = useState(false);
 
   // Track manual user toggle overrides so clicks remain responsive
   const userToggledSongs = useRef(false);
   const userToggledLicenses = useRef(false);
   const userToggledAlbums = useRef(false);
+  const userToggledPlaylists = useRef(false);
   const userToggledVoices = useRef(false);
 
   // Modals State
@@ -84,12 +102,20 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
   const [publishConfirmSong, setPublishConfirmSong] = useState<Song | null>(null);
   const [copied, setCopied] = useState(false);
 
+  // Playlists local UI state
+  const [newPlaylistName, setNewPlaylistName] = useState('');
+  const [creatingPlaylist, setCreatingPlaylist] = useState(false);
+  const [expandedPlaylistId, setExpandedPlaylistId] = useState<string | null>(null);
+  const [togglingPlaylistId, setTogglingPlaylistId] = useState<string | null>(null);
+
   // Albums & Voices Data
   const [albums, setAlbums] = useState<Album[]>([]);
   const [loadingAlbums, setLoadingAlbums] = useState(false);
 
   const activeAddress = readAddress;
+  const queryClient = useQueryClient();
   const { data: publicSongs = [], error: publicSongsError } = useSongs();
+  const { data: myPlaylists = [], isLoading: loadingPlaylists } = useCreatorPlaylists(activeAddress);
   const licensed = useLicensedSongs(publicSongs);
   const {
     voices,
@@ -111,6 +137,14 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
     albums.forEach((a) => map.set(a.id, a));
     return map;
   }, [albums]);
+
+  // Combined song map (public + user's own songs) for playlist resolution
+  const allKnownSongsById = useMemo(() => {
+    const map = new Map<string, Song>();
+    for (const s of publicSongs) map.set(s.id, s);
+    for (const s of state.songs) map.set(s.id, s);
+    return map;
+  }, [publicSongs, state.songs]);
 
   // Close 3-dot dropdown when clicking outside (guide overlays excluded)
   useDismiss(Boolean(menuOpenId), () => setMenuOpenId(null), undefined, MENU_IGNORE_SELECTORS);
@@ -232,6 +266,12 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
   }, [loadingAlbums, albums.length]);
 
   useEffect(() => {
+    if (!loadingPlaylists && !userToggledPlaylists.current) {
+      setPlaylistsOpen(myPlaylists.length > 0);
+    }
+  }, [loadingPlaylists, myPlaylists.length]);
+
+  useEffect(() => {
     if (!loadingVoices && !userToggledVoices.current) {
       setVoicesOpen(voices.length > 0);
     }
@@ -252,9 +292,94 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
     setAlbumsOpen((prev) => !prev);
   };
 
+  const togglePlaylists = () => {
+    userToggledPlaylists.current = true;
+    setPlaylistsOpen((prev) => !prev);
+  };
+
   const toggleVoices = () => {
     userToggledVoices.current = true;
     setVoicesOpen((prev) => !prev);
+  };
+
+  const handleCreatePlaylist = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeAddress || !newPlaylistName.trim()) return;
+    setCreatingPlaylist(true);
+    try {
+      await createPlaylistApi(
+        {
+          title: newPlaylistName.trim(),
+          creator: activeAddress,
+          song_ids: [],
+          public: false,
+        },
+        activeAddress
+      );
+      await queryClient.invalidateQueries({ queryKey: ['playlists'] });
+      setNewPlaylistName('');
+      toast.success('Created private playlist');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not create playlist');
+    } finally {
+      setCreatingPlaylist(false);
+    }
+  };
+
+  const handleTogglePlaylistPublic = async (playlist: Playlist) => {
+    if (!activeAddress || togglingPlaylistId === playlist.id) return;
+    setTogglingPlaylistId(playlist.id);
+    try {
+      const nextPublic = !playlist.public;
+      await updatePlaylistApi(playlist.id, { public: nextPublic }, activeAddress);
+      await queryClient.invalidateQueries({ queryKey: ['playlists'] });
+      toast.success(
+        nextPublic
+          ? `Playlist "${playlist.title}" is now PUBLIC on /market`
+          : `Playlist "${playlist.title}" is now PRIVATE`
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not update playlist visibility');
+    } finally {
+      setTogglingPlaylistId(null);
+    }
+  };
+
+  const handleRemovePlaylistSong = async (playlistId: string, songId: string) => {
+    if (!activeAddress) return;
+    try {
+      await removeSongFromPlaylistApi(playlistId, songId, activeAddress);
+      await queryClient.invalidateQueries({ queryKey: ['playlists'] });
+      toast.success('Track removed from playlist');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not remove track');
+    }
+  };
+
+  const handleDeletePlaylist = async (playlist: Playlist) => {
+    if (!activeAddress) return;
+    try {
+      await deletePlaylistApi(playlist.id, activeAddress);
+      await queryClient.invalidateQueries({ queryKey: ['playlists'] });
+      toast.success(`Deleted playlist "${playlist.title}"`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not delete playlist');
+    }
+  };
+
+  const handlePlayMyPlaylist = (playlist: Playlist) => {
+    const resolved = (playlist.song_ids || [])
+      .map((id) => allKnownSongsById.get(id))
+      .filter((s): s is Song => Boolean(s));
+    if (resolved.length === 0) {
+      toast.error('Add tracks from /market to play this playlist.');
+      return;
+    }
+    if (state.isPlaying && state.activePlaylistId === playlist.id) {
+      store.setPlaying(false);
+      return;
+    }
+    store.playSong(resolved[0], resolved, playlist.id);
   };
 
   const copyAddress = () => {
@@ -385,6 +510,10 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
               <span className="mypage-profile-stat-label">Albums</span>
             </div>
             <div className="mypage-profile-stat-box">
+              <span className="mypage-profile-stat-val">{myPlaylists.length}</span>
+              <span className="mypage-profile-stat-label">Playlists</span>
+            </div>
+            <div className="mypage-profile-stat-box">
               <span className="mypage-profile-stat-val">{voices.length}</span>
               <span className="mypage-profile-stat-label">Voices</span>
             </div>
@@ -483,8 +612,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
                         if (isPlayingThis) {
                           store.setPlaying(false);
                         } else {
-                          store.setActiveSong(song);
-                          store.setPlaying(true);
+                          store.playSong(song, state.songs, null);
                         }
                       }}
                       onSelectVersion={(v) => {
@@ -571,8 +699,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
                         if (isPlayingThis) {
                           store.setPlaying(false);
                         } else {
-                          store.setActiveSong(song);
-                          store.setPlaying(true);
+                          store.playSong(song, state.songs, null);
                         }
                       }}
                       onSelectVersion={(v) => {
@@ -655,7 +782,176 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
         )}
       </div>
 
-      {/* SECTION (v): My Voices */}
+      {/* SECTION (v): My Playlists (Private by Default, Toggleable Private <> Public) */}
+      <div className="mypage-section">
+        <div
+          className={`board-section-separator ${!playlistsOpen ? 'collapsed' : ''}`}
+          aria-expanded={playlistsOpen}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              togglePlaylists();
+            }
+          }}
+          onClick={togglePlaylists}
+          role="button"
+          tabIndex={0}
+        >
+          <div className="board-section-left">
+            <ChevronDown className="board-section-chevron" size={14} />
+            <ListMusic size={13} />
+            <span>MY PLAYLISTS</span>
+            <span className="board-section-badge">{myPlaylists.length}</span>
+          </div>
+        </div>
+
+        {playlistsOpen && (
+          <div className="mypage-section-body">
+            {activeAddress && (
+              <form className="mypage-playlist-create-bar" onSubmit={handleCreatePlaylist}>
+                <input
+                  type="text"
+                  className="mypage-playlist-create-input"
+                  placeholder="NEW PLAYLIST..."
+                  value={newPlaylistName}
+                  onChange={(e) => setNewPlaylistName(e.target.value)}
+                  maxLength={80}
+                />
+                <Button
+                  type="submit"
+                  size="xs"
+                  variant="secondary"
+                  disabled={creatingPlaylist || !newPlaylistName.trim()}
+                  aria-label="Create playlist"
+                >
+                  <Plus size={12} />
+                </Button>
+              </form>
+            )}
+
+            {loadingPlaylists ? (
+              <div className="mypage-empty">
+                <span className="mypage-empty-title">LOADING...</span>
+              </div>
+            ) : myPlaylists.length === 0 ? (
+              <div className="mypage-empty">
+                <span className="mypage-empty-title">NONE</span>
+              </div>
+            ) : (
+              <div className="mypage-grid">
+                {myPlaylists.map((playlist) => {
+                  const resolvedSongs = (playlist.song_ids || [])
+                    .map((id) => allKnownSongsById.get(id))
+                    .filter((s): s is Song => Boolean(s));
+                  const cover =
+                    playlist.cover && playlist.cover.trim() !== ''
+                      ? playlist.cover
+                      : resolvedSongs[0]?.image || '';
+                  const isExpanded = expandedPlaylistId === playlist.id;
+                  const isPlayingPl = state.isPlaying && state.activePlaylistId === playlist.id;
+                  const isToggling = togglingPlaylistId === playlist.id;
+
+                  return (
+                    <div key={playlist.id} className="mypage-album-card mypage-playlist-card">
+                      {cover ? (
+                        <img src={cover} alt={playlist.title} className="mypage-album-cover" />
+                      ) : (
+                        <div className="mypage-album-cover-placeholder">
+                          <ListMusic size={28} />
+                          <span>{(playlist.song_ids || []).length}</span>
+                        </div>
+                      )}
+
+                      <div className="mypage-card-header">
+                        <span className="mypage-item-title">{playlist.title}</span>
+                        <Tooltip title={playlist.public ? 'Make Private' : 'Make Public'}>
+                          <button
+                            type="button"
+                            className={`mypage-playlist-visibility-toggle ${playlist.public ? 'public' : 'private'}`}
+                            disabled={isToggling}
+                            onClick={() => handleTogglePlaylistPublic(playlist)}
+                            aria-label={`Toggle visibility, currently ${playlist.public ? 'Public' : 'Private'}`}
+                          >
+                            {playlist.public ? <Globe size={10} /> : <Lock size={10} />}
+                            <span>{playlist.public ? 'PUBLIC' : 'PRIVATE'}</span>
+                          </button>
+                        </Tooltip>
+                      </div>
+
+                      <div className="mypage-playlist-meta-row">
+                        <span>{(playlist.song_ids || []).length} TRACKS</span>
+                        <span>•</span>
+                        <span>{playlist.plays ?? 0} PLAYS</span>
+                      </div>
+
+                      <div className="mypage-playlist-actions-row">
+                        <Button
+                          size="xs"
+                          variant={isPlayingPl ? 'secondary' : 'primary'}
+                          disabled={resolvedSongs.length === 0}
+                          onClick={() => handlePlayMyPlaylist(playlist)}
+                          aria-label={isPlayingPl ? 'Pause' : 'Play'}
+                        >
+                          {isPlayingPl ? <Pause size={11} /> : <Play size={11} />}
+                        </Button>
+                        <Button
+                          size="xs"
+                          variant="ghost"
+                          onClick={() => setExpandedPlaylistId(isExpanded ? null : playlist.id)}
+                          aria-label="Tracks"
+                        >
+                          <ListMusic size={11} />
+                        </Button>
+                        <Tooltip title="Delete">
+                          <button
+                            type="button"
+                            className="mypage-playlist-delete-btn"
+                            onClick={() => handleDeletePlaylist(playlist)}
+                            aria-label={`Delete playlist ${playlist.title}`}
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </Tooltip>
+                      </div>
+
+                      {isExpanded && (
+                        <div className="mypage-playlist-tracks">
+                          {resolvedSongs.length === 0 ? (
+                            <div className="mypage-playlist-tracks-empty">NONE</div>
+                          ) : (
+                            resolvedSongs.map((s, idx) => (
+                              <div key={`${s.id}-${idx}`} className="mypage-playlist-track-item">
+                                <button
+                                  type="button"
+                                  className="mypage-playlist-track-play"
+                                  onClick={() => store.playSong(s, resolvedSongs, playlist.id)}
+                                >
+                                  <span className="mypage-playlist-track-num">{idx + 1}.</span>
+                                  <span className="mypage-playlist-track-title">{s.title}</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  className="mypage-playlist-track-remove"
+                                  onClick={() => handleRemovePlaylistSong(playlist.id, s.id)}
+                                  aria-label={`Remove ${s.title}`}
+                                >
+                                  <X size={11} />
+                                </button>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* SECTION (vi): My Voices */}
       <div className="mypage-section">
         <div
           className={`board-section-separator ${!voicesOpen ? 'collapsed' : ''}`}
