@@ -30,6 +30,7 @@ interface CreatorGroup {
   key: string;
   label: string;
   nicknameKey: string | null;
+  avatar: string | null;
   addresses: Set<string>;
 }
 
@@ -135,6 +136,7 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
       const pair = pairByAddr.get(lower);
       const cached = readCachedProfile(raw);
       const rawNickname = pair?.nickname?.trim() || cached?.nickname?.trim() || null;
+      const rawAvatar = pair?.avatar?.trim() || cached?.avatar?.trim() || null;
       const nicknameKey = rawNickname ? rawNickname.toLowerCase() : null;
 
       const candidateAddresses = new Set<string>([lower]);
@@ -159,6 +161,9 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
           existing.label = rawNickname;
           existing.nicknameKey = nicknameKey;
         }
+        if (rawAvatar && !existing.avatar) {
+          existing.avatar = rawAvatar;
+        }
       } else {
         const canonicalKey =
           pair?.evmAddress?.toLowerCase() || pair?.svmAddress?.toLowerCase() || lower;
@@ -166,6 +171,7 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
           key: canonicalKey,
           label: rawNickname || shortAddr,
           nicknameKey,
+          avatar: rawAvatar,
           addresses: candidateAddresses,
         });
       }
@@ -173,6 +179,23 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
 
     return groups.sort((a, b) => a.label.localeCompare(b.label));
   }, [rawCreatorAddresses, creatorPairs]);
+
+  const resolveCreatorLabel = (address: string) => {
+    if (!address) return 'ANONYMOUS';
+    const lower = address.toLowerCase();
+    const found = creatorGroups.find((g) => g.addresses.has(lower));
+    if (found) return found.label;
+    return address.startsWith('0x')
+      ? `${address.slice(0, 6)}…${address.slice(-4)}`
+      : `${address.slice(0, 4)}…${address.slice(-4)}`;
+  };
+
+  const handleSelectCreatorAddress = (rawAddress: string) => {
+    const lower = rawAddress.toLowerCase();
+    const group = creatorGroups.find((g) => g.addresses.has(lower));
+    const targetKey = group ? group.key : lower;
+    setSelectedCreator((prev) => (prev === targetKey ? null : targetKey));
+  };
 
   // Extract unique normalized genres / tags
   const uniqueGenres = useMemo(() => {
