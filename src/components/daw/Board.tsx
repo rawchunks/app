@@ -1,3 +1,4 @@
+import { useGuideOwner, prepareViews } from '../guide/owners';
 import React, { useState, useRef, useLayoutEffect, useEffect } from 'react';
 import { useDawStore, type LyricsAlignment } from '../../lib/daw/store';
 import { dawEngine } from '../../lib/daw/engine';
@@ -34,7 +35,7 @@ import { Song, Task } from '../../lib/schema';
 import { toast } from 'sonner';
 import { TrackType } from '../../lib/daw/store';
 import { getStemColor, formatTrackBadgeCode, formatTrackBadgeFull } from '../../lib/daw/palette';
-import { isBase, mounted, preview, interval, pending, masterArrangement, taskLabel, isLayerTake, layerTrackName, isFullSongRestyleTake } from '../../lib/daw/takes';
+import { isBase, mounted, preview, interval, pending, masterArrangement, taskLabel, taskBadgeLabel, isLayerTake, layerTrackName, isFullSongRestyleTake } from '../../lib/daw/takes';
 
 export interface BoardProps {
   song: Song;
@@ -138,15 +139,16 @@ export const Board: React.FC<BoardProps> = ({
   const isPlaying = useDawStore((s) => s.isPlaying);
   const bpm = useDawStore((s) => s.bpm);
   const selection = useDawStore((s) => s.selection);
-  const legoContextTrackIds = useDawStore((s) => s.legoContextTrackIds);
   const takes = useDawStore((s) => s.takes);
+  const originals = useDawStore((s) => s.originals);
   const setPlayhead = useDawStore((s) => s.setPlayhead);
   const setSelection = useDawStore((s) => s.setSelection);
   const extractCurrentSection = useDawStore((s) => s.extractCurrentSection);
-  const toggleLegoContext = useDawStore((s) => s.toggleLegoContext);
   const updateTrackMixer = useDawStore((s) => s.updateTrackMixer);
+  const toggleTrackMounted = useDawStore((s) => s.toggleTrackMounted);
   const removeTrack = useDawStore((s) => s.removeTrack);
   const toggleTake = useDawStore((s) => s.toggleTake);
+  const toggleOriginal = useDawStore((s) => s.toggleOriginal);
   const activateTake = useDawStore((s) => s.activateTake);
   const selectLaneVersion = useDawStore((s) => s.selectLaneVersion);
   const selectMasterVersion = useDawStore((s) => s.selectMasterVersion);
@@ -155,12 +157,9 @@ export const Board: React.FC<BoardProps> = ({
   const pendingTake = useDawStore((s) => s.pendingTake);
   const deleteTake = useDawStore((s) => s.deleteTake);
   const revertToOriginalMaster = useDawStore((s) => s.revertToOriginalMaster);
-  const originals = useDawStore((s) => s.originals);
   const operations = useDawStore((s) => s.operations);
   const auditionId = useDawStore((s) => s.auditionId);
-  const toggleOriginal = useDawStore((s) => s.toggleOriginal);
   const mergeTakes = useDawStore((s) => s.mergeTakes);
-  const moveTake = useDawStore((s) => s.moveTake);
   const sculptMode = useDawStore((s) => s.sculptMode);
   const setSculptMode = useDawStore((s) => s.setSculptMode);
   const resetTrackSculpt = useDawStore((s) => s.resetTrackSculpt);
@@ -170,16 +169,32 @@ export const Board: React.FC<BoardProps> = ({
   const [isAddMenuOpen, setIsAddMenuOpen] = useState<boolean>(false);
   const [isVaultOpen, setIsVaultOpen] = useState<boolean>(false);
   const [mruIds, setMruIds] = useState<string[]>([]);
+  const [activeExtractedTakeId, setActiveExtractedTakeId] = useState<string | null>(null);
+  const [guideDisplayId, setGuideDisplayId] = useState<string | null>(null);
+  const [guideTakeId, setGuideTakeId] = useState<string | null>(null);
+  const guideProjectId = useDawStore(state => state.songId);
+  const guideSelectionRef = useRef(selection); guideSelectionRef.current = selection;
   const addMenuRef = useRef<HTMLDivElement | null>(null);
   const vaultMenuRef = useRef<HTMLDivElement | null>(null);
 
   useDismiss(isAddMenuOpen, () => setIsAddMenuOpen(false), addMenuRef);
   useDismiss(isVaultOpen, () => setIsVaultOpen(false), vaultMenuRef);
 
+
   useEffect(() => {
     if (!selectedTrackId || selectedTrackId === 'master') return;
-    setMruIds((prev) => [selectedTrackId, ...prev.filter((id) => id !== selectedTrackId)]);
-  }, [selectedTrackId]);
+    const matchedTake = takes.find(
+      (t) =>
+        t.id === selectedTrackId &&
+        pending(t) &&
+        !isLayerTake(t) &&
+        !isFullSongRestyleTake(t)
+    );
+    const mruKey = matchedTake
+      ? `cat-${(matchedTake.task || 'extract').toLowerCase()}`
+      : selectedTrackId;
+    setMruIds((prev) => [mruKey, ...prev.filter((id) => id !== mruKey && id !== selectedTrackId)]);
+  }, [selectedTrackId, takes]);
 
   const hasVocalStem = tracks.some(
     (t) =>
@@ -213,16 +228,21 @@ export const Board: React.FC<BoardProps> = ({
       )
   );
   const [drag, setDrag] = useState<{ id: string; shift: number } | null>(null);
-  const dragging = useRef<{ id: string; x: number; shift: number; width: number; minimum: number; maximum: number; current: number } | null>(null);
+  const moveTake = useDawStore((s) => s.moveTake);
+  const dragging = useRef<{
+    id: string;
+    x: number;
+    shift: number;
+    width: number;
+    minimum: number;
+    maximum: number;
+    current: number;
+  } | null>(null);
   const didDrag = useRef(false);
-  const selectedOverlay = overlays.find(track => track.id === selectedTrackId);
   const audibleOverlays = overlays.filter(track => !track.muted && (!tracks.some(lane => lane.solo) || track.solo));
-  const selectedClip = selectedOverlay?.clips.find(clip => selection && clip.startTime <= selection.start && clip.startTime + clip.duration >= selection.end) ?? selectedOverlay?.clips[0];
-  const originalEnabled = Boolean(selectedClip && !originals.some(region => region.start <= selectedClip.startTime && region.end >= selectedClip.startTime + selectedClip.duration));
-  const selectedTake = takes.find(take => take.id === selectedOverlay?.id);
 
   // Group takes by task category & track active take per category
-  const [, setActiveCategoryTakeId] = useState<Record<string, string>>({});
+  const [activeCategoryTakeId, setActiveCategoryTakeId] = useState<Record<string, string>>({});
 
   const takesByCategory = React.useMemo(() => {
     const groups: Record<string, typeof takes> = {};
@@ -232,9 +252,97 @@ export const Board: React.FC<BoardProps> = ({
       if (!groups[cat]) groups[cat] = [];
       groups[cat].push(take);
     });
+    Object.values(groups).forEach((group) =>
+      group.sort((a, b) => a.take_number - b.take_number)
+    );
     return groups;
   }, [takes]);
-  const pendingCount = Object.values(takesByCategory).reduce((count, group) => count + group.length, 0);
+
+  const getCategoryActiveTake = React.useCallback(
+    (category: string, catTakes: typeof takes) => {
+      const guideInCat = catTakes.find(t => t.id === guideTakeId);
+      if (guideInCat) return guideInCat;
+      const selectedInCat = catTakes.find((t) => t.id === selectedTrackId);
+      if (selectedInCat) return selectedInCat;
+      const savedId = activeCategoryTakeId[category];
+      if (savedId) {
+        const savedTake = catTakes.find((t) => t.id === savedId);
+        if (savedTake) return savedTake;
+      }
+      const mountedInCat = catTakes.find((t) => mounted(t, tracks, takes));
+      return mountedInCat ?? catTakes[catTakes.length - 1] ?? catTakes[0];
+    },
+    [selectedTrackId, activeCategoryTakeId, tracks, takes, guideTakeId]
+  );
+
+  const swapCategoryTake = async (
+    category: string,
+    targetTake: (typeof takes)[number],
+    catTakes: typeof takes,
+    focusAndPlay = true
+  ) => {
+    setActiveCategoryTakeId((prev) => ({ ...prev, [category]: targetTake.id }));
+    setActiveExtractedTakeId(targetTake.id);
+    // If another take in this category was mounted/audible on Master, swap mount to targetTake
+    const mountedSiblings = catTakes.filter(
+      (t) => t.id !== targetTake.id && mounted(t, tracks, takes)
+    );
+    if (mountedSiblings.length > 0) {
+      for (const sib of mountedSiblings) {
+        const sibTrack = useDawStore.getState().tracks.find((tr) => tr.id === sib.id);
+        if (sibTrack && !sibTrack.muted) {
+          updateTrackMixer(sibTrack.id, { muted: true });
+        }
+      }
+      const targetOverlay = useDawStore.getState().tracks.find((tr) => tr.id === targetTake.id);
+      if (!targetOverlay) {
+        await toggleTake(targetTake.id);
+      } else if (targetOverlay.muted) {
+        updateTrackMixer(targetOverlay.id, { muted: false });
+      }
+    }
+    if (focusAndPlay) {
+      await playExtractedTakeAtClick(targetTake);
+    }
+  };
+  const allExtractedTakes = React.useMemo(
+    () => Object.values(takesByCategory).flat().sort((a, b) => a.take_number - b.take_number),
+    [takesByCategory]
+  );
+  const selectionMatchesTake = React.useMemo(() => {
+    if (!selection) return null;
+    return (
+      allExtractedTakes.find((take) => {
+        const overlayTrack = overlays.find((t) => t.id === take.id);
+        const clip = overlayTrack?.clips[0];
+        const range = interval(take, duration || 60);
+        const start = clip ? clip.startTime : range.start;
+        const end = clip ? clip.startTime + clip.duration : range.end;
+        return Math.abs(selection.start - start) < 0.05 && Math.abs(selection.end - end) < 0.05;
+      }) ?? null
+    );
+  }, [selection, allExtractedTakes, overlays, duration]);
+  const isManualSelection = Boolean(selection && !selectionMatchesTake && !activeExtractedTakeId);
+
+  useEffect(() => {
+    if (selection && !selectionMatchesTake) {
+      setActiveExtractedTakeId(null);
+    }
+  }, [selection, selectionMatchesTake]);
+
+  const activeExtractedTake = React.useMemo(() => {
+    if (guideTakeId) return allExtractedTakes.find(t => t.id === guideTakeId) ?? null;
+    if (isManualSelection) return null;
+    if (activeExtractedTakeId) {
+      const found = allExtractedTakes.find((t) => t.id === activeExtractedTakeId);
+      if (found) return found;
+    }
+    if (selectionMatchesTake) return selectionMatchesTake;
+    const selectedIsExtracted = allExtractedTakes.find((t) => t.id === selectedTrackId);
+    if (selectedIsExtracted) return selectedIsExtracted;
+    const firstMounted = allExtractedTakes.find((t) => mounted(t, tracks, takes));
+    return firstMounted ?? allExtractedTakes[0] ?? null;
+  }, [isManualSelection, activeExtractedTakeId, selectionMatchesTake, allExtractedTakes, selectedTrackId, tracks, takes, guideTakeId]);
   const masterRestyleTakes = React.useMemo(
     () =>
       takes
@@ -299,19 +407,41 @@ export const Board: React.FC<BoardProps> = ({
     () => laneTracks.some(track => track.type === 'stem' && track.clips.length > 0),
     [laneTracks]
   );
-  const separated = React.useMemo(
+  const mountableLanes = React.useMemo(
     () =>
       laneTracks.filter(
-        track =>
-          track.mounted !== false &&
-          (track.clips.length > 0 ||
-            track.type === 'pianoroll' ||
-            track.type === 'sequencer' ||
-            (track.type === 'strudel' && Boolean(track.strudelCode?.trim())) ||
-            track.type === 'sample')
+        (track) =>
+          track.clips.length > 0 ||
+          track.type === 'pianoroll' ||
+          track.type === 'sequencer' ||
+          (track.type === 'strudel' && Boolean(track.strudelCode?.trim())) ||
+          track.type === 'sample'
       ),
     [laneTracks]
   );
+  const separated = React.useMemo(
+    () => mountableLanes.filter((track) => track.mounted !== false),
+    [mountableLanes]
+  );
+  const mergeableMountedIds = React.useMemo(() => {
+    const ids = audibleOverlays.map((track) => track.id);
+    for (const track of mountableLanes) {
+      if (track.mounted === false || track.muted) continue;
+      const hasSynthOrSample =
+        (track.type === 'strudel' && Boolean(track.strudelCode?.trim())) ||
+        (track.type === 'pianoroll' && Boolean(track.pianoRollNotes?.length)) ||
+        (track.type === 'sequencer' &&
+          Boolean(track.sequencerVoices?.some((v) => !v.muted && v.steps.some(Boolean)))) ||
+        (track.type === 'sample' && track.clips.length > 0) ||
+        (track.type === 'stem' &&
+          (!isIdentityWaveSculpt(track.sculpt) ||
+            Boolean(track.activeVersionTakeId && track.activeVersionTakeId !== 'ORG')));
+      if (hasSynthOrSample && !ids.includes(track.id)) {
+        ids.push(track.id);
+      }
+    }
+    return ids;
+  }, [audibleOverlays, mountableLanes]);
   const completeSeparation = React.useMemo(
     () => ['drums', 'bass', 'other'].every(name => separated.some(track => track.name.toLowerCase() === name)),
     [separated]
@@ -359,20 +489,9 @@ export const Board: React.FC<BoardProps> = ({
     const targetTime = ratio * totalDuration;
     if (startIfPaused) {
       const focusedLane = laneTracks.find((t) => t.id === selectedTrackId);
-      const focusedTake = takes.find((t) => t.id === selectedTrackId);
       if (focusedLane) {
         setPlayhead(targetTime);
         dawEngine.auditionTrack(focusedLane.id, targetTime);
-      } else if (focusedTake && focusedTake.url) {
-        const takeRange = interval(focusedTake, totalDuration || 60);
-        const range = preview(focusedTake);
-        const segDur = Math.max(0, takeRange.end - takeRange.start);
-        const offsetInSeg =
-          segDur > 0 ? Math.max(0, Math.min(Math.max(0, segDur - 0.05), targetTime - takeRange.start)) : 0;
-        const timelineStart = takeRange.start + offsetInSeg;
-        setPlayhead(timelineStart);
-        dawEngine.auditionTake(focusedTake.url, range.start + offsetInSeg, range.end, timelineStart);
-        useDawStore.setState({ auditionId: focusedTake.id });
       } else {
         dawEngine.stopAuditionTake(true);
         dawEngine.seek(targetTime);
@@ -389,27 +508,56 @@ export const Board: React.FC<BoardProps> = ({
     scrubRulerAtClientX(e.currentTarget, e.clientX, true);
   };
 
-  const playExtractedTakeAtClick = (take: typeof takes[number], e?: React.MouseEvent<HTMLElement>) => {
-    onSelectTrack(take.id);
+  const playExtractedTakeAtClick = async (
+    take: (typeof takes)[number],
+    e?: React.MouseEvent<HTMLElement>,
+    focusTake = true,
+    targetSec?: number
+  ) => {
+    if (focusTake) {
+      onSelectTrack(take.id);
+    }
+    setActiveExtractedTakeId(take.id);
     if (!take.url) return;
-    const takeRange = interval(take, totalDuration || 60);
-    const rowDuration = Math.max(totalDuration, takeRange.end);
-    const range = preview(take);
-    let offsetInSeg = 0;
-    if (e) {
-      const rect = e.currentTarget.getBoundingClientRect();
-      const ratio = rect.width > 0 ? Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)) : 0;
-      const clickedSec = ratio * rowDuration;
-      const segDur = Math.max(0, takeRange.end - takeRange.start);
-      if (segDur > 0) {
-        offsetInSeg = Math.max(0, Math.min(Math.max(0, segDur - 0.05), clickedSec - takeRange.start));
+    let { start, end, overlayTrack } = getExtractedTakeInterval(take);
+    if (!overlayTrack) {
+      await toggleTake(take.id);
+      const stateAfter = useDawStore.getState();
+      overlayTrack = stateAfter.tracks.find((t) => t.id === take.id && t.activeTakeId === take.id);
+      const clipAfter = overlayTrack?.clips[0];
+      if (clipAfter) {
+        start = clipAfter.startTime;
+        end = clipAfter.startTime + clipAfter.duration;
       }
     }
-    const audioStart = range.start + offsetInSeg;
-    const timelineStart = takeRange.start + offsetInSeg;
+    let offsetInSeg = 0;
+    const segDur = Math.max(0, end - start);
+    if (typeof targetSec === 'number' && Number.isFinite(targetSec)) {
+      if (segDur > 0 && targetSec >= start && targetSec <= end) {
+        offsetInSeg = Math.max(0, Math.min(Math.max(0, segDur - 0.05), targetSec - start));
+      }
+    } else if (e) {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const ratio = rect.width > 0 ? Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)) : 0;
+      const clickedSec = ratio * totalDuration;
+      if (segDur > 0 && clickedSec >= start && clickedSec <= end) {
+        offsetInSeg = Math.max(0, Math.min(Math.max(0, segDur - 0.05), clickedSec - start));
+      }
+    }
+    const timelineStart = start + offsetInSeg;
     setPlayhead(timelineStart);
-    dawEngine.auditionTake(take.url, audioStart, range.end, timelineStart);
-    useDawStore.setState({ auditionId: take.id });
+    const currentOriginals = useDawStore.getState().originals;
+    const originalEnabled = !currentOriginals.some((r) => r.start < end && r.end > start);
+    const isTakeColored = !overlayTrack || !overlayTrack.muted;
+    const isTakeSolo = Boolean(overlayTrack?.solo);
+    const layerIds = isTakeSolo
+      ? [take.id]
+      : [
+        ...(originalEnabled ? ['master'] : []),
+        ...(isTakeColored ? [take.id] : []),
+      ];
+    const finalLayers = layerIds.length > 0 ? layerIds : ['master', take.id];
+    await dawEngine.auditionLayer(finalLayers, timelineStart, end);
   };
 
   // Generate ticks for time ruler (every 15s or 30s)
@@ -451,7 +599,7 @@ export const Board: React.FC<BoardProps> = ({
   };
 
   // Stage 1: Primary Focus (selected 'lane' / 'extracted' / 'master')
-  const focusItem: StageItem = resolveStageItem(selectedTrackId) ?? { kind: 'master', id: 'master' };
+  const focusItem: StageItem = resolveStageItem(guideDisplayId ?? selectedTrackId) ?? { kind: 'master', id: 'master' };
 
   const renderAddLaneDropdown = () => (
     <div className="board-add-dropdown" ref={addMenuRef} onClick={(e) => e.stopPropagation()}>
@@ -677,6 +825,416 @@ export const Board: React.FC<BoardProps> = ({
       )}
     </div>
   );
+
+  const getExtractedTakeInterval = (take: (typeof takes)[number]) => {
+    const overlayTrack = overlays.find((t) => t.id === take.id);
+    const clip = overlayTrack?.clips[0];
+    if (overlayTrack && clip) {
+      const shift =
+        drag?.id === overlayTrack.id
+          ? drag.shift - (clip.startTime - (clip.origin ?? clip.startTime))
+          : 0;
+      const start = clip.startTime + shift;
+      const end = start + clip.duration;
+      return { start, end, overlayTrack, clip };
+    }
+    const range = interval(take, totalDuration || 60);
+    return { start: range.start, end: range.end, overlayTrack: undefined, clip: undefined };
+  };
+
+  const renderMasterDents = (variant: 'horizon' | 'stage') => {
+    if (allExtractedTakes.length === 0) return null;
+    const safeDur = Math.max(totalDuration, 1);
+    const sortedDents = allExtractedTakes
+      .map((take) => {
+        const { start, end, overlayTrack } = getExtractedTakeInterval(take);
+        const leftPct = Math.max(0, Math.min(99, (start / safeDur) * 100));
+        const widthPct = Math.max(0.8, Math.min(100 - leftPct, ((end - start) / safeDur) * 100));
+        return { take, start, end, overlayTrack, leftPct, widthPct };
+      })
+      .sort((a, b) => a.leftPct - b.leftPct || a.take.take_number - b.take.take_number);
+    const seenLeftPcts: number[] = [];
+    return (
+      <div
+        className={`board-sc-dents is-${variant}`}
+        aria-label="Extracted take markers"
+        onClick={(e) => e.stopPropagation()}
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        {sortedDents.map(({ take, start, end, overlayTrack, leftPct, widthPct }, orderIdx) => {
+          const stackIdx = seenLeftPcts.filter((p) => Math.abs(p - leftPct) < 2.2).length;
+          seenLeftPcts.push(leftPct);
+          const isTakeColored = Boolean(overlayTrack && !overlayTrack.muted);
+          const isSelectedDent =
+            activeExtractedTake?.id === take.id && focusItem.kind === 'master';
+          const dentColor = overlayTrack?.color || (isTakeColored ? '#00ff41' : '#00f0ff');
+          return (
+            <Tooltip
+              key={`dent-${variant}-${take.id}`}
+              title={`${taskLabel(take.task)} #${take.take_number}`}
+              description={`[${formatTime(start).slice(0, 5)} ➔ ${formatTime(end).slice(0, 5)}] • Click to select on Master`}
+            >
+              <button
+                type="button"
+                className={`board-sc-dent ${isTakeColored ? 'is-colored' : 'is-uncolored'} ${isSelectedDent ? 'is-selected' : ''}`}
+                style={
+                  {
+                    '--dent-left': `${leftPct}%`,
+                    '--dent-width': `${widthPct}%`,
+                    '--dent-color': dentColor,
+                    '--dent-stack-idx': stackIdx,
+                    '--dent-order-idx': orderIdx,
+                  } as React.CSSProperties
+                }
+                aria-label={
+                  variant === 'stage'
+                    ? `Select Take #${take.take_number} section`
+                    : `Focus Take #${take.take_number} marker on Master`
+                }
+                aria-pressed={isSelectedDent}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsVaultOpen(false);
+                  setMasterExpanded(true);
+                  const isAlreadySelectedOnMaster =
+                    activeExtractedTake?.id === take.id && focusItem.kind === 'master';
+                  setActiveExtractedTakeId(take.id);
+                  setSelection(null);
+                  onSelectTrack('master');
+                  clearNonMasterSolos();
+                  dawEngine.stopAuditionTake(true);
+                  if (!overlayTrack) {
+                    toggleTake(take.id);
+                  } else if (isAlreadySelectedOnMaster) {
+                    updateTrackMixer(overlayTrack.id, { muted: !overlayTrack.muted });
+                  }
+                }}
+              >
+                <span className="board-sc-dent-head">#{take.take_number}</span>
+                <span className="board-sc-dent-stem" />
+              </button>
+            </Tooltip>
+          );
+        })}
+      </div>
+    );
+  };
+
+  const renderMasterExtractedSelector = () => {
+    if (focusItem.kind !== 'master' || !activeExtractedTake) return null;
+    const { start, end, overlayTrack, clip } = getExtractedTakeInterval(activeExtractedTake);
+    const safeDur = Math.max(totalDuration, 1);
+    const leftPct = Math.max(0, Math.min(99, (start / safeDur) * 100));
+    const widthPct = Math.max(1, Math.min(100 - leftPct, ((end - start) / safeDur) * 100));
+    const isTakeColored = Boolean(overlayTrack && !overlayTrack.muted);
+    const originalEnabled = !originals.some((region) => region.start < end && region.end > start);
+    const selectorColor = overlayTrack?.color || (isTakeColored ? '#00ff41' : '#00f0ff');
+    const previewRange = preview(activeExtractedTake);
+    const selectorClip =
+      clip ??
+      (activeExtractedTake.url
+        ? {
+          id: activeExtractedTake.id,
+          name: `Take #${activeExtractedTake.take_number}`,
+          url: activeExtractedTake.url,
+          startTime: start,
+          duration: Math.max(0.5, end - start),
+          offset: previewRange.start,
+        }
+        : undefined);
+
+    return (
+      <div
+        className={`board-sc-selector ${isTakeColored ? 'is-colored' : 'is-uncolored'}`}
+        style={
+          {
+            left: `${leftPct}%`,
+            width: `${widthPct}%`,
+            '--start-pct': `${leftPct}%`,
+            '--width-pct': `${widthPct}%`,
+            '--track-color': selectorColor,
+          } as React.CSSProperties
+        }
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          type="button"
+          className="board-sc-selector-region"
+          aria-label={`Region selector for Take #${activeExtractedTake.take_number}`}
+          aria-pressed={isTakeColored}
+          onPointerDown={(event) => {
+            if (event.button !== 0 || pendingTake || !overlayTrack || !clip) return;
+            event.stopPropagation();
+            didDrag.current = false;
+            const width =
+              event.currentTarget.closest('.board-track-lane')?.getBoundingClientRect().width || 300;
+            const origins = overlayTrack.clips.map((part) => part.origin ?? part.startTime);
+            const curShift = clip.startTime - (clip.origin ?? clip.startTime);
+            dragging.current = {
+              id: overlayTrack.id,
+              x: event.clientX,
+              shift: curShift,
+              width,
+              minimum: -Math.min(...origins),
+              maximum:
+                totalDuration -
+                Math.max(
+                  ...overlayTrack.clips.map((part, index) => origins[index] + part.duration)
+                ),
+              current: curShift,
+            };
+            event.currentTarget.setPointerCapture(event.pointerId);
+          }}
+          onPointerMove={(event) => {
+            if (!overlayTrack) return;
+            const state = dragging.current;
+            if (
+              !state ||
+              state.id !== overlayTrack.id ||
+              (Math.abs(event.clientX - state.x) < 3 && !didDrag.current)
+            )
+              return;
+            didDrag.current = true;
+            state.current = Math.max(
+              state.minimum,
+              Math.min(
+                state.maximum,
+                state.shift + ((event.clientX - state.x) / state.width) * totalDuration
+              )
+            );
+            setDrag({ id: state.id, shift: state.current });
+          }}
+          onPointerUp={(event) => {
+            if (!overlayTrack) return;
+            const state = dragging.current;
+            dragging.current = null;
+            setDrag(null);
+            if (didDrag.current && state) {
+              event.stopPropagation();
+              void moveTake(overlayTrack.id, state.current);
+              onSelectTrack('master');
+            }
+          }}
+          onPointerCancel={() => {
+            dragging.current = null;
+            setDrag(null);
+          }}
+          onClick={(event) => {
+            event.stopPropagation();
+            if (didDrag.current) {
+              didDrag.current = false;
+              return;
+            }
+            onSelectTrack('master');
+            setActiveExtractedTakeId(activeExtractedTake.id);
+            if (!overlayTrack) {
+              void toggleTake(activeExtractedTake.id);
+            } else {
+              const nextMuted = !overlayTrack.muted;
+              updateTrackMixer(overlayTrack.id, { muted: nextMuted });
+              if (nextMuted && !originalEnabled) {
+                toggleOriginal({ start, end });
+              }
+              if (isMasterPlaying) {
+                const nextLayerIds = [
+                  ...(originalEnabled || nextMuted ? ['master'] : []),
+                  ...(!nextMuted ? [overlayTrack.id] : []),
+                ];
+                void dawEngine.auditionLayer(nextLayerIds, start, end);
+              }
+            }
+          }}
+        >
+          {selectorClip && (
+            <div className="board-overlay-wave">
+              <Clip clip={selectorClip} color={selectorColor} />
+            </div>
+          )}
+          <span className="board-sc-selector-badge">
+            #TK{activeExtractedTake.take_number}
+          </span>
+        </button>
+
+        {/* 3-Icon Controller HUD ON THE SELECTOR when Master is selected */}
+        <div
+          className={`board-sc-selector-hud ${leftPct < 14 ? 'is-edge-left' : leftPct + widthPct > 86 ? 'is-edge-right' : ''}`}
+          role="toolbar"
+          aria-label={`Take #${activeExtractedTake.take_number} region controls`}
+          onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <div data-guide="board.take-comparison" data-guide-entity={activeExtractedTake?.id} className="board-overlay-player">
+            <Tooltip
+              title={isMasterPlaying ? 'Stop section' : 'Play section'}
+              description={`Play [${formatTime(start).slice(0, 5)} – ${formatTime(end).slice(0, 5)}] with selected ORG / TK#${activeExtractedTake.take_number} layers`}
+            >
+              <button
+                type="button"
+                className={`board-sc-hud-btn play ${isMasterPlaying ? 'active playing' : ''}`}
+                aria-label={`Play selected audio for Take #${activeExtractedTake.take_number}`}
+                onClick={async () => {
+                  if (isMasterPlaying) {
+                    dawEngine.pauseTransport();
+                    return;
+                  }
+                  let currentOverlay = overlayTrack;
+                  let currentColored = isTakeColored;
+                  if (!originalEnabled && !currentColored) {
+                    if (!currentOverlay) {
+                      await toggleTake(activeExtractedTake.id);
+                      currentOverlay = useDawStore
+                        .getState()
+                        .tracks.find((t) => t.id === activeExtractedTake.id);
+                    } else {
+                      updateTrackMixer(currentOverlay.id, { muted: false });
+                    }
+                    currentColored = true;
+                  }
+                  const layerIds = [
+                    ...(originalEnabled ? ['master'] : []),
+                    ...(currentColored && currentOverlay ? [currentOverlay.id] : []),
+                  ];
+                  const finalLayers = layerIds.length > 0 ? layerIds : ['master'];
+                  void dawEngine
+                    .auditionLayer(finalLayers, start, end)
+                    .catch((error) =>
+                      toast.error(
+                        error instanceof Error ? error.message : 'Could not play the section'
+                      )
+                    );
+                }}
+              >
+                {isMasterPlaying ? <Square size={10} /> : <Play size={10} />}
+              </button>
+            </Tooltip>
+
+            <div className="board-overlay-choices">
+              <Tooltip
+                title="Original Master"
+                description="Include or silence the original Master recording in this section"
+              >
+                <button
+                  type="button"
+                  className={`board-sc-choice-btn org ${originalEnabled ? 'active' : ''}`}
+                  aria-label={`Original audio for Take #${activeExtractedTake.take_number}`}
+                  aria-pressed={originalEnabled}
+                  onClick={async () => {
+                    const nextOriginal = !originalEnabled;
+                    toggleOriginal({ start, end });
+                    let currentOverlay = overlayTrack;
+                    let currentColored = isTakeColored;
+                    if (!nextOriginal && !currentColored) {
+                      if (!currentOverlay) {
+                        await toggleTake(activeExtractedTake.id);
+                        currentOverlay = useDawStore
+                          .getState()
+                          .tracks.find((t) => t.id === activeExtractedTake.id);
+                      } else {
+                        updateTrackMixer(currentOverlay.id, { muted: false });
+                      }
+                      currentColored = true;
+                    }
+                    if (isMasterPlaying) {
+                      const nextLayers = [
+                        ...(nextOriginal ? ['master'] : []),
+                        ...(currentColored && currentOverlay ? [currentOverlay.id] : []),
+                      ];
+                      if (nextLayers.length > 0) {
+                        void dawEngine.auditionLayer(nextLayers, start, end);
+                      }
+                    }
+                  }}
+                >
+                  ORG
+                </button>
+              </Tooltip>
+
+              <Tooltip
+                title={`Take #${activeExtractedTake.take_number}`}
+                description={`Mount or mute Take #${activeExtractedTake.take_number} on Master`}
+              >
+                <button
+                  type="button"
+                  className={`board-sc-choice-btn tk ${isTakeColored ? 'active' : ''}`}
+                  aria-label={`Take #${activeExtractedTake.take_number} audio`}
+                  aria-pressed={isTakeColored}
+                  onClick={async () => {
+                    setActiveExtractedTakeId(activeExtractedTake.id);
+                    if (!overlayTrack) {
+                      await toggleTake(activeExtractedTake.id);
+                      if (isMasterPlaying) {
+                        const nextLayers = [
+                          ...(originalEnabled ? ['master'] : []),
+                          activeExtractedTake.id,
+                        ];
+                        void dawEngine.auditionLayer(nextLayers, start, end);
+                      }
+                    } else {
+                      const nextMuted = !overlayTrack.muted;
+                      updateTrackMixer(overlayTrack.id, { muted: nextMuted });
+                      let nextOriginal = originalEnabled;
+                      if (nextMuted && !originalEnabled) {
+                        toggleOriginal({ start, end });
+                        nextOriginal = true;
+                      }
+                      if (isMasterPlaying) {
+                        const nextLayers = [
+                          ...(nextOriginal ? ['master'] : []),
+                          ...(!nextMuted ? [overlayTrack.id] : []),
+                        ];
+                        if (nextLayers.length > 0) {
+                          void dawEngine.auditionLayer(nextLayers, start, end);
+                        }
+                      }
+                    }
+                  }}
+                >
+                  TK#{activeExtractedTake.take_number}
+                </button>
+              </Tooltip>
+            </div>
+          </div>
+
+          <Tooltip
+            title="Merge into Master"
+            description={`Merge Take #${activeExtractedTake.take_number} into the Master track`}
+          >
+            <button
+              type="button"
+              data-guide-entity={activeExtractedTake.id} className="board-sc-hud-btn merge"
+              data-guide="board.section-merge" aria-label={`Merge Take #${activeExtractedTake.take_number}`}
+              disabled={Boolean(pendingTake)}
+              onClick={async () => {
+                if (!overlayTrack) {
+                  await toggleTake(activeExtractedTake.id);
+                } else if (overlayTrack.muted) {
+                  updateTrackMixer(overlayTrack.id, { muted: false });
+                }
+                await mergeTakes([activeExtractedTake.id], { start, end });
+              }}
+            >
+              <Check size={11} />
+            </button>
+          </Tooltip>
+
+          <Tooltip
+            title="Delete Take"
+            description={`Discard Take #${activeExtractedTake.take_number}`}
+          >
+            <button
+              type="button"
+              className="board-sc-hud-btn delete"
+              aria-label={`Discard Take #${activeExtractedTake.take_number}`}
+              disabled={Boolean(pendingTake)}
+              onClick={() => void deleteTake(activeExtractedTake.id)}
+            >
+              <Trash2 size={11} />
+            </button>
+          </Tooltip>
+        </div>
+      </div>
+    );
+  };
 
   const renderEmbeddedMasterHorizon = () => {
     const isMasterFocused = focusItem.kind === 'master';
