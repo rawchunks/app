@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useGuideOwner } from '../guide/owners';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { useDawStore, DAWTrack } from '../../lib/daw/store';
 import { dawEngine } from '../../lib/daw/engine';
 import { DRUM_STEPS } from '../../lib/daw/notes';
@@ -59,9 +60,23 @@ export const Drums: React.FC<DrumsProps> = ({ track }) => {
   const safeVoiceIdx = Math.min(previewVoiceIdx, Math.max(0, voices.length - 1));
   const activePreviewVoice = voices[safeVoiceIdx];
 
+  const guideTrackRef = useRef(sequencerTrack?.id); guideTrackRef.current = sequencerTrack?.id;
+  const guideOpenRef = useRef(isModalOpen); guideOpenRef.current = isModalOpen;
+  useGuideOwner({ id: 'drums', scope: useDawStore.getState().songId ?? 'loading', handles: step => step.owner === 'drums', prepare: ({ step, bind }) => {
+    if (!sequencerTrack) return { retry: () => !!guideTrackRef.current, target: 'drums.create', description: 'Use CREATE DRUMS TRACK to add a drum lane.' };
+    const lane = bind('drums-lane', sequencerTrack.id);
+    if (lane !== sequencerTrack.id) return { unavailable: 'The selected lane changed. Reopen this guide from the lane you want.' };
+    const wasOpen = bind('drums-was-open', isModalOpen ? 'yes' : 'no');
+    const wantsOpen = step.owner === 'drums';
+    setIsModalOpen(wantsOpen);
+    return { leave: next => { if (next?.owner === 'drums') return; if (wasOpen === 'no' && guideOpenRef.current === wantsOpen) setIsModalOpen(false); },
+      focus: step.id === 'D1' ? '[data-guide="drums.steps"] button' : undefined };
+  } });
+
+
   const handleVoiceAudition = useCallback(
     (voiceIdx: number) => {
-      if (!sequencerTrack) return;
+  if (!sequencerTrack) return;
       const voice = voices[voiceIdx];
       if (!voice) return;
       const voiceKey = voice.name.toLowerCase().replace(/[^a-z]/g, '') as any;
@@ -121,7 +136,7 @@ export const Drums: React.FC<DrumsProps> = ({ track }) => {
           <p className="sequencer-empty-desc">
             Create a 16-step rhythmic drum machine track to program kicks, snares, claps &amp; live QWERTY pads.
           </p>
-          <Button
+          <Button data-guide="drums.create"
             size="sm"
             variant="default"
             onClick={() => {
@@ -147,7 +162,7 @@ export const Drums: React.FC<DrumsProps> = ({ track }) => {
   const renderToolbar = (showVoiceSelect: boolean) => (
     <div className="sequencer-toolbar daw-ui-toolbar">
       <div className="sequencer-meta">
-        <div className="synth-version-pills">
+        <div data-guide="drums.versions" className="synth-version-pills">
           {hasOriginal && (
             <Tooltip title="Original Drum Stem">
               <button
@@ -204,7 +219,7 @@ export const Drums: React.FC<DrumsProps> = ({ track }) => {
         )}
       </div>
 
-      <div className="sequencer-controls-cluster">
+      <div data-guide="drums.edit-actions" className="sequencer-controls-cluster">
         {!showVoiceSelect && (
           <Tooltip
             title="Computer Keyboard Pad Recording"
@@ -212,7 +227,7 @@ export const Drums: React.FC<DrumsProps> = ({ track }) => {
           >
             <button
               type="button"
-              className={`daw-ui-btn daw-keyrec-btn ${isKeyRecEnabled ? 'active' : ''}`}
+              data-guide="drums.pad-record" className={`daw-ui-btn daw-keyrec-btn ${isKeyRecEnabled ? 'active' : ''}`}
               onClick={() => setIsKeyRecEnabled((v) => !v)}
             >
               <Disc size={11} />
@@ -314,7 +329,7 @@ export const Drums: React.FC<DrumsProps> = ({ track }) => {
 
       {/* Expanded Full Multi-Voice 16-Step Drum Matrix Modal */}
       <Modal
-        isOpen={isModalOpen}
+        guideOwner="drums" guideAnchor="drums.matrix" isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         title={`16-STEP DRUM MATRIX & QWERTY PADS • ${sequencerTrack.name.toUpperCase()}`}
         size="lg"
@@ -322,7 +337,7 @@ export const Drums: React.FC<DrumsProps> = ({ track }) => {
         <div className="daw-instrument-modal-body">
           {renderToolbar(false)}
 
-          <div className="sequencer-grid">
+          <div data-guide="drums.steps" className="sequencer-grid">
             {/* Step Numbers Scale Header */}
             <div className="sequencer-scale-row">
               <div className="sequencer-scale-spacer">VOICE / PAD</div>

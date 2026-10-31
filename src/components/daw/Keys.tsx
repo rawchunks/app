@@ -1,4 +1,5 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { useGuideOwner } from '../guide/owners';
+import React, { useRef, useState, useMemo, useEffect, useCallback } from 'react';
 import { useDawStore, DAWTrack } from '../../lib/daw/store';
 import { dawEngine } from '../../lib/daw/engine';
 import { PIANO_STEPS } from '../../lib/daw/notes';
@@ -87,9 +88,23 @@ export const Keys: React.FC<KeysProps> = ({ track }) => {
 
   const notes = pianoTrack?.pianoRollNotes || [];
 
+  const guideTrackRef = useRef(pianoTrack?.id); guideTrackRef.current = pianoTrack?.id;
+  const guideOpenRef = useRef(isModalOpen); guideOpenRef.current = isModalOpen;
+  useGuideOwner({ id: 'keys', scope: useDawStore.getState().songId ?? 'loading', handles: step => step.owner === 'keys', prepare: ({ step, bind }) => {
+    if (!pianoTrack) return { retry: () => !!guideTrackRef.current, target: 'keys.create', description: 'Use CREATE KEYS TRACK to add a Keys lane.' };
+    const lane = bind('keys-lane', pianoTrack.id);
+    if (lane !== pianoTrack.id) return { unavailable: 'The selected lane changed. Reopen this guide from the lane you want.' };
+    const wasOpen = bind('keys-was-open', isModalOpen ? 'yes' : 'no');
+    const wantsOpen = ["J1", "J2", "J3", "J4", "J5", "J6"].includes(step.id);
+    setIsModalOpen(wantsOpen);
+    return { leave: next => { if (next?.owner === 'keys') return; if (wasOpen === 'no' && guideOpenRef.current === wantsOpen) setIsModalOpen(false); },
+      focus: step.id === 'J1' ? '[data-guide="keys.note-grid"] button' : undefined };
+  } });
+
+
   const handleKeyAudition = useCallback(
     (pitch: string) => {
-      if (!pianoTrack) return;
+  if (!pianoTrack) return;
       setActiveAuditionPitch(pitch);
       dawEngine.playNote(pitch, '8n', velocity, pianoTrack.id);
       setTimeout(() => setActiveAuditionPitch(null), 220);
@@ -168,7 +183,7 @@ export const Keys: React.FC<KeysProps> = ({ track }) => {
           <p className="pianoroll-empty-desc">
             Create a polyphonic synth track to compose melodies &amp; chords with mouse or laptop QWERTY keys.
           </p>
-          <Button
+          <Button data-guide="keys.create"
             size="sm"
             variant="default"
             onClick={() => {
@@ -190,7 +205,7 @@ export const Keys: React.FC<KeysProps> = ({ track }) => {
 
   const renderToolbar = (inModal = false) => (
     <div className={`pianoroll-toolbar daw-ui-toolbar ${inModal ? 'is-modal-toolbar' : ''}`}>
-      <div className="synth-version-pills">
+      <div data-guide="keys.versions" className="synth-version-pills">
         {versions.map((ver) => (
           <Tooltip key={ver.id} title={`Keys Version #${ver.number}`}>
             <button
@@ -244,7 +259,7 @@ export const Keys: React.FC<KeysProps> = ({ track }) => {
         <Tooltip title="Step Division" description="Grid note length and quantization division">
           <select
             className="toolbox-text-input toolbox-select-compact pianoroll-grid-select daw-select daw-ui-select"
-            aria-label="Note division"
+            data-guide="keys.note-options" aria-label="Note division"
             value={selectedGrid}
             onChange={(e) => setSelectedGrid(parseFloat(e.target.value))}
           >
@@ -279,7 +294,7 @@ export const Keys: React.FC<KeysProps> = ({ track }) => {
           >
             <button
               type="button"
-              className={`daw-ui-btn daw-keyrec-btn ${isKeyRecEnabled ? 'active' : ''}`}
+              data-guide="keys.keyboard-record" className={`daw-ui-btn daw-keyrec-btn ${isKeyRecEnabled ? 'active' : ''}`}
               onClick={() => setIsKeyRecEnabled((v) => !v)}
             >
               <Disc size={11} />
@@ -293,7 +308,7 @@ export const Keys: React.FC<KeysProps> = ({ track }) => {
           <Button
             size="sm"
             variant="outline"
-            className="pianoroll-action-btn daw-ui-btn"
+            data-guide="keys.edit-actions" className="pianoroll-action-btn daw-ui-btn"
             onClick={() => quantizePianoRoll(pianoTrack.id, selectedGrid)}
           >
             <Magnet size={12} />
@@ -378,7 +393,7 @@ export const Keys: React.FC<KeysProps> = ({ track }) => {
 
       {/* Expanded Full-Featured 2D Piano Roll + QWERTY Synth Modal */}
       <Modal
-        isOpen={isModalOpen}
+        guideOwner="keys" guideAnchor="keys.roll" isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         title={`PIANO ROLL & QWERTY SYNTH • ${pianoTrack.name.toUpperCase()}`}
         size="lg"
@@ -413,7 +428,7 @@ export const Keys: React.FC<KeysProps> = ({ track }) => {
 
             {/* Right Scrollable Step Grid */}
             <div className="pianoroll-grid-scroll">
-              <div className="pianoroll-grid-content">
+              <div data-guide="keys.note-grid" className="pianoroll-grid-content">
                 {pitches.map((pitch) => {
                   const isAccidental = pitch.includes('#');
                   return (

@@ -101,6 +101,7 @@ export function usePianoMusicalTyping({
     }
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.isComposing || (e.target as HTMLElement)?.closest('[data-guide-navigation]')) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (isEditableElement(e.target)) return;
 
@@ -212,6 +213,7 @@ export function useDrumMusicalTyping({
     }
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.isComposing || (e.target as HTMLElement)?.closest('[data-guide-navigation]')) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (isEditableElement(e.target)) return;
 
