@@ -1,3 +1,4 @@
+import { useGuideOwner, prepareViews } from '../guide/owners';
 import React, { useState, useEffect, useRef } from 'react';
 import {
   useDawStore,
@@ -239,7 +240,14 @@ export const Toolbox: React.FC<ToolboxProps> = ({
   useDismiss(isOverflowOpen, () => setIsOverflowOpen(false), overflowRef);
 
   const [historyTab, setHistoryTab] = useState<'takes' | 'commits'>('takes');
+  const [displayTakeId, setDisplayTakeId] = useState<string | null>(null);
   const [selectedCommitId, setSelectedCommitId] = useState<string | null>(null);
+
+  // Preserve drafts, decoded samples and the selected FX module for this project.
+  const [visitedDraftTools, setVisitedDraftTools] = useState<string[]>([]);
+  useEffect(() => {
+    if (resolvedActiveTool === 'strudel' || resolvedActiveTool === 'sample' || resolvedActiveTool === 'dsp') setVisitedDraftTools(previous => previous.includes(resolvedActiveTool) ? previous : [...previous, resolvedActiveTool]);
+  }, [resolvedActiveTool]);
 
   const selectedTrack = tracks.find((t) => t.id === selectedTrackId) || tracks[0];
 
@@ -281,6 +289,19 @@ export const Toolbox: React.FC<ToolboxProps> = ({
   const overflowDockTools = dockCandidates.slice(2);
   const isOverflowToolActive = false;
 
+  const guideView = { isOverflowOpen, historyTab, selectedCommitId, displayTakeId };
+  const guideViewRef = useRef(guideView); guideViewRef.current = guideView;
+  useGuideOwner({ id: 'toolbox', scope: useDawStore.getState().songId ?? 'loading', handles: step => ['E5', 'T3', 'H3'].includes(step.id), prepare: ({ step, bind }) => {
+    const takeId = bind('take', takes.find(take => take.id === selectedTrackId)?.id ?? takes[0]?.id);
+    const commitId = bind('snapshot', selectedCommitId ?? commits[0]?.id);
+    const result = prepareViews(guideView, () => guideViewRef.current, { isOverflowOpen: setIsOverflowOpen, historyTab: setHistoryTab, selectedCommitId: setSelectedCommitId, displayTakeId: setDisplayTakeId },
+      { isOverflowOpen: step.id === 'E5', ...(step.id === 'T3' ? { historyTab: 'takes', displayTakeId: takeId ?? null } : step.id === 'H3' ? { historyTab: 'commits', selectedCommitId: commitId ?? null } : {}) });
+    if (step.id === 'T3' && !takeId) return { ...result, target: 'history.takes-empty', description: 'AI edits appear here when they finish.' };
+    if (step.id === 'H3' && !commitId) return { ...result, target: 'history.snapshots-empty', description: 'Saved snapshots appear here.' };
+    return { ...result, entity: step.id === 'T3' ? takeId : step.id === 'H3' ? commitId : undefined,
+      focus: step.id === 'H3' ? '[data-guide="history.restore"]' : undefined };
+  } });
+
   const formatTime = (sec: number) => {
     const safe = Math.max(0, Number.isFinite(sec) ? sec : 0);
     const m = Math.floor(safe / 60);
@@ -303,12 +324,12 @@ export const Toolbox: React.FC<ToolboxProps> = ({
       {/* Main Structure: Top = SELECTED TOOL Workspace, Bottom = [MRU - PREVIEW] | [TOOL ICON] x 3 | [+N] */}
       <div className="toolbox-bento-body">
         <div className="toolbox-selected-tool-body">
-          {resolvedActiveTool === 'dsp' && <Rack track={selectedTrack} />}
+          {(resolvedActiveTool === 'dsp' || visitedDraftTools.includes('dsp')) && <div hidden={resolvedActiveTool !== 'dsp'} inert={resolvedActiveTool !== 'dsp'}><Rack track={selectedTrack} active={resolvedActiveTool === 'dsp'} /></div>}
           {resolvedActiveTool === 'mixer' && <Mixer />}
           {resolvedActiveTool === 'keys' && <Keys track={selectedTrack} />}
           {resolvedActiveTool === 'drums' && <Drums track={selectedTrack} />}
-          {resolvedActiveTool === 'strudel' && <Strudel track={selectedTrack} />}
-          {resolvedActiveTool === 'sample' && <Sampler onImportComplete={() => handlePickTool('dsp')} />}
+          {(resolvedActiveTool === 'strudel' || visitedDraftTools.includes('strudel')) && <div hidden={resolvedActiveTool !== 'strudel'} inert={resolvedActiveTool !== 'strudel'}><Strudel track={selectedTrack} active={resolvedActiveTool === 'strudel'} /></div>}
+          {(resolvedActiveTool === 'sample' || visitedDraftTools.includes('sample')) && <div hidden={resolvedActiveTool !== 'sample'} inert={resolvedActiveTool !== 'sample'}><Sampler active={resolvedActiveTool === 'sample'} onImportComplete={() => handlePickTool('dsp')} /></div>}
           {resolvedActiveTool === 'history' && (() => {
             const sortedTakes = [...takes].sort((a, b) => (a.take_number ?? 0) - (b.take_number ?? 0));
             const visibleTakes = sortedTakes;
@@ -365,17 +386,17 @@ export const Toolbox: React.FC<ToolboxProps> = ({
                 {historyTab === 'takes' ? (
                   <div className="toolbox-takes-section">
                     {takes.length === 0 ? (
-                      <p className="toolbox-history-empty">No takes in session yet.</p>
+                      <p data-guide="history.takes-empty" tabIndex={-1} className="toolbox-history-empty">No takes in session yet.</p>
                     ) : (
                       <div className="toolbox-takes-list">
                         {visibleTakes.map((take, idx) => {
-                          const isSelected =
+                          const isSelected = displayTakeId ? displayTakeId === take.id :
                             selectedTrackId === take.id ||
                             (!takes.some((t) => t.id === selectedTrackId) && visibleTakes[0]?.id === take.id);
                           const active = mounted(take, tracks, takes);
                           return (
                             <div
-                              key={take.id}
+                              key={take.id} data-guide-entity={take.id}
                               className={`toolbox-take-item ${active ? 'active' : ''} ${isSelected ? 'selected' : 'folded'}`}
                               onClick={() => {
                                 if (onSelectTrack) onSelectTrack(take.id);
@@ -413,7 +434,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
                                   <Tooltip title={active ? 'Unmount take' : 'Mount take as base'}>
                                     <button
                                       type="button"
-                                      aria-pressed={active}
+                                      data-guide="history.take-mount" aria-pressed={active}
                                       className={`btn-base ${active ? 'btn-variant-primary' : 'btn-variant-ghost'} btn-size-xs`}
                                       onClick={(e) => {
                                         e.stopPropagation();
@@ -446,7 +467,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
                 ) : (
                   <div className="toolbox-commits-section">
                     {commits.length === 0 ? (
-                      <p className="toolbox-history-empty">No snapshots yet.</p>
+                      <p data-guide="history.snapshots-empty" tabIndex={-1} className="toolbox-history-empty">No snapshots yet.</p>
                     ) : (
                       <div className="toolbox-commits-list">
                         {visibleCommits.map((c) => {
@@ -457,7 +478,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
                             : null;
                           return (
                             <div
-                              key={c.id}
+                              key={c.id} data-guide-entity={c.id}
                               className={`toolbox-commit-item ${isSelected ? 'selected' : 'folded'}`}
                               onClick={() => setSelectedCommitId(c.id)}
                             >
@@ -470,7 +491,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
                                 </span>
                               </div>
                               {isSelected && (
-                                <div className="toolbox-commit-actions">
+                                <div data-guide="history.snapshot-actions" className="toolbox-commit-actions">
                                   {snapTakeId && (() => {
                                     const snapTake = takes.find((t) => t.id === snapTakeId);
                                     if (!snapTake?.url) return null;
@@ -493,7 +514,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
                                   })()}
                                   <button
                                     type="button"
-                                    className="btn-base btn-variant-primary btn-size-xs"
+                                    data-guide="history.restore" className="btn-base btn-variant-primary btn-size-xs"
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       if (Array.isArray(c.timeline_snapshot?.tracks)) {
@@ -524,6 +545,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
 
         {/* Bottom Dock: [MRU - PREVIEW] | [TOOL ICON] | [TOOL ICON] | [TOOL ICON] | [+N] */}
         <div className="toolbox-bottom-dock" role="tablist" aria-label="Manual Tool Selector">
+          
           {/* 1. [MRU - PREVIEW] — Live Graphical Preview of Previous Manual Tool for 1-Tap Swap */}
           <Tooltip
             title={`Swap to ${mruToolDef.label}`}
@@ -587,7 +609,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
             </Tooltip>
 
             {isOverflowOpen && (
-              <div className="toolbox-overflow-popover" role="menu" aria-label="Additional Manual Tools">
+              <div data-guide="toolbox.overflow" className="toolbox-overflow-popover" role="menu" aria-label="Additional Manual Tools">
                 {overflowDockTools.map((tool) => {
                   const Icon = tool.icon;
                   const isActive = resolvedActiveTool === tool.id;

@@ -1,3 +1,5 @@
+import { useRef } from 'react';
+import { useGuideOwner, prepareViews } from '../guide/owners';
 import React, { useState, useMemo } from 'react';
 import {
   useDawStore,
@@ -271,6 +273,16 @@ export const Studio: React.FC<StudioProps> = ({
   const [isLyricsModalOpen, setIsLyricsModalOpen] = useState<boolean>(false);
   const [completePreset, setCompletePreset] = useState<string>('full_band');
 
+  const guideView = { isPromptModalOpen, isParamModalOpen, isLyricsModalOpen };
+  const guideViewRef = useRef(guideView); guideViewRef.current = guideView;
+  useGuideOwner({ id: 'ai', scope: useDawStore.getState().songId ?? 'loading', handles: step => step.owner === 'ai' || step.id === 'E4', prepare: ({ step }) => {
+    if (step.id === 'I3' && !selection) return { target: 'board.section', description: 'Use SECTION to select the range you want to rework.' };
+    const result = prepareViews(guideView, () => guideViewRef.current, { isPromptModalOpen: setIsPromptModalOpen, isParamModalOpen: setIsParamModalOpen, isLyricsModalOpen: setIsLyricsModalOpen },
+      { isPromptModalOpen: step.id === 'I1', isParamModalOpen: ['I3', 'I4', 'I5', 'I6', 'I7', 'I8'].includes(step.id), isLyricsModalOpen: step.id === 'I2' });
+    return { ...result, target: ['I3', 'I4', 'I5', 'I6', 'I7', 'I8'].includes(step.id) ? `ai.${({ I3: 'repaint', I4: 'lego', I5: 'extend', I6: 'complete', I7: 'cover', I8: 'extract' } as const)[step.id as 'I3']}-parameters` : undefined,
+      focus: step.id === 'I1' ? 'textarea' : ['I3', 'I5', 'I7'].includes(step.id) ? 'input[type="range"]' : step.id === 'I4' ? 'input[type="text"]' : undefined };
+  } });
+
   const formatTime = (sec: number) => {
     const safe = Math.max(0, Number.isFinite(sec) ? sec : 0);
     const m = Math.floor(safe / 60);
@@ -494,7 +506,7 @@ export const Studio: React.FC<StudioProps> = ({
       }}
     >
       {/* UNIFIED IN-PLACE ACCORDION WORKSPACE: Open-Extend <> Close-Shrink in Fixed Order */}
-      <div className="studio-unified-block" role="tablist" aria-label="AI Studio Operations">
+      <div className="studio-unified-block" role="tablist" data-guide="ai.operations" aria-label="AI Studio Operations">
         {aiTasks
           .filter((action) => action.id in ACTION_ICONS)
           .map((action) => {
@@ -841,7 +853,7 @@ export const Studio: React.FC<StudioProps> = ({
 
       {/* Standardized AI Studio Parameter Modal */}
       <Modal
-        isOpen={isParamModalOpen}
+        guideOwner="ai" guideAnchor={`ai.${task}-parameters`} isOpen={isParamModalOpen}
         onClose={() => setIsParamModalOpen(false)}
         title={`AI STUDIO PARAMETERS // ${taskLabel(task).toUpperCase()}`}
         size="md"
@@ -1324,7 +1336,7 @@ export const Studio: React.FC<StudioProps> = ({
 
       {/* Expandable Prompt Modal */}
       <Modal
-        isOpen={isPromptModalOpen}
+        guideOwner="ai" guideAnchor="ai.prompt-dialog" isOpen={isPromptModalOpen}
         onClose={() => setIsPromptModalOpen(false)}
         title={`AI STUDIO PROMPT // ${taskLabel(task).toUpperCase()}`}
         size="md"
@@ -1432,7 +1444,7 @@ export const Studio: React.FC<StudioProps> = ({
 
       {/* Lyrics Canvas Overlay Modal */}
       <Modal
-        isOpen={isLyricsModalOpen}
+        guideOwner="ai" guideAnchor="editor.lyrics-editor" isOpen={isLyricsModalOpen}
         onClose={() => setIsLyricsModalOpen(false)}
         title={`LYRICS CANVAS // ${taskLabel(task).toUpperCase()}`}
         headerMeta={

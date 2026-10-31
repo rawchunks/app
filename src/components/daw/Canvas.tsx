@@ -990,7 +990,7 @@ export const Canvas: React.FC<CanvasProps> = ({
   return (
     <aside
       ref={dockRef}
-      className={`toolbox-lyrics-sidepanel ${mode === 'overlay' ? 'is-overlay-mode' : 'board-canvas-dock'}`}
+      data-guide="board.lyrics-document" tabIndex={-1} className={`toolbox-lyrics-sidepanel ${mode === 'overlay' ? 'is-overlay-mode' : 'board-canvas-dock'}`}
       aria-label="Lyrics Canvas"
     >
       {mode === 'dock' && (
