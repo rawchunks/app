@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+import { useGuideOwner } from '../guide/owners';
+import { FX_STEPS } from '../guide/Steps';
+import React, { useState, useRef } from 'react';
 import { useDawStore, DAWTrack, DSPFxConfig, DEFAULT_FX, isTrackFxModified } from '../../lib/daw/store';
 import { DEFAULT_WAVE_SCULPT, isIdentityWaveSculpt } from '../../lib/daw/peaks';
 import { getStemColor, formatTrackBadgeCode } from '../../lib/daw/palette';
@@ -8,6 +10,7 @@ import { Slider } from '../slider';
 
 interface RackProps {
   track?: DAWTrack;
+  active?: boolean;
 }
 
 type RackModuleKey = keyof DSPFxConfig | 'sculpt';
@@ -24,7 +27,7 @@ const DSP_MODULES: { key: RackModuleKey; short: string; label: string; desc: str
   { key: 'spatial', short: '3D', label: '3D Binaural Spatial Panner', desc: 'HRTF 3D spatial placement (Azimuth, Elevation, Distance)' },
 ];
 
-export const Rack: React.FC<RackProps> = ({ track }) => {
+export const Rack: React.FC<RackProps> = ({ track, active = true }) => {
   const tracks = useDawStore((s) => s.tracks);
   const selectedTrackId = useDawStore((s) => s.selectedTrackId);
   const setSelectedTrackId = useDawStore((s) => s.setSelectedTrackId);
@@ -33,6 +36,15 @@ export const Rack: React.FC<RackProps> = ({ track }) => {
   const resetTrackSculpt = useDawStore((s) => s.resetTrackSculpt);
   const [activeFxKey, setActiveFxKey] = useState<RackModuleKey>('sculpt');
   const currentTrack = track ?? tracks.find((t) => t.id === selectedTrackId) ?? tracks[0];
+  const guideFxRef = useRef(activeFxKey); guideFxRef.current = activeFxKey;
+  useGuideOwner({ id: 'fx', scope: useDawStore.getState().songId ?? 'loading', handles: step => active && ['X3', 'X4', 'X5'].includes(step.id), prepare: ({ step, bind }) => {
+    if (!currentTrack) return { unavailable: 'Select a lane to edit its effects.' };
+    const laneId = bind('fx-lane', currentTrack.id);
+    if (laneId !== currentTrack.id) return { unavailable: 'The effects target changed. Reopen this guide on the lane you want.' };
+    if (step.id === 'X4') return { retry: () => guideFxRef.current !== activeFxKey, ...FX_STEPS[activeFxKey], focus: activeFxKey === 'filter' ? '.dsp-filter-selector .transport-btn-active' : 'input[type="range"]' };
+    if (step.id === 'X5') return { target: activeFxKey === 'sculpt' ? 'fx.wave-reset' : 'mixer.reset-control' };
+    return { focus: '[aria-selected="true"]' };
+  } });
   if (!currentTrack) return <div className="dsp-rack-wrap">Select a lane to edit its effects.</div>;
 
   const rawFx = currentTrack.fx || ({} as Partial<DSPFxConfig>);
@@ -67,7 +79,7 @@ export const Rack: React.FC<RackProps> = ({ track }) => {
   return (
     <div className="dsp-rack-wrap">
       {/* Single-Row FX Chain Bar (allows instant 1-row module switching on mobile & quick bypass overview) */}
-      <div className="dsp-chain-bar">
+      <div data-guide="fx.modules" className="dsp-chain-bar">
         <Tooltip
           title={`FX Target: ${currentTrack.name}`}
           description="Click to cycle FX target channel across Master & Lanes"
@@ -90,7 +102,7 @@ export const Rack: React.FC<RackProps> = ({ track }) => {
             <Tooltip key={mod.key} title={mod.label} description={mod.desc}>
               <button
                 type="button"
-                onClick={() => setActiveFxKey(mod.key)}
+                aria-selected={isFocused} onClick={() => setActiveFxKey(mod.key)}
                 className={`dsp-chain-pill ${isFocused ? 'focused' : ''} ${isEnabled ? 'enabled' : ''}`}
               >
                 <span className={`dsp-chain-led ${isEnabled ? 'on' : ''}`} />
@@ -111,13 +123,13 @@ export const Rack: React.FC<RackProps> = ({ track }) => {
       {/* Grid of DSP Modules */}
       <div className="dsp-modules-grid">
         {/* 0. Wave-Design & Peak-Sculpting Module */}
-        <div className={`dsp-module-card ${!isSculptActive ? 'disabled' : ''} ${activeFxKey === 'sculpt' ? 'active-module' : ''}`}>
+        <div data-guide="fx.module.sculpt" className={`dsp-module-card ${!isSculptActive ? 'disabled' : ''} ${activeFxKey === 'sculpt' ? 'active-module' : ''}`}>
           <div className="dsp-module-header">
             <span className="dsp-module-title">WAVE SCULPT</span>
             <Tooltip title="Reset Wave-Design & Peak-Sculpting">
               <button
                 type="button"
-                onClick={() => resetTrackSculpt(currentTrack.id)}
+                data-guide="fx.wave-reset" onClick={() => resetTrackSculpt(currentTrack.id)}
                 className={`dsp-power-btn ${isSculptActive ? 'active' : ''}`}
                 disabled={!isSculptActive}
               >
@@ -184,7 +196,7 @@ export const Rack: React.FC<RackProps> = ({ track }) => {
           </div>
         </div>
         {/* 1. EQ3 Module */}
-        <div className={`dsp-module-card ${!fx.eq.enabled ? 'disabled' : ''} ${activeFxKey === 'eq' ? 'active-module' : ''}`}>
+        <div data-guide="fx.module.eq" className={`dsp-module-card ${!fx.eq.enabled ? 'disabled' : ''} ${activeFxKey === 'eq' ? 'active-module' : ''}`}>
           <div className="dsp-module-header">
             <span className="dsp-module-title">EQ</span>
             <PowerToggle
@@ -227,7 +239,7 @@ export const Rack: React.FC<RackProps> = ({ track }) => {
         </div>
 
         {/* 2. Filter Module */}
-        <div className={`dsp-module-card ${!fx.filter.enabled ? 'disabled' : ''} ${activeFxKey === 'filter' ? 'active-module' : ''}`}>
+        <div data-guide="fx.module.filter" className={`dsp-module-card ${!fx.filter.enabled ? 'disabled' : ''} ${activeFxKey === 'filter' ? 'active-module' : ''}`}>
           <div className="dsp-module-header">
             <span className="dsp-module-title">FILTER</span>
             <PowerToggle
@@ -272,7 +284,7 @@ export const Rack: React.FC<RackProps> = ({ track }) => {
         </div>
 
         {/* 3. Distortion Module */}
-        <div className={`dsp-module-card ${!fx.distortion.enabled ? 'disabled' : ''} ${activeFxKey === 'distortion' ? 'active-module' : ''}`}>
+        <div data-guide="fx.module.distortion" className={`dsp-module-card ${!fx.distortion.enabled ? 'disabled' : ''} ${activeFxKey === 'distortion' ? 'active-module' : ''}`}>
           <div className="dsp-module-header">
             <span className="dsp-module-title">DRIVE</span>
             <PowerToggle
@@ -307,7 +319,7 @@ export const Rack: React.FC<RackProps> = ({ track }) => {
         </div>
 
         {/* 4. Chorus Module */}
-        <div className={`dsp-module-card ${!fx.chorus.enabled ? 'disabled' : ''} ${activeFxKey === 'chorus' ? 'active-module' : ''}`}>
+        <div data-guide="fx.module.chorus" className={`dsp-module-card ${!fx.chorus.enabled ? 'disabled' : ''} ${activeFxKey === 'chorus' ? 'active-module' : ''}`}>
           <div className="dsp-module-header">
             <span className="dsp-module-title">CHORUS</span>
             <PowerToggle
@@ -352,7 +364,7 @@ export const Rack: React.FC<RackProps> = ({ track }) => {
         </div>
 
         {/* 5. Feedback Delay Module */}
-        <div className={`dsp-module-card ${!fx.delay.enabled ? 'disabled' : ''} ${activeFxKey === 'delay' ? 'active-module' : ''}`}>
+        <div data-guide="fx.module.delay" className={`dsp-module-card ${!fx.delay.enabled ? 'disabled' : ''} ${activeFxKey === 'delay' ? 'active-module' : ''}`}>
           <div className="dsp-module-header">
             <span className="dsp-module-title">DELAY</span>
             <PowerToggle
@@ -413,7 +425,7 @@ export const Rack: React.FC<RackProps> = ({ track }) => {
         </div>
 
         {/* 6. Algorithmic Reverb Module */}
-        <div className={`dsp-module-card ${!fx.reverb.enabled ? 'disabled' : ''} ${activeFxKey === 'reverb' ? 'active-module' : ''}`}>
+        <div data-guide="fx.module.reverb" className={`dsp-module-card ${!fx.reverb.enabled ? 'disabled' : ''} ${activeFxKey === 'reverb' ? 'active-module' : ''}`}>
           <div className="dsp-module-header">
             <span className="dsp-module-title">REVERB</span>
             <PowerToggle
@@ -447,7 +459,7 @@ export const Rack: React.FC<RackProps> = ({ track }) => {
         </div>
 
         {/* 7. Master Bus Compressor Module */}
-        <div className={`dsp-module-card ${!fx.compressor.enabled ? 'disabled' : ''} ${activeFxKey === 'compressor' ? 'active-module' : ''}`}>
+        <div data-guide="fx.module.compressor" className={`dsp-module-card ${!fx.compressor.enabled ? 'disabled' : ''} ${activeFxKey === 'compressor' ? 'active-module' : ''}`}>
           <div className="dsp-module-header">
             <span className="dsp-module-title">COMPRESSOR</span>
             <PowerToggle
@@ -501,7 +513,7 @@ export const Rack: React.FC<RackProps> = ({ track }) => {
 
         {/* 8. 3D BINAURAL SPATIAL PANNER (HRTF) */}
         <div
-          className={`dsp-module-card ${fx.spatial.enabled ? 'enabled' : ''} ${activeFxKey === 'spatial' ? 'active-module' : ''}`}
+          data-guide="fx.module.spatial" className={`dsp-module-card ${fx.spatial.enabled ? 'enabled' : ''} ${activeFxKey === 'spatial' ? 'active-module' : ''}`}
           onClick={() => setActiveFxKey('spatial')}
         >
           <div className="dsp-module-header">

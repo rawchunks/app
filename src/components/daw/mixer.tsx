@@ -1,3 +1,4 @@
+import { useGuideOwner } from '../guide/owners';
 import React, { useState, useEffect } from 'react';
 import {
   useDawStore,
@@ -105,6 +106,12 @@ const HorizontalChannelDeck: React.FC<HorizontalChannelDeckProps> = ({
     updateTrackMixer(track.id, { pan: val });
   };
 
+  useGuideOwner({ id: 'mixer', scope: `${useDawStore.getState().songId}:${track.id}`, handles: step => ['X1', 'X2', 'X5'].includes(step.id), prepare: ({ bind }) => {
+    const laneId = bind('mixer-lane', track.id);
+    if (laneId !== track.id) return { unavailable: 'The Mixer target changed. Reopen this guide on the lane you want.' };
+    return { focus: 'input[type="range"]' };
+  } });
+
   const volDb = vol > 0.0001 ? (20 * Math.log10(vol)).toFixed(1) : '-inf';
   const meterPct = Math.min(100, Math.max(0, ((level + 60) / 60) * 100));
   const isSectionMode = Boolean(isMaster && selection);
@@ -119,7 +126,7 @@ const HorizontalChannelDeck: React.FC<HorizontalChannelDeckProps> = ({
       style={{ '--accent-color': accentColor } as React.CSSProperties}
     >
       {/* Row 1: Channel Identity + Horizontal Fader & Live Meter */}
-      <div className="mixer-horiz-fader-row">
+      <div data-guide="mixer.level-pan" className="mixer-horiz-fader-row">
         <div className="mixer-horiz-identity">
           <Tooltip
             title={`Mixer Target: ${track.name}`}
@@ -155,7 +162,7 @@ const HorizontalChannelDeck: React.FC<HorizontalChannelDeckProps> = ({
               </div>
               <input
                 type="range"
-                className="mixer-horiz-fader"
+                data-guide="mixer.reset-control" className="mixer-horiz-fader"
                 min="0.0"
                 max="1.3"
                 step="0.01"
@@ -290,7 +297,7 @@ const HorizontalChannelDeck: React.FC<HorizontalChannelDeckProps> = ({
           </div>
           <input
             type="range"
-            className="mixer-filter-slider"
+            data-guide="mixer.tone" aria-label={`${track.name} Filter cutoff`} className="mixer-filter-slider"
             min="200"
             max="20000"
             step="100"
