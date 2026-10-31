@@ -1,3 +1,4 @@
+import { useGuideOwner } from './guide/owners';
 import React from 'react';
 import { AudioWaveform, Radio, FileMusic } from 'lucide-react';
 import { Player } from './player';
@@ -14,6 +15,7 @@ export interface Props {
 }
 
 export const Layout: React.FC<Props> = ({ current, onNavigate, children }) => {
+  useGuideOwner({ id: 'navigation', scope: current, handles: step => step.id === 'A6', prepare: () => current === 'editor' ? { target: 'editor.back', description: 'Use the Editor’s back button to leave the project.' } : { focus: '[aria-current="page"]' } });
   const navItems: { id: Route; label: string; Icon: React.ComponentType<{ className?: string }> }[] = [
     { id: 'studio', label: 'STUDIO', Icon: AudioWaveform },
     { id: 'mypage', label: 'WORKSPACE', Icon: FileMusic },
@@ -35,7 +37,7 @@ export const Layout: React.FC<Props> = ({ current, onNavigate, children }) => {
           </Tooltip>
 
           {/* The 3 Core Visible Pages */}
-          <nav className="service-switcher" aria-label="Services">
+          <nav className="service-switcher" aria-label="Services" data-guide="app.navigation">
             {navItems.map((item) => {
               const active = current === item.id;
               const Icon = item.Icon;
@@ -74,7 +76,7 @@ export const Layout: React.FC<Props> = ({ current, onNavigate, children }) => {
 
       {/* Bottom Tab Navigation (visible on mobile, directly under the player strip) */}
       {current !== 'editor' && (
-        <nav className="tabbar" aria-label="Sections">
+        <nav className="tabbar" aria-label="Sections" data-guide="app.navigation">
           {navItems.map((item) => {
             const active = current === item.id;
             const Icon = item.Icon;

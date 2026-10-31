@@ -1,3 +1,4 @@
+import { useGuideOwner, prepareViews, draftCanLeave } from './guide/owners';
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useActiveAccount, useActiveWallet, useAutoConnect, useConnectModal } from "thirdweb/react";
 import { createWallet, inAppWallet } from "thirdweb/wallets";
@@ -80,6 +81,22 @@ export function AccountChip({ className }: AccountChipProps) {
   const [userOpen, setUserOpen] = useState(false);
   const [view, setView] = useState<'status' | 'terms'>('status');
   const [showProfileModal, setShowProfileModal] = useState(false);
+
+  const guideView = { userOpen, view, showProfileModal };
+  const guideViewRef = useRef(guideView); guideViewRef.current = guideView;
+  useGuideOwner({ id: 'account', scope: displayAddress ?? 'guest',
+    handles: step => ['A1', 'A3', 'A4', 'A5'].includes(step.id),
+    prepare: ({ step }) => {
+      if (!account) return { target: 'account.sign-in', description: 'Sign in to keep your songs, voices and licenses in your workspace.' };
+      const profile = step.id === 'A4';
+      const prepared = prepareViews(guideView, () => guideViewRef.current,
+        { userOpen: setUserOpen, view: setView, showProfileModal: setShowProfileModal },
+        { userOpen: !profile, view: step.id === 'A5' ? 'terms' : 'status', showProfileModal: profile });
+      return { ...prepared, canLeave: () => draftCanLeave('profile'),
+        leave: () => { if (draftCanLeave('profile')) prepared.leave?.(); },
+        focus: step.id === 'A4' ? 'input' : step.id === 'A3' ? '[aria-label="Edit profile"]' : undefined };
+    },
+  });
 
   // Payment selection cannot change the chain used to restore the login identity.
   const [thirdwebNetwork] = useState(() => {
@@ -190,7 +207,7 @@ export function AccountChip({ className }: AccountChipProps) {
       <button
         type="button"
         disabled={isModalConnecting}
-        data-guide="account"
+        data-guide="account.sign-in"
         onClick={connect}
         className={cn("btn btn-solid connect", className)}
       >
@@ -237,7 +254,7 @@ export function AccountChip({ className }: AccountChipProps) {
     shortAddress,
   ].filter(Boolean).join(" • ");
 
-  const pageFlow = GUIDE_FLOWS[activePage];
+
   const sheetTitle = gateStep === 'terms' || view === 'terms' ? GATE_TITLES.terms : 'ACCOUNT';
 
   return (
@@ -275,16 +292,17 @@ export function AccountChip({ className }: AccountChipProps) {
         title={sheetTitle}
         size="md"
         className="session-modal account-modal"
+        guideOwner="account"
       >
         {gateStep === 'terms' || view === 'terms' ? (
-          <DisclaimerBody
+          <div data-guide="account.terms" tabIndex={-1} aria-label="Generation terms"><DisclaimerBody
             readOnly={hasConsented && gateStep !== 'terms'}
             onSigned={gateStep === 'terms' ? () => { } : () => setView('status')}
             onCancel={gateStep === 'terms' ? close : () => setView('status')}
-          />
+          /></div>
         ) : (
-          <div className="session-modal-content">
-            <div className="account-sheet-account">
+          <div className="session-modal-content" data-guide="account.panel" tabIndex={-1} aria-label="Account status">
+            <div className="account-sheet-account" data-guide="account.profile-guides">
               {avatar ? (
                 <img src={avatar} alt="" className="account-sheet-avatar" />
               ) : (
@@ -372,20 +390,8 @@ export function AccountChip({ className }: AccountChipProps) {
                 <span>GUIDES</span>
               </span>
               <div className="account-sheet-guides">
-                <button
-                  type="button"
-                  className="account-guide-pill"
-                  onClick={() => { close(); startFlow(activePage); }}
-                >
-                  {pageFlow.label}
-                </button>
-                <button
-                  type="button"
-                  className="account-guide-pill"
-                  onClick={() => { close(); startFlow('welcome'); }}
-                >
-                  {GUIDE_FLOWS.welcome.label}
-                </button>
+                {[GUIDE_FLOWS[activePage], GUIDE_FLOWS.welcome].map(flow => <button key={flow.id} type="button" className="account-guide-pill"
+                  onClick={() => { close(); startFlow(flow.id); }}>{flow.label}</button>)}
               </div>
             </div>
 

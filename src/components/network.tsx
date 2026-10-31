@@ -1,3 +1,5 @@
+import { useRef, useState } from 'react';
+import { useGuideOwner, prepareViews } from './guide/owners';
 import { cn } from "@/lib/utils";
 import { useChain, NetworkGlyph } from "@/contexts/Network";
 import type { NetworkId } from "@compose-market/sdk/chains";
@@ -19,15 +21,18 @@ export function NetworkSelector({ className }: NetworkSelectorProps) {
   const { selectedNetwork, setSelectedNetwork, chains, getChainByNetworkId } = useChain();
   const { data: balances } = useMultiChainBalance({ evmAddress, svmAddress });
 
+  const [open, setOpen] = useState(false);
+  const openRef = useRef(open); openRef.current = open;
+  useGuideOwner({ id: 'network', scope: selectedNetwork, handles: step => step.id === 'F5', prepare: () => ({ ...prepareViews({ open }, () => ({ open: openRef.current }), { open: setOpen }, { open: true }), target: 'funding.network-menu', focus: '[aria-selected="true"]' }) });
   const current = getChainByNetworkId(selectedNetwork);
 
   return (
-    <Select value={selectedNetwork} onValueChange={(value) => setSelectedNetwork(value as NetworkId)}>
+    <Select open={open} onOpenChange={setOpen} value={selectedNetwork} onValueChange={(value) => setSelectedNetwork(value as NetworkId)}>
       <SelectTrigger className={cn("account-network-trigger", className)} aria-label="Payment network">
         <NetworkGlyph network={selectedNetwork} name={current?.name} />
         {current?.name ? <span className="account-network-name">{current.name}</span> : null}
       </SelectTrigger>
-      <SelectContent className="account-network-content">
+      <SelectContent data-guide="funding.network-menu" className="account-network-content">
         {chains.map((network) => {
           const balance = balances?.find((b) => b.network === network.network);
           return (
