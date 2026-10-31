@@ -1,3 +1,4 @@
+import { useGuideOwner, prepareViews, draftCanLeave } from '../components/guide/owners';
 import { sdk } from '@/lib/sdk';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { toast } from 'sonner';
@@ -55,6 +56,7 @@ const MENU_IGNORE_SELECTORS = [
   '.mypage-menu-wrap',
   '.mypage-menu-dropdown',
   '.guide-card',
+  '.guide-portal-root',
   '.guide-layer',
   '.guide-popover',
   '.guide-overlay-root',
@@ -148,6 +150,34 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
 
   // Close 3-dot dropdown when clicking outside (guide overlays excluded)
   useDismiss(Boolean(menuOpenId), () => setMenuOpenId(null), undefined, MENU_IGNORE_SELECTORS);
+
+  const guideView = { songsOpen, licensesOpen, albumsOpen, voicesOpen, menuOpenId, editingDetailsSong, publishConfirmSong, profileModalOpen };
+  const guideViewRef = useRef(guideView); guideViewRef.current = guideView;
+  useGuideOwner({ id: 'workspace', scope: activeAddress ?? 'guest', handles: step => ['W1', 'W2', 'W3', 'W4', 'K1', 'K2', 'K3', 'K4', 'K5', 'K6', 'K7'].includes(step.id),
+    prepare: ({ step, bind }) => {
+      const displayed = groupSongs(state.songs).map(versions => versions.find(song => song.id === selected[versions[0].family ?? versions[0].id]) ?? versions[0]);
+      const candidate = displayed.find(song => !song.public && !song.tx_hash && !song.metadata_cid) ?? displayed[0];
+      const songId = bind('song', candidate?.id);
+      const song = displayed.find(song => song.id === songId);
+      const patch: Partial<typeof guideView> = {};
+      if (!['K2', 'K3', 'K4', 'K6'].includes(step.id)) patch.songsOpen = true;
+      if (step.id === 'K2') patch.licensesOpen = true;
+      if (step.id === 'K3') patch.albumsOpen = true;
+      if (step.id === 'K4') patch.voicesOpen = true;
+      if (step.id === 'K6') patch.profileModalOpen = true;
+      if (step.id === 'W3' && song) patch.menuOpenId = song.id;
+      const privateSong = song && !song.public && !song.tx_hash && !song.metadata_cid;
+      if (step.id === 'W2' && privateSong) patch.editingDetailsSong = song;
+      if (step.id === 'W4' && song && !song.public) patch.publishConfirmSong = song;
+      const view = prepareViews(guideView, () => guideViewRef.current, { songsOpen: setSongsOpen, licensesOpen: setLicensesOpen, albumsOpen: setAlbumsOpen, voicesOpen: setVoicesOpen, menuOpenId: setMenuOpenId,
+        editingDetailsSong: setEditingDetailsSong, publishConfirmSong: setPublishConfirmSong, profileModalOpen: setProfileModalOpen }, patch);
+      const result = { ...view, canLeave: () => draftCanLeave('song-details') && draftCanLeave('profile'), leave: () => { if (draftCanLeave('song-details') && draftCanLeave('profile')) view.leave?.(); } };
+      if (step.id === 'W2' && !privateSong || step.id === 'W4' && (!song || song.public)) return { ...result, target: 'workspace.songs-heading', description: 'This step needs a private song in MY SONGS.' };
+      if (['W3', 'K5', 'K7'].includes(step.id) && !song) return { ...result, target: 'workspace.songs-heading', description: loading ? 'Your songs are loading.' : 'Your songs appear here after you generate a track.' };
+      return { ...result, entity: ['W2', 'W3', 'W4', 'K5', 'K7'].includes(step.id) ? songId : undefined,
+        focus: step.id === 'W2' || step.id === 'K6' ? 'input' : undefined };
+    },
+  });
 
   useEffect(
     () => () => {
@@ -451,7 +481,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
 
       {/* SECTION (i): Profile Header */}
       {activeAddress ? (
-        <div className="mypage-profile-card">
+        <div className="mypage-profile-card" data-guide="mypage-profile">
           <div className="mypage-profile-left">
             {avatar ? (
               <img src={avatar} alt="Profile Avatar" className="mypage-profile-avatar" />
@@ -554,7 +584,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
       <div className="mypage-section" data-guide="mypage-sections">
         <div
           className={`board-section-separator ${!songsOpen ? 'collapsed' : ''}`}
-          onClick={toggleSongs}
+          data-guide="workspace.songs-heading" aria-expanded={songsOpen} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggleSongs(); } }} onClick={toggleSongs}
           role="button"
           tabIndex={0}
         >
@@ -649,7 +679,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
       <div className="mypage-section">
         <div
           className={`board-section-separator ${!licensesOpen ? 'collapsed' : ''}`}
-          onClick={toggleLicenses}
+          data-guide="workspace.licenses-heading" aria-expanded={licensesOpen} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggleLicenses(); } }} onClick={toggleLicenses}
           role="button"
           tabIndex={0}
         >
@@ -725,7 +755,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
       <div className="mypage-section">
         <div
           className={`board-section-separator ${!albumsOpen ? 'collapsed' : ''}`}
-          onClick={toggleAlbums}
+          data-guide="workspace.albums-heading" aria-expanded={albumsOpen} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggleAlbums(); } }} onClick={toggleAlbums}
           role="button"
           tabIndex={0}
         >
@@ -955,7 +985,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
       <div className="mypage-section">
         <div
           className={`board-section-separator ${!voicesOpen ? 'collapsed' : ''}`}
-          onClick={toggleVoices}
+          data-guide="workspace.voices-heading" aria-expanded={voicesOpen} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggleVoices(); } }} onClick={toggleVoices}
           role="button"
           tabIndex={0}
         >
