@@ -1,3 +1,5 @@
+import { useGuideOwner } from './guide/owners';
+import { visibleRect } from './guide/registry';
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { useDawStore, type DAWTrack } from '../lib/daw/store';
 import { dawEngine } from '../lib/daw/engine';
@@ -390,6 +392,26 @@ export const Waveform: React.FC<Props> = ({
   const [, setDragMode] = useState<DragMode>('none');
   const [zoomFactor, setZoomFactor] = useState<number>(1.0);
   const [viewOffset, setViewOffset] = useState<number>(0);
+
+  const guideGeometry = useRef({ sculptMode, effectiveSculpt, zoomFactor, viewOffset });
+  guideGeometry.current = { sculptMode, effectiveSculpt, zoomFactor, viewOffset };
+  useGuideOwner({ id: 'waveform', scope: 'master-waveform', handles: step => step.id === 'R5' && interactive && className.includes('board-master-waveform'), prepare: () => {
+    if (sculptMode !== 'curve') return { target: 'board.sculpt-mode', description: 'Choose Smooth to use the fade handles.', retry: () => guideGeometry.current.sculptMode === 'curve' };
+    return { target: 'board.waveform', rect: () => {
+      const canvas = canvasRef.current;
+      if (!canvas) return null;
+      const visible = visibleRect(canvas);
+      if (!visible) return null;
+      const bounds = canvas.getBoundingClientRect();
+      const { effectiveSculpt: sculpt, zoomFactor: zoom, viewOffset: pan } = guideGeometry.current;
+      const width = bounds.width * zoom;
+      const points = [Math.max(4, Math.min(width * .45, sculpt.fadeIn * width)), Math.max(width * .55, Math.min(width - 4, (1 - sculpt.fadeOut) * width))]
+        .map(x => bounds.left + x - pan * width).filter(x => x >= visible.left && x <= visible.right);
+      if (!points.length) return null;
+      const left = Math.max(visible.left, Math.min(...points) - 7), right = Math.min(visible.right, Math.max(...points) + 7);
+      return new DOMRect(left, visible.top, right - left, Math.min(14, visible.height));
+    } };
+  } });
 
   const activePointers = useRef<Map<number, { x: number; y: number }>>(new Map());
   const pinchStartDist = useRef<number>(0);
@@ -1852,6 +1874,8 @@ export const Waveform: React.FC<Props> = ({
     >
       <canvas
         ref={canvasRef}
+        data-guide={interactive && className.includes('board-master-waveform') ? 'board.waveform' : undefined}
+        tabIndex={interactive ? 0 : undefined}
         className="waveform-canvas"
         aria-label="Master waveform"
         data-lanes={layers.map(layer => layer.id).join(',')}

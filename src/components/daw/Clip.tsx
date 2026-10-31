@@ -1,3 +1,5 @@
+import { useGuideOwner } from '../guide/owners';
+import { visibleRect } from '../guide/registry';
 import React, { useRef, useEffect, useState, useMemo, useCallback } from 'react';
 import { DAWClip, useDawStore } from '../../lib/daw/store';
 import { dawEngine } from '../../lib/daw/engine';
@@ -22,6 +24,7 @@ interface ClipProps {
   color?: string;
   className?: string;
   enableSelection?: boolean;
+  onSeek?: (targetSec: number) => void;
 }
 
 
@@ -31,6 +34,7 @@ export const Clip: React.FC<ClipProps> = ({
   color,
   className = '',
   enableSelection = false,
+  onSeek,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -92,6 +96,29 @@ export const Clip: React.FC<ClipProps> = ({
       Math.max(0, Math.min(1, panOffset + localX / Math.max(1, w * zoomFactor))),
     [panOffset, zoomFactor]
   );
+
+  const guideGeometry = useRef({ sculptMode, effectiveSculpt, zoomFactor, panOffset });
+  guideGeometry.current = { sculptMode, effectiveSculpt, zoomFactor, panOffset };
+  useGuideOwner({ id: 'waveform', scope: `${trackId ?? 'preview'}:${clip.id}`, handles: step => step.id === 'R5' && enableSelection,
+    prepare: () => {
+      if (sculptMode !== 'curve') return { target: 'board.sculpt-mode', description: 'Choose Smooth to use the fade handles.', retry: () => guideGeometry.current.sculptMode === 'curve' };
+      return { target: 'board.waveform', rect: () => {
+        const canvas = canvasRef.current;
+        if (!canvas) return null;
+        const visible = visibleRect(canvas);
+        if (!visible) return null;
+        const bounds = canvas.getBoundingClientRect();
+        const { effectiveSculpt: sculpt, zoomFactor: zoom, panOffset: pan } = guideGeometry.current;
+        const virtualWidth = bounds.width * zoom;
+        const translation = pan * zoom * bounds.width;
+        const handles = [Math.max(3, Math.min(virtualWidth * .45, sculpt.fadeIn * virtualWidth)), Math.max(virtualWidth * .55, Math.min(virtualWidth - 3, (1 - sculpt.fadeOut) * virtualWidth))]
+          .map(x => bounds.left + x - translation).filter(x => x >= visible.left && x <= visible.right);
+        if (!handles.length) return null;
+        const left = Math.max(visible.left, Math.min(...handles) - 6);
+        const right = Math.min(visible.right, Math.max(...handles) + 6);
+        return new DOMRect(left, visible.top, right - left, Math.min(12, visible.height));
+      } };
+    } });
 
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suppressNextClickRef = useRef<boolean>(false);
@@ -561,11 +588,20 @@ export const Clip: React.FC<ClipProps> = ({
     (targetSec: number) => {
       const clampedSec = Math.max(0, Math.min(effectiveDuration, targetSec));
       setPlayhead(clampedSec);
+      if (onSeek) {
+        onSeek(clampedSec);
+        return;
+      }
+      if (trackId && trackId !== 'master') {
+        useDawStore.getState().setSelectedTrackId(trackId);
+        dawEngine.auditionTrack(trackId, clampedSec);
+        return;
+      }
       dawEngine.stopAuditionTake(true);
       dawEngine.seek(clampedSec);
       void dawEngine.startTransport(false);
     },
-    [effectiveDuration, setPlayhead]
+    [effectiveDuration, onSeek, setPlayhead, trackId]
   );
 
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -737,8 +773,8 @@ export const Clip: React.FC<ClipProps> = ({
 
     // (i) Single click OUTSIDE the waveform (above or below): instant seek & play;
     // (ii) Long-hold and drag: draw the selected-region
-    if (!trackId || (enableSelection && outsideWave)) {
-      if (enableSelection) {
+    if (!trackId || ((enableSelection || Boolean(trackId)) && outsideWave)) {
+      if (enableSelection || trackId) {
         seekAndPlayAtSec(clickTimeSec);
       }
       dragStateRef.current = {
@@ -786,6 +822,7 @@ export const Clip: React.FC<ClipProps> = ({
           pointerId: e.pointerId,
           mode: 'node',
           nodeIdx: closestIdx,
+          rangeOriginSec: clickTimeSec,
           tool: 'grab',
           startX: e.clientX,
           startY: e.clientY,
@@ -1158,10 +1195,9 @@ export const Clip: React.FC<ClipProps> = ({
     }
     const drag = dragStateRef.current;
     if (drag) {
-      const elapsed = performance.now() - drag.downTime;
       const dist = Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY);
       if (drag.mode === 'sel-pan') {
-        if (!drag.moved && dist < 5 && enableSelection && drag.rangeOriginSec !== undefined) {
+        if (!drag.moved && dist < 5 && (enableSelection || trackId) && drag.rangeOriginSec !== undefined) {
           seekAndPlayAtSec(drag.rangeOriginSec);
         } else {
           suppressNextClickRef.current = true;
@@ -1170,16 +1206,13 @@ export const Clip: React.FC<ClipProps> = ({
       } else {
         const didHoldOrDrag = Boolean(
           drag.moved ||
-            drag.held ||
             dist >= 5 ||
-            elapsed >= 220 ||
-            drag.mode === 'node' ||
             drag.mode === 'fadeIn' ||
             drag.mode === 'fadeOut' ||
             drag.mode === 'sel-start' ||
             drag.mode === 'sel-end'
         );
-        if (!didHoldOrDrag && !drag.alreadySeeked && enableSelection && drag.rangeOriginSec !== undefined) {
+        if (!didHoldOrDrag && !drag.alreadySeeked && (enableSelection || trackId) && drag.rangeOriginSec !== undefined) {
           seekAndPlayAtSec(drag.rangeOriginSec);
         }
         if (didHoldOrDrag || drag.alreadySeeked) {
@@ -1234,6 +1267,8 @@ export const Clip: React.FC<ClipProps> = ({
     x: number;
     selection: { start: number; end: number };
     width: number;
+    moved: boolean;
+    clickTimeSec: number;
   } | null>(null);
 
   const handleClipRangeDown = (event: React.PointerEvent<HTMLButtonElement>, mode: 'start' | 'end' | 'pan') => {
@@ -1241,9 +1276,14 @@ export const Clip: React.FC<ClipProps> = ({
     event.stopPropagation();
     event.preventDefault();
     const rect = canvasRef.current.getBoundingClientRect();
+    const localX = event.clientX - rect.left;
+    const xRatio = rect.width > 0 ? localXToRatio(localX, rect.width) : clipRatioSelection.start;
+    const clickTimeSec = Math.max(
+      0,
+      Math.min(effectiveDuration, (clip.startTime || 0) + xRatio * (clip.duration || effectiveDuration))
+    );
     let effectiveMode = mode;
     if (rect.width > 0 && mode !== 'pan') {
-      const localX = event.clientX - rect.left;
       const selStartX = ratioToLocalX(clipRatioSelection.start, rect.width);
       const selEndX = ratioToLocalX(clipRatioSelection.end, rect.width);
       const selWidthPx = Math.max(0, selEndX - selStartX);
@@ -1260,6 +1300,8 @@ export const Clip: React.FC<ClipProps> = ({
       x: event.clientX,
       selection: clipRatioSelection,
       width: Math.max(1, rect.width * zoomFactor),
+      moved: false,
+      clickTimeSec,
     };
   };
 
@@ -1267,6 +1309,8 @@ export const Clip: React.FC<ClipProps> = ({
     const drag = clipRangeDragRef.current;
     if (!drag) return;
     event.stopPropagation();
+    if (!drag.moved && Math.abs(event.clientX - drag.x) < 5) return;
+    drag.moved = true;
     const delta = (event.clientX - drag.x) / drag.width;
     let nextStart = drag.selection.start;
     let nextEnd = drag.selection.end;
@@ -1286,7 +1330,11 @@ export const Clip: React.FC<ClipProps> = ({
   };
 
   const handleClipRangeUp = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const drag = clipRangeDragRef.current;
     clipRangeDragRef.current = null;
+    if (drag && !drag.moved && drag.mode === 'pan') {
+      seekAndPlayAtSec(drag.clickTimeSec);
+    }
     try {
       if (event.currentTarget.hasPointerCapture(event.pointerId)) {
         event.currentTarget.releasePointerCapture(event.pointerId);
@@ -1313,7 +1361,7 @@ export const Clip: React.FC<ClipProps> = ({
     >
       <canvas
         ref={canvasRef}
-        className="stem-clip-waveform-canvas"
+        data-guide={enableSelection ? "board.waveform" : undefined} tabIndex={enableSelection ? 0 : undefined} aria-label={enableSelection ? "Lane waveform" : undefined} className="stem-clip-waveform-canvas"
         data-peaks={displayPeaks?.bins ?? 0}
         data-sculpted={isSculpted ? 'true' : 'false'}
         data-sculpt-mode={sculptMode}
