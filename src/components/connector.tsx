@@ -560,7 +560,7 @@ export function CardCheckout({
             </span>
           )}
         </div>
-        <div className="session-pills-row">
+        <div data-guide="funding.card-amount" className="session-pills-row">
           {packs.map(value => {
             const packSongs = Math.max(1, Math.floor(Number(value.amountAtomics) / 50000));
             return (

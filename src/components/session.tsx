@@ -1,3 +1,4 @@
+import { useGuideOwner, prepareViews } from './guide/owners';
 import {
   useCallback,
   useEffect,
@@ -627,6 +628,9 @@ export function FundingPanel({ onDone, reason, funding }: FundingPanelProps) {
     ? Math.max(0, Math.min(100, Math.round((remainingNum / limitNum) * 100)))
     : 0;
 
+  useGuideOwner({ id: 'funding-panel', scope: displayAddress ?? 'guest', handles: step => ['F4', 'F5'].includes(step.id), prepare: ({ step: guideStep }) =>
+    isUsdcSession ? { target: guideStep.id === 'F5' ? 'funding.network-status' : 'funding.usdc-status', description: guideStep.id === 'F5' ? 'This session uses the network shown here.' : 'Check the remaining budget here. END SESSION closes this session.' } : { target: guideStep.id === 'F4' ? 'funding.budget' : 'funding.network-menu', focus: guideStep.id === 'F4' ? 'input' : '[aria-selected="true"]' } });
+
   const handleCopyKey = async () => {
     if (!session.keyId) return;
     try {
@@ -731,9 +735,9 @@ export function FundingPanel({ onDone, reason, funding }: FundingPanelProps) {
 
         {/* STEP 1: 3 RECTANGULAR COMPARTMENTS */}
         {step === 'compartments' && (
-          <div className="session-compartments" role="list" aria-label="Credits and session compartments">
+          <div className="session-compartments" data-guide="funding.compartments" role="list" aria-label="Credits and session compartments">
             {/* COMPARTMENT 1: CAMPAIGN */}
-            <div
+            <div data-guide="funding.campaign" tabIndex={-1} aria-label="Campaign Credits"
               role="listitem"
               className={cn(
                 'session-compartment',
@@ -980,7 +984,7 @@ export function FundingPanel({ onDone, reason, funding }: FundingPanelProps) {
                   </Tooltip>
                 </div>
 
-                <div className="session-hud-budget-block">
+                <div className="session-hud-budget-block" data-guide="funding.usdc-status" tabIndex={-1} aria-label="Remaining session budget">
                   <span className="session-hud-label">AVAILABLE SESSION BUDGET</span>
                   <div className="session-hud-main-stat">
                     <span className="session-hud-number">{formatCredits(session.budgetRemaining)}</span>
@@ -1037,7 +1041,7 @@ export function FundingPanel({ onDone, reason, funding }: FundingPanelProps) {
                     <ShieldCheck className="session-grid-item-icon" size={12} />
                     <span>NETWORK</span>
                   </div>
-                  <span className="session-grid-item-value">{chainInfo?.name || session.network}</span>
+                  <span className="session-grid-item-value" data-guide="funding.network-status" tabIndex={-1}>{chainInfo?.name || session.network}</span>
                   <span className="session-grid-item-sub">Scoped to this chain</span>
                 </div>
 
@@ -1088,7 +1092,7 @@ export function FundingPanel({ onDone, reason, funding }: FundingPanelProps) {
           ) : (
             <div className="session-tab-panel">
               <div className="session-balance-strip">
-                <div className="session-balance-chain">
+                <div className="session-balance-chain" data-guide="funding.usdc-setup">
                   <span>CHAIN</span>
                   <NetworkSelector />
                 </div>
@@ -1122,7 +1126,7 @@ export function FundingPanel({ onDone, reason, funding }: FundingPanelProps) {
                     );
                   })}
                 </div>
-                <div className="session-custom-row">
+                <div className="session-custom-row" data-guide="funding.budget">
                   <span className="session-custom-prefix">#</span>
                   <input
                     type="number"
@@ -1226,6 +1230,17 @@ export function Session() {
     return () => window.removeEventListener('rawchunks:card-checkout', handler);
   }, []);
 
+  const [guideFunding, setGuideFunding] = useState<'campaign' | 'usdc' | 'card' | null>(null);
+  const guideView = { manualOpen, guideFunding };
+  const guideViewRef = useRef(guideView); guideViewRef.current = guideView;
+  useGuideOwner({ id: 'funding', scope: userAddress ?? 'guest', handles: step => step.owner === 'funding' || step.id === 'A2',
+    prepare: ({ step }) => {
+      if (checkout || gate.request) return { unavailable: 'Finish or cancel the current checkout before opening this guide.' };
+      const funding = step.id === 'F3' ? 'card' : ['F4', 'F5'].includes(step.id) ? 'usdc' : 'campaign';
+      return prepareViews(guideView, () => guideViewRef.current, { manualOpen: setManualOpen, guideFunding: setGuideFunding }, { manualOpen: true, guideFunding: funding });
+    },
+  });
+
   const gateStep = gate.request
     ? unsatisfiedStep(gate.request, {
       loggedIn: Boolean(userAddress),
@@ -1239,6 +1254,7 @@ export function Session() {
 
   const handleCloseModal = () => {
     setManualOpen(false);
+    setGuideFunding(null);
     setCheckout(null);
     if (isFundingGate) {
       gate.cancel();
@@ -1247,6 +1263,7 @@ export function Session() {
 
   const handleDone = () => {
     setManualOpen(false);
+    setGuideFunding(null);
     setCheckout(null);
     if (isFundingGate) {
       closeGate(true);
@@ -1319,6 +1336,8 @@ export function Session() {
         onClose={handleCloseModal}
         title={checkout ? 'INSTANT CREDIT TOP-UP' : 'CREDITS & SESSION'}
         size="md"
+        className="session-modal"
+        guideOwner="funding"
       >
         {checkout ? (
           <CardCheckout
@@ -1332,7 +1351,7 @@ export function Session() {
           <FundingPanel
             onDone={handleDone}
             reason={isFundingGate ? gate.request?.reason ?? null : null}
-            funding={isFundingGate ? gate.request?.funding ?? null : null}
+            funding={guideFunding ?? (isFundingGate ? gate.request?.funding ?? null : null)}
           />
         )}
       </Modal>
