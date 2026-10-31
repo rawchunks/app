@@ -1,3 +1,4 @@
+import { useGuideOwner, prepareViews, draftCanLeave } from '../components/guide/owners';
 import { sdk, watch } from '@/lib/sdk';
 import React, { useState, useEffect, useRef } from 'react';
 import { Glitch } from '../components/glitch';
@@ -76,7 +77,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
   const [creatingAlbum, setCreatingAlbum] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const modelMenuRef = useRef<HTMLDivElement>(null);
-  useDismiss(modelMenuOpen, () => setModelMenuOpen(false), modelMenuRef);
+  useDismiss(modelMenuOpen, () => setModelMenuOpen(false), modelMenuRef, ['.guide-card', '.guide-portal-root']);
   const [tagSearch, setTagSearch] = useState('');
 
   // Accordion sections: primary workspace ('details' | 'params') + compact financials drawer
@@ -107,23 +108,6 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
   const vibeAudioPlayerRef = useRef<HTMLAudioElement | null>(null);
   const vibeAbortRef = useRef<AbortController | null>(null);
 
-  useEffect(() => {
-    const onGuideAction = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (!detail || detail.type !== 'studio-section') return;
-      setMobilePocket('create');
-      setStudioFlow('control');
-      if (detail.section === 'core' || detail.section === 'details') {
-        setActiveSection('details');
-      } else if (detail.section === 'params') {
-        setActiveSection('params');
-      } else if (detail.section === 'financials') {
-        setFinancialsOpen(true);
-      }
-    };
-    window.addEventListener('rawchunks:guide-action', onGuideAction);
-    return () => window.removeEventListener('rawchunks:guide-action', onGuideAction);
-  }, []);
 
   // Selectable parameters modal state
   const [activeModal, setActiveModal] = useState<'collection' | 'duration' | 'bpm' | 'key' | 'voice' | 'language' | 'lyrics' | 'cover' | 'tags' | null>(null);
@@ -154,6 +138,66 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
     setAddingTagBlockId(null);
     setActiveModal('lyrics');
   };
+
+  const { userAddress: userAddr, readAddress } = useSelectedUserAddress();
+  const guideView = { mobilePocket, studioFlow, activeSection, financialsOpen, activeModal, modelMenuOpen, voiceTab, showNewAlbumModal, lyricsPaletteCategory, insertingSepIndex, addingTagBlockId };
+  const guideViewRef = useRef(guideView); guideViewRef.current = guideView;
+  const modalForStep = (id: string): typeof activeModal => {
+    if (id === 'S4' || id.startsWith('L')) return 'lyrics';
+    return ({ P2: 'language', P3: 'duration', P4: 'bpm', P5: 'key', P6: 'tags', O1: 'voice', O2: 'voice', O3: 'voice', C2: 'collection', C5: 'cover' } as const)[id as 'P2'] ?? null;
+  };
+  const guideInputs = { instrumental, busy: isVibing || state.isGenerating || isRecordingVibeAudio, lyricsBlocks, tracks: state.tracks, coverUrl, voiceSelected: !!(voiceFile || selectedVoiceId) };
+  const guideInputsRef = useRef(guideInputs); guideInputsRef.current = guideInputs;
+  useGuideOwner({ id: 'studio', scope: userAddr ?? 'guest', handles: step => step.owner === 'studio',
+    prepare: ({ step, bind }) => {
+      const id = step.id;
+      if (isVibing || state.isGenerating || isRecordingVibeAudio) return { retry: () => !guideInputsRef.current.busy, target: isVibing ? 'studio.songwriter-progress' : isRecordingVibeAudio ? 'studio.vibe-audio' : 'studio.generate', description: 'Wait for the current task to finish before changing views.' };
+      const feed = ['S8', 'O4', 'C6'].includes(id);
+      const vibe = ['S2', 'V1', 'V2', 'V3', 'V4'].includes(id);
+      const wantsLyrics = id === 'S4' || id.startsWith('L') || id === 'P2';
+      const blockedLyrics = wantsLyrics && instrumental;
+      const modal = blockedLyrics ? null : modalForStep(id);
+      const previousModal = bind('studio.previous-modal', activeModal ?? 'none');
+      const lyricId = ['L4', 'L5'].includes(id) ? bind('lyric-section', lyricsBlocks[0]?.id) : undefined;
+      const patch: Partial<typeof guideView> = { mobilePocket: feed ? 'feed' : 'create', modelMenuOpen: id === 'S6',
+        studioFlow: id === 'S1' ? studioFlow : vibe ? 'vibe' : 'control', activeSection: ['S5', 'P3', 'P4', 'P5', 'P6', 'O1', 'O2', 'O3', 'C2'].includes(id) ? 'params' : 'details', financialsOpen: id === 'C4',
+        activeModal: modal, showNewAlbumModal: id === 'C3' };
+      if (id === 'O1') patch.voiceTab = 'saved';
+      if (id === 'O2') patch.voiceTab = 'upload';
+      if (modal === 'lyrics') {
+        if (activeModal !== 'lyrics') handleOpenLyricsModal();
+        if (id === 'L2') patch.insertingSepIndex = -1;
+        if (id === 'L3') patch.lyricsPaletteCategory = lyricsPaletteCategory ?? 'structure';
+        if (id === 'L4' && lyricId) patch.addingTagBlockId = lyricId;
+        if (id === 'L5') { patch.insertingSepIndex = null; patch.addingTagBlockId = null; }
+        if (id === 'L6' && lyricsMode !== 'raw') handleSwitchLyricsMode('raw');
+        else if (['L2', 'L3', 'L4', 'L5'].includes(id) && lyricsMode !== 'canvas') handleSwitchLyricsMode('canvas');
+      }
+      const view = prepareViews(guideView, () => guideViewRef.current, { mobilePocket: setMobilePocket, studioFlow: setStudioFlow, activeSection: setActiveSection,
+        financialsOpen: setFinancialsOpen, activeModal: setActiveModal, modelMenuOpen: setModelMenuOpen, voiceTab: setVoiceTab,
+        showNewAlbumModal: setShowNewAlbumModal, lyricsPaletteCategory: setLyricsPaletteCategory, insertingSepIndex: setInsertingSepIndex, addingTagBlockId: setAddingTagBlockId }, patch);
+      const result = { ...view, canLeave: (next?: { id: string }) => modal && modalForStep(next?.id ?? '') === modal || draftCanLeave('studio'),
+        leave: (next?: { id: string }) => {
+          if (modal && modalForStep(next?.id ?? '') === modal) return;
+          if (draftCanLeave('studio')) { view.leave?.(); if (guideViewRef.current.activeModal === modal && previousModal === 'none') setActiveModal(null); }
+        },
+        focus: id === 'S3' || id === 'V5' ? 'textarea' : id === 'P2' || id === 'P6' ? 'input' : id === 'P5' ? '.studio-param-presets-grid.keys button' : id === 'L2' || id === 'L4' ? '.studio-lyrics-tray-card' : id === 'L5' ? 'self' : id === 'O1' ? '.studio-voice-list button' : ['P3', 'P4', 'C4', 'C3'].includes(id) ? 'input' : id === 'S6' ? '[aria-selected="true"]' : id === 'L7' ? '[data-guide="lyrics.done"]' : undefined };
+      if (blockedLyrics) return { ...result, retry: () => !guideInputsRef.current.instrumental, target: 'studio.instrumental', description: 'Turn off INSTRUMENTAL to use lyrics and a vocal language.' };
+      if (id === 'O3' && !voiceFile && !selectedVoiceId) return { ...result, target: 'voice.selection-status', focus: 'self', description: 'Choose a saved voice or reference recording to adjust resemblance.', retry: () => guideInputsRef.current.voiceSelected };
+      if (id === 'V5') return { ...result, target: 'studio.details' };
+      if (id === 'C5' && !coverUrl) return { ...result, retry: () => !!guideInputsRef.current.coverUrl, target: 'studio.artwork-actions', description: 'Choose cover artwork before opening its preview.' };
+      if (['L4', 'L5'].includes(id) && !lyricId) return { ...result, retry: () => guideInputsRef.current.lyricsBlocks.length > 0, target: 'lyrics.add-section', description: 'Use ADD SECTION to write your first section.' };
+      if (['L4', 'L5'].includes(id) && !lyricsBlocks.some(block => block.id === lyricId)) return { ...result, target: 'lyrics.add-section', description: 'This section was removed. Reopen the Lyrics guide for the current canvas.' };
+      if (['L4', 'L5'].includes(id)) return { ...result, entity: lyricId };
+      if (feed) {
+        const trackId = bind('variation', state.tracks.find(track => track.status === 'ready' && track.song.url)?.id);
+        const track = state.tracks.find(track => track.id === trackId);
+        if (!track) return { ...result, retry: () => guideInputsRef.current.tracks.some(track => track.status === 'ready' && !!track.song.url), target: 'studio.feed-empty', description: 'Your generated tracks appear here. Return to CREATE to prepare one.' };
+        return { ...result, entity: trackId, description: id === 'C6' ? track.song.public ? 'MAKE PRIVATE hides the track’s Market listing.' : 'MAKE PUBLIC mints the track if needed and lists it on Market.' : undefined };
+      }
+      return result;
+    },
+  });
 
   const handleTogglePaletteCategory = (cat: LyricCategory | 'all') => {
     setLyricsPaletteCategory((prev) => (prev === cat ? null : cat));
@@ -240,7 +284,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
     toast.success('Structured lyrics updated');
   };
 
-  const { userAddress: userAddr, readAddress } = useSelectedUserAddress();
+
 
   const applyResolvedCover = (imageUrl: string | null) => {
     latestCoverUrlRef.current = imageUrl;
@@ -1114,7 +1158,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
       {/* Control Configuration Panel */}
       <div className="studio-panel-config panel">
         <div className="studio-panel-header">
-          <div className="studio-mode-badge-switch" role="group" aria-label="Studio Flow">
+          <div className="studio-mode-badge-switch" role="group" aria-label="Studio Flow" data-guide="studio.workflow">
             <button
               type="button"
               className={`studio-mode-badge-btn mode-vibe ${studioFlow === 'vibe' ? 'active' : ''}`}
@@ -1132,7 +1176,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
           </div>
 
           <div className="studio-panel-header-right">
-            <div className="studio-model-dropdown" ref={modelMenuRef}>
+            <div className="studio-model-dropdown" ref={modelMenuRef} data-guide="studio-modes">
               <button
                 type="button"
                 className={`studio-model-trigger ${model === 'turbo' ? 'mode-fast' : 'mode-master'}`}
@@ -1150,7 +1194,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
               </button>
               {modelMenuOpen && (
                 <div
-                  className="studio-dropdown-popover studio-model-popover"
+                  data-guide="studio.model-menu" className="studio-dropdown-popover studio-model-popover"
                   role="listbox"
                   aria-label="Generation model"
                 >
@@ -1182,8 +1226,8 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                           </div>
                           <span className="studio-model-option-sub">
                             {isFast
-                              ? 'Fast: ~10 sec generation ° 5 credits'
-                              : 'Master: ~40 sec generation ° 10 credits'}
+                              ? '~10 sec generation @ 5 credits. Raw, experimental and blazing fast.'
+                              : '~40 sec generation @ 10 credits. Professional studio quality.'}
                           </span>
                         </button>
                       );
@@ -1213,7 +1257,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
         </div>
         {options.error && <span role="alert">{options.error.message}</span>}
         {isVibing && vibeStep && (
-          <div className="studio-vibe-live-banner" role="status" aria-live="polite">
+          <div data-guide="studio.songwriter-progress" className="studio-vibe-live-banner" role="status" aria-live="polite">
             <span className="studio-vibe-live-dot" />
             <span className="studio-vibe-live-text">{vibeStep}</span>
           </div>
@@ -1231,7 +1275,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                     </span>
                   </label>
                   <textarea
-                    className="cyber-input-field studio-vibe-textarea"
+                    data-guide="studio.vibe-prompt" aria-label="Song idea" className="cyber-input-field studio-vibe-textarea"
                     placeholder="Describe your song idea/vibe/story — or attach an image or record a hum/voice below..."
                     value={prompt}
                     onChange={(e) => setPrompt(e.target.value)}
@@ -1251,7 +1295,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                       onChange={handleVibeImageChange}
                     />
                     {vibeImage ? (
-                      <div className="studio-vibe-image-card">
+                      <div data-guide="studio.vibe-image" className="studio-vibe-image-card">
                         <div
                           className="studio-vibe-image-info"
                           onClick={() => vibeFileInputRef.current?.click()}
@@ -1285,7 +1329,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                       </div>
                     ) : (
                       <div
-                        className={`studio-vibe-dropzone ${isDraggingVibeImage ? 'drag-over' : ''}`}
+                        data-guide="studio.vibe-image" role="button" tabIndex={0} aria-label="Upload image" onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); vibeFileInputRef.current?.click(); } }} className={`studio-vibe-dropzone ${isDraggingVibeImage ? 'drag-over' : ''}`}
                         onClick={() => vibeFileInputRef.current?.click()}
                         onDragOver={(e) => {
                           e.preventDefault();
@@ -1328,7 +1372,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                     {isRecordingVibeAudio ? (
                       <button
                         type="button"
-                        className="studio-vibe-dropzone studio-vibe-audio-recording"
+                        data-guide="studio.vibe-audio" className="studio-vibe-dropzone studio-vibe-audio-recording"
                         onClick={() => stopVibeAudioRecording()}
                       >
                         <span className="studio-vibe-rec-dot" />
@@ -1337,13 +1381,13 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                         </span>
                       </button>
                     ) : vibeAudio ? (
-                      <div className="studio-vibe-image-card studio-vibe-audio-card">
+                      <div data-guide="studio.vibe-audio" className="studio-vibe-image-card studio-vibe-audio-card">
                         <Tooltip
                           title={isPlayingVibeAudio ? 'Pause preview' : 'Play preview'}
                           className="studio-vibe-info-wrap"
                         >
                           <div
-                            className="studio-vibe-image-info"
+                            className="studio-vibe-image-info" role="button" tabIndex={0} aria-label={isPlayingVibeAudio ? 'Pause hum preview' : 'Play hum preview'} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); togglePlayVibeAudio(); } }}
                             onClick={togglePlayVibeAudio}
                           >
                             <span className="studio-vibe-audio-play-badge">
@@ -1381,7 +1425,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                     ) : (
                       <button
                         type="button"
-                        className="studio-vibe-dropzone studio-vibe-audio-trigger"
+                        data-guide="studio.vibe-audio" className="studio-vibe-dropzone studio-vibe-audio-trigger"
                         onClick={() => void startVibeAudioRecording()}
                       >
                         <svg
@@ -1441,7 +1485,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                   <div className="studio-card-body">
                     {/* Aligned Identity Inputs & Avatar Upload Frame */}
                     <div className="studio-identity-grid">
-                      <div className={`studio-avatar-box ${coverUrl ? 'has-image' : ''} ${isGeneratingCover ? 'is-generating' : ''}`}>
+                      <div data-guide="studio.artwork-actions" className={`studio-avatar-box ${coverUrl ? 'has-image' : ''} ${isGeneratingCover ? 'is-generating' : ''}`}>
                         <input
                           type="file"
                           ref={coverFileInputRef}
@@ -1555,7 +1599,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                     </div>
 
                     {/* Prompt Input */}
-                    <div className="studio-field-group studio-field-group-prompt">
+                    <div data-guide="studio.details" className="studio-field-group studio-field-group-prompt">
                       <label className="studio-field-label">
                         <span>PROMPT</span>
                         <span className="studio-field-optional">
@@ -1583,7 +1627,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                           <label className={`studio-checkbox-label ${instrumental ? 'disabled' : ''}`}>
                             <input
                               type="checkbox"
-                              checked={instrumental}
+                              data-guide="studio.instrumental" aria-label="Instrumental" checked={instrumental}
                               onChange={(e) => {
                                 const checked = e.target.checked;
                                 setInstrumental(checked);
@@ -1718,7 +1762,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                       <button
                         type="button"
                         className={`studio-param-pill ${audioDurationSeconds ? 'configured' : ''}`}
-                        onClick={() => setActiveModal('duration')}
+                        data-guide="studio.options" onClick={() => setActiveModal('duration')}
                       >
                         <div className="studio-param-pill-header">
                           <span className="studio-param-pill-label">DURATION</span>
@@ -1797,7 +1841,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
 
                 {financialsOpen && (
                   <div className="studio-card-body">
-                    <div className="studio-pricing-grid">
+                    <div data-guide="studio.financials" className="studio-pricing-grid">
                       <div className="studio-pricing-input-wrap">
                         <label className="studio-field-label">
                           STREAM ($/M)
@@ -1853,14 +1897,14 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
         </div>
 
         {/* Main Action Button */}
-        <div className="studio-main-action-wrap">
+        <div className="studio-main-action-wrap" role="group" aria-label={studioFlow === 'vibe' ? 'VIBE' : 'GENERATE'} tabIndex={-1}>
           {studioFlow === 'vibe' ? (
             <Button
               variant="primary"
               size="lg"
               disabled={isVibing || state.isGenerating || !canSubmitVibe}
               onClick={() => handleVibe()}
-              className="studio-generate-btn studio-vibe-btn"
+              data-guide="studio.vibe-submit" className="studio-generate-btn studio-vibe-btn"
             >
               {isVibing ? 'VIBING...' : 'VIBE'}
             </Button>
@@ -1870,9 +1914,9 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
               size="lg"
               disabled={state.isGenerating || isVibing || !canSubmitGeneration || !generation || !model}
               onClick={() => handleGenerate()}
-              className="studio-generate-btn"
+              data-guide="studio.generate" className="studio-generate-btn"
             >
-              {isVibing ? 'VIBING...' : state.isGenerating ? 'SYNTHESIZING...' : 'GENERATE AUDIO'}
+              {isVibing ? 'VIBING...' : state.isGenerating ? 'SYNTHESIZING...' : 'GENERATE'}
             </Button>
           )}
         </div>
@@ -1902,7 +1946,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
         </div>
 
         {state.tracks.length === 0 ? (
-          <div className="studio-empty-state">
+          <div data-guide="studio.feed-empty" tabIndex={-1} aria-label="Variations feed" className="studio-empty-state">
             <span className="studio-empty-title">NO VARIATIONS YET</span>
             <span className="studio-empty-desc">
               Configure instructions and synthesize your first track.
@@ -1915,7 +1959,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
               return (
                 <div
                   key={t.id}
-                  className={`variation-card ${state.activeSong?.id === t.song.id ? 'active' : ''}`}
+                  data-guide-entity={t.id} data-guide="studio.feed-actions" className={`variation-card ${state.activeSong?.id === t.song.id ? 'active' : ''}`}
                 >
                   <div className="variation-card-row-top">
                     <div className="variation-card-track-info">
@@ -1982,7 +2026,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                             <Button
                               variant="ghost"
                               size="xs"
-                              aria-label="SAVE VOICE"
+                              data-guide="studio.feed-save-voice" aria-label="SAVE VOICE"
                               onClick={() => handleSaveVoice(t)}
                             >
                               <Mic2 size={12} />
@@ -1995,7 +2039,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                             <Button
                               variant={t.song.public ? 'secondary' : 'ghost'}
                               size="xs"
-                              aria-label={t.song.public ? 'MAKE PRIVATE' : 'MAKE PUBLIC'}
+                              data-guide="studio.feed-visibility" aria-label={t.song.public ? 'MAKE PRIVATE' : 'MAKE PUBLIC'}
                               disabled={Boolean(publicPending)}
                               onClick={() => togglePublic(t.song)}
                             >
@@ -2017,13 +2061,14 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
 
       {/* Collection Modal */}
       <Modal
+        guideOwner="studio" guideAnchor="studio.collection-list"
         isOpen={activeModal === 'collection'}
         onClose={() => setActiveModal(null)}
         title="COLLECTION"
         size="sm"
       >
         <div className="studio-param-modal-content">
-          <div className="studio-voice-list">
+          <div data-guide="voice.saved-list" className="studio-voice-list">
             <button
               type="button"
               className={`studio-voice-card ${!selectedAlbumId ? 'active' : ''}`}
@@ -2095,6 +2140,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
 
       {/* New Album Modal */}
       <Modal
+        guideOwner="studio" guideDraft
         isOpen={showNewAlbumModal}
         onClose={() => {
           setShowNewAlbumModal(false);
@@ -2102,7 +2148,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
         }}
         title="NEW ALBUM"
       >
-        <div className="studio-new-album-body">
+        <div data-guide="studio.new-album" className="studio-new-album-body">
           <div className="studio-field-group">
             <label className="studio-field-label">TITLE</label>
             <input
@@ -2139,6 +2185,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
 
       {/* Duration Modal */}
       <Modal
+        guideOwner="studio" guideAnchor="studio.duration-editor"
         isOpen={activeModal === 'duration'}
         onClose={() => setActiveModal(null)}
         title="DURATION"
@@ -2202,6 +2249,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
 
       {/* BPM / Tempo Modal */}
       <Modal
+        guideOwner="studio" guideAnchor="studio.tempo-editor"
         isOpen={activeModal === 'bpm'}
         onClose={() => setActiveModal(null)}
         title="TEMPO"
@@ -2268,6 +2316,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
 
       {/* Key & Scale Modal */}
       <Modal
+        guideOwner="studio" guideAnchor="studio.key-editor"
         isOpen={activeModal === 'key'}
         onClose={() => setActiveModal(null)}
         title="KEY"
@@ -2341,6 +2390,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
 
       {/* Voice Modal */}
       <Modal
+        guideOwner="studio" guideAnchor="voice.dialog"
         isOpen={activeModal === 'voice'}
         onClose={() => setActiveModal(null)}
         title="VOICE"
@@ -2402,7 +2452,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
               )}
 
               {!loadingVoices && !voicesError && readAddress && voices.length === 0 && (
-                <div className="studio-voice-empty-state">
+                <div data-guide="voice.saved-list" tabIndex={-1} aria-label="Saved voices" className="studio-voice-empty-state">
                   <Mic2 size={24} className="studio-voice-empty-icon" />
                   <span className="studio-voice-empty-title">NO VOICES</span>
                   <span className="studio-voice-empty-desc">
@@ -2419,7 +2469,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
               )}
 
               {!loadingVoices && !voicesError && voices.length > 0 && (
-                <div className="studio-voice-list">
+                <div data-guide="voice.saved-list" className="studio-voice-list">
                   {voices.map((voice) => {
                     const isSelected = voiceMode === 'trained' && selectedVoiceId === voice.id;
                     const isReady = voiceReady(voice, voiceOutput);
@@ -2474,8 +2524,9 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
 
           {/* Tab 2: Upload Sample */}
           {voiceTab === 'upload' && (
-            <div className="studio-voice-upload-container">
+            <div data-guide="voice.upload" className="studio-voice-upload-container">
               <div
+                role="button" tabIndex={0} aria-label="Choose voice sample" onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); voiceFileInputRef.current?.click(); } }}
                 className={`studio-voice-upload-zone ${isDraggingVoice ? 'drag-over' : ''} ${voiceMode === 'reference' && voiceFile ? 'has-file' : ''}`}
                 onClick={() => voiceFileInputRef.current?.click()}
                 onDragOver={(e) => {
@@ -2547,7 +2598,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
           )}
 
           {/* Currently Selected Strip */}
-          <div className="studio-voice-active-strip">
+          <div data-guide="voice.selection-status" tabIndex={-1} className="studio-voice-active-strip">
             <div className="studio-field-label studio-field-label-flush">
               <span>VOICE</span>
               <span className="studio-highlight">
@@ -2573,7 +2624,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                 min="0.1"
                 max="1.0"
                 step="0.05"
-                value={voiceCoverStrength}
+                data-guide="voice.resemblance" value={voiceCoverStrength}
                 onChange={(e) => setVoiceCoverStrength(parseFloat(e.target.value))}
                 className="cyber-slider"
               />
@@ -2637,6 +2688,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
 
       {/* 6. Structured Lyrics Canvas Modal */}
       <Modal
+        guideOwner="studio" guideAnchor="lyrics.dialog" guideDraft
         isOpen={activeModal === 'lyrics'}
         onClose={() => setActiveModal(null)}
         title="LYRICS CANVAS"
@@ -2660,7 +2712,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
               </span>
             </div>
 
-            <div className="studio-lyrics-mode-switch">
+            <div data-guide="lyrics.mode-switch" className="studio-lyrics-mode-switch">
               <button
                 type="button"
                 className={`studio-lyrics-mode-btn ${lyricsMode === 'canvas' ? 'active' : ''}`}
@@ -2711,7 +2763,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                 </div>
 
                 {lyricsPaletteCategory !== null && (
-                  <div className="studio-lyrics-palette-chips">
+                  <div data-guide="lyrics.category-palette" className="studio-lyrics-palette-chips">
                     {STRUCTURED_TAGS.filter(
                       (t) => lyricsPaletteCategory === 'all' || t.category === lyricsPaletteCategory
                     ).map((tag) => (
@@ -2719,7 +2771,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                         <button
                           type="button"
                           className={`studio-lyrics-chip ${tag.category}`}
-                          onClick={() => handleInsertSection(lyricsBlocks.length, tag.token)}
+                          data-guide-draft-action onClick={() => handleInsertSection(lyricsBlocks.length, tag.token)}
                         >
                           <span>{tag.token}</span>
                         </button>
@@ -2730,13 +2782,13 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
               </div>
 
               {/* Scrollable Canvas */}
-              <div className="studio-lyrics-canvas">
+              <div data-guide="lyrics.canvas" className="studio-lyrics-canvas">
                 {/* Top Separator for inserting before first section */}
                 <div className="studio-lyrics-separator">
                   <Tooltip title="Insert section at start">
                     <button
                       type="button"
-                      className="studio-lyrics-add-sep-btn"
+                      data-guide="lyrics.add-section" className="studio-lyrics-add-sep-btn"
                       onClick={() => setInsertingSepIndex(insertingSepIndex === -1 ? null : -1)}
                     >
                       <span className="studio-lyrics-add-plus">+</span>
@@ -2746,7 +2798,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                 </div>
 
                 {insertingSepIndex === -1 && (
-                  <div className="studio-lyrics-tray">
+                  <div data-guide="lyrics.section-tray" className="studio-lyrics-tray">
                     <div className="studio-lyrics-tray-head">
                       <span className="studio-lyrics-tray-title">SELECT STRUCTURED TAG TO INSERT AT START</span>
                       <button
@@ -2763,7 +2815,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                           key={tag.token}
                           type="button"
                           className={`studio-lyrics-tray-card ${tag.category}`}
-                          onClick={() => handleInsertSection(0, tag.token)}
+                          data-guide-draft-action onClick={() => handleInsertSection(0, tag.token)}
                         >
                           <span className="studio-lyrics-tray-token">{tag.token}</span>
                           <span className="studio-lyrics-tray-desc">{tag.description}</span>
@@ -2780,7 +2832,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
 
                   return (
                     <React.Fragment key={block.id}>
-                      <div className={`studio-lyrics-block ${primaryCategory}`}>
+                      <div data-guide-entity={block.id} className={`studio-lyrics-block ${primaryCategory}`}>
                         <div className="studio-lyrics-block-header">
                           <div className="studio-lyrics-block-header-left">
                             <span className="studio-lyrics-block-idx">
@@ -2798,7 +2850,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                                         <button
                                           type="button"
                                           className="studio-lyrics-badge-close"
-                                          onClick={() => handleRemoveTag(block.id, tIdx)}
+                                          aria-label="Remove tag" data-guide-draft-action onClick={() => handleRemoveTag(block.id, tIdx)}
                                         >
                                           ✕
                                         </button>
@@ -2822,13 +2874,13 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                             </div>
                           </div>
 
-                          <div className="studio-lyrics-block-actions">
+                          <div data-guide="lyrics.section-controls" className="studio-lyrics-block-actions">
                             <Tooltip title="Move section up">
                               <button
                                 type="button"
                                 className="studio-lyrics-icon-btn"
                                 disabled={index === 0}
-                                onClick={() => handleMoveBlock(index, 'up')}
+                                aria-label="Move section up" data-guide-draft-action onClick={() => handleMoveBlock(index, 'up')}
                               >
                                 ▲
                               </button>
@@ -2838,7 +2890,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                                 type="button"
                                 className="studio-lyrics-icon-btn"
                                 disabled={index === lyricsBlocks.length - 1}
-                                onClick={() => handleMoveBlock(index, 'down')}
+                                aria-label="Move section down" data-guide-draft-action onClick={() => handleMoveBlock(index, 'down')}
                               >
                                 ▼
                               </button>
@@ -2847,7 +2899,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                               <button
                                 type="button"
                                 className="studio-lyrics-icon-btn danger"
-                                onClick={() => handleDeleteBlock(index)}
+                                aria-label="Delete section" data-guide-draft-action onClick={() => handleDeleteBlock(index)}
                               >
                                 ✕
                               </button>
@@ -2857,7 +2909,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
 
                         {/* Dropdown tray for adding tags to this block */}
                         {addingTagBlockId === block.id && (
-                          <div className="studio-lyrics-tray">
+                          <div data-guide="lyrics.tag-tray" className="studio-lyrics-tray">
                             <div className="studio-lyrics-tray-head">
                               <span className="studio-lyrics-tray-title">
                                 APPEND STRUCTURED TAG TO SECTION {index + 1}
@@ -2876,7 +2928,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                                   key={tag.token}
                                   type="button"
                                   className={`studio-lyrics-tray-card ${tag.category}`}
-                                  onClick={() => handleAddTagToBlock(block.id, tag.token)}
+                                  data-guide-draft-action onClick={() => handleAddTagToBlock(block.id, tag.token)}
                                 >
                                   <span className="studio-lyrics-tray-token">{tag.token}</span>
                                   <span className="studio-lyrics-tray-desc">{tag.description}</span>
@@ -2912,7 +2964,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                         <Tooltip title="Split and add a new section">
                           <button
                             type="button"
-                            className="studio-lyrics-add-sep-btn"
+                            data-guide="lyrics.add-section" className="studio-lyrics-add-sep-btn"
                             onClick={() =>
                               setInsertingSepIndex(insertingSepIndex === index ? null : index)
                             }
@@ -2943,7 +2995,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                                 key={tag.token}
                                 type="button"
                                 className={`studio-lyrics-tray-card ${tag.category}`}
-                                onClick={() => handleInsertSection(index + 1, tag.token)}
+                                data-guide-draft-action onClick={() => handleInsertSection(index + 1, tag.token)}
                               >
                                 <span className="studio-lyrics-tray-token">{tag.token}</span>
                                 <span className="studio-lyrics-tray-desc">{tag.description}</span>
@@ -2963,7 +3015,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                 ACESTEP SQUARED-BRACKET SYNTAX — EDIT DIRECTLY OR PASTE FULL SONG:
               </div>
               <textarea
-                className="studio-lyrics-raw-textarea"
+                data-guide="lyrics.raw-editor" aria-label="Raw lyrics and tags" className="studio-lyrics-raw-textarea"
                 value={lyricsRawText}
                 onChange={(e) => setLyricsRawText(e.target.value)}
                 placeholder="[Intro]&#10;Atmospheric chords...&#10;&#10;[Verse 1]&#10;[whispered]&#10;Neon light flickering...&#10;&#10;[Chorus]&#10;Energy release..."
@@ -2973,7 +3025,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
           )}
 
           {/* Modal Actions Footer */}
-          <div className="studio-param-actions-row studio-lyrics-modal-actions">
+          <div data-guide="lyrics.footer" className="studio-param-actions-row studio-lyrics-modal-actions">
             <Button
               variant="ghost"
               size="sm"
@@ -2995,7 +3047,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
               <Button
                 variant="primary"
                 size="sm"
-                onClick={handleApplyLyrics}
+                data-guide="lyrics.done" onClick={handleApplyLyrics}
               >
                 DONE
               </Button>
@@ -3006,6 +3058,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
 
       {/* Style Tags Modal */}
       <Modal
+        guideOwner="studio" guideAnchor="studio.tags-editor"
         isOpen={activeModal === 'tags'}
         onClose={() => {
           setActiveModal(null);
@@ -3085,6 +3138,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
 
       {/* Cover Art Expand Modal */}
       <Modal
+        guideOwner="studio" guideAnchor="studio.cover-preview"
         isOpen={activeModal === 'cover' && Boolean(coverUrl)}
         onClose={() => setActiveModal(null)}
         title={title.trim() || 'COVER ART'}
