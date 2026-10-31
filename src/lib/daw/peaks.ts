@@ -121,8 +121,16 @@ export interface BipolarPeaks {
 function envelope(length: number, channels: number, rate: number, read: (frame: number, channel: number) => number, bins: number, offset = 0, duration?: number): BipolarPeaks {
   if (!Number.isFinite(bins) || bins < 1 || !Number.isFinite(offset) || offset < 0 || (duration !== undefined && (!Number.isFinite(duration) || duration < 0))) throw new Error('Invalid waveform range');
   const count = Math.min(2048, Math.floor(bins));
-  const first = Math.min(length, Math.floor(offset * rate));
-  const last = duration === undefined ? length : Math.min(length, Math.ceil((offset + duration) * rate));
+  const bufferDuration = rate > 0 ? length / rate : 0;
+  const effectiveOffset =
+    offset > 0 &&
+    bufferDuration > 0 &&
+    ((duration !== undefined && duration > 0 && bufferDuration <= duration + 0.5) ||
+      offset >= bufferDuration - 0.05)
+      ? 0
+      : offset;
+  const first = Math.min(length, Math.floor(effectiveOffset * rate));
+  const last = duration === undefined ? length : Math.min(length, Math.ceil((effectiveOffset + duration) * rate));
   const frames = Math.max(0, last - first);
   const mins = new Float32Array(count), maxs = new Float32Array(count), rms = new Float32Array(count);
   const low = new Float32Array(count), mid = new Float32Array(count), high = new Float32Array(count);

@@ -219,6 +219,18 @@ class DAWEngine {
     return created;
   }
 
+  private resolveClipOffset(bufferDuration: number, offset = 0, duration?: number): number {
+    const rawOffset = Math.max(0, offset || 0);
+    if (!(bufferDuration > 0) || rawOffset === 0) return rawOffset;
+    if (duration !== undefined && duration > 0 && bufferDuration <= duration + 0.5) {
+      return 0;
+    }
+    if (rawOffset >= bufferDuration - 0.05) {
+      return 0;
+    }
+    return rawOffset;
+  }
+
   private attachClipPlayer(
     trackId: string,
     clipId: string,
@@ -251,6 +263,7 @@ class DAWEngine {
 
     if (!this.isToneReady) return;
 
+    const effectiveOffset = this.resolveClipOffset(effectiveBuffer?.duration ?? 0, offset, duration);
     const nodes = this.getOrCreateTrackNodes(trackId);
     const existing = nodes.players.get(clipId);
     if (
@@ -275,7 +288,7 @@ class DAWEngine {
         try {
           existing.unsync();
         } catch {}
-        existing.sync().start(startTime, offset, duration);
+        existing.sync().start(startTime, effectiveOffset, duration);
       }
       return;
     }
@@ -288,7 +301,7 @@ class DAWEngine {
       player.buffer.set(effectiveBuffer);
     }
     if (!player.buffer || player.buffer.loaded || (player as any).loaded) {
-      player.sync().start(startTime, offset, duration);
+      player.sync().start(startTime, effectiveOffset, duration);
       if (this.isToneReady && !this.offline && Tone.getTransport().state === 'started') {
         try {
           Tone.getTransport().seconds = Tone.getTransport().seconds;
@@ -595,12 +608,24 @@ class DAWEngine {
     const muted = this.auditionLayerIds ? Boolean(master?.mixer?.muted ?? master?.muted) || !this.auditionLayerIds.includes('master') : this.auditionTrackId ? this.auditionTrackId !== 'master' :
       Boolean(master?.mixer?.muted ?? master?.muted) ||
       (state.tracks.some(track => track.mixer?.solo ?? track.solo) && !(master?.mixer?.solo ?? master?.solo));
-    const regions = [...state.originals].sort((a, b) => a.start - b.start).reduce<{ start: number; end: number }[]>((all, region) => {
-      const last = all[all.length - 1];
-      if (last && region.start <= last.end) last.end = Math.max(last.end, region.end);
-      else all.push({ ...region });
-      return all;
-    }, []);
+    const isAuditioningMaster = Boolean(this.auditionLayerIds && this.auditionLayerIds.includes('master'));
+    const activeOriginals = state.originals.filter((region) => {
+      const coveringOverlays = state.tracks.filter(
+        (t) =>
+          Boolean(t.activeTakeId) &&
+          t.clips.some((c) => c.startTime < region.end && c.startTime + c.duration > region.start)
+      );
+      if (coveringOverlays.length === 0) return true;
+      return coveringOverlays.some((t) => !(t.mixer?.muted ?? t.muted) && t.mounted !== false);
+    });
+    const regions = isAuditioningMaster
+      ? []
+      : [...activeOriginals].sort((a, b) => a.start - b.start).reduce<{ start: number; end: number }[]>((all, region) => {
+          const last = all[all.length - 1];
+          if (last && region.start <= last.end) last.end = Math.max(last.end, region.end);
+          else all.push({ ...region });
+          return all;
+        }, []);
     (nodes.source ?? nodes.input).gain.value = muted || regions.some(region => transport.seconds >= region.start && transport.seconds < region.end) ? 0 : 1;
     for (const region of regions) {
       this.originalScheduleIds.push(transport.schedule(time => (nodes.source ?? nodes.input).gain.setValueAtTime(0, time), region.start));
@@ -706,15 +731,21 @@ class DAWEngine {
     }
 
     const safeStart = Math.max(0, startSec);
+    const clipDur = endSec !== undefined ? Math.max(0.1, endSec - safeStart) : undefined;
     this.auditionOffset = timelineStart - safeStart;
     this.auditionStart = timelineStart;
-    this.auditionEnd = endSec !== undefined ? Math.max(safeStart + 0.1, endSec) + this.auditionOffset : null;
+    this.auditionEnd = clipDur !== undefined ? timelineStart + clipDur : null;
     this.isAuditionLooping = false;
 
     const playTake = () => {
       if (!this.auditionTakeAudio) return;
+      const audioDur = Number.isFinite(this.auditionTakeAudio.duration) ? this.auditionTakeAudio.duration : 0;
+      const effectiveStart = this.resolveClipOffset(audioDur, safeStart, clipDur);
+      this.auditionOffset = timelineStart - effectiveStart;
+      this.auditionStart = timelineStart;
+      this.auditionEnd = clipDur !== undefined ? timelineStart + clipDur : null;
       try {
-        this.auditionTakeAudio.currentTime = safeStart;
+        this.auditionTakeAudio.currentTime = effectiveStart;
       } catch (err) {
         console.warn('Take seek deferred:', err);
       }
@@ -762,7 +793,9 @@ class DAWEngine {
     }
     this.stopTimeTracker();
     useDawStore.getState().setPlaying(false);
-    useDawStore.setState({ auditionId: null });
+    if (restoreMixer) {
+      useDawStore.setState({ auditionId: null });
+    }
   }
 
   public setBpm(bpm: number) {
@@ -798,8 +831,22 @@ class DAWEngine {
     const safeStart = Math.max(0, start);
     const safeEnd = Math.max(safeStart + 0.1, end);
 
+    const state = useDawStore.getState();
+    const selectedId = state.selectedTrackId;
+    const isLaneSelected = Boolean(
+      selectedId &&
+      selectedId !== 'master' &&
+      state.tracks.some((t) => t.id === selectedId && !t.activeTakeId)
+    );
+    if (isLaneSelected && selectedId) {
+      this.auditionLayerIds = null;
+      this.auditionTrackId = selectedId;
+      this.updateTrackMixer(selectedId);
+      useDawStore.setState({ auditionId: selectedId });
+    }
+
     this.seek(safeStart);
-    await this.startTransport();
+    await this.startTransport(isLaneSelected || Boolean(this.auditionTrackId || this.auditionLayerIds));
     this.auditionStart = safeStart;
     this.auditionEnd = safeEnd;
     this.isAuditionLooping = loop;
@@ -1387,8 +1434,9 @@ class DAWEngine {
     if (!trackNode) return;
     const player = trackNode.players.get(clipId);
     if (player && player.loaded) {
+      const effectiveOffset = this.resolveClipOffset(player.buffer?.duration ?? 0, offset, duration);
       player.unsync();
-      player.sync().start(startTime, offset, duration);
+      player.sync().start(startTime, effectiveOffset, duration);
     }
   }
 
