@@ -1,3 +1,4 @@
+import { useGuideOwner, prepareViews, draftCanLeave } from '../components/guide/owners';
 import { sdk, watch } from '@/lib/sdk';
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
@@ -70,7 +71,7 @@ const EditorTransportDeck: React.FC<{
         >
           <button
             type="button"
-            className={`editor-transport-play-btn ${isPlaying ? 'active' : ''}`}
+            data-guide="editor.playback" className={`editor-transport-play-btn ${isPlaying ? 'active' : ''}`}
             onClick={onTogglePlay}
             aria-label={isPlaying ? 'Pause' : 'Play'}
           >
@@ -136,6 +137,9 @@ const EditorBpmControl: React.FC<{
     setDraft(String(bpm));
   }, [bpm]);
 
+  const openRef = useRef(isOpen); openRef.current = isOpen;
+  useGuideOwner({ id: 'editor', scope: 'tempo', handles: step => step.id === 'R1', prepare: () => ({ ...prepareViews({ isOpen }, () => ({ isOpen: openRef.current }), { isOpen: setIsOpen }, { isOpen: true }), focus: 'input' }) });
+
   const commitBpm = (val: number) => {
     const clamped = Math.max(40, Math.min(240, Math.round(val)));
     setDraft(String(clamped));
@@ -174,7 +178,7 @@ const EditorBpmControl: React.FC<{
       </Tooltip>
 
       <Modal
-        isOpen={isOpen}
+        guideOwner="tempo" guideAnchor="editor.tempo-dialog" isOpen={isOpen}
         onClose={() => setIsOpen(false)}
         title="TEMPO // BPM CONTROLLER"
         size="sm"
@@ -446,6 +450,40 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
   // Commit Modal
   const [isCommitModalOpen, setIsCommitModalOpen] = useState<boolean>(false);
   const [commitMessage, setCommitMessage] = useState<string>('');
+
+  const guideView = { mobileFocus, activeTool, task, selectedQuality, isCommitModalOpen };
+  const guideViewRef = useRef(guideView); guideViewRef.current = guideView;
+  useGuideOwner({
+    id: 'editor', scope: song.id, handles: step => step.id.startsWith('E') || step.id.startsWith('I') || step.id.startsWith('T') || step.id.startsWith('R') || step.id.startsWith('H') || ['keys', 'drums', 'code', 'sample', 'fx', 'mixer'].includes(step.owner),
+    prepare: ({ step, bind }) => {
+      const patch: Partial<typeof guideView> = {};
+      const effectsStep = /^X[1-5]$/.test(step.id);
+      const entryView = effectsStep ? {
+        ...guideView,
+        activeTool: bind('effects-entry-tool', activeTool) as ManualToolTab,
+        mobileFocus: bind('effects-entry-panel', mobileFocus) as typeof mobileFocus,
+      } : guideView;
+      patch.mobileFocus = step.owner === 'ai' || step.id === 'E4' ? 'studio' : 'toolbox';
+      const tool = ({ keys: 'keys', drums: 'drums', code: 'strudel', sample: 'sample', fx: 'dsp', mixer: 'mixer' } as const)[step.owner as 'keys'];
+      if (tool) patch.activeTool = tool;
+      if (step.id === 'X5' && !document.querySelector('[data-guide="fx.module.sculpt"].active-module')) patch.activeTool = 'mixer';
+      if (step.id === 'T3' || step.id === 'H3') patch.activeTool = 'history';
+      const operation = ({ I3: 'repaint', I4: 'lego', I5: 'extend', I6: 'complete', I7: 'cover', I8: 'extract' } as const)[step.id as 'I3'];
+      if (operation && !(step.id === 'I3' && !selection)) {
+        patch.task = operation;
+        const modes = editing?.tasks.find(action => action.id === operation)?.modes;
+        if (modes?.length && !modes.includes(selectedQuality)) patch.selectedQuality = modes[0];
+      }
+      if (step.id === 'H2') patch.isCommitModalOpen = true;
+      const result = prepareViews(guideView, () => guideViewRef.current, { mobileFocus: setMobileFocus, activeTool: setActiveTool, task: setTask, selectedQuality: setSelectedQuality, isCommitModalOpen: setIsCommitModalOpen }, patch, entryView);
+      return {
+        ...result, canLeave: () => draftCanLeave('commit'), leave: next => {
+          if (effectsStep && next && /^X[1-5]$/.test(next.id)) return;
+          if (draftCanLeave('commit')) result.leave?.();
+        }
+      };
+    },
+  });
 
   // Processing & Poller
   const [processing, setProcessing] = useState<boolean>(false);
@@ -835,6 +873,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
   // Global Keyboard Shortcuts (Space, Shift+Space, L, 0, M, S, R, [/], Escape, Cmd/Ctrl+Z, Cmd/Ctrl+Shift+Z)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.isComposing || (e.target as HTMLElement)?.closest('[data-guide-navigation], [role="dialog"]')) return;
       if (['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'].includes((e.target as HTMLElement)?.tagName) || (e.target as HTMLElement)?.isContentEditable) {
         return;
       }
@@ -1592,7 +1631,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
       <div className="editor-header-bar">
         <div className="editor-header-left">
           <Tooltip title="Return to your Page" description="Exit workstation and return to your tracks">
-            <Button variant="ghost" size="sm" onClick={onBack} className="editor-back-btn" aria-label="Return to Library">
+            <Button data-guide="editor.back" variant="ghost" size="sm" onClick={onBack} className="editor-back-btn" aria-label="Return to Workspace">
               <ArrowLeft size={14} /> <span className="editor-btn-label">WORKSPACE</span>
             </Button>
           </Tooltip>
@@ -1746,6 +1785,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
 
       {/* Commit Snapshot Modal Dialog */}
       <Modal
+        guideOwner="commit" guideAnchor="history.snapshot-note" guideDraft
         isOpen={isCommitModalOpen}
         onClose={() => setIsCommitModalOpen(false)}
         title="COMMIT"
