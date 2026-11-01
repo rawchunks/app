@@ -1,5 +1,5 @@
 import { useGuideOwner, prepareViews, draftCanLeave } from '../components/guide/owners';
-import { sdk } from '@/lib/sdk';
+import { api } from '@/lib/api';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { toast } from 'sonner';
 import {
@@ -47,10 +47,18 @@ import { useQueryClient } from '@tanstack/react-query';
 import { ProfileModal } from '../components/profile-modal';
 import { EditSongModal } from '../components/edit-song';
 import { PublishModal } from '../components/publish';
+import { ShareModal } from '../components/share';
 import { readSongs, writeSongs } from '../lib/cache';
 import { groupSongs } from '../lib/versions';
 import { useDismiss } from '../hooks/use-dismiss';
 import { openGate } from '@/lib/gate';
+import {
+  getMintSuccessForShare,
+  clearMintSuccessShare,
+  saveMintSuccessForShare,
+  songToShareData,
+  type MintShareData,
+} from '../lib/share';
 
 const MENU_IGNORE_SELECTORS = [
   '.mypage-menu-wrap',
@@ -153,7 +161,8 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
 
   const guideView = { songsOpen, licensesOpen, albumsOpen, voicesOpen, menuOpenId, editingDetailsSong, publishConfirmSong, profileModalOpen };
   const guideViewRef = useRef(guideView); guideViewRef.current = guideView;
-  useGuideOwner({ id: 'workspace', scope: activeAddress ?? 'guest', handles: step => ['W1', 'W2', 'W3', 'W4', 'K1', 'K2', 'K3', 'K4', 'K5', 'K6', 'K7'].includes(step.id),
+  useGuideOwner({
+    id: 'workspace', scope: activeAddress ?? 'guest', handles: step => ['W1', 'W2', 'W3', 'W4', 'K1', 'K2', 'K3', 'K4', 'K5', 'K6', 'K7'].includes(step.id),
     prepare: ({ step, bind }) => {
       const displayed = groupSongs(state.songs).map(versions => versions.find(song => song.id === selected[versions[0].family ?? versions[0].id]) ?? versions[0]);
       const candidate = displayed.find(song => !song.public && !song.tx_hash && !song.metadata_cid) ?? displayed[0];
@@ -169,13 +178,17 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
       const privateSong = song && !song.public && !song.tx_hash && !song.metadata_cid;
       if (step.id === 'W2' && privateSong) patch.editingDetailsSong = song;
       if (step.id === 'W4' && song && !song.public) patch.publishConfirmSong = song;
-      const view = prepareViews(guideView, () => guideViewRef.current, { songsOpen: setSongsOpen, licensesOpen: setLicensesOpen, albumsOpen: setAlbumsOpen, voicesOpen: setVoicesOpen, menuOpenId: setMenuOpenId,
-        editingDetailsSong: setEditingDetailsSong, publishConfirmSong: setPublishConfirmSong, profileModalOpen: setProfileModalOpen }, patch);
+      const view = prepareViews(guideView, () => guideViewRef.current, {
+        songsOpen: setSongsOpen, licensesOpen: setLicensesOpen, albumsOpen: setAlbumsOpen, voicesOpen: setVoicesOpen, menuOpenId: setMenuOpenId,
+        editingDetailsSong: setEditingDetailsSong, publishConfirmSong: setPublishConfirmSong, profileModalOpen: setProfileModalOpen
+      }, patch);
       const result = { ...view, canLeave: () => draftCanLeave('song-details') && draftCanLeave('profile'), leave: () => { if (draftCanLeave('song-details') && draftCanLeave('profile')) view.leave?.(); } };
       if (step.id === 'W2' && !privateSong || step.id === 'W4' && (!song || song.public)) return { ...result, target: 'workspace.songs-heading', description: 'This step needs a private song in MY SONGS.' };
       if (['W3', 'K5', 'K7'].includes(step.id) && !song) return { ...result, target: 'workspace.songs-heading', description: loading ? 'Your songs are loading.' : 'Your songs appear here after you generate a track.' };
-      return { ...result, entity: ['W2', 'W3', 'W4', 'K5', 'K7'].includes(step.id) ? songId : undefined,
-        focus: step.id === 'W2' || step.id === 'K6' ? 'input' : undefined };
+      return {
+        ...result, entity: ['W2', 'W3', 'W4', 'K5', 'K7'].includes(step.id) ? songId : undefined,
+        focus: step.id === 'W2' || step.id === 'K6' ? 'input' : undefined
+      };
     },
   });
 
@@ -218,7 +231,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
     setError(null);
     const load = async () => {
       try {
-        const res = await sdk.fetch(
+        const res = await api.fetch(
           `/api/songs?creator=${encodeURIComponent(activeAddress)}`,
           { userAddress: activeAddress }
         );
@@ -263,7 +276,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
 
     void (async () => {
       try {
-        const res = await sdk.fetch(
+        const res = await api.fetch(
           `/api/albums?creator=${encodeURIComponent(activeAddress)}`,
           { userAddress: activeAddress }
         );
@@ -282,6 +295,26 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
       current = false;
     };
   }, [activeAddress]);
+
+  // Share success dialog state
+  const [showShareDialog, setShowShareDialog] = useState(false);
+  const [shareData, setShareData] = useState<MintShareData | null>(null);
+
+  useEffect(() => {
+    const data = getMintSuccessForShare();
+    if (data) {
+      setShareData(data);
+      setShowShareDialog(true);
+    }
+  }, []);
+
+  const handleCloseShareDialog = (open: boolean) => {
+    setShowShareDialog(open);
+    if (!open) {
+      clearMintSuccessShare();
+      setShareData(null);
+    }
+  };
 
   useEffect(() => {
     if (!licensed.loading && !userToggledLicenses.current) {
@@ -455,7 +488,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
   const handleDelete = async (id: string) => {
     setMenuOpenId(null);
     try {
-      const response = await sdk.fetch(`/api/songs/${encodeURIComponent(id)}`, {
+      const response = await api.fetch(`/api/songs/${encodeURIComponent(id)}`, {
         method: 'DELETE',
       });
       if (!response.ok) throw new Error('Could not delete the song');
@@ -665,6 +698,18 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
                       onDownload={handleDownload}
                       onDelete={handleDelete}
                       onPublishClick={(s) => setPublishConfirmSong(s)}
+                      onShare={(s) => {
+                        setMenuOpenId(null);
+                        setShareData(
+                          songToShareData(
+                            s,
+                            nickname?.trim() || activeAddress || s.creator,
+                            false,
+                            albumCover
+                          )
+                        );
+                        setShowShareDialog(true);
+                      }}
                       publicPending={Boolean(publicPending)}
                     />
                   );
@@ -1114,9 +1159,28 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
         formattedAddress={formattedAddress}
         albums={albums}
         onConfirm={async (song: Song) => {
-          await togglePublic(song);
+          const updated = await togglePublic(song);
+          if (updated && updated.public) {
+            const album = updated.album_id ? albumsMap.get(updated.album_id) : null;
+            const payload = songToShareData(
+              updated,
+              nickname?.trim() || activeAddress || updated.creator,
+              true,
+              album?.cover || null
+            );
+            saveMintSuccessForShare(payload);
+            setShareData(payload);
+            setShowShareDialog(true);
+          }
         }}
         pending={Boolean(publicPending)}
+      />
+
+      {/* Post-Publish & Track Share Modal */}
+      <ShareModal
+        isOpen={showShareDialog}
+        onClose={() => handleCloseShareDialog(false)}
+        data={shareData}
       />
     </div>
   );
