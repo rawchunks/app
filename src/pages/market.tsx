@@ -765,6 +765,11 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
         selectedGenres={selectedGenres}
         onSelectGenre={toggleGenre}
         onSelectCreator={handleSelectCreatorAddress}
+        onShare={(s: Song) => {
+          const group = findCreatorGroup(creatorGroups, s.creator);
+          const creatorSlug = group?.nicknameKey ? group.label : s.creator;
+          setShareData(songToShareData(s, creatorSlug, false, albumCover));
+        }}
         onAddToPlaylist={(s: Song) => {
           if (!readAddress) {
             openGate();
@@ -2293,6 +2298,12 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
           </div>
         </div>
       )}
+      {/* Track Share Modal */}
+      <ShareModal
+        isOpen={Boolean(shareData)}
+        onClose={() => setShareData(null)}
+        data={shareData}
+      />
     </div>
   );
 };
