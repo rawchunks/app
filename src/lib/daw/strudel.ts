@@ -594,6 +594,7 @@ export function parseStrudelPattern(code: string): ParsedStrudelPattern {
       }
     }
 
+    cycleEvents.sort((a, b) => a.time - b.time);
     cycles.push(cycleEvents);
   }
 

@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { cleanup, render, fireEvent, screen } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { custom, decodeFunctionData, encodeAbiParameters, encodeEventTopics, encodeFunctionData, parseAbi, keccak256, recoverMessageAddress } from "viem";

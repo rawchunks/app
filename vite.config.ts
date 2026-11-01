@@ -14,6 +14,10 @@ export default defineConfig(({ mode }) => {
         { find: /^tone$/, replacement: path.resolve(__dirname, './src/lib/daw/tone.ts') },
       ],
     },
+    test: {
+      environment: 'jsdom',
+      clearMocks: true,
+    },
     server: {
       port: 3001,
       proxy: {

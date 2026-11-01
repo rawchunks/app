@@ -310,9 +310,11 @@ describe('Milestone M2 Iteration 3 Empirical Stress Suite', () => {
 
   describe('1. Multi-Sequencer Concurrent Playback Stress Test', () => {
     test('supports 2+ active sequencer tracks with independent step advancement', () => {
-      const track1 = useDawStore.getState().addTrack('sequencer', 'Sequencer Track 1');
-      const track2 = useDawStore.getState().addTrack('sequencer', 'Sequencer Track 2');
-      const track3 = useDawStore.getState().addTrack('sequencer', 'Sequencer Track 3');
+      const base = useDawStore.getState().addTrack('sequencer', 'Sequencer Track 1');
+      const track1 = { ...base, id: 'seq-track-1', name: 'Sequencer Track 1' };
+      const track2 = { ...base, id: 'seq-track-2', name: 'Sequencer Track 2' };
+      const track3 = { ...base, id: 'seq-track-3', name: 'Sequencer Track 3' };
+      useDawStore.setState({ tracks: [track1, track2, track3] });
 
       expect(track1.id).not.toBe(track2.id);
       expect(track2.id).not.toBe(track3.id);
@@ -354,8 +356,10 @@ describe('Milestone M2 Iteration 3 Empirical Stress Suite', () => {
     });
 
     test('re-scheduling or clearing track 1 does not disturb track 2 schedule', () => {
-      const track1 = useDawStore.getState().addTrack('sequencer', 'Seq 1');
-      const track2 = useDawStore.getState().addTrack('sequencer', 'Seq 2');
+      const base = useDawStore.getState().addTrack('sequencer', 'Seq 1');
+      const track1 = { ...base, id: 'seq-1', name: 'Seq 1' };
+      const track2 = { ...base, id: 'seq-2', name: 'Seq 2' };
+      useDawStore.setState({ tracks: [track1, track2] });
 
       dawEngine.scheduleSequencer(track1);
       dawEngine.scheduleSequencer(track2);
@@ -432,7 +436,7 @@ describe('Milestone M2 Iteration 3 Empirical Stress Suite', () => {
       expect((dawEngine as any).trackNodes.has(strudelTrack.id)).toBe(false);
 
       // Call updateTrackFx with single parameter overload
-      dawEngine.updateTrackFx(strudelTrack.id, 'filter', { cutoff: 3500, resonance: 2.5 });
+      dawEngine.updateTrackFx(strudelTrack.id, 'filter', { enabled: true, cutoff: 3500, resonance: 2.5 });
 
       expect((dawEngine as any).trackNodes.has(strudelTrack.id)).toBe(true);
       const nodes = dawEngine.getOrCreateTrackNodes(strudelTrack.id);

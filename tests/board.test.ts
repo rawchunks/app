@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { afterEach, describe, expect, it } from 'vitest';
 import { createRequire } from 'node:module';
 import { Board } from '../src/components/daw/Board.js';

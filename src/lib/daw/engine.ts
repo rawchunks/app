@@ -1470,6 +1470,7 @@ class DAWEngine {
    * Trigger drum step hit directly for an instrument voice
    */
   public async triggerDrumStep(instrument: string, time?: number, velocity = 0.8, trackId?: string) {
+    if (typeof window === 'undefined' || typeof globalThis.AudioContext === 'undefined') return;
     await this.resumeAudioContext();
     await this.init();
     const targetTrackId = trackId || useDawStore.getState().selectedTrackId || 'master';

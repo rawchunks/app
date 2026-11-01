@@ -2,7 +2,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { store } from '@/lib/store';
 import { audio } from '@/lib/audio';
-import { sdk, setCreditRequestContext, hasStreamBudget } from '@/lib/sdk';
+import { api, setCreditRequestContext, hasStreamBudget } from '@/lib/api';
+import { compose } from '@/lib/compose';
 import { closeGate, GATE_EVENT } from '@/lib/gate';
 
 vi.mock('@/lib/audio', () => ({
@@ -53,16 +54,16 @@ describe('Streaming Session Gate and Playback', () => {
   });
 
   it('does not treat a stale active-session flag as authorization after the token is cleared', () => {
-    vi.spyOn(sdk.keys, 'currentToken').mockReturnValue(null);
+    vi.spyOn(compose.keys, 'currentToken').mockReturnValue(null);
     setCreditRequestContext({ userAddress: 'listener', usdcActive: true, cardAvailableAtomics: '0' });
     expect(hasStreamBudget()).toBe(false);
   });
 
   it('checks funding before resuming an already loaded song', async () => {
     store.setUserAddress('listener'); store.setActiveSong(song);
-    const token = vi.spyOn(sdk.keys, 'currentToken').mockReturnValue('session');
+    const token = vi.spyOn(compose.keys, 'currentToken').mockReturnValue('session');
     const loaded = vi.spyOn(audio, 'hasSource').mockReturnValue(true);
-    vi.spyOn(sdk, 'fetch').mockResolvedValueOnce(Response.json({ paymentIntentId: 'intent', url: 'https://cdn.test/song.wav' }));
+    vi.spyOn(api, 'fetch').mockResolvedValueOnce(Response.json({ paymentIntentId: 'intent', url: 'https://cdn.test/song.wav' }));
     expect(await store.setPlaying(true)).toBe(true);
     token.mockReturnValue(null);
     const played = vi.mocked(audio.play).mock.calls.length;
@@ -82,7 +83,7 @@ describe('Streaming Session Gate and Playback', () => {
     store.setActiveSong(song);
 
     // Mock no active token
-    vi.spyOn(sdk.keys, 'currentToken').mockReturnValue(null);
+    vi.spyOn(compose.keys, 'currentToken').mockReturnValue(null);
 
     const started = await store.setPlaying(true);
 
@@ -98,7 +99,7 @@ describe('Streaming Session Gate and Playback', () => {
     store.setUserAddress(song.creator);
     store.setActiveSong(song);
 
-    vi.spyOn(sdk, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({
+    vi.spyOn(api, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({
       id: song.id,
       url: 'https://cdn.rawchunks.io/stream-authorized.wav',
       isCreator: true,
@@ -117,9 +118,9 @@ describe('Streaming Session Gate and Playback', () => {
     store.setUserAddress('0xListenerNonCreator');
     store.setActiveSong(song);
 
-    vi.spyOn(sdk.keys, 'currentToken').mockReturnValue('compose-valid-session-jwt');
+    vi.spyOn(compose.keys, 'currentToken').mockReturnValue('compose-valid-session-jwt');
 
-    vi.spyOn(sdk, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({
+    vi.spyOn(api, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({
       id: song.id,
       url: 'https://cdn.rawchunks.io/stream-authorized.wav',
       paymentIntentId: 'intent',
@@ -143,9 +144,9 @@ describe('Streaming Session Gate and Playback', () => {
     store.setUserAddress('0xListenerNonCreator');
     store.setActiveSong(song);
 
-    vi.spyOn(sdk.keys, 'currentToken').mockReturnValue('compose-exhausted-session-jwt');
+    vi.spyOn(compose.keys, 'currentToken').mockReturnValue('compose-exhausted-session-jwt');
 
-    vi.spyOn(sdk, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({
+    vi.spyOn(api, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({
       error: 'Budget exhausted',
     }), { status: 402 }));
 

@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import React from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -5,7 +6,7 @@ import type { FacilitatorChain, FacilitatorChainsResponse, NetworkId } from "@co
 import { ChainProvider, useChain, visibleRegistry, selectNetwork, readRegistry, writeRegistry, registryCacheKey, discoverRegistry } from "@/contexts/Network";
 import { setChainRegistry, getChainObject, getChains, getDefaultNetwork } from "@/lib/chains";
 
-vi.mock("@/lib/sdk", () => ({ COMPOSE_API_URL: "https://facilitator.test" }));
+vi.mock("@/lib/compose", () => ({ COMPOSE_API_URL: "https://facilitator.test" }));
 
 const networks = ["eip155:84532", "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1", "eip155:42431", "eip155:8453", "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"] as NetworkId[];
 function chain(network: NetworkId): FacilitatorChain {

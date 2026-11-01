@@ -31,7 +31,7 @@ vi.mock('react', async original => {
     }];
   } };
 });
-vi.mock('../src/lib/sdk', () => ({ sdk: service }));
+vi.mock('../src/lib/api', () => ({ api: service }));
 vi.mock('../src/hooks/use-address', () => ({ useSelectedUserAddress: () => ({ accountId: service.accountId, userAddress: service.accountId, isReconnecting: false }) }));
 vi.mock('../src/hooks/use-disclaimer', () => ({ useDisclaimerConsent: () => ({ hasConsented: true, isLoading: false }) }));
 

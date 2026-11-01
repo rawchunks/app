@@ -2,7 +2,8 @@
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 const f=vi.hoisted(()=>({time:0,funded:true,update:(_:number)=>{},end:()=>{},fetch:vi.fn(),billing:{source:'usdc',token:'key-a' as string|null,account:'listener-a',network:'eip155:84532',walletToken:'wallet-a'}}));
 vi.mock('@/lib/audio',()=>({audio:{load:vi.fn(()=>{f.time=0;}),play:vi.fn(),pause:vi.fn(),seek:vi.fn((t:number)=>{f.time=t;f.update(t);}),reset:vi.fn(),stopImmediate:vi.fn(),preloadNext:vi.fn(),hasSource:()=>true,position:()=>f.time,setOnTimeUpdate:(cb:any)=>{f.update=cb;},setOnDuration:vi.fn(),setOnEnd:(cb:any)=>{f.end=cb;}}}));
-vi.mock('@/lib/sdk',()=>({sdk:{fetch:f.fetch,keys:{currentToken:()=>f.billing.token},wallets:{current:()=>({address:f.billing.account})}},hasStreamBudget:()=>f.funded,hasPromoCreditsOnly:()=>false,captureStreamBilling:()=>[{...f.billing}],streamOptions:(b:any)=>({key:b.token,network:b.network,userAddress:b.account,headers:{authorization:`Bearer ${b.token}`}})}));
+vi.mock('@/lib/api',()=>({api:{fetch:f.fetch},hasStreamBudget:()=>f.funded,hasPromoCreditsOnly:()=>false,captureStreamBilling:()=>[{...f.billing}],streamOptions:(b:any)=>({key:b.token,network:b.network,userAddress:b.account,headers:{authorization:`Bearer ${b.token}`}})}));
+vi.mock('@/lib/compose',()=>({compose:{fetch:f.fetch,keys:{currentToken:()=>f.billing.token},wallets:{current:()=>({address:f.billing.account})}}}));
 vi.mock('@/lib/gate',()=>({openGate:vi.fn(async()=>false)}));
 vi.mock('sonner',()=>({toast:{error:vi.fn(),success:vi.fn()}}));
 import {store} from '@/lib/store';import {audio} from '@/lib/audio';

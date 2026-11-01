@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import React from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
@@ -29,19 +30,23 @@ vi.mock("@/contexts/Network", () => ({ NetworkGlyph: () => null, useChain: () =>
 vi.mock("@/hooks/use-address", () => ({ useSelectedUserAddress: () => ({ userAddress: mock.connected ? (mock.network.startsWith("eip155:") ? mock.smart : mock.svm) : null,
   readAddress: mock.svm, evmSignerAddress: mock.connected ? mock.admin : null, activate: mock.activate }) }));
 vi.mock("@/lib/svm/swig", () => ({ createSolanaRpcFromNetwork: vi.fn(() => ({})), readSvmTokenBalance: mock.balance, buildSwigApproveTransaction: mock.approve }));
-vi.mock("@/lib/sdk", () => ({
+vi.mock("@/lib/api", () => ({
+  api: { fetch: mock.fetch },
   setCreditRequestContext: vi.fn(value => { mock.credit = value; }),
   hasStreamBudget: () => Boolean(mock.token || Number(mock.credit?.cardAvailableAtomics) > 0), hasPromoCreditsOnly: () => false,
   captureStreamBilling: (account: string) => [{ source: 'usdc', token: mock.token, account, network: mock.network, walletToken: null }],
   streamOptions: (billing: any) => ({ key: billing.token, network: billing.network, userAddress: billing.account, headers: {} }),
-  sdk: {
-  fetch: mock.fetch, x402: { facilitator: { supported: mock.support } }, svm: { relay: mock.relay },
-  wallets: { attach: input => { mock.currentWallet = input; mock.token = null; mock.attached(input); }, current: () => mock.currentWallet ?? { address: null, network: null },
-    clear: () => { mock.currentWallet = null; mock.token = null; mock.clearWallet(); } },
-  keys: { use: value => { mock.token = value; }, currentToken: () => mock.token, clearToken: () => { mock.token = null; mock.cleared(); }, revoke: vi.fn() },
-  events: { on: (name, callback) => { const set = mock.listeners.get(name) ?? new Set(); set.add(callback); mock.listeners.set(name, set); return () => set.delete(callback); } },
-  session: { subscribe: () => ({ async *[Symbol.asyncIterator]() {} }) },
-} }));
+}));
+vi.mock("@/lib/compose", () => ({
+  compose: {
+    fetch: mock.fetch, x402: { facilitator: { supported: mock.support } }, svm: { relay: mock.relay },
+    wallets: { attach: (input: any) => { mock.currentWallet = input; mock.token = null; mock.attached(input); }, current: () => mock.currentWallet ?? { address: null, network: null },
+      clear: () => { mock.currentWallet = null; mock.token = null; mock.clearWallet(); } },
+    keys: { use: (value: any) => { mock.token = value; }, currentToken: () => mock.token, clearToken: () => { mock.token = null; mock.cleared(); }, revoke: vi.fn() },
+    events: { on: (name: string, callback: any) => { const set = mock.listeners.get(name) ?? new Set(); set.add(callback); mock.listeners.set(name, set); return () => set.delete(callback); } },
+    session: { subscribe: () => ({ async *[Symbol.asyncIterator]() {} }) },
+  },
+}));
 
 import { SessionProvider, useSession, emptySession, readSession, writeSession, sameScope, requireSessionSupport } from "@/components/session";
 import { store } from '@/lib/store';

@@ -2246,7 +2246,16 @@ export const useDawStore = create<DAWState>((set, get) => ({
   toggleSequencerStep: (trackId, voiceIdx, stepIdx) => {
     set((state) => ({
       tracks: state.tracks.map((t) => {
-        if (t.id !== trackId || !t.sequencerVoices) return t;
+        if (
+          t.id !== trackId ||
+          !t.sequencerVoices ||
+          voiceIdx < 0 ||
+          voiceIdx >= t.sequencerVoices.length ||
+          stepIdx < 0 ||
+          stepIdx >= (t.sequencerVoices[voiceIdx]?.steps?.length ?? 0)
+        ) {
+          return t;
+        }
         const newVoices = [...t.sequencerVoices];
         const v = { ...newVoices[voiceIdx] };
         const newSteps = [...v.steps];
@@ -2266,7 +2275,16 @@ export const useDawStore = create<DAWState>((set, get) => ({
   setSequencerVoiceVolume: (trackId, voiceIdx, stepIdx, velocity) => {
     set((state) => ({
       tracks: state.tracks.map((t) => {
-        if (t.id !== trackId || !t.sequencerVoices) return t;
+        if (
+          t.id !== trackId ||
+          !t.sequencerVoices ||
+          voiceIdx < 0 ||
+          voiceIdx >= t.sequencerVoices.length ||
+          stepIdx < 0 ||
+          stepIdx >= (t.sequencerVoices[voiceIdx]?.velocity?.length ?? 0)
+        ) {
+          return t;
+        }
         const newVoices = [...t.sequencerVoices];
         const v = { ...newVoices[voiceIdx] };
         const newVel = [...v.velocity];

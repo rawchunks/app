@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useDawStore, type Take, type DAWTrack } from '../src/lib/daw/store.js';
 import { dawEngine } from '../src/lib/daw/engine.js';
@@ -203,7 +204,7 @@ describe('candidate placement', () => {
     expect(useDawStore.getState().tracks.find(track => track.id === 'part')?.clips.map(clip => clip.startTime)).toEqual([5, 12]);
   });
   it('silences ORG when mounting a master rework take with a master stem_id and updates master audio on merge even when stems are empty', async () => {
-    const { sdk } = await import('../src/lib/sdk.js');
+    const { api: sdk } = await import('../src/lib/api.js');
     vi.spyOn(dawEngine, 'syncOriginals').mockImplementation(() => { });
     vi.spyOn(dawEngine, 'render').mockResolvedValue(new Blob(['wav'], { type: 'audio/wav' }));
     const rework = {
@@ -258,7 +259,7 @@ describe('candidate placement', () => {
   });
 
   it('merges a CODE (strudel) or KEYS/DRUMS lane directly into Master and unmounts the baked lane afterward', async () => {
-    const { sdk } = await import('../src/lib/sdk.js');
+    const { api: sdk } = await import('../src/lib/api.js');
     vi.spyOn(dawEngine, 'syncOriginals').mockImplementation(() => { });
     vi.spyOn(dawEngine, 'scheduleStrudel').mockImplementation(() => { });
     vi.spyOn(dawEngine, 'updateTrackFx').mockImplementation(() => { });
@@ -316,7 +317,7 @@ describe('candidate placement', () => {
   });
 
   it('merges a soloed CODE/KEYS/DRUMS lane into Master by clearing solo before offline render', async () => {
-    const { sdk } = await import('../src/lib/sdk.js');
+    const { api: sdk } = await import('../src/lib/api.js');
     vi.spyOn(dawEngine, 'syncOriginals').mockImplementation(() => { });
     vi.spyOn(dawEngine, 'scheduleStrudel').mockImplementation(() => { });
     vi.spyOn(dawEngine, 'updateTrackFx').mockImplementation(() => { });

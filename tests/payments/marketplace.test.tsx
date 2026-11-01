@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { decodeFunctionData, encodeAbiParameters, encodeEventTopics, parseAbi } from "viem";
@@ -30,7 +31,7 @@ vi.mock("@/lib/programs", () => ({ requireSolanaDeployment: mock.deployment,
     isRemix: Boolean(song.source), parentSongId: song.source ? 7n : 0n }; }, fetchSolanaHasLicense: vi.fn() }));
 vi.mock("@/lib/pinata", () => ({ uploadSongMetadata: async () => "cid", fetchFromIpfs: vi.fn() }));
 vi.mock("@/lib/store", () => ({ store: { updateSong: vi.fn(), addSong: vi.fn() } }));
-vi.mock("@/lib/sdk", () => ({ sdk: { fetch: async (path: string, input: any) => {
+vi.mock("@/lib/api", () => ({ api: { fetch: async (path: string, input: any) => {
   const id = path.split("/").at(-1)!;
   const song = mock.songs.get(id);
   if (input.method === "PATCH") { const updated = { ...song, ...JSON.parse(input.body) }; mock.songs.set(id, updated); return new Response(JSON.stringify(updated)); }

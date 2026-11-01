@@ -471,7 +471,7 @@ export function fetchAudioArrayBuffer(url: string, priority: AudioLoadPriority =
     }
     if (!response.ok) throw new Error(`Failed to load waveform (${response.status})`);
     const buf = await response.arrayBuffer();
-    void writeCachedAudioBuffer(url, buf, response.headers.get('content-type') || 'audio/wav');
+    void writeCachedAudioBuffer(url, buf, response.headers?.get?.('content-type') || 'audio/wav');
     return buf;
   };
 
