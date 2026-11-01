@@ -375,6 +375,93 @@ class Store {
     return this.drainPlayback(lane);
   }
 
+  private failPlayback(lane: Playback, error: any) {
+    lane.failures = (lane.failures || 0) + 1;
+    const status = error?.status;
+    if (status >= 400 && status < 500 && status !== 429) {
+      lane.rejected = true;
+      if (this.playback === lane) {
+        this.samplePlayback();
+        audio.pause();
+        this.state = { ...this.state, isPlaying: false };
+        this.notify();
+        if (status === 402) this.resumeAfterGate({ steps: ['funding'], reason: 'Session budget exhausted', force: true });
+        else toast.error(error.message || 'Playback payment rejected');
+      }
+    } else if (!lane.retry) {
+      lane.retry = setTimeout(() => { lane.retry = undefined; void this.drainPlayback(lane); }, Math.min(30000, 1000 * 2 ** Math.min(lane.failures - 1, 5)));
+    }
+    this.persistPlayback(lane);
+  }
+
+  private admitPlayback(lane: Playback): Promise<any> {
+    if (lane.admitting) return lane.admitting;
+    lane.admitting = (async () => {
+      for (;;) {
+        const options = streamOptions(lane.billing)!;
+        const response = await api.fetch(`/api/songs/${lane.songId}/stream`, {
+          ...options, headers: { ...options.headers, Accept: 'application/json', 'x-idempotency-key': lane.id },
+        });
+        const data = await response.json().catch(() => null);
+        if (response.status === 402 && lane.alternatives.length) {
+          lane.billing = lane.alternatives.shift()!;
+          this.persistPlayback(lane);
+          continue;
+        }
+        if (!response.ok) throw Object.assign(new Error(data?.error || 'Stream authorization failed'), { status: response.status });
+        if (!data || (!data.isCreator && (typeof data.paymentIntentId !== 'string' || !data.paymentIntentId))) throw new Error('Missing playback admission');
+        lane.exempt = Boolean(data.isCreator);
+        lane.intent = data.paymentIntentId || null;
+        if (Number.isFinite(data.duration) && data.duration > 0) {
+          lane.durationMs = Math.ceil(data.duration * 1000);
+          lane.observedMs = Math.min(lane.durationMs, lane.observedMs);
+        }
+        this.persistPlayback(lane);
+        return data;
+      }
+    })().finally(() => { lane.admitting = undefined; });
+    return lane.admitting;
+  }
+
+  private drainPlayback(lane: Playback): Promise<void> {
+    if (lane.running) return lane.running;
+    if (lane.rejected) return Promise.resolve();
+    if (!lane.pending && lane.intent && !lane.exempt && (lane.terminal || lane.flush || Math.round(lane.observedMs) - lane.acceptedMs >= 20000)) {
+      lane.pending = { paymentIntentId: lane.intent, listenedSeconds: Math.round(lane.observedMs) / 1000, terminal: lane.terminal };
+      lane.flush = false;
+      this.persistPlayback(lane);
+    }
+    lane.running = Promise.resolve().then(async () => {
+      try {
+        if (!lane.intent && !lane.exempt) await this.admitPlayback(lane);
+        while (!lane.exempt && (lane.pending || lane.terminal || lane.flush || Math.round(lane.observedMs) - lane.acceptedMs >= 20000)) {
+          if (!lane.pending) {
+            lane.pending = { paymentIntentId: lane.intent!, listenedSeconds: Math.round(lane.observedMs) / 1000, terminal: lane.terminal };
+            lane.flush = false;
+            this.persistPlayback(lane);
+          }
+          const pending = lane.pending;
+          const options = streamOptions(lane.billing)!;
+          const response = await api.fetch(`/api/songs/${lane.songId}/stream/checkpoint`, {
+            ...options, method: 'POST', headers: { ...options.headers, 'Content-Type': 'application/json' }, body: JSON.stringify(pending),
+          });
+          const data = await response.json().catch(() => null);
+          const receipt = data?.result;
+          if (!response.ok) throw Object.assign(new Error(data?.error || 'Playback payment rejected'), { status: response.status });
+          if (data?.success !== true || !['confirmed', 'queued', 'submitted', 'credited', 'skipped'].includes(receipt?.status) || !Number.isFinite(receipt?.acceptedListenedSeconds) || receipt.acceptedListenedSeconds < pending.listenedSeconds || !/^\d+$/.test(receipt?.billedWei) || !/^\d+$/.test(receipt?.deltaWei)) throw new Error('Checkpoint was not accepted');
+          lane.acceptedMs = Math.round(receipt.acceptedListenedSeconds * 1000);
+          delete lane.pending;
+          lane.failures = 0;
+          this.persistPlayback(lane);
+          if (pending.terminal) { this.removePlayback(lane); return; }
+        }
+        if (lane.exempt) this.removePlayback(lane);
+      } catch (error) { this.failPlayback(lane, error); }
+      finally { lane.running = undefined; }
+    });
+    return lane.running;
+  }
+
   private removePlayback(lane: Playback) {
     this.playbacks.delete(lane.id);
     if (lane.retry) clearTimeout(lane.retry);
@@ -1014,6 +1101,15 @@ class Store {
     }
 
     return false;
+  }
+
+  private createPlayback(song: Song, exempt: boolean): Playback {
+    const [billing, ...alternatives] = captureStreamBilling(this.state.userAddress || this.state.evmAddress || this.state.svmAddress || '');
+    const durationMs = song.duration && Number.isFinite(song.duration) && song.duration > 0 ? Math.ceil(song.duration * 1000) : Number.MAX_SAFE_INTEGER;
+    const lane: Playback = { id: crypto.randomUUID(), songId: song.id, billing, alternatives, intent: null, observedMs: 0, durationMs, acceptedMs: 0, terminal: false, exempt, flush: false };
+    this.playback = lane;
+    if (!exempt) this.playbacks.set(lane.id, lane);
+    return lane;
   }
 
   public async setPlaying(isPlaying: boolean): Promise<boolean> {
