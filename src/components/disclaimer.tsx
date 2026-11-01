@@ -1,4 +1,4 @@
-import { sdk } from '@/lib/sdk';
+import { api } from '@/lib/api';
 import { useState, useCallback } from "react";
 import { useActiveAccount } from "thirdweb/react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -90,7 +90,7 @@ export function DisclaimerBody({ onSigned, onCancel, readOnly = false }: Disclai
       if (!account) throw new Error('Connect your account before signing');
       const signature = await account.signMessage({ message });
 
-      const res = await sdk.fetch("/api/user/consent", {
+      const res = await api.fetch("/api/user/consent", {
         method: "POST",
         userAddress: activeAddress,
         headers: { "Content-Type": "application/json" },
@@ -115,7 +115,7 @@ export function DisclaimerBody({ onSigned, onCancel, readOnly = false }: Disclai
       });
 
       try {
-        const songsRes = await sdk.fetch(
+        const songsRes = await api.fetch(
           `/api/songs?creator=${encodeURIComponent(activeAddress)}`,
           { userAddress: activeAddress }
         );

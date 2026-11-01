@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { readCachedProfile, writeCachedProfile } from '@/lib/cache';
-import { sdk } from '@/lib/sdk';
+import { api } from '@/lib/api';
 import { toast } from 'sonner';
 
 export interface UserProfile {
@@ -24,7 +24,7 @@ function fetchUserProfile(address: string): Promise<WalletPairProfile | null> {
   const existing = inFlightUsers.get(normalized);
   if (existing) return existing;
 
-  const promise = sdk.fetch(`/api/user/${encodeURIComponent(address)}`)
+  const promise = api.fetch(`/api/user/${encodeURIComponent(address)}`)
     .then(async (res) => {
       if (!res.ok) return null;
       return res.json();
@@ -42,7 +42,7 @@ export async function fetchUserProfilesBatch(addresses: string[]): Promise<Walle
   const unique = Array.from(new Set(addresses.filter(Boolean).map(a => a.trim())));
   if (!unique.length) return [];
   try {
-    const res = await sdk.fetch(`/api/users?addresses=${encodeURIComponent(unique.join(','))}`);
+    const res = await api.fetch(`/api/users?addresses=${encodeURIComponent(unique.join(','))}`);
     if (!res.ok) return [];
     const data = await res.json();
     const users: WalletPairProfile[] = Array.isArray(data?.users) ? data.users : [];
@@ -156,7 +156,7 @@ export function useProfile(address?: string | null) {
       );
 
       try {
-        const res = await sdk.fetch('/api/user/profile', {
+        const res = await api.fetch('/api/user/profile', {
           method: 'PATCH',
           headers: {
             'content-type': 'application/json',

@@ -5,7 +5,7 @@ import { useChain } from "@/contexts/Network";
 import { isEvmNetwork } from "@/lib/chains";
 import { useSolanaSmartAccount } from "@/hooks/use-svm";
 import { cachedAddress, clearCachedAccount, purgeUserCaches, readCachedAccount, writeCachedAccount, writeCachedProfile } from '@/lib/cache';
-import { sdk } from '@/lib/sdk';
+import { api } from '@/lib/api';
 import { bus } from '@/lib/bus';
 import { store } from '@/lib/store';
 import { useDawStore } from '@/lib/daw/store';
@@ -90,7 +90,7 @@ function useIdentityState(isRootProvider: boolean) {
         syncedWalletPairs.add(key);
         writeCachedAccount(liveEvmAddress ?? '', paymentNetwork, liveSvmAddress, undefined, undefined, undefined, evmSignerAddress);
         const sessionAddr = liveEvmAddress || liveSvmAddress || '';
-        sdk.fetch('/api/user', {
+        api.fetch('/api/user', {
             method: 'PUT',
             headers: {
                 'content-type': 'application/json',

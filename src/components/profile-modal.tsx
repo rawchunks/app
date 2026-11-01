@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Modal } from './modal';
 import { Button } from './button';
-import { sdk } from '@/lib/sdk';
+import { api } from '@/lib/api';
 import { useProfile } from '@/hooks/use-profile';
 import { toast } from 'sonner';
 import { Upload } from 'lucide-react';
@@ -41,7 +41,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
     try {
       const data = new FormData();
       data.append('file', file);
-      const res = await sdk.fetch('/api/generation/cover', {
+      const res = await api.fetch('/api/generation/cover', {
         method: 'POST',
         body: data,
       });

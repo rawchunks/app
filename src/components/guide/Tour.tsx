@@ -2,7 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { createPortal } from 'react-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
-import { sdk } from '@/lib/sdk';
+import { api } from '@/lib/api';
 import { readCachedGuides, writeCachedGuides } from '@/lib/cache';
 import { useSelectedUserAddress } from '@/hooks/use-address';
 import { useDisclaimerConsent } from '@/hooks/use-disclaimer';
@@ -64,7 +64,7 @@ export function GuideProvider({ activePage, children }: { activePage: GuidePageI
       if (!accountId) return normalizeGuides(readCachedGuides(scope));
       const epoch = epochs.get(scope) ?? 0;
       try {
-        const response = await sdk.fetch(`/api/user/guides/${encodeURIComponent(accountId)}`);
+        const response = await api.fetch(`/api/user/guides/${encodeURIComponent(accountId)}`);
         if (!response.ok) return normalizeGuides(readCachedGuides(scope));
         const data = await response.json();
         const values = normalizeGuides(!pendingWrites.has(scope) && epoch === (epochs.get(scope) ?? 0) ? [...normalizeGuides(readCachedGuides(scope)), ...normalizeGuides(data.guides)] : readCachedGuides(scope));
@@ -82,7 +82,7 @@ export function GuideProvider({ activePage, children }: { activePage: GuidePageI
     if (!accountId) return Promise.resolve();
     pendingWrites.add(scope);
     const save = (saveQueues.get(scope) ?? Promise.resolve()).catch(() => {}).then(async () => {
-      const response = await sdk.fetch('/api/user/guides', { method: 'POST', userAddress: accountId,
+      const response = await api.fetch('/api/user/guides', { method: 'POST', userAddress: accountId,
         headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ address: accountId, guides: canonical }) });
       if (!response.ok) throw new Error('Could not save guide status');
       if (mutationEpoch === epochs.get(scope)) pendingWrites.delete(scope);

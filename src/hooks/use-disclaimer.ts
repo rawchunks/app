@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 
-import { sdk } from "@/lib/sdk";
+import { api } from "@/lib/api";
 import { useSelectedUserAddress } from "@/hooks/use-address";
 import { DISCLAIMER_POLICY_VERSION, DISCLAIMER_TYPE } from "@/components/disclaimer";
 
@@ -13,7 +13,7 @@ export function useDisclaimerConsent() {
     queryFn: async () => {
       if (!activeAddress) return { consented: false, record: null };
       const params = new URLSearchParams({ type: DISCLAIMER_TYPE, version: DISCLAIMER_POLICY_VERSION });
-      const response = await sdk.fetch(`/api/user/consent/${encodeURIComponent(activeAddress)}?${params}`);
+      const response = await api.fetch(`/api/user/consent/${encodeURIComponent(activeAddress)}?${params}`);
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || `Could not check consent (HTTP ${response.status}).`);
       return result;

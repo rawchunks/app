@@ -2,7 +2,7 @@ import { createContext, useContext } from "react";
 import type { KeyCreateResponse } from "@compose-market/sdk";
 import type { NetworkId } from "@compose-market/sdk/chains";
 import type { CreditBalance } from "../lib/credits";
-import type { FundingSource } from "../lib/sdk";
+import type { FundingSource } from "../lib/api";
 
 export type { FundingSource };
 
