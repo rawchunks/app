@@ -92,6 +92,7 @@ class Store {
     let initialDuration = 0;
     let initialRepeat: RepeatMode = 'all';
     let initialShuffle = false;
+    let initialAutoplay = true;
     let initialQueue: Song[] = [];
     let initialQueueIndex = -1;
 
@@ -112,6 +113,10 @@ class Store {
         const savedShuffle = localStorage.getItem(STORAGE_KEYS.shuffle);
         if (savedShuffle !== null) {
           initialShuffle = savedShuffle === 'true';
+        }
+        const savedAutoplay = localStorage.getItem(STORAGE_KEYS.autoplay);
+        if (savedAutoplay !== null) {
+          initialAutoplay = savedAutoplay !== 'false';
         }
         const savedQueue = localStorage.getItem(STORAGE_KEYS.queue);
         if (savedQueue) {
@@ -154,12 +159,14 @@ class Store {
       queueIndex: initialQueueIndex,
       repeatMode: initialRepeat,
       shuffle: initialShuffle,
+      autoplay: initialAutoplay,
       activePlaylistId: null,
       activeContextId: null,
     };
 
     bus.registerPlayer(() => {
       if (this.state.isPlaying) {
+        this.samplePlayback();
         this.playRequestId++;
         this.state = { ...this.state, isPlaying: false };
         audio.pause();
@@ -169,6 +176,7 @@ class Store {
     });
 
     bus.registerPlaybackSync(({ song, playhead, duration }) => {
+      this.finishPlayback();
       if (this.state.isPlaying) {
         this.playRequestId++;
         audio.pause();
@@ -199,6 +207,7 @@ class Store {
 
     audio.setOnTimeUpdate((time) => {
       if (!this.state.isPlaying) return;
+      this.observePlayback(time);
       this.state = { ...this.state, playhead: time };
       this.notify();
       const now = Date.now();
@@ -208,11 +217,7 @@ class Store {
       }
 
       if (this.state.activeSong) {
-        if (time >= 0.8) {
-          this.preloadUpcomingTrack();
-        }
-
-        if (time >= 3.5 && this.playCountedSongId !== this.state.activeSong.id) {
+        if (time >= 10 && this.playCountedSongId !== this.state.activeSong.id) {
           this.playCountedSongId = this.state.activeSong.id;
           void this.recordSongPlay(this.state.activeSong.id);
         }
@@ -220,8 +225,11 @@ class Store {
         const dur = this.state.duration || this.state.activeSong.duration || 0;
         if (dur >= 4 && time > 0) {
           const remaining = dur - time;
+          if (remaining <= 4.5 && remaining > 0.2) {
+            this.preloadUpcomingTrack();
+          }
           if (
-            remaining <= 0.14 &&
+            remaining <= 0.38 &&
             remaining > 0.02 &&
             this.autoCrossfadedSongId !== this.state.activeSong.id
           ) {
@@ -235,19 +243,7 @@ class Store {
         }
       }
 
-      if (!this.isExemptCreator) {
-        if (this.lastPlayhead > 0 && time > this.lastPlayhead && (time - this.lastPlayhead) < 5) {
-          this.accumulatedListenedSeconds += (time - this.lastPlayhead);
-        }
-        this.lastPlayhead = time;
 
-        // Checkpoint every 20 seconds of playback
-        if (this.accumulatedListenedSeconds - this.lastReportedSeconds >= 20) {
-          void this.reportStreamCheckpoint(false);
-        }
-      } else {
-        this.lastPlayhead = time;
-      }
     });
 
     audio.setOnDuration((duration) => {
@@ -272,10 +268,8 @@ class Store {
     });
 
     audio.setOnEnd(() => {
-      void this.reportStreamCheckpoint(true);
-      this.currentPaymentIntentId = null;
-      this.accumulatedListenedSeconds = 0;
-      this.lastReportedSeconds = 0;
+      this.finishPlayback();
+      this.authorizedSongId = null;
       this.lastPlayhead = 0;
 
       // Advance continuously through the queue
@@ -286,6 +280,30 @@ class Store {
         }
       });
     });
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+      window.addEventListener('pagehide', () => {
+        this.samplePlayback();
+        audio.pause();
+        this.playback = null;
+        this.authorizedSongId = null;
+        this.state = { ...this.state, isPlaying: false };
+        this.playRequestId++;
+        for (const lane of this.playbacks.values()) {
+          lane.terminal = true;
+          this.persistPlayback(lane);
+          if (lane.intent) {
+            const options = streamOptions(lane.billing)!;
+            void api.fetch(`/api/songs/${lane.songId}/stream/checkpoint`, {
+              ...options, method: 'POST', keepalive: true,
+              headers: { ...options.headers, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ paymentIntentId: lane.intent, listenedSeconds: Math.round(lane.observedMs) / 1000, terminal: true }),
+            }).catch(() => {});
+          }
+        }
+      });
+      window.addEventListener('online', () => { for (const lane of this.playbacks.values()) void this.drainPlayback(lane); });
+      queueMicrotask(() => this.restorePlaybacks());
+    }
   }
 
   private persistQueue(queue: Song[]) {
@@ -299,8 +317,8 @@ class Store {
     if (!songId) return;
     try {
       const effectiveUserAddress =
-        this.state.userAddress || this.state.evmAddress || this.state.svmAddress || sdk.wallets.current()?.address || '';
-      const res = await sdk.fetch(`/api/songs/${songId}/play`, {
+        this.state.userAddress || this.state.evmAddress || this.state.svmAddress || compose.wallets.current()?.address || '';
+      const res = await api.fetch(`/api/songs/${songId}/play`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
