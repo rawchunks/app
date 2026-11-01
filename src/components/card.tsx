@@ -16,6 +16,7 @@ import {
   ListPlus,
   FolderPlus,
   Headphones,
+  Share2,
 } from 'lucide-react';
 import { Button } from './button';
 import { Badge } from './badge';
@@ -436,6 +437,7 @@ export interface CardProps {
   onDownload?: (song: Song) => void;
   onDelete?: (id: string) => void;
   onPublishClick?: (song: Song) => void;
+  onShare?: (song: Song) => void;
   publicPending?: boolean;
   isRemixLicensed?: boolean;
 }
@@ -463,6 +465,7 @@ export const Card: React.FC<CardProps> = ({
   onDownload,
   onDelete,
   onPublishClick,
+  onShare,
   publicPending = false,
   isRemixLicensed = false,
 }) => {
@@ -586,6 +589,16 @@ export const Card: React.FC<CardProps> = ({
               <span>AUDIO EDITOR</span>
             </button>
           )}
+          {song.public && onShare && (
+            <button
+              type="button"
+              className="mypage-menu-item"
+              onClick={() => onShare(song)}
+            >
+              <Share2 size={12} />
+              <span>SHARE</span>
+            </button>
+          )}
           {onDownload && (
             <button
               type="button"
@@ -634,6 +647,19 @@ export const Card: React.FC<CardProps> = ({
             >
               <FolderPlus size={12} />
               <span>PLAYLIST</span>
+            </button>
+          )}
+          {onShare && (
+            <button
+              type="button"
+              className="mypage-menu-item"
+              onClick={() => {
+                setMarketMenuOpen(false);
+                onShare(song);
+              }}
+            >
+              <Share2 size={12} />
+              <span>SHARE</span>
             </button>
           )}
         </div>
