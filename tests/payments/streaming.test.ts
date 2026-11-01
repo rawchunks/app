@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { store } from '@/lib/store';
 import { audio } from '@/lib/audio';
-import { sdk } from '@/lib/sdk';
+import { sdk, setCreditRequestContext, hasStreamBudget } from '@/lib/sdk';
 import { closeGate, GATE_EVENT } from '@/lib/gate';
 
 vi.mock('@/lib/audio', () => ({
@@ -12,6 +12,9 @@ vi.mock('@/lib/audio', () => ({
     pause: vi.fn(),
     seek: vi.fn(),
     reset: vi.fn(),
+    stopImmediate: vi.fn(),
+    preloadNext: vi.fn(),
+    position: vi.fn(() => 0),
     setVolume: vi.fn(),
     hasSource: vi.fn(() => false),
     setOnTimeUpdate: vi.fn(),
@@ -46,6 +49,27 @@ describe('Streaming Session Gate and Playback', () => {
     vi.clearAllMocks();
     closeGate(false);
     store.setActiveSong(null);
+    setCreditRequestContext(null);
+  });
+
+  it('does not treat a stale active-session flag as authorization after the token is cleared', () => {
+    vi.spyOn(sdk.keys, 'currentToken').mockReturnValue(null);
+    setCreditRequestContext({ userAddress: 'listener', usdcActive: true, cardAvailableAtomics: '0' });
+    expect(hasStreamBudget()).toBe(false);
+  });
+
+  it('checks funding before resuming an already loaded song', async () => {
+    store.setUserAddress('listener'); store.setActiveSong(song);
+    const token = vi.spyOn(sdk.keys, 'currentToken').mockReturnValue('session');
+    const loaded = vi.spyOn(audio, 'hasSource').mockReturnValue(true);
+    vi.spyOn(sdk, 'fetch').mockResolvedValueOnce(Response.json({ paymentIntentId: 'intent', url: 'https://cdn.test/song.wav' }));
+    expect(await store.setPlaying(true)).toBe(true);
+    token.mockReturnValue(null);
+    const played = vi.mocked(audio.play).mock.calls.length;
+    expect(await store.setPlaying(true)).toBe(false);
+    expect(vi.mocked(audio.play).mock.calls.length).toBe(played);
+    expect(store.getState().isPlaying).toBe(false);
+    loaded.mockRestore();
   });
 
   it('blocks non-creator playback when no session token is present and dispatches open-gate event', async () => {
@@ -85,7 +109,7 @@ describe('Streaming Session Gate and Playback', () => {
 
     expect(started).toBe(true);
     expect(store.getState().isPlaying).toBe(true);
-    expect(audio.load).toHaveBeenCalledWith('https://cdn.rawchunks.io/stream-authorized.wav');
+    expect(audio.load).toHaveBeenCalledWith('https://cdn.rawchunks.io/stream-authorized.wav', false);
     expect(audio.play).toHaveBeenCalled();
   });
 
@@ -98,6 +122,7 @@ describe('Streaming Session Gate and Playback', () => {
     vi.spyOn(sdk, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({
       id: song.id,
       url: 'https://cdn.rawchunks.io/stream-authorized.wav',
+      paymentIntentId: 'intent',
       isCreator: false,
       streamPriceUsd: 0.03,
     }), { status: 200 }));
@@ -106,7 +131,7 @@ describe('Streaming Session Gate and Playback', () => {
 
     expect(started).toBe(true);
     expect(store.getState().isPlaying).toBe(true);
-    expect(audio.load).toHaveBeenCalledWith('https://cdn.rawchunks.io/stream-authorized.wav');
+    expect(audio.load).toHaveBeenCalledWith('https://cdn.rawchunks.io/stream-authorized.wav', false);
     expect(audio.play).toHaveBeenCalled();
   });
 
