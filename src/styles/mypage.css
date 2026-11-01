@@ -680,7 +680,7 @@
   display: inline-flex;
   align-items: center;
   gap: clamp(2px, 1cqi, 3px);
-  font-size: clamp(12px, 3.8cqi, 12px);
+  font-size: var(--font-xs);
   font-weight: 700;
   line-height: 1;
   padding: clamp(1px, 0.6cqi, 2px) clamp(3px, 1.5cqi, 4px);
@@ -713,7 +713,7 @@
 
 .mypage-status-badge {
   flex-shrink: 0;
-  font-size: clamp(12px, 3.6cqi, 12px) !important;
+  font-size: var(--font-xs) !important;
   padding: clamp(1px, 0.8cqi, 2px) clamp(3px, 2cqi, 5px) !important;
   letter-spacing: clamp(0.2px, 0.15cqi, 0.5px) !important;
 }
@@ -729,13 +729,13 @@
 }
 
 .mypage-remix-badge {
-  font-size: clamp(12px, 3.6cqi, 12px) !important;
+  font-size: var(--font-xs) !important;
   font-weight: 900 !important;
   letter-spacing: clamp(0.2px, 0.15cqi, 0.5px) !important;
 }
 
 .mypage-no-tags {
-  font-size: clamp(12px, 4cqi, 12px);
+  font-size: var(--font-xs);
   color: var(--text-dim);
 }
 
@@ -878,9 +878,174 @@
   align-items: center !important;
   justify-content: center !important;
   padding: 1px clamp(3px, 1.8cqi, 5px) !important;
-  font-size: clamp(12px, 3.6cqi, 12px) !important;
-  height: clamp(14px, 7cqi, 18px) !important;
+  font-size: var(--font-xs) !important;
+  height: clamp(15px, 8cqi, 18px) !important;
   line-height: 1 !important;
   border-radius: 2px !important;
   white-space: nowrap !important;
+}
+
+/* ==========================================================================
+   MYPAGE PLAYLISTS SECTION (Private by default + Public toggle)
+   ========================================================================== */
+.mypage-playlist-create-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: clamp(6px, 1.2vw, 10px) clamp(10px, 2vw, 16px);
+  border-bottom: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.mypage-playlist-create-input {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  font-size: var(--font-xs);
+}
+
+.mypage-playlist-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+}
+
+.mypage-playlist-visibility-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 2px;
+  font-family: var(--font-family);
+  font-size: var(--font-xs);
+  font-weight: 800;
+  letter-spacing: 0.4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-transform: uppercase;
+}
+
+.mypage-playlist-visibility-toggle.private {
+  color: var(--text-dim);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+}
+
+.mypage-playlist-visibility-toggle.private:hover {
+  color: var(--text);
+  border-color: var(--border-bright);
+}
+
+.mypage-playlist-visibility-toggle.public {
+  color: var(--primary);
+  background: rgba(0, 255, 65, 0.12);
+  border: 1px solid rgba(0, 255, 65, 0.45);
+  box-shadow: 0 0 8px rgba(0, 255, 65, 0.2);
+}
+
+.mypage-playlist-visibility-toggle.public:hover {
+  background: rgba(0, 255, 65, 0.2);
+}
+
+.mypage-playlist-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.mypage-playlist-delete-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.mypage-playlist-delete-btn:hover {
+  color: var(--error);
+  border-color: var(--error);
+  background: rgba(255, 0, 102, 0.1);
+}
+
+.mypage-playlist-tracks {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.mypage-playlist-track-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 2px;
+  padding: 2px 4px;
+}
+
+.mypage-playlist-track-play {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-family: var(--font-family);
+  font-size: var(--font-xs);
+  text-align: left;
+  cursor: pointer;
+  padding: 2px;
+}
+
+.mypage-playlist-track-play:hover {
+  color: var(--primary);
+}
+
+.mypage-playlist-track-idx {
+  color: var(--text-dim);
+  font-size: var(--font-xs);
+  font-weight: 700;
+  width: 16px;
+  flex-shrink: 0;
+}
+
+.mypage-playlist-track-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+
+.mypage-playlist-track-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.mypage-playlist-track-remove:hover {
+  color: var(--error);
 }

@@ -25,11 +25,13 @@
 }
 
 .daw-tooltip-wrapper.studio-pocket-wrap {
-  display: none; /* shown on <= 768px via responsive.css */
+  display: none;
+  /* shown on <= 768px via responsive.css */
 }
 
 .studio-pocket-toggle {
-  display: none; /* shown on <= 768px via responsive.css */
+  display: none;
+  /* shown on <= 768px via responsive.css */
   position: relative;
   align-items: center;
   justify-content: center;
@@ -384,8 +386,17 @@
 }
 
 @keyframes studioVibePulse {
-  0%, 100% { opacity: 0.4; transform: scale(0.9); }
-  50% { opacity: 1; transform: scale(1.15); }
+
+  0%,
+  100% {
+    opacity: 0.4;
+    transform: scale(0.9);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
 }
 
 .studio-field-group {
@@ -493,10 +504,13 @@
 }
 
 @keyframes studio-vibe-pulse {
-  0%, 100% {
+
+  0%,
+  100% {
     opacity: 1;
     transform: scale(1);
   }
+
   50% {
     opacity: 0.35;
     transform: scale(0.82);
@@ -633,8 +647,8 @@
   min-width: 0;
 }
 
-.studio-param-row-wrap > .studio-field-label,
-.studio-param-row-wrap > .studio-option-row {
+.studio-param-row-wrap>.studio-field-label,
+.studio-param-row-wrap>.studio-option-row {
   flex: 1 1 auto;
 }
 
@@ -964,7 +978,7 @@
   z-index: 10;
 }
 
-.studio-avatar-sparkle-wrap > .studio-avatar-sparkle-btn {
+.studio-avatar-sparkle-wrap>.studio-avatar-sparkle-btn {
   position: static;
 }
 
@@ -1006,7 +1020,7 @@
   z-index: 10;
 }
 
-.studio-avatar-remove-wrap > .studio-avatar-remove {
+.studio-avatar-remove-wrap>.studio-avatar-remove {
   position: static;
 }
 
@@ -1234,7 +1248,7 @@
 }
 
 /* ==========================================================================
-   PRIMARY ACTION / GENERATE AUDIO & VIBE
+   PRIMARY ACTION / GENERATE & VIBE
    ========================================================================== */
 .studio-main-action-wrap {
   width: 100%;
@@ -1301,7 +1315,7 @@
   box-sizing: border-box;
 }
 
-.studio-param-presets-grid > .daw-tooltip-wrapper {
+.studio-param-presets-grid>.daw-tooltip-wrapper {
   display: flex;
   width: 100%;
   min-width: 0;
@@ -2230,7 +2244,7 @@
   color: var(--text-dim);
 }
 
-.studio-engine-switcher > * {
+.studio-engine-switcher>* {
   flex: 1;
 }
 
@@ -2289,7 +2303,7 @@
   z-index: 2;
 }
 
-.studio-lyrics-expand-wrap > .studio-lyrics-box-expand-btn {
+.studio-lyrics-expand-wrap>.studio-lyrics-box-expand-btn {
   position: static;
 }
 
@@ -3003,4 +3017,3 @@
   display: flex;
   gap: 8px;
 }
-
