@@ -510,18 +510,27 @@ class AudioEngine {
       } catch {}
       return;
     }
-    // Single-frame zero-crossing de-click before pause
-    try {
-      el.volume = Math.max(0, el.volume * 0.25);
-    } catch {}
-    this.fadeRafId = requestAnimationFrame(() => {
-      this.fadeRafId = null;
-      if (this.isPlaying) return;
+    const startTime = performance.now();
+    const startVol = el.volume > 0 ? el.volume : this.masterVolume;
+    const fadeOutMs = 120;
+    const tickPause = (now: number) => {
+      if (this.isPlaying || this.activeDeck !== el) return;
+      const t = Math.min(1, Math.max(0, (now - startTime) / fadeOutMs));
+      const outGain = Math.cos(t * Math.PI * 0.5) * startVol;
       try {
-        el.pause();
-        el.volume = this.masterVolume;
+        el.volume = Math.max(0, Math.min(1, outGain));
       } catch {}
-    });
+      if (t < 1) {
+        this.fadeRafId = requestAnimationFrame(tickPause);
+      } else {
+        this.fadeRafId = null;
+        try {
+          el.pause();
+          el.volume = this.masterVolume;
+        } catch {}
+      }
+    };
+    this.fadeRafId = requestAnimationFrame(tickPause);
   }
 
   public seek(seconds: number) {
@@ -547,6 +556,10 @@ class AudioEngine {
         this.activeDeck.volume = this.masterVolume;
       } catch {}
     }
+  }
+
+  public position(): number | null {
+    return this.pendingSeek === null && !this.resetting ? this.activeDeck.currentTime : null;
   }
 
   public getIsPlaying(): boolean {
