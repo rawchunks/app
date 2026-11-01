@@ -7,7 +7,7 @@ import React from "react";
 import { Globe } from "lucide-react";
 import { fetchChains, type FacilitatorChainsResponse, type NetworkId } from "@compose-market/sdk/chains";
 import { evmChainId, isEvmNetwork, setChainRegistry, TESTNET_NETWORKS, MAINNET_NETWORKS } from "@/lib/chains";
-import { COMPOSE_API_URL } from "@/lib/sdk";
+import { COMPOSE_API_URL } from "@/lib/compose";
 import { Network, useNetwork, type NetworkValue } from "@/hooks/use-network";
 import { cn } from "@/lib/utils";
 

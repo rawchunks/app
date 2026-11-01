@@ -1,4 +1,4 @@
-import { sdk } from './sdk';
+import { api } from './api';
 
 export type CheckoutIntent = { kind: 'balance' };
 export function promptCardCheckout(intent: CheckoutIntent = { kind: 'balance' }): void {
@@ -57,7 +57,7 @@ export async function creditsApi<T>(
   if (options?.userAddress) headers['x-session-user-address'] = options.userAddress;
   if (options?.authToken) headers['x-wallet-auth-token'] = options.authToken;
 
-  const response = await sdk.fetch(`/api/credits/${path}`, {
+  const response = await api.fetch(`/api/credits/${path}`, {
     method: body === undefined ? 'GET' : 'POST',
     headers,
     ...(options?.userAddress ? { userAddress: options.userAddress } : {}),
