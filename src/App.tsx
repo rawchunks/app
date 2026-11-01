@@ -7,7 +7,7 @@ import { Editor } from './pages/editor';
 import { store } from './lib/store';
 import { bus } from './lib/bus';
 import { Song } from './lib/schema';
-import { sdk } from './lib/sdk';
+import { api } from './lib/api';
 import { useSelectedUserAddress } from './hooks/use-address';
 import { useSongs } from './hooks/use-songs';
 import { readProject, writeProject } from './lib/cache';
@@ -109,7 +109,7 @@ export const App: React.FC = () => {
       setEditorError(null);
       const loadTargetSong = async () => {
         try {
-          const response = await sdk.fetch(`/api/songs/${encodeURIComponent(songId)}`, { userAddress: readAddress });
+          const response = await api.fetch(`/api/songs/${encodeURIComponent(songId)}`, { userAddress: readAddress });
           const data = await response.json();
           if (!response.ok) throw new Error(data.error || 'Could not open this song');
           if (!mounted) return;
@@ -138,7 +138,7 @@ export const App: React.FC = () => {
     if (route !== 'editor' || !editingSong?.metadata_cid || !readAddress) return;
     let current = true;
     setEditorError(null);
-    sdk.fetch(`/api/songs/${encodeURIComponent(editingSong.id)}/version`, { method: 'POST', userAddress: readAddress })
+    api.fetch(`/api/songs/${encodeURIComponent(editingSong.id)}/version`, { method: 'POST', userAddress: readAddress })
       .then(async response => {
         const song = await response.json();
         if (!response.ok) throw new Error(song.error || 'Could not open a song version');
@@ -158,6 +158,9 @@ export const App: React.FC = () => {
     setRoute(nextRoute);
     const path = nextRoute === 'mypage' ? 'my-page' : nextRoute;
     window.history.pushState(null, '', nextRoute === 'editor' && id ? editorPath(id) : `/${path}`);
+    if (nextRoute === 'market') {
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    }
   };
 
   const handleEditSong = (song: Song) => {

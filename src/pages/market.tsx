@@ -43,6 +43,9 @@ import { fetchUserProfilesBatch, type WalletPairProfile } from '../hooks/use-pro
 import { readCachedProfile } from '../lib/cache';
 import { groupSongs } from '../lib/versions';
 import { openGate } from '../lib/gate';
+import { marketCreator, marketPath } from '../lib/routes';
+import { songToShareData, type MintShareData } from '../lib/share';
+import { ShareModal } from '../components/share';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Song, Album, Playlist } from '../lib/schema';
 
@@ -58,6 +61,20 @@ interface CreatorGroup {
   addresses: Set<string>;
 }
 
+function findCreatorGroup(groups: CreatorGroup[], rawCreator: string | null): CreatorGroup | null {
+  if (!rawCreator) return null;
+  const lower = rawCreator.trim().toLowerCase();
+  if (!lower) return null;
+  return (
+    groups.find(
+      (g) =>
+        g.key === lower ||
+        g.addresses.has(lower) ||
+        (g.nicknameKey !== null && g.nicknameKey === lower)
+    ) ?? null
+  );
+}
+
 export const Market: React.FC<Props> = ({ className = '' }) => {
   const { readAddress } = useSelectedUserAddress();
   const queryClient = useQueryClient();
@@ -68,7 +85,10 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
     playlistId: store.getState().activePlaylistId,
     contextId: store.getState().activeContextId,
   }));
-  const [selectedCreator, setSelectedCreator] = useState<string | null>(null);
+  const [selectedCreator, setSelectedCreator] = useState<string | null>(() =>
+    marketCreator(window.location.pathname)
+  );
+  const [shareData, setShareData] = useState<MintShareData | null>(null);
   const [selectedGenres, setSelectedGenres] = useState<string[]>([]);
   const [selectedAlbumId, setSelectedAlbumId] = useState<string | null>(null);
   const [order, setOrder] = useState<'latest' | 'oldest'>('latest');
@@ -239,10 +259,14 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
   };
 
   const handleSelectCreatorAddress = (rawAddress: string) => {
-    const lower = rawAddress.toLowerCase();
-    const group = creatorGroups.find((g) => g.addresses.has(lower));
-    const targetKey = group ? group.key : lower;
-    setSelectedCreator((prev) => (prev === targetKey ? null : targetKey));
+    const group = findCreatorGroup(creatorGroups, rawAddress);
+    const targetSlug = group ? (group.nicknameKey ? group.label : group.key) : rawAddress;
+    setSelectedCreator((prev) => {
+      if (!prev) return targetSlug;
+      const prevGroup = findCreatorGroup(creatorGroups, prev);
+      if (group && prevGroup && group.key === prevGroup.key) return null;
+      return prev.toLowerCase() === targetSlug.toLowerCase() ? null : targetSlug;
+    });
   };
 
   // Extract unique normalized genres / tags
@@ -295,9 +319,14 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
     }
 
     if (selectedCreator) {
-      const group = creatorGroups.find((g) => g.key === selectedCreator);
-      const targetAddresses = group ? group.addresses : new Set([selectedCreator.toLowerCase()]);
-      list = list.filter((s) => s.creator && targetAddresses.has(s.creator.toLowerCase()));
+      const lower = selectedCreator.trim().toLowerCase();
+      const group = findCreatorGroup(creatorGroups, selectedCreator);
+      const targetAddresses = group ? group.addresses : new Set([lower]);
+      list = list.filter(
+        (s) =>
+          Boolean(s.creator && targetAddresses.has(s.creator.toLowerCase())) ||
+          Boolean(group && s.creator && group.addresses.has(s.creator.toLowerCase()))
+      );
     }
 
     if (selectedGenres.length > 0) {
@@ -405,9 +434,42 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
   }, [popularPlayable]);
 
   const selectedCreatorGroup = useMemo(
-    () => (selectedCreator ? creatorGroups.find((g) => g.key === selectedCreator) ?? null : null),
+    () => findCreatorGroup(creatorGroups, selectedCreator),
     [creatorGroups, selectedCreator]
   );
+
+  const selectedCreatorLabel = useMemo(() => {
+    if (!selectedCreator) return null;
+    if (selectedCreatorGroup) return selectedCreatorGroup.label;
+    const raw = selectedCreator.trim();
+    if (raw.startsWith('0x') && raw.length > 14) {
+      return `${raw.slice(0, 6)}…${raw.slice(-4)}`;
+    }
+    if (raw.length >= 32) {
+      return `${raw.slice(0, 4)}…${raw.slice(-4)}`;
+    }
+    return raw;
+  }, [selectedCreator, selectedCreatorGroup]);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      setSelectedCreator(marketCreator(window.location.pathname));
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  useEffect(() => {
+    const slug = selectedCreatorGroup
+      ? selectedCreatorGroup.nicknameKey
+        ? selectedCreatorGroup.label
+        : selectedCreatorGroup.key
+      : selectedCreator;
+    const nextPath = marketPath(slug);
+    if (window.location.pathname !== nextPath) {
+      window.history.replaceState(null, '', nextPath);
+    }
+  }, [selectedCreator, selectedCreatorGroup]);
 
   const selectedAlbum = useMemo(
     () => (selectedAlbumId ? albumsMap.get(selectedAlbumId) ?? null : null),
@@ -680,8 +742,8 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
             >
               <User size={13} className="market-select-icon" />
               <span className="market-popover-trigger-label">
-                {selectedCreatorGroup
-                  ? selectedCreatorGroup.label
+                {selectedCreatorLabel
+                  ? selectedCreatorLabel
                   : `CREATORS (${creatorGroups.length})`}
               </span>
               <ChevronDown size={12} className="market-popover-chevron" />
@@ -740,7 +802,10 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
                     <div className="market-popover-empty">NONE</div>
                   ) : (
                     filteredCreatorGroups.map((g) => {
-                      const isSelected = selectedCreator === g.key;
+                      const isSelected =
+                        selectedCreatorGroup?.key === g.key ||
+                        selectedCreator?.toLowerCase() === g.key;
+                      const slug = g.nicknameKey ? g.label : g.key;
                       return (
                         <button
                           key={g.key}
@@ -749,7 +814,7 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
                           aria-selected={isSelected}
                           className={`market-popover-option ${isSelected ? 'selected' : ''}`}
                           onClick={() => {
-                            setSelectedCreator(isSelected ? null : g.key);
+                            setSelectedCreator(isSelected ? null : slug);
                             setCreatorOpen(false);
                             setCreatorQuery('');
                           }}
@@ -900,15 +965,15 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
       {/* Active Filter Pills Bar */}
       {hasFilterPills && (
         <div className="market-active-pills" role="region" aria-label="Active filters">
-          {selectedCreatorGroup && (
+          {selectedCreatorLabel && (
             <button
               type="button"
               className="market-filter-pill creator"
               onClick={() => setSelectedCreator(null)}
-              aria-label={`Remove creator filter ${selectedCreatorGroup.label}`}
+              aria-label={`Remove creator filter ${selectedCreatorLabel}`}
             >
               <User size={10} />
-              <span>{selectedCreatorGroup.label}</span>
+              <span>{selectedCreatorLabel}</span>
               <X size={10} className="market-filter-pill-close" />
             </button>
           )}
@@ -1305,17 +1370,18 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
                                     const creatorCtx = `creator:${group.key}`;
                                     const isPlayingCreator =
                                       playing.active && playing.contextId === creatorCtx;
+                                    const creatorSlug = group.nicknameKey ? group.label : group.key;
                                     return (
                                       <div
                                         key={group.key}
                                         className="market-collection-card"
-                                        onClick={() => setSelectedCreator(group.key)}
+                                        onClick={() => setSelectedCreator(creatorSlug)}
                                         role="button"
                                         tabIndex={0}
                                         onKeyDown={(e) => {
                                           if (e.key === 'Enter' || e.key === ' ') {
                                             e.preventDefault();
-                                            setSelectedCreator(group.key);
+                                            setSelectedCreator(creatorSlug);
                                           }
                                         }}
                                       >
