@@ -1,5 +1,5 @@
 import { useGuideOwner, prepareViews, draftCanLeave } from '../components/guide/owners';
-import { sdk, watch } from '@/lib/sdk';
+import { api, watch } from '@/lib/api';
 import React, { useState, useEffect, useRef } from 'react';
 import { Glitch } from '../components/glitch';
 import { Button } from '../components/button';
@@ -17,7 +17,7 @@ import { Languages } from '../components/languages';
 import { Tooltip } from '../components/daw/Tooltip';
 import { useDismiss } from '../hooks/use-dismiss';
 import { Mic2, UploadCloud, FileAudio, Play, Pause, Sliders, Globe, Lock, ListMusic, ArrowLeft, FolderOpen } from 'lucide-react';
-import { useOptions } from '@/hooks/use-options';
+import { useOptions, type TagCategory } from '@/hooks/use-options';
 import { useVoices, voiceReady, voiceStatus } from '@/hooks/use-voices';
 import {
   parseLyricsToBlocks,
@@ -44,7 +44,12 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
   const [lyrics, setLyrics] = useState('');
   const [instrumental, setInstrumental] = useState(false);
   const [selectedLanguage, setSelectedLanguage] = useState<string | null>(null);
-  const [activeTags, setActiveTags] = useState<string[]>([]);
+  const [activeGenres, setActiveGenres] = useState<string[]>([]);
+  const [activeProduction, setActiveProduction] = useState<string[]>([]);
+  const [activeMoods, setActiveMoods] = useState<string[]>([]);
+  const [activeVocals, setActiveVocals] = useState<string[]>([]);
+  const [tagDimension, setTagDimension] = useState<'genres' | 'production' | 'mood' | 'vocal'>('genres');
+  const [expandedTagCategory, setExpandedTagCategory] = useState<string | null>(null);
   const [model, setModel] = useState('turbo');
   const options = useOptions();
   const generation = options.data?.generation;
@@ -78,7 +83,6 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const modelMenuRef = useRef<HTMLDivElement>(null);
   useDismiss(modelMenuOpen, () => setModelMenuOpen(false), modelMenuRef, ['.guide-card', '.guide-portal-root']);
-  const [tagSearch, setTagSearch] = useState('');
 
   // Accordion sections: primary workspace ('details' | 'params') + compact financials drawer
   const [activeSection, setActiveSection] = useState<'details' | 'params'>('details');
@@ -113,6 +117,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
   const [activeModal, setActiveModal] = useState<'collection' | 'duration' | 'bpm' | 'key' | 'voice' | 'language' | 'lyrics' | 'cover' | 'tags' | null>(null);
   const [audioDurationSeconds, setAudioDurationSeconds] = useState<number | null>(null);
   const [bpm, setBpm] = useState<number | null>(null);
+  const [timeSignature, setTimeSignature] = useState<'2' | '3' | '4' | '6' | null>(null);
   const [keyScale, setKeyScale] = useState<string>('');
   const [selectedRootNote, setSelectedRootNote] = useState<string>('');
   const [selectedScaleMode, setSelectedScaleMode] = useState<string>('minor');
@@ -301,7 +306,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
             userAddr
           );
         }
-        void sdk.fetch(`/api/songs/${encodeURIComponent(id)}`, {
+        void api.fetch(`/api/songs/${encodeURIComponent(id)}`, {
           method: 'PATCH',
           userAddress: userAddr,
           headers: { 'Content-Type': 'application/json' },
@@ -318,7 +323,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
     try {
       const data = new FormData();
       data.append('file', file);
-      const response = await sdk.fetch('/api/generation/cover', { method: 'POST', body: data });
+      const response = await api.fetch('/api/generation/cover', { method: 'POST', body: data });
       const result = await response.json();
       if (!response.ok || !result.imageUrl) throw new Error(result.error || 'Could not upload cover');
       applyResolvedCover(result.imageUrl);
@@ -380,7 +385,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
       setSelectedAlbumId('');
       return;
     }
-    sdk.fetch(`/api/albums?creator=${encodeURIComponent(readAddress)}`)
+    api.fetch(`/api/albums?creator=${encodeURIComponent(readAddress)}`)
       .then((res) => res.json())
       .then((data) => {
         if (Array.isArray(data)) {
@@ -389,6 +394,56 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
       })
       .catch((err) => console.error('Failed to fetch albums:', err));
   }, [readAddress]);
+
+  const allSelectedTags = [
+    ...activeGenres,
+    ...activeProduction,
+    ...activeMoods,
+    ...(instrumental ? [] : activeVocals),
+  ];
+
+  const openTagModal = (dim: 'genres' | 'production' | 'mood' | 'vocal') => {
+    setTagDimension(dim);
+    setExpandedTagCategory(null);
+    setActiveModal('tags');
+  };
+
+  const toggleMultiTag = (
+    tagId: string,
+    current: string[],
+    setter: React.Dispatch<React.SetStateAction<string[]>>,
+    maxTotal = 3
+  ) => {
+    if (current.includes(tagId)) {
+      setter(current.filter((t) => t !== tagId));
+    } else if (current.length < maxTotal) {
+      setter([...current, tagId]);
+    } else {
+      setter([...current.slice(1), tagId]);
+    }
+  };
+
+  const toggleSegmentedTag = (
+    tagId: string,
+    category: TagCategory,
+    current: string[],
+    setter: React.Dispatch<React.SetStateAction<string[]>>
+  ) => {
+    if (current.includes(tagId)) {
+      setter(current.filter((t) => t !== tagId));
+      return;
+    }
+    const categoryTagIds = new Set(category.tags.map((t) => t.id));
+    const withoutThisCategory = current.filter((t) => !categoryTagIds.has(t));
+    setter([...withoutThisCategory, tagId]);
+  };
+
+  const formatTagSummary = (tags: string[]) => {
+    if (tags.length === 0) return 'NONE';
+    const upper = tags.map((t) => t.toUpperCase());
+    if (upper.length <= 2) return upper.join(' · ');
+    return `${upper.slice(0, 2).join(' · ')} +${upper.length - 2}`;
+  };
 
   const handleGenerateCover = async (retry = false) => {
     const coverPromptSeed = prompt.trim() || lyrics.trim().slice(0, 200) || title.trim();
@@ -401,13 +456,13 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
     latestCoverUrlRef.current = null;
     setIsGeneratingCover(true);
     try {
-      const res = await sdk.fetch('/api/generation/cover', {
+      const res = await api.fetch('/api/generation/cover', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           prompt: coverPromptSeed,
           title: title.trim() || undefined,
-          style: activeTags.length ? activeTags.join(', ') : undefined,
+          style: allSelectedTags.length ? allSelectedTags.join(', ') : undefined,
         }),
       });
       if (res.status === 402) {
@@ -434,7 +489,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
     if (!newAlbumTitle.trim()) return;
     setCreatingAlbum(true);
     try {
-      const res = await sdk.fetch('/api/albums', {
+      const res = await api.fetch('/api/albums', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -456,16 +511,6 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
     }
   };
 
-  const toggleTag = (tag: string) => {
-    if (activeTags.includes(tag)) {
-      setActiveTags(activeTags.filter((t) => t !== tag));
-    } else {
-      if (activeTags.length < 5) {
-        setActiveTags([...activeTags, tag]);
-      }
-    }
-  };
-
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (files && files[0]) {
@@ -478,8 +523,8 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
   };
 
   const canSubmitGeneration = instrumental
-    ? prompt.trim().length >= 3
-    : prompt.trim().length >= 3 || lyrics.trim().length >= 3;
+    ? prompt.trim().length >= 3 || allSelectedTags.length > 0
+    : prompt.trim().length >= 3 || lyrics.trim().length >= 3 || allSelectedTags.length > 0;
 
   const canSubmitVibe =
     prompt.trim().length >= 2 || Boolean(vibeImage) || Boolean(vibeAudio) || isRecordingVibeAudio;
@@ -768,7 +813,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
     setActiveSection('details');
 
     try {
-      const res = await sdk.fetch('/api/vibe', {
+      const res = await api.fetch('/api/vibe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         userAddress: userAddr,
@@ -844,10 +889,19 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
             setSelectedLanguage(value ? String(value) : null);
           } else if (field === 'lyrics' && typeof value === 'string') {
             setLyrics(value);
-          } else if (field === 'tags' && Array.isArray(value)) {
-            setActiveTags(value.map((t: unknown) => String(t).toUpperCase()).slice(0, 5));
+          } else if (field === 'genres' && Array.isArray(value)) {
+            setActiveGenres(value.map((t: unknown) => String(t)).slice(0, 3));
+          } else if (field === 'production' && Array.isArray(value)) {
+            setActiveProduction(value.map((t: unknown) => String(t)).slice(0, 4));
+          } else if (field === 'mood' && Array.isArray(value)) {
+            setActiveMoods(value.map((t: unknown) => String(t)).slice(0, 3));
+          } else if (field === 'vocal' && Array.isArray(value)) {
+            setActiveVocals(value.map((t: unknown) => String(t)).slice(0, 4));
           } else if (field === 'bpm') {
             setBpm(typeof value === 'number' && Number.isFinite(value) ? value : null);
+          } else if (field === 'timeSignature') {
+            const ts = value ? String(value) : null;
+            setTimeSignature(ts === '2' || ts === '3' || ts === '4' || ts === '6' ? ts : null);
           } else if (field === 'keyScale' && typeof value === 'string') {
             setKeyScale(value);
             const parts = value.trim().split(/\s+/);
@@ -955,7 +1009,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
             formData.append('creator', userAddr);
             formData.append('name', voiceFile.name.replace(/\.[^/.]+$/, ''));
             formData.append('file', voiceFile);
-            const response = await sdk.fetch('/api/voices/upload', { method: 'POST', body: formData, userAddress: userAddr });
+            const response = await api.fetch('/api/voices/upload', { method: 'POST', body: formData, userAddress: userAddr });
             if (response.status === 402) {
               store.setGenerating(false);
               if (!retry && await openGate({ steps: ['terms', 'funding'], reason: 'Session budget exhausted' })) return executeGenerate(true);
@@ -978,7 +1032,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
       if (scope !== scopeRef.current) return;
 
       const currentCover = latestCoverUrlRef.current || coverUrl || undefined;
-      const res = await sdk.fetch('/api/generation/generate', {
+      const res = await api.fetch('/api/generation/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -991,12 +1045,17 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
           instrumental,
           vocalLanguage: selectedLanguage && !instrumental ? selectedLanguage : undefined,
           modelVariant,
-          tags: activeTags,
+          genres: activeGenres,
+          production: activeProduction,
+          mood: activeMoods,
+          vocal: instrumental ? [] : activeVocals,
+          tags: allSelectedTags,
           licenses,
           stream_price: streamPrice,
           license_price: licensePrice,
           audioDuration: audioDurationSeconds || undefined,
           bpm: bpm || undefined,
+          timeSignature: timeSignature || undefined,
           keyScale: keyScale.trim() || undefined,
           ...(useVoice ? { voiceId, voiceMode, voiceCoverStrength } : {}),
         }),
@@ -1025,7 +1084,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
         id: songId,
         title: baseTitle,
         duration: audioDurationSeconds || undefined,
-        tags: activeTags,
+        tags: allSelectedTags,
         creator: userAddr,
         public: false,
         image: resolvedTrackCover,
@@ -1042,7 +1101,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
         { id: trackAId, song: songA, variation: 1, status: 'generating', progress: 15 },
       ]);
       if (coverPendingAtStart && resolvedTrackCover && songId) {
-        void sdk.fetch(`/api/songs/${encodeURIComponent(songId)}`, {
+        void api.fetch(`/api/songs/${encodeURIComponent(songId)}`, {
           method: 'PATCH',
           userAddress: userAddr,
           headers: { 'Content-Type': 'application/json' },
@@ -1082,7 +1141,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
               if (index === 0) store.updateTrack(trackAId, { status: 'ready', progress: 100, song });
               else store.addTracks([{ id: `${trackAId}-${index}`, song, variation: 2, status: 'ready', progress: 100 }]);
               if (coverPendingAtStart && finalCover) {
-                void sdk.fetch(`/api/songs/${encodeURIComponent(id)}`, {
+                void api.fetch(`/api/songs/${encodeURIComponent(id)}`, {
                   method: 'PATCH',
                   userAddress: userAddr,
                   headers: { 'Content-Type': 'application/json' },
@@ -1124,7 +1183,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
     const scope = scopeRef.current;
     try {
       toast.info('Saving voice...');
-      const res = await sdk.fetch('/api/voices', {
+      const res = await api.fetch('/api/voices', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         userAddress: userAddr,
