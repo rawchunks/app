@@ -39,6 +39,8 @@ import {
   useCreatorPlaylists,
   createPlaylistApi,
   addSongToPlaylistApi,
+  removeSongFromPlaylistApi,
+  deletePlaylistApi,
   recordPlaylistPlayApi,
 } from '../hooks/use-playlists';
 import { useSelectedUserAddress } from '../hooks/use-address';
@@ -123,6 +125,8 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
   const [newPlaylistTitle, setNewPlaylistTitle] = useState('');
   const [creatingPlaylist, setCreatingPlaylist] = useState(false);
   const [expandedPlaylistId, setExpandedPlaylistId] = useState<string | null>(null);
+  const [showShelfPlaylistCreate, setShowShelfPlaylistCreate] = useState(false);
+  const [shelfPlaylistTitle, setShelfPlaylistTitle] = useState('');
 
   const shelvesViewportRef = useRef<HTMLDivElement>(null);
   const viewMenuRef = useRef<HTMLDivElement>(null);
@@ -622,15 +626,76 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
     void store.playCollection(albumSongs, `album:${album.id}`);
   };
 
-  const handleAddTrackToExistingPlaylist = async (playlist: Playlist) => {
+  const handleToggleTrackInPlaylist = async (playlist: Playlist) => {
     if (!playlistTargetSong || !readAddress) return;
+    const alreadyIn = (playlist.song_ids || []).includes(playlistTargetSong.id);
     try {
-      await addSongToPlaylistApi(playlist.id, playlistTargetSong.id, readAddress);
-      await queryClient.invalidateQueries({ queryKey: ['playlists'] });
-      toast.success(`Added "${playlistTargetSong.title}" to "${playlist.title}"`);
-      setPlaylistTargetSong(null);
+      if (alreadyIn) {
+        await removeSongFromPlaylistApi(playlist.id, playlistTargetSong.id, readAddress);
+        await queryClient.invalidateQueries({ queryKey: ['playlists'] });
+        toast.success(`Removed "${playlistTargetSong.title}" from "${playlist.title}"`);
+      } else {
+        await addSongToPlaylistApi(playlist.id, playlistTargetSong.id, readAddress);
+        await queryClient.invalidateQueries({ queryKey: ['playlists'] });
+        toast.success(`Added "${playlistTargetSong.title}" to "${playlist.title}"`);
+        setPlaylistTargetSong(null);
+      }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to add track');
+      toast.error(err instanceof Error ? err.message : 'Failed to update playlist');
+    }
+  };
+
+  const handleRemoveSongFromExpandedPlaylist = async (playlist: Playlist, songId: string, songTitle: string) => {
+    if (!readAddress) return;
+    try {
+      await removeSongFromPlaylistApi(playlist.id, songId, readAddress);
+      await queryClient.invalidateQueries({ queryKey: ['playlists'] });
+      toast.success(`Removed "${songTitle}" from "${playlist.title}"`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to remove track');
+    }
+  };
+
+  const handleDeletePlaylistInMarket = async (playlist: Playlist) => {
+    if (!readAddress) return;
+    try {
+      await deletePlaylistApi(playlist.id, readAddress);
+      await queryClient.invalidateQueries({ queryKey: ['playlists'] });
+      if (expandedPlaylistId === playlist.id) setExpandedPlaylistId(null);
+      toast.success(`Deleted playlist "${playlist.title}"`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete playlist');
+    }
+  };
+
+  const handleCreateShelfPlaylist = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!readAddress) {
+      openGate();
+      return;
+    }
+    const title = shelfPlaylistTitle.trim();
+    if (!title) return;
+    setCreatingPlaylist(true);
+    try {
+      await createPlaylistApi(
+        {
+          title,
+          creator: readAddress,
+          song_ids: [],
+          cover: '',
+          public: false,
+        },
+        readAddress
+      );
+      await queryClient.invalidateQueries({ queryKey: ['playlists'] });
+      toast.success(`Created private playlist "${title}" — toggle Public anytime in /my-page`);
+      setShelfPlaylistTitle('');
+      setShowShelfPlaylistCreate(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not create playlist');
+    } finally {
+      setCreatingPlaylist(false);
     }
   };
 
@@ -1850,8 +1915,24 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
                           <ListMusic size={14} className="market-shelf-icon" />
                           <h2 className="market-shelf-title">PLAYLISTS</h2>
                         </button>
-                        {playlistAllSongs.length > 0 && (
-                          <div className="market-shelf-actions">
+                        <div className="market-shelf-actions">
+                          <Tooltip title="New Playlist">
+                            <button
+                              type="button"
+                              className="market-shelf-more-btn"
+                              onClick={() => {
+                                if (!readAddress) {
+                                  openGate();
+                                  return;
+                                }
+                                setShowShelfPlaylistCreate((prev) => !prev);
+                              }}
+                              aria-label="New Playlist"
+                            >
+                              <Plus size={12} />
+                            </button>
+                          </Tooltip>
+                          {playlistAllSongs.length > 0 && (
                             <button
                               type="button"
                               className={`market-shelf-playall-btn ${isPlayingPlaylistsShelf ? 'active' : ''}`}
@@ -1863,9 +1944,40 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
                               {isPlayingPlaylistsShelf ? <Pause size={12} /> : <Play size={12} />}
                               <span>PLAY ALL</span>
                             </button>
-                          </div>
-                        )}
+                          )}
+                        </div>
                       </div>
+                      {showShelfPlaylistCreate && (
+                        <form className="market-shelf-inline-form" onSubmit={handleCreateShelfPlaylist}>
+                          <input
+                            type="text"
+                            className="market-playlist-modal-input"
+                            placeholder="NEW PLAYLIST..."
+                            value={shelfPlaylistTitle}
+                            onChange={(e) => setShelfPlaylistTitle(e.target.value)}
+                            maxLength={80}
+                            autoFocus
+                          />
+                          <Button
+                            type="submit"
+                            size="xs"
+                            variant="primary"
+                            disabled={creatingPlaylist || !shelfPlaylistTitle.trim()}
+                            aria-label="Create playlist"
+                          >
+                            <Check size={12} />
+                          </Button>
+                          <Button
+                            type="button"
+                            size="xs"
+                            variant="ghost"
+                            onClick={() => setShowShelfPlaylistCreate(false)}
+                            aria-label="Cancel"
+                          >
+                            <X size={12} />
+                          </Button>
+                        </form>
+                      )}
                       {!isFolded && (
                         <>
                           <div className="market-shelf-rows">
@@ -1887,6 +1999,11 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
                                     const isPlayingPl =
                                       playing.active && playing.playlistId === pl.id;
                                     const isExpanded = expandedPlaylistId === pl.id;
+                                    const isOwner = Boolean(
+                                      readAddress &&
+                                      pl.creator &&
+                                      pl.creator.toLowerCase() === readAddress.toLowerCase()
+                                    );
                                     return (
                                       <div
                                         key={pl.id}
@@ -1904,6 +2021,19 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
                                             loading="lazy"
                                             decoding="async"
                                           />
+                                          {isOwner && (
+                                            <button
+                                              type="button"
+                                              className="market-collection-delete-btn"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                void handleDeletePlaylistInMarket(pl);
+                                              }}
+                                              aria-label={`Delete ${pl.title}`}
+                                            >
+                                              <Trash2 size={11} />
+                                            </button>
+                                          )}
                                           <button
                                             type="button"
                                             className={`market-collection-play-btn ${isPlayingPl ? 'playing' : ''}`}
@@ -1929,31 +2059,50 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
                                               onClick={(e) => e.stopPropagation()}
                                             >
                                               {plSongs.map((s, i) => (
-                                                <button
+                                                <div
                                                   key={`${s.id}-${i}`}
-                                                  type="button"
-                                                  className={`market-playlist-track-row ${
-                                                    playing.id === s.id &&
-                                                    playing.playlistId === pl.id
-                                                      ? 'active'
-                                                      : ''
-                                                  }`}
-                                                  onClick={() =>
-                                                    store.playSong(
-                                                      s,
-                                                      plSongs,
-                                                      pl.id,
-                                                      `playlist:${pl.id}`
-                                                    )
-                                                  }
+                                                  className="market-playlist-track-row-wrap"
                                                 >
-                                                  <span className="market-playlist-track-idx">
-                                                    {i + 1}
-                                                  </span>
-                                                  <span className="market-playlist-track-name">
-                                                    {s.title}
-                                                  </span>
-                                                </button>
+                                                  <button
+                                                    type="button"
+                                                    className={`market-playlist-track-row ${playing.id === s.id &&
+                                                        playing.playlistId === pl.id
+                                                        ? 'active'
+                                                        : ''
+                                                      }`}
+                                                    onClick={() =>
+                                                      store.playSong(
+                                                        s,
+                                                        plSongs,
+                                                        pl.id,
+                                                        `playlist:${pl.id}`
+                                                      )
+                                                    }
+                                                  >
+                                                    <span className="market-playlist-track-idx">
+                                                      {i + 1}
+                                                    </span>
+                                                    <span className="market-playlist-track-name">
+                                                      {s.title}
+                                                    </span>
+                                                  </button>
+                                                  {isOwner && (
+                                                    <button
+                                                      type="button"
+                                                      className="market-playlist-track-remove-btn"
+                                                      onClick={() =>
+                                                        void handleRemoveSongFromExpandedPlaylist(
+                                                          pl,
+                                                          s.id,
+                                                          s.title
+                                                        )
+                                                      }
+                                                      aria-label={`Remove ${s.title}`}
+                                                    >
+                                                      <X size={10} />
+                                                    </button>
+                                                  )}
+                                                </div>
                                               ))}
                                             </div>
                                           )}
@@ -2107,8 +2256,7 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
                       key={pl.id}
                       type="button"
                       className="market-playlist-modal-option"
-                      disabled={alreadyIn}
-                      onClick={() => handleAddTrackToExistingPlaylist(pl)}
+                      onClick={() => handleToggleTrackInPlaylist(pl)}
                     >
                       <div className="market-playlist-modal-option-left">
                         {pl.public ? <Globe size={11} /> : <Lock size={11} />}
