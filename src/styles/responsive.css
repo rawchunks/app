@@ -413,6 +413,21 @@
     flex: 1 1 0;
     min-height: 38px;
   }
+
+  .studio-tags-dim-tab {
+    padding: 4px 5px;
+    font-size: 10px;
+    gap: 2px;
+  }
+
+  .studio-tags-dim-count {
+    font-size: 10px;
+  }
+
+  .studio-tags-sub-chip {
+    padding: 4px 5px;
+    font-size: 10px;
+  }
 }
 
 /* ==========================================================================
