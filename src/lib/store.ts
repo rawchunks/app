@@ -468,6 +468,28 @@ class Store {
     try { localStorage.removeItem(`${STREAM_STORAGE}${lane.id}`); } catch {}
   }
 
+  public async closeSessionPlayback(token: string | null): Promise<boolean> {
+    if (!token) return true;
+    const matches = (lane: Playback) => !lane.exempt && lane.billing.source === 'usdc' && lane.billing.token === token;
+    if (this.playback && matches(this.playback)) {
+      this.finishPlayback();
+      this.playRequestId++;
+      this.authorizedSongId = null;
+      audio.pause();
+      bus.release('player');
+      this.state = { ...this.state, isPlaying: false };
+      this.notify();
+      bus.broadcastPlayback(this.state.activeSong, this.state.playhead, this.state.duration, false);
+    }
+    const lanes = [...this.playbacks.values()].filter(matches);
+    for (const lane of lanes) {
+      lane.terminal = true;
+      this.persistPlayback(lane);
+    }
+    await Promise.all(lanes.map(lane => this.drainPlayback(lane)));
+    return lanes.every(lane => !this.playbacks.has(lane.id));
+  }
+
   private resumeAfterGate(options: GateOptions): void {
     void openGate(options).then((ready) => {
       if (!ready || this.streamResumeArmed) return;

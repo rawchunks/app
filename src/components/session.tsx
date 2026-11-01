@@ -259,8 +259,9 @@ export function SessionProvider({ children, userAddress: propUserAddress }: Sess
       const prevWalletSession = sameScope(sessionRef.current, scope) ? sessionRef.current : null;
       const token = status.token ?? prevWalletSession?.token ?? cached?.token ?? compose.keys.currentToken();
       attach(scope, token);
-      if (!status.hasSession) {
-        sdk.keys.clearToken();
+      if (!status.hasSession || status.status?.isActive === false) {
+        void store.closeSessionPlayback(token);
+        compose.keys.clearToken();
         setSession(emptySession);
         try { writeSession(localStorage, scope, emptySession); } catch { /* Optional cache. */ }
         return;
@@ -333,7 +334,8 @@ export function SessionProvider({ children, userAddress: propUserAddress }: Sess
       }),
       compose.events.on("sessionExpired", event => {
         if (!matches(event)) return;
-        sdk.keys.clearToken();
+        void store.closeSessionPlayback(sessionRef.current.token ?? compose.keys.currentToken());
+        compose.keys.clearToken();
         setSession(previous => sameScope(previous, scope) ? { ...previous, active: false, token: null, budgetRemaining: "0" } : previous);
       }),
       compose.events.on("sessionInvalid", event => { if (matches(event)) void refreshSession(); }),
@@ -465,19 +467,31 @@ export function SessionProvider({ children, userAddress: propUserAddress }: Sess
   const clearSession = useCallback(() => {
     if (!scope) return;
     assertCurrent();
+    void store.closeSessionPlayback(sessionRef.current.token ?? compose.keys.currentToken());
+    refreshController.current?.abort();
     attach(scope);
     compose.keys.clearToken();
     try { writeSession(localStorage, scope, emptySession); } catch { /* Optional cache. */ }
+    sessionRef.current = emptySession;
     setSession(emptySession);
   }, [key, assertCurrent, attach]);
 
   const endSession = useCallback(async () => {
     assertCurrent();
     if (!scope) return;
-    attach(scope, session.token);
-    if (session.keyId) await sdk.keys.revoke(session.keyId);
-    assertCurrent();
+    const closing = sessionRef.current;
+    const token = closing.token ?? compose.keys.currentToken();
+    const settled = store.closeSessionPlayback(token);
     clearSession();
+    if (!await settled) throw new Error("Playback settlement is pending. Refresh the session and retry ending it after settlement completes.");
+    assertCurrent();
+    if (closing.keyId) {
+      const response = await compose.fetch(`/api/keys/${encodeURIComponent(closing.keyId)}`, {
+        method: 'DELETE', key: token, paymentMode: 'key', userAddress: scope.address, network: scope.network,
+      });
+      if (!response.ok) throw new Error(`Session deletion failed (${response.status})`);
+    }
+    assertCurrent();
   }, [key, session.keyId, session.token, assertCurrent, attach, clearSession]);
 
   const handleClaimPromoCredits = useCallback(async () => {
