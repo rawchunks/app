@@ -1,4 +1,5 @@
-import { sdk } from '../sdk';
+import { api } from '../api';
+import { compose } from '../compose';
 import { openGate } from '../gate';
 import { toast } from 'sonner';
 import { create } from 'zustand';
@@ -756,15 +757,15 @@ export const useDawStore = create<DAWState>((set, get) => ({
     const candidate = takes.find(take => take.id === selectedTrackId);
     const trackId = candidate ? source(candidate, tracks) : selectedTrackId;
     if (!tracks.some(track => track.id === trackId)) { toast.error('Select a track before extracting'); return null; }
-    const token = sdk.keys.currentToken();
+    const token = compose.keys.currentToken();
     if (!token) {
       if (!await openGate({ steps: ['login', 'funding'] })) return null;
-      if (!sdk.keys.currentToken()) return null;
+      if (!compose.keys.currentToken()) return null;
     }
     const operation = crypto.randomUUID();
     set(state => ({ operations: [...state.operations, { id: operation, task: 'extract', status: 'submitting' }] }));
     try {
-      const response = await sdk.fetch('/api/editing/extract', {
+      const response = await api.fetch('/api/editing/extract', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           songId,
@@ -1886,12 +1887,12 @@ export const useDawStore = create<DAWState>((set, get) => ({
       localStorage.removeItem(`rawchunks:wip:${songId}`);
     } catch { }
     try {
-      await sdk.fetch(`/api/editing/wip/${encodeURIComponent(songId)}`, {
+      await api.fetch(`/api/editing/wip/${encodeURIComponent(songId)}`, {
         method: 'DELETE',
       });
     } catch { }
     try {
-      await sdk.fetch('/api/editing/reset', {
+      await api.fetch('/api/editing/reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ songId }),
@@ -2578,7 +2579,7 @@ export const useDawStore = create<DAWState>((set, get) => ({
         : region.end;
       const rendered = await dawEngine.render(ids, renderDuration, true, region.start);
       const form = new FormData(); form.append('file', rendered, 'master.wav');
-      const upload = await sdk.fetch(`/api/editing/source?songId=${encodeURIComponent(songId)}`, { method: 'POST', body: form });
+      const upload = await api.fetch(`/api/editing/source?songId=${encodeURIComponent(songId)}`, { method: 'POST', body: form });
       const data = await upload.json();
       if (!upload.ok || !data.url) throw new Error(data.error || 'Could not save the selected section');
       const layerNames = laneTracksToMerge.map(track => track.layerName || track.name.toLowerCase().replace(/\s+/g, '_'));
@@ -2591,7 +2592,7 @@ export const useDawStore = create<DAWState>((set, get) => ({
         commitId: state.commits[0]?.id ?? null,
         srcAudioUrl: data.url,
       };
-      const response = await sdk.fetch('/api/editing/activate', {
+      const response = await api.fetch('/api/editing/activate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2603,7 +2604,7 @@ export const useDawStore = create<DAWState>((set, get) => ({
       });
       const result = await response.json();
       if (!response.ok || !result.success) throw new Error(result.error || 'Could not merge the section');
-      const history = await sdk.fetch(`/api/editing/history/${encodeURIComponent(songId)}`);
+      const history = await api.fetch(`/api/editing/history/${encodeURIComponent(songId)}`);
       if (!history.ok) throw new Error('Could not refresh the saved master');
       const project = await history.json();
       if (get().songId !== songId) return;
@@ -2737,13 +2738,13 @@ export const useDawStore = create<DAWState>((set, get) => ({
     const songId = get().songId;
     set({ pendingTake: takeId });
     try {
-      const response = await sdk.fetch('/api/editing/activate', {
+      const response = await api.fetch('/api/editing/activate', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ songId, stemId: target.stem_id ?? undefined, takeId, action }),
       });
       const result = await response.json();
       if (!response.ok || !result.success) throw new Error(result.error || 'Failed to select version');
-      const history = await sdk.fetch(`/api/editing/history/${encodeURIComponent(songId)}`);
+      const history = await api.fetch(`/api/editing/history/${encodeURIComponent(songId)}`);
       if (!history.ok) throw new Error('Version saved, but the arrangement could not be refreshed');
       const project = await history.json();
       if (get().songId !== songId) return;
@@ -2788,7 +2789,7 @@ export const useDawStore = create<DAWState>((set, get) => ({
     const songId = get().songId;
     set({ pendingTake: takeId });
     try {
-      const response = await sdk.fetch(`/api/editing/takes/${encodeURIComponent(takeId)}`, { method: 'DELETE' });
+      const response = await api.fetch(`/api/editing/takes/${encodeURIComponent(takeId)}`, { method: 'DELETE' });
       const result = await response.json();
       if (!response.ok || !result.success) throw new Error(result.error || 'Failed to discard segment');
       if (get().songId !== songId) return;

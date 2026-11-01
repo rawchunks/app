@@ -613,7 +613,7 @@ class DAWEngine {
       const coveringOverlays = state.tracks.filter(
         (t) =>
           Boolean(t.activeTakeId) &&
-          t.clips.some((c) => c.startTime < region.end && c.startTime + c.duration > region.start)
+          (t.clips ?? []).some((c) => c.startTime < region.end && c.startTime + c.duration > region.start)
       );
       if (coveringOverlays.length === 0) return true;
       return coveringOverlays.some((t) => !(t.mixer?.muted ?? t.muted) && t.mounted !== false);

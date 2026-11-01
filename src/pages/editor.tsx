@@ -1,5 +1,5 @@
 import { useGuideOwner, prepareViews, draftCanLeave } from '../components/guide/owners';
-import { sdk, watch } from '@/lib/sdk';
+import { api, watch } from '@/lib/api';
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
 import { Glitch } from '../components/glitch';
@@ -527,7 +527,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
     const scope = scopeRef.current;
     void (async () => {
       try {
-        const res = await sdk.fetch(
+        const res = await api.fetch(
           `/api/editing/lyrics/${encodeURIComponent(targetSongId)}?language=${encodeURIComponent(vocalLanguage || 'en')}`,
           effectiveAddress ? { userAddress: effectiveAddress } : {},
         );
@@ -580,7 +580,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
 
     const fetchAndHydrateRemoteWip = async () => {
       try {
-        const wipRes = await sdk.fetch(`/api/editing/wip/${encodeURIComponent(song.id)}`, {
+        const wipRes = await api.fetch(`/api/editing/wip/${encodeURIComponent(song.id)}`, {
           ...(effectiveAddress ? { userAddress: effectiveAddress } : {}),
         });
         if (wipRes.ok) {
@@ -604,7 +604,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
       const history = await queryClient.fetchQuery({
         queryKey: ['history', song.id, effectiveAddress || 'public'], staleTime: 0,
         queryFn: async () => {
-          const response = await sdk.fetch(`/api/editing/history/${song.id}`, effectiveAddress ? { userAddress: effectiveAddress } : {});
+          const response = await api.fetch(`/api/editing/history/${song.id}`, effectiveAddress ? { userAddress: effectiveAddress } : {});
           const result = await response.json();
           if (!response.ok) throw new Error(result.error || 'Could not load song history');
           return result;
@@ -980,7 +980,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
     }
     try {
       const st = useDawStore.getState();
-      const res = await sdk.fetch('/api/editing/commit', {
+      const res = await api.fetch('/api/editing/commit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1155,7 +1155,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
       } catch { }
 
       if (syncRemote) {
-        void sdk.fetch(`/api/editing/wip/${encodeURIComponent(song.id)}`, {
+        void api.fetch(`/api/editing/wip/${encodeURIComponent(song.id)}`, {
           method: 'PUT',
           ...(readAddress ? { userAddress: readAddress } : {}),
           keepalive: true,
@@ -1252,7 +1252,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
     const scope = scopeRef.current;
     useDawStore.setState(state => ({ operations: [...state.operations, { id: operation, task: 'extract', status: 'submitting' }] }));
     try {
-      const res = await sdk.fetch('/api/editing/isolate', {
+      const res = await api.fetch('/api/editing/isolate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1311,7 +1311,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
     setIsTranscribingLyrics(true);
     const scope = scopeRef.current;
     try {
-      const res = await sdk.fetch(`/api/editing/lyrics/${encodeURIComponent(song.id)}`, {
+      const res = await api.fetch(`/api/editing/lyrics/${encodeURIComponent(song.id)}`, {
         method: 'POST',
         userAddress: addr,
         headers: { 'Content-Type': 'application/json' },
@@ -1363,7 +1363,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
     setIsAligningLyrics(true);
     const scope = scopeRef.current;
     try {
-      const res = await sdk.fetch(`/api/editing/lyrics/${encodeURIComponent(song.id)}`, {
+      const res = await api.fetch(`/api/editing/lyrics/${encodeURIComponent(song.id)}`, {
         method: 'POST',
         userAddress: addr,
         headers: { 'Content-Type': 'application/json' },
@@ -1472,7 +1472,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
           const compositeAudio = await dawEngine.render(['master', ...mountedOverlayIds], duration, true);
           const form = new FormData();
           form.append('file', compositeAudio, 'master-composite.wav');
-          const upload = await sdk.fetch(`/api/editing/source?songId=${encodeURIComponent(song.id)}`, { method: 'POST', body: form });
+          const upload = await api.fetch(`/api/editing/source?songId=${encodeURIComponent(song.id)}`, { method: 'POST', body: form });
           const uploaded = await upload.json();
           if (upload.ok && uploaded.url) {
             payload.srcAudioUrl = uploaded.url;
@@ -1506,7 +1506,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
         const audio = await dawEngine.render(effectiveLegoIds, duration, true);
         const source = new FormData();
         source.append('file', audio, 'reference.wav');
-        const upload = await sdk.fetch(`/api/editing/source?songId=${encodeURIComponent(song.id)}`, { method: 'POST', body: source });
+        const upload = await api.fetch(`/api/editing/source?songId=${encodeURIComponent(song.id)}`, { method: 'POST', body: source });
         const uploaded = await upload.json();
         if (!upload.ok || !uploaded.url) throw new Error(uploaded.error || 'Could not save reference audio');
         const isVocalInstrument = instrument.trim() === 'vocals' || instrument.trim() === 'backing_vocals';
@@ -1570,7 +1570,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
         };
       }
 
-      const res = await sdk.fetch(endpoint, {
+      const res = await api.fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),

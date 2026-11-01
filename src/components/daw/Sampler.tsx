@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { useDawStore, DAWClip } from '../../lib/daw/store';
 import { dawEngine } from '../../lib/daw/engine';
 import { decodeAudioFile, extractPeaksFromBuffer } from '../../lib/daw/peaks';
-import { sdk } from '../../lib/sdk';
+import { api } from '../../lib/api';
 import { Button } from '../button';
 import { Tooltip } from './Tooltip';
 import { Upload, Play, Pause, Plus, Mic, Square, RefreshCw } from 'lucide-react';
@@ -132,7 +132,7 @@ export const Sampler: React.FC<SamplerProps> = ({ onImportComplete, active = tru
       const channels = Array.from({ length: audioBuffer.numberOfChannels }, (_, index) => audioBuffer.getChannelData(index));
       const form = new FormData();
       form.append('file', dawEngine.encodeWavBlob(channels, audioBuffer.sampleRate, audioBuffer.length), 'sample.wav');
-      const response = await sdk.fetch(`/api/editing/source?songId=${encodeURIComponent(songId)}`, { method: 'POST', body: form });
+      const response = await api.fetch(`/api/editing/source?songId=${encodeURIComponent(songId)}`, { method: 'POST', body: form });
       const result = await response.json();
       if (!response.ok || !result.url) throw new Error(result.error || 'Could not save sample');
       const sliced = numSlices > 1 && activeSlice !== null;

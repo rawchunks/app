@@ -5,7 +5,7 @@ import { useDawStore, DAWTrack } from '../../lib/daw/store';
 import { dawEngine } from '../../lib/daw/engine';
 import { extractMusicalContext } from '../../lib/daw/context';
 import { validateStrudelPattern } from '../../lib/daw/strudel';
-import { sdk } from '../../lib/sdk';
+import { api } from '../../lib/api';
 import { Button } from '../button';
 import { Badge } from '../badge';
 import { Modal } from '../modal';
@@ -228,7 +228,7 @@ export const Strudel: React.FC<StrudelProps> = ({ track, active = true }) => {
           muted: t.muted,
           solo: t.solo,
         }));
-      const res = await sdk.fetch('/api/strudel', {
+      const res = await api.fetch('/api/strudel', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
