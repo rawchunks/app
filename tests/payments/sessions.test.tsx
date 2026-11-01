@@ -9,7 +9,13 @@ const mock = vi.hoisted(() => ({
   currentWallet: null as any, token: null as string | null, cleared: vi.fn(), listeners: new Map<string, Set<(event: any) => void>>(),
   attached: vi.fn(), clearWallet: vi.fn(), select: vi.fn(), connected: true,
   evmBalance: vi.fn(), evmAllowance: vi.fn(), evmApprove: vi.fn(), evmSend: vi.fn(), receipt: vi.fn(), tempoApprove: vi.fn(),
+  time: 0, update: (_: number) => {}, credit: null as any,
 }));
+vi.mock("@/lib/audio", () => ({ audio: {
+  load: vi.fn(() => { mock.time = 0; }), play: vi.fn(), pause: vi.fn(), reset: vi.fn(), stopImmediate: vi.fn(),
+  preloadNext: vi.fn(), hasSource: () => true, position: () => mock.time,
+  setOnTimeUpdate: (callback: any) => { mock.update = callback; }, setOnDuration: vi.fn(), setOnEnd: vi.fn(),
+} }));
 vi.mock("thirdweb", () => ({ getContract: vi.fn(input => input), sendTransaction: mock.evmSend, waitForReceipt: mock.receipt }));
 vi.mock("thirdweb/extensions/erc20", () => ({ balanceOf: mock.evmBalance, allowance: mock.evmAllowance, approve: mock.evmApprove }));
 vi.mock("@/components/connector", () => ({ approveTempoSession: mock.tempoApprove }));
@@ -23,7 +29,12 @@ vi.mock("@/contexts/Network", () => ({ NetworkGlyph: () => null, useChain: () =>
 vi.mock("@/hooks/use-address", () => ({ useSelectedUserAddress: () => ({ userAddress: mock.connected ? (mock.network.startsWith("eip155:") ? mock.smart : mock.svm) : null,
   readAddress: mock.svm, evmSignerAddress: mock.connected ? mock.admin : null, activate: mock.activate }) }));
 vi.mock("@/lib/svm/swig", () => ({ createSolanaRpcFromNetwork: vi.fn(() => ({})), readSvmTokenBalance: mock.balance, buildSwigApproveTransaction: mock.approve }));
-vi.mock("@/lib/sdk", () => ({ setCreditRequestContext: vi.fn(), sdk: {
+vi.mock("@/lib/sdk", () => ({
+  setCreditRequestContext: vi.fn(value => { mock.credit = value; }),
+  hasStreamBudget: () => Boolean(mock.token || Number(mock.credit?.cardAvailableAtomics) > 0), hasPromoCreditsOnly: () => false,
+  captureStreamBilling: (account: string) => [{ source: 'usdc', token: mock.token, account, network: mock.network, walletToken: null }],
+  streamOptions: (billing: any) => ({ key: billing.token, network: billing.network, userAddress: billing.account, headers: {} }),
+  sdk: {
   fetch: mock.fetch, x402: { facilitator: { supported: mock.support } }, svm: { relay: mock.relay },
   wallets: { attach: input => { mock.currentWallet = input; mock.token = null; mock.attached(input); }, current: () => mock.currentWallet ?? { address: null, network: null },
     clear: () => { mock.currentWallet = null; mock.token = null; mock.clearWallet(); } },
@@ -33,6 +44,9 @@ vi.mock("@/lib/sdk", () => ({ setCreditRequestContext: vi.fn(), sdk: {
 } }));
 
 import { SessionProvider, useSession, emptySession, readSession, writeSession, sameScope, requireSessionSupport } from "@/components/session";
+import { store } from '@/lib/store';
+import { audio } from '@/lib/audio';
+import { closeGate } from '@/lib/gate';
 import { zeroCredits } from "@/lib/credits";
 import { deriveSwigConfigAddress } from "@/lib/svm/account";
 const DEVNET = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1";
@@ -44,6 +58,7 @@ const keyResponse = () => ({ network: mock.network, keyId: "key", token: "token"
 const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 function emit(name: string, value: unknown) { mock.listeners.get(name)?.forEach(callback => callback(value)); }
 beforeEach(() => {
+  store.clearUserWorkspace(); closeGate(false); mock.time = 0;
   vi.clearAllMocks(); localStorage.clear(); mock.listeners.clear(); mock.network = DEVNET; mock.connected = true; mock.currentWallet = null; mock.token = null;
   mock.fetch.mockImplementation(async path => response(path === "/api/keys" ? keyResponse() : { hasSession: false }));
   mock.support.mockImplementation(async () => ({ kinds: [{ x402Version: 2, scheme: "upto", network: mock.network, extra: { feePayer: mock.svm } }] }));
@@ -54,13 +69,110 @@ beforeEach(() => {
   mock.evmApprove.mockReturnValue({}); mock.evmSend.mockResolvedValue({ transactionHash: "0x01" }); mock.receipt.mockResolvedValue({ status: "success" });
   mock.tempoApprove.mockResolvedValue(undefined);
 });
-afterEach(() => cleanup());
+afterEach(() => { cleanup(); store.clearUserWorkspace(); closeGate(false); });
 async function mount() {
   const result = render(<SessionProvider><Probe /></SessionProvider>);
   await waitFor(() => expect(mock.fetch).toHaveBeenCalledWith("/api/session", expect.objectContaining({ network: DEVNET, userAddress: mock.svm, key: null })));
   await act(async () => {});
   return result;
 }
+
+const paidSong = { id: 'paid-song', title: 'Paid', creator: 'other-creator', url: 'https://cdn.test/song.wav', stream_price: .03, duration: 180, public: true } as any;
+const checkpointResponse = (body: any) => response({ success: true, result: { status: 'confirmed', acceptedListenedSeconds: body.listenedSeconds, billedWei: '1001', deltaWei: '1001' } });
+async function startPlayback() {
+  await mount();
+  await act(async () => { await context.createSession('1000000', 1); });
+  const previous = mock.fetch.getMockImplementation()!;
+  mock.fetch.mockImplementation(async (path: string, init: any) => {
+    if (path.endsWith('/stream')) return response({ paymentIntentId: 'intent', url: paidSong.url });
+    if (path.endsWith('/checkpoint')) return checkpointResponse(JSON.parse(init.body));
+    return previous(path, init);
+  });
+  store.setUserAddress(mock.svm);
+  store.setActiveSong(paidSong);
+  await act(async () => { await store.setPlaying(true); });
+  mock.time = 2.003; mock.update(mock.time);
+}
+
+test('session disconnect stops active audio and flushes the captured fractional tail', async () => {
+  await startPlayback();
+  await act(async () => {
+    context.clearSession();
+    expect(audio.pause).toHaveBeenCalled();
+    expect(store.getState().isPlaying).toBe(false);
+  });
+  expect(mock.token).toBeNull();
+  const checkpoints = mock.fetch.mock.calls.filter(c => String(c[0]).endsWith('/checkpoint'));
+  expect(checkpoints).toHaveLength(1);
+  expect(checkpoints[0][1]).toMatchObject({ key: 'token', network: DEVNET, userAddress: mock.svm });
+  expect(JSON.parse(checkpoints[0][1].body)).toMatchObject({ listenedSeconds: 2.003, terminal: true });
+  expect(await store.setPlaying(true)).toBe(false);
+});
+
+test('session deletion stops audio and settles usage before revoking the captured key', async () => {
+  await startPlayback();
+  let accept!: () => void;
+  const order: string[] = [];
+  const previous = mock.fetch.getMockImplementation()!;
+  mock.fetch.mockImplementation((path: string, init: any) => {
+    if (path.endsWith('/checkpoint')) return new Promise<Response>(resolve => { accept = () => { order.push('settled'); resolve(checkpointResponse(JSON.parse(init.body))); }; });
+    if (init?.method === 'DELETE') { order.push('deleted'); return Promise.resolve(response({ success: true })); }
+    return previous(path, init);
+  });
+  let ending!: Promise<void>;
+  await act(async () => {
+    ending = context.endSession();
+    expect(audio.pause).toHaveBeenCalled();
+    expect(store.getState().isPlaying).toBe(false);
+  });
+  expect(mock.token).toBeNull();
+  expect(order).toEqual([]);
+  expect(await store.setPlaying(true)).toBe(false);
+  await act(async () => { accept(); await ending; });
+  expect(order).toEqual(['settled', 'deleted']);
+  expect(mock.fetch).toHaveBeenCalledWith('/api/keys/key', expect.objectContaining({ method: 'DELETE', key: 'token', userAddress: mock.svm, network: DEVNET }));
+});
+
+test('failed final settlement retains usage and prevents session deletion', async () => {
+  await startPlayback();
+  const previous = mock.fetch.getMockImplementation()!;
+  mock.fetch.mockImplementation((path: string, init: any) => path.endsWith('/checkpoint') ? Promise.resolve(response({ error: 'Unavailable' }, 503)) : previous(path, init));
+  await act(async () => { await expect(context.endSession()).rejects.toThrow(/settlement.*pending/i); });
+  expect(store.getState().isPlaying).toBe(false);
+  expect(mock.fetch.mock.calls.some(c => c[1]?.method === 'DELETE')).toBe(false);
+  const key = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i)).find(k => k?.startsWith('rawchunks:stream:'))!;
+  expect(JSON.parse(localStorage.getItem(key)!)).toMatchObject({ observedMs: 2003, acceptedMs: 0, terminal: true, billing: { token: 'token' } });
+});
+
+test('session expiry from the provider stops playback without waiting for another checkpoint', async () => {
+  await startPlayback();
+  await act(async () => { emit('sessionExpired', { userAddress: mock.svm, network: DEVNET }); });
+  expect(audio.pause).toHaveBeenCalled();
+  expect(store.getState().isPlaying).toBe(false);
+  expect(mock.token).toBeNull();
+});
+
+test('a delayed session refresh cannot reconnect a manually disconnected session', async () => {
+  await startPlayback();
+  let resolve!: (value: Response) => void;
+  mock.fetch.mockImplementationOnce(() => new Promise<Response>(done => { resolve = done; }));
+  let refreshing!: Promise<void>;
+  await act(async () => { refreshing = context.refreshSession(); });
+  await act(async () => { context.clearSession(); });
+  await act(async () => { resolve(response({ hasSession: true, ...keyResponse() })); await refreshing; });
+  expect(mock.token).toBeNull();
+  expect(context.session.active).toBe(false);
+});
+
+test.each([{ hasSession: false }, { hasSession: true, status: { isActive: false } }])('an inactive session refresh stops active playback: %j', async status => {
+  await startPlayback();
+  const previous = mock.fetch.getMockImplementation()!;
+  mock.fetch.mockImplementation((path: string, init: any) => path === '/api/session' ? Promise.resolve(response(status)) : previous(path, init));
+  await act(async () => { await context.refreshSession(); });
+  expect(store.getState().isPlaying).toBe(false);
+  expect(audio.pause).toHaveBeenCalled();
+  expect(mock.token).toBeNull();
+});
 
 test("first session activates before approval, derives from admin, signs with admin, then creates a key", async () => {
   await mount();
