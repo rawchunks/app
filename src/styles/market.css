@@ -14,6 +14,8 @@
 
 /* Header */
 .market-header {
+  position: relative;
+  z-index: 50;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -490,7 +492,7 @@
   padding: clamp(8px, 1.5vh, 16px) 0;
 }
 
-/* Discovery View Mode Pills & Live Activity Badge */
+/* Discovery View Mode Dropdown & Live Activity Badge */
 .market-live-badge {
   display: inline-flex;
   align-items: center;
@@ -505,39 +507,85 @@
   letter-spacing: 0.4px;
 }
 
-.market-view-pills {
-  display: flex;
+.market-view-select-wrap {
+  position: relative;
+  display: inline-flex;
   align-items: center;
-  gap: clamp(3px, 0.5vw, 6px);
-  flex-wrap: wrap;
+  flex: 0 0 auto;
 }
 
-.market-view-pill {
-  background: rgba(0, 0, 0, 0.45);
+.market-view-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  background: rgba(0, 0, 0, 0.6);
   border: 1px solid var(--border);
-  color: var(--text-secondary);
+  color: var(--text);
   font-family: var(--font-family);
   font-size: var(--font-xs);
   font-weight: 700;
   letter-spacing: 0.5px;
-  padding: 0 clamp(7px, 0.9vw, 11px);
-  height: var(--btn-h-xs);
+  padding: 0 10px;
+  height: var(--btn-h-sm);
+  min-width: clamp(108px, 16vw, 138px);
   border-radius: 2px;
   cursor: pointer;
-  transition: border-color 0.15s ease, color 0.15s ease, background-color 0.15s ease;
+  outline: none;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+  box-sizing: border-box;
+}
+
+.market-view-trigger:hover,
+.market-view-trigger:focus,
+.market-view-trigger.is-open {
+  border-color: var(--primary);
+}
+
+.market-view-trigger.has-selection {
+  border-color: var(--primary);
+  background: rgba(0, 240, 255, 0.08);
+  color: var(--primary);
+}
+
+.market-view-trigger.has-selection .market-select-icon {
+  color: var(--primary);
+}
+
+.market-view-trigger-label {
+  flex: 1 1 auto;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.market-view-pill:hover {
-  border-color: var(--border-bright);
-  color: var(--text);
+.market-view-chevron {
+  color: var(--text-dim);
+  flex-shrink: 0;
+  transition: transform 0.15s ease, color 0.15s ease;
 }
 
-.market-view-pill.active {
-  background: rgba(0, 255, 65, 0.16);
-  border-color: var(--primary);
+.market-view-trigger.is-open .market-view-chevron {
+  transform: rotate(180deg);
   color: var(--primary);
-  box-shadow: 0 0 10px rgba(0, 255, 65, 0.2);
+}
+
+.market-view-menu {
+  right: 0;
+  left: auto;
+  min-width: max(100%, 168px);
+}
+
+.market-view-option-left {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.market-popover-option.selected .market-select-icon {
+  color: var(--primary);
 }
 
 /* Feed Batch & Polling Config Menu */
@@ -573,7 +621,7 @@
   font-family: var(--font-family);
   font-size: var(--font-xs);
   font-weight: 700;
-  height: 22px;
+  height: var(--btn-h-xs);
   border-radius: 2px;
   cursor: pointer;
   transition: border-color 0.15s ease, color 0.15s ease, background-color 0.15s ease;
@@ -700,8 +748,8 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  height: 24px;
-  padding: 0 9px;
+  height: var(--btn-h-xs);
+  padding: 0 clamp(6px, 0.9vw, 9px);
   border-radius: 2px;
   font-family: var(--font-family);
   font-size: var(--font-xs);
@@ -798,8 +846,8 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  height: 22px;
-  padding: 0 8px;
+  height: var(--btn-h-xs);
+  padding: 0 clamp(6px, 0.8vw, 8px);
   border-radius: 2px;
   font-family: var(--font-family);
   font-size: var(--font-xs);
@@ -869,10 +917,10 @@
 
 .market-collection-play-btn {
   position: absolute;
-  right: 8px;
-  bottom: 8px;
-  width: 30px;
-  height: 30px;
+  right: clamp(5px, 3cqi, 8px);
+  bottom: clamp(5px, 3cqi, 8px);
+  width: clamp(24px, 14cqi, 30px);
+  height: clamp(24px, 14cqi, 30px);
   border-radius: 50%;
   background: var(--primary);
   color: #000;
@@ -882,6 +930,28 @@
   justify-content: center;
   cursor: pointer;
   box-shadow: 0 3px 10px rgba(0, 255, 65, 0.45);
+}
+
+.market-collection-delete-btn {
+  position: absolute;
+  top: clamp(4px, 2.5cqi, 6px);
+  right: clamp(4px, 2.5cqi, 6px);
+  width: clamp(20px, 11cqi, 24px);
+  height: clamp(20px, 11cqi, 24px);
+  border-radius: 2px;
+  background: rgba(5, 5, 5, 0.88);
+  border: 1px solid rgba(255, 80, 80, 0.4);
+  color: var(--danger, #ff5555);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.market-collection-delete-btn:hover {
+  border-color: var(--danger, #ff5555);
+  background: rgba(255, 80, 80, 0.22);
 }
 
 .market-collection-body {
@@ -950,8 +1020,8 @@
 }
 
 .market-playlist-focus-cover {
-  width: 56px;
-  height: 56px;
+  width: clamp(44px, 18cqi, 56px);
+  height: clamp(44px, 18cqi, 56px);
   border-radius: 3px;
   object-fit: cover;
   border: 1px solid var(--border);
@@ -995,7 +1065,16 @@
   padding-top: 6px;
 }
 
+.market-playlist-track-row-wrap {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
 .market-playlist-track-row {
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1008,6 +1087,34 @@
   font-size: var(--font-xs);
   cursor: pointer;
   text-align: left;
+}
+
+.market-playlist-track-remove-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: clamp(18px, 9cqi, 22px);
+  height: clamp(18px, 9cqi, 22px);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  color: var(--text-dim);
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 0;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.market-playlist-track-remove-btn:hover {
+  border-color: var(--danger, #ff5555);
+  color: var(--danger, #ff5555);
+}
+
+.market-shelf-inline-form {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
 }
 
 .market-playlist-track-row:hover,
@@ -1338,7 +1445,7 @@
 
 .market-card-plays-badge {
   position: absolute;
-  bottom: clamp(3px, 2cqi, 6px);
+  top: clamp(3px, 2cqi, 6px);
   left: clamp(3px, 2cqi, 6px);
   z-index: 6;
   display: inline-flex;

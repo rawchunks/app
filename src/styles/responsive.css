@@ -49,6 +49,25 @@
     padding: 12px;
   }
 
+  .studio-lyrics-row {
+    gap: 4px;
+  }
+
+  .studio-lyrics-toggles {
+    width: 100%;
+    justify-content: space-between;
+    flex-wrap: nowrap;
+    gap: 6px;
+  }
+
+  .studio-tags-sub-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .studio-tags-core-grid.pillars {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   /* Studio pocket view switching */
   .studio-container[data-pocket="create"] .studio-panel-feed {
     display: none;
@@ -232,16 +251,6 @@
   .market-search-box {
     flex: 1 1 160px;
     min-width: 0;
-  }
-
-  .market-view-pills {
-    width: 100%;
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-
-  .market-view-pills::-webkit-scrollbar {
-    display: none;
   }
 
   .market-tags-row {
