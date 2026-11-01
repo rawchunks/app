@@ -55,6 +55,10 @@ export interface Song {
   title: string;
   duration?: number;
   tags: string[];
+  genres?: string[];
+  production?: string[];
+  mood?: string[];
+  vocal?: string[];
   creator: string;       // useraddress
   public: boolean;       // isPublic
   image?: string;        // optional URL
@@ -92,6 +96,8 @@ export interface Fold {
   key: string;
   label: string;
   total: number;
+  image?: string | null;
+  imageStatus?: 'pending' | 'ready' | 'failed';
   songs: Song[];
 }
 

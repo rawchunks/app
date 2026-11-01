@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Modal } from './modal';
 import { Button } from './button';
-import { sdk } from '@/lib/sdk';
+import { api } from '@/lib/api';
 import { store } from '@/lib/store';
 import { Song } from '@/lib/schema';
 import { openGate } from '@/lib/gate';
@@ -18,22 +18,31 @@ export interface EditSongModalProps {
 
 const GENRES = [
   'Acid Techno',
+  'Airy Lead Vocals',
   'Ambient',
   'Breakcore',
+  'Cinematic Strings',
+  'Crisp Acoustic Drums',
   'Cyberpunk',
   'DNB',
   'Electro',
   'Electronic',
+  'Funky Electric Guitar',
   'Glitch',
   'Hardcore',
   'Hip Hop',
   'House',
   'Industrial',
   'Lo-Fi',
+  'Lo-Fi Tape Saturation',
+  'Lush Backing Harmonies',
+  'Neural Glitch',
+  'Punchy 808 Bass',
   'Rock',
   'Synthwave',
   'Techno',
   'Trance',
+  'Warm Analog Synth',
 ];
 
 export const EditSongModal: React.FC<EditSongModalProps> = ({
@@ -71,7 +80,7 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
     try {
       const data = new FormData();
       data.append('file', file);
-      const res = await sdk.fetch('/api/generation/cover', {
+      const res = await api.fetch('/api/generation/cover', {
         method: 'POST',
         body: data,
       });
@@ -93,7 +102,7 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
     if (!await openGate({ steps: ['login', 'funding'] })) return;
     setGeneratingCover(true);
     try {
-      const res = await sdk.fetch('/api/generation/cover', {
+      const res = await api.fetch('/api/generation/cover', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -157,7 +166,7 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
         patchPayload.license_price = lPrice;
       }
 
-      const res = await sdk.fetch(`/api/songs/${encodeURIComponent(song.id)}`, {
+      const res = await api.fetch(`/api/songs/${encodeURIComponent(song.id)}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         userAddress: activeAddress ?? undefined,

@@ -1,8 +1,40 @@
 import { useQuery } from '@tanstack/react-query';
-import { sdk } from '../lib/sdk';
+import { api } from '../lib/api';
 import type { Task } from '../lib/schema';
 
 export interface Choice { id: string; label: string }
+export interface TagItem {
+  id: string;
+  label: string;
+  desc: string;
+}
+export interface TagCategory {
+  id: string;
+  label: string;
+  desc: string;
+  max?: number;
+  tags: TagItem[];
+}
+export interface ScaleOption {
+  id: string;
+  label: string;
+  desc: string;
+}
+export interface TimeSignatureOption {
+  id: '2' | '3' | '4' | '6';
+  label: string;
+  desc: string;
+}
+export interface TempoPresetOption {
+  val: number;
+  label: string;
+  desc: string;
+}
+export interface DurationPresetOption {
+  val: number;
+  label: string;
+  desc: string;
+}
 export interface ReworkPreset {
   id: string;
   mode: 'conservative' | 'balanced' | 'aggressive';
@@ -43,7 +75,25 @@ export interface Parameter {
   tasks?: Task[];
 }
 export interface Options {
-  generation: { modes: Choice[]; languages: Choice[]; duration: { min: number; max: number }; parameters: Record<string, Parameter> };
+  generation: {
+    modes: Choice[];
+    languages: Choice[];
+    genres?: TagCategory[];
+    production?: TagCategory[];
+    styles?: TagCategory[];
+    moods?: TagCategory[];
+    vocals?: TagCategory[];
+    tags?: string[];
+    moodTags?: string[];
+    vocalTags?: string[];
+    roots?: string[];
+    scales?: ScaleOption[];
+    timeSignatures?: TimeSignatureOption[];
+    tempoPresets?: TempoPresetOption[];
+    durationPresets?: DurationPresetOption[];
+    duration: { min: number; max: number };
+    parameters: Record<string, Parameter>;
+  };
   editing: {
     modes: Choice[];
     tasks: (Choice & { modes: string[]; description: string })[];
@@ -65,7 +115,7 @@ export function useOptions() {
   return useQuery({
     queryKey: ['music-options'],
     queryFn: async (): Promise<Options> => {
-      const response = await sdk.fetch('/api/options');
+      const response = await api.fetch('/api/options');
       if (!response.ok) throw new Error('AI options are unavailable, try again in a minute.');
       return response.json();
     },
