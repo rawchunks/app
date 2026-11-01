@@ -52,6 +52,44 @@ export const normalizeTags = (tags?: string[] | null): string[] => {
 };
 
 /**
+ * Exact 1:1 static cover artwork shipped in /public/genres/*.jpeg.
+ * Dynamic genres not in this map are generated on-demand by the backend cover-art agent.
+ */
+export const GENRE_COVER_IMAGES: Record<string, string> = {
+  'acid-techno': '/genres/acid-techno.jpeg',
+  'airy-lead-vocals': '/genres/airy-lead-vocals.jpeg',
+  'airy-lead-vocals-alt': '/genres/airy-lead-vocals-alt.jpeg',
+  'cinematic-strings': '/genres/cinematic-strings.jpeg',
+  'crisp-acoustic-drums': '/genres/crisp-acoustic-drums.jpeg',
+  electronic: '/genres/electronic.jpeg',
+  'funky-electric-guitar': '/genres/funky-electric-guitar.jpeg',
+  'lo-fi-tape-saturation': '/genres/lo-fi-tape-saturation.jpeg',
+  'lush-backing-harmonies': '/genres/lush-backing-harmonies.jpeg',
+  'neural-glitch': '/genres/neural-glitch.jpeg',
+  'punchy-808-bass': '/genres/punchy-808-bass.jpeg',
+  rock: '/genres/rock.jpeg',
+  'warm-analog-synth': '/genres/warm-analog-synth.jpeg',
+};
+
+export const normalizeGenreSlug = (genre?: string | null): string => {
+  if (!genre || typeof genre !== 'string') return '';
+  return genre
+    .trim()
+    .replace(/^#+/, '')
+    .replace(/^genre:\s*/i, '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+};
+
+export const getGenreCoverImage = (genre?: string | null): string | null => {
+  const slug = normalizeGenreSlug(genre);
+  if (!slug) return null;
+  return GENRE_COVER_IMAGES[slug] ?? null;
+};
+
+/**
  * Format track duration in seconds to standard mm:ss
  */
 export const formatDuration = (secs?: number): string => {
