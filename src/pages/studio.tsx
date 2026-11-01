@@ -165,7 +165,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
       const previousModal = bind('studio.previous-modal', activeModal ?? 'none');
       const lyricId = ['L4', 'L5'].includes(id) ? bind('lyric-section', lyricsBlocks[0]?.id) : undefined;
       const patch: Partial<typeof guideView> = { mobilePocket: feed ? 'feed' : 'create', modelMenuOpen: id === 'S6',
-        studioFlow: id === 'S1' ? studioFlow : vibe ? 'vibe' : 'control', activeSection: ['S5', 'P3', 'P4', 'P5', 'P6', 'O1', 'O2', 'O3', 'C2'].includes(id) ? 'params' : 'details', financialsOpen: id === 'C4',
+        studioFlow: id === 'S1' ? studioFlow : vibe ? 'vibe' : 'control', activeSection: ['S5', 'P3', 'P4', 'P5', 'P6', 'C2'].includes(id) ? 'params' : 'details', financialsOpen: id === 'C4',
         activeModal: modal, showNewAlbumModal: id === 'C3' };
       if (id === 'O1') patch.voiceTab = 'saved';
       if (id === 'O2') patch.voiceTab = 'upload';
@@ -186,7 +186,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
           if (modal && modalForStep(next?.id ?? '') === modal) return;
           if (draftCanLeave('studio')) { view.leave?.(); if (guideViewRef.current.activeModal === modal && previousModal === 'none') setActiveModal(null); }
         },
-        focus: id === 'S3' || id === 'V5' ? 'textarea' : id === 'P2' || id === 'P6' ? 'input' : id === 'P5' ? '.studio-param-presets-grid.keys button' : id === 'L2' || id === 'L4' ? '.studio-lyrics-tray-card' : id === 'L5' ? 'self' : id === 'O1' ? '.studio-voice-list button' : ['P3', 'P4', 'C4', 'C3'].includes(id) ? 'input' : id === 'S6' ? '[aria-selected="true"]' : id === 'L7' ? '[data-guide="lyrics.done"]' : undefined };
+        focus: id === 'S3' || id === 'V5' ? 'textarea' : id === 'P2' ? 'input' : id === 'P6' ? '.studio-tags-core-grid button' : id === 'P5' ? '.studio-param-presets-grid.keys button' : id === 'L2' || id === 'L4' ? '.studio-lyrics-tray-card' : id === 'L5' ? 'self' : id === 'O1' ? '.studio-voice-list button' : ['P3', 'P4', 'C4', 'C3'].includes(id) ? 'input' : id === 'S6' ? '[aria-selected="true"]' : id === 'L7' ? '[data-guide="lyrics.done"]' : undefined };
       if (blockedLyrics) return { ...result, retry: () => !guideInputsRef.current.instrumental, target: 'studio.instrumental', description: 'Turn off INSTRUMENTAL to use lyrics and a vocal language.' };
       if (id === 'O3' && !voiceFile && !selectedVoiceId) return { ...result, target: 'voice.selection-status', focus: 'self', description: 'Choose a saved voice or reference recording to adjust resemblance.', retry: () => guideInputsRef.current.voiceSelected };
       if (id === 'V5') return { ...result, target: 'studio.details' };
@@ -1710,6 +1710,21 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                               <span className="studio-param-pill-icon">⚙</span>
                             </button>
                           </Tooltip>
+
+                          <Tooltip title="Configure Voice Profile">
+                            <button
+                              type="button"
+                              disabled={instrumental}
+                              className={`studio-param-pill-mini ${useVoice && voiceName ? 'configured' : ''}`}
+                              onClick={() => setActiveModal('voice')}
+                            >
+                              <span className="studio-param-pill-label">VOICE:</span>
+                              <span className="studio-param-pill-val">
+                                {instrumental ? 'MUTED' : useVoice && voiceName ? voiceName.toUpperCase() : 'DEFAULT'}
+                              </span>
+                              <span className="studio-param-pill-icon">⚙</span>
+                            </button>
+                          </Tooltip>
                         </div>
                       </div>
                       {instrumental ? (
@@ -1776,103 +1791,152 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                       </svg>
                     </span>
                     <span className="studio-card-title">MORE OPTIONS</span>
-                    <span className="studio-card-badge">{activeTags.length} TAGS</span>
+                    <span className="studio-card-badge">{allSelectedTags.length} TAGS</span>
                   </div>
                   <span className="studio-card-chevron">▲</span>
                 </div>
 
                 {activeSection === 'params' && (
                   <div className="studio-card-body">
-                    {/* 2x3 Parameter Trigger Cards (Collection + Style Tags + Duration + Tempo + Key + Voice) */}
+                    {/* 2x4 Parameter Trigger Cards (Genres + Production + Mood + Vocal + Duration + Tempo + Key + Collection) */}
                     <div className="studio-params-pills-grid">
-                      <button
-                        type="button"
-                        className={`studio-param-pill ${selectedAlbumId ? 'configured' : ''}`}
-                        onClick={() => setActiveModal('collection')}
-                      >
-                        <div className="studio-param-pill-header">
-                          <span className="studio-param-pill-label">COLLECTION</span>
-                          <span className="studio-param-pill-icon">⚙</span>
-                        </div>
-                        <div className="studio-param-pill-val">
-                          {albums.find((a) => a.id === selectedAlbumId)?.title.toUpperCase() ||
-                            'WORKSPACE'}
-                        </div>
-                      </button>
+                      <Tooltip title="Select up to 3 genres and sub-genres">
+                        <button
+                          type="button"
+                          className={`studio-param-pill ${activeGenres.length > 0 ? 'configured' : ''}`}
+                          onClick={() => openTagModal('genres')}
+                        >
+                          <div className="studio-param-pill-header">
+                            <span className="studio-param-pill-label">GENRES ({activeGenres.length}/3)</span>
+                            <span className="studio-param-pill-icon">⚙</span>
+                          </div>
+                          <div className="studio-param-pill-val">
+                            {formatTagSummary(activeGenres)}
+                          </div>
+                        </button>
+                      </Tooltip>
 
-                      <button
-                        type="button"
-                        className={`studio-param-pill ${activeTags.length > 0 ? 'configured' : ''}`}
-                        onClick={() => setActiveModal('tags')}
-                      >
-                        <div className="studio-param-pill-header">
-                          <span className="studio-param-pill-label">STYLE TAGS</span>
-                          <span className="studio-param-pill-icon">⚙</span>
-                        </div>
-                        <div className="studio-param-pill-val">
-                          {activeTags.length > 0
-                            ? activeTags.length <= 2
-                              ? activeTags.join(' · ')
-                              : `${activeTags.slice(0, 2).join(' · ')} +${activeTags.length - 2}`
-                            : 'NONE'}
-                        </div>
-                      </button>
+                      <Tooltip title="Select up to 1 tag per section: Timbre, Production, Mix, and Era">
+                        <button
+                          type="button"
+                          className={`studio-param-pill ${activeProduction.length > 0 ? 'configured' : ''}`}
+                          onClick={() => openTagModal('production')}
+                        >
+                          <div className="studio-param-pill-header">
+                            <span className="studio-param-pill-label">PRODUCTION ({activeProduction.length}/4)</span>
+                            <span className="studio-param-pill-icon">⚙</span>
+                          </div>
+                          <div className="studio-param-pill-val">
+                            {formatTagSummary(activeProduction)}
+                          </div>
+                        </button>
+                      </Tooltip>
 
-                      <button
-                        type="button"
-                        className={`studio-param-pill ${audioDurationSeconds ? 'configured' : ''}`}
-                        data-guide="studio.options" onClick={() => setActiveModal('duration')}
-                      >
-                        <div className="studio-param-pill-header">
-                          <span className="studio-param-pill-label">DURATION</span>
-                          <span className="studio-param-pill-icon">⚙</span>
-                        </div>
-                        <div className="studio-param-pill-val">
-                          {audioDurationSeconds ? `${audioDurationSeconds}s` : '120s (DEFAULT)'}
-                        </div>
-                      </button>
+                      <Tooltip title="Select up to 3 emotional tones and sonic atmospheres">
+                        <button
+                          type="button"
+                          className={`studio-param-pill ${activeMoods.length > 0 ? 'configured' : ''}`}
+                          onClick={() => openTagModal('mood')}
+                        >
+                          <div className="studio-param-pill-header">
+                            <span className="studio-param-pill-label">MOOD ({activeMoods.length}/3)</span>
+                            <span className="studio-param-pill-icon">⚙</span>
+                          </div>
+                          <div className="studio-param-pill-val">
+                            {formatTagSummary(activeMoods)}
+                          </div>
+                        </button>
+                      </Tooltip>
 
-                      <button
-                        type="button"
-                        className={`studio-param-pill ${bpm ? 'configured' : ''}`}
-                        onClick={() => setActiveModal('bpm')}
-                      >
-                        <div className="studio-param-pill-header">
-                          <span className="studio-param-pill-label">TEMPO (BPM)</span>
-                          <span className="studio-param-pill-icon">⚙</span>
-                        </div>
-                        <div className="studio-param-pill-val">
-                          {bpm ? `${bpm} BPM` : 'AUTO'}
-                        </div>
-                      </button>
+                      <Tooltip title="Select up to 1 tag per section: Type, Register, Timbre, and Delivery">
+                        <button
+                          type="button"
+                          disabled={instrumental}
+                          className={`studio-param-pill ${!instrumental && activeVocals.length > 0 ? 'configured' : ''}`}
+                          onClick={() => openTagModal('vocal')}
+                        >
+                          <div className="studio-param-pill-header">
+                            <span className="studio-param-pill-label">VOCAL ({instrumental ? 0 : activeVocals.length}/4)</span>
+                            <span className="studio-param-pill-icon">⚙</span>
+                          </div>
+                          <div className="studio-param-pill-val">
+                            {instrumental ? 'MUTED' : formatTagSummary(activeVocals)}
+                          </div>
+                        </button>
+                      </Tooltip>
 
-                      <button
-                        type="button"
-                        className={`studio-param-pill ${keyScale ? 'configured' : ''}`}
-                        onClick={() => setActiveModal('key')}
-                      >
-                        <div className="studio-param-pill-header">
-                          <span className="studio-param-pill-label">KEY & SCALE</span>
-                          <span className="studio-param-pill-icon">⚙</span>
-                        </div>
-                        <div className="studio-param-pill-val">
-                          {keyScale || 'AUTO'}
-                        </div>
-                      </button>
+                      <Tooltip title="Configure target track length from 15s to 300s">
+                        <button
+                          type="button"
+                          className={`studio-param-pill ${audioDurationSeconds ? 'configured' : ''}`}
+                          data-guide="studio.options" onClick={() => setActiveModal('duration')}
+                        >
+                          <div className="studio-param-pill-header">
+                            <span className="studio-param-pill-label">DURATION</span>
+                            <span className="studio-param-pill-icon">⚙</span>
+                          </div>
+                          <div className="studio-param-pill-val">
+                            {audioDurationSeconds ? `${audioDurationSeconds}s` : '120s (DEFAULT)'}
+                          </div>
+                        </button>
+                      </Tooltip>
 
-                      <button
-                        type="button"
-                        className={`studio-param-pill ${useVoice && voiceName ? 'configured' : ''}`}
-                        onClick={() => setActiveModal('voice')}
-                      >
-                        <div className="studio-param-pill-header">
-                          <span className="studio-param-pill-label">VOICE</span>
-                          <span className="studio-param-pill-icon">⚙</span>
-                        </div>
-                        <div className="studio-param-pill-val">
-                          {useVoice && voiceName ? voiceName : 'DEFAULT'}
-                        </div>
-                      </button>
+                      <Tooltip title="Configure beats per minute (40–220 BPM) and time signature">
+                        <button
+                          type="button"
+                          className={`studio-param-pill ${bpm || timeSignature ? 'configured' : ''}`}
+                          onClick={() => setActiveModal('bpm')}
+                        >
+                          <div className="studio-param-pill-header">
+                            <span className="studio-param-pill-label">TEMPO & METER</span>
+                            <span className="studio-param-pill-icon">⚙</span>
+                          </div>
+                          <div className="studio-param-pill-val">
+                            {(() => {
+                              const tsLabel = timeSignature
+                                ? (generation?.timeSignatures ?? []).find((ts) => ts.id === timeSignature)?.label ?? timeSignature
+                                : null;
+                              if (bpm && tsLabel) return `${bpm} BPM · ${tsLabel}`;
+                              if (bpm) return `${bpm} BPM`;
+                              if (tsLabel) return tsLabel;
+                              return 'AUTO';
+                            })()}
+                          </div>
+                        </button>
+                      </Tooltip>
+
+                      <Tooltip title="Configure musical root note and major/minor scale mode">
+                        <button
+                          type="button"
+                          className={`studio-param-pill ${keyScale ? 'configured' : ''}`}
+                          onClick={() => setActiveModal('key')}
+                        >
+                          <div className="studio-param-pill-header">
+                            <span className="studio-param-pill-label">KEY & SCALE</span>
+                            <span className="studio-param-pill-icon">⚙</span>
+                          </div>
+                          <div className="studio-param-pill-val">
+                            {keyScale ? keyScale.toUpperCase() : 'AUTO'}
+                          </div>
+                        </button>
+                      </Tooltip>
+
+                      <Tooltip title="Assign generated tracks to Workspace or a custom Album">
+                        <button
+                          type="button"
+                          className={`studio-param-pill ${selectedAlbumId ? 'configured' : ''}`}
+                          onClick={() => setActiveModal('collection')}
+                        >
+                          <div className="studio-param-pill-header">
+                            <span className="studio-param-pill-label">COLLECTION</span>
+                            <span className="studio-param-pill-icon">⚙</span>
+                          </div>
+                          <div className="studio-param-pill-val">
+                            {albums.find((a) => a.id === selectedAlbumId)?.title.toUpperCase() ||
+                              'WORKSPACE'}
+                          </div>
+                        </button>
+                      </Tooltip>
                     </div>
                   </div>
                 )}
