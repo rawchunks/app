@@ -62,9 +62,9 @@
   --space-xl: clamp(18px, 2.2vw, 32px);
 
   /* Fluid Card & Grid System */
-  --card-min-w: clamp(124px, 38vw, 200px);
-  --card-gap: clamp(6px, 1.2vw, 14px);
-  --album-min-w: clamp(124px, 38vw, 200px);
+  --card-min-w: clamp(136px, 14.5vw, 178px);
+  --card-gap: clamp(6px, 1vw, 12px);
+  --album-min-w: clamp(136px, 14.5vw, 178px);
 
   /* Fluid Studio & Editor Pane Proportions */
   --studio-left-w: clamp(280px, 34vw, 480px);
@@ -138,11 +138,11 @@
   --z-player: 60;
   --z-tabbar: 60;
   --z-popover: 220;
-  --z-guide-overlay: 940;
-  --z-guide-ring: 941;
-  --z-guide-card: 942;
   --z-scanlines: 999;
   --z-modal: 1000;
+  --z-guide-overlay: 1040;
+  --z-guide-ring: 1041;
+  --z-guide-card: 1042;
   --z-tooltip: 10000;
 
   /* Industry-Standard Stem Audio Palette (All 12 Canonical ACE-Step 1.5 XL Classes) */

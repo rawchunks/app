@@ -18,6 +18,8 @@
    ========================================================================== */
 @media (max-width: 768px) {
   :root {
+    --card-min-w: clamp(134px, 42vw, 168px);
+    --album-min-w: clamp(134px, 42vw, 168px);
     --board-row-h: clamp(56px, 7.6dvh, 68px);
     --board-master-row-h: clamp(72px, 9.5dvh, 88px);
     --board-header-w: clamp(134px, 38vw, 168px);
@@ -121,22 +123,57 @@
 
   /* Bottom Player Mobile Ergonomics (safe-area padding lives on the TabBar below) */
   .app-player {
-    height: auto;
-    min-height: 60px;
+    height: var(--player-height);
+    min-height: 54px;
     padding-bottom: 0;
-  }
-
-  .player-transport-row {
-    padding: 4px 8px;
-    gap: 8px;
   }
 
   .player-volume-wrap {
     display: none; /* Hidden on mobile to make room for transport controls */
   }
 
+  .player-transport-row {
+    padding: 0 10px 0 0;
+    gap: 8px;
+  }
+
   .player-track-info {
-    max-width: 180px;
+    flex: 1 1 0;
+    min-width: 0;
+    max-width: none;
+  }
+
+  .player-time-readout {
+    display: none !important;
+  }
+
+  .player-controls {
+    gap: 4px;
+    flex: 0 0 auto;
+  }
+
+  .player-skip-btn {
+    width: 28px !important;
+    min-width: 28px !important;
+    padding: 0 !important;
+  }
+
+  .player-play-btn {
+    width: 34px !important;
+    min-width: 34px !important;
+    padding: 0 !important;
+  }
+
+  .player-queue-btn {
+    width: 30px !important;
+    min-width: 30px !important;
+    padding: 0 !important;
+  }
+
+  .player-queue-drawer {
+    width: min(320px, calc(100vw - 16px));
+    right: -4px;
+    max-height: min(380px, 58dvh);
   }
 
   /* Market & MyPage */
@@ -148,17 +185,80 @@
 
   .market-filter-bar {
     padding: clamp(6px, 1.5vw, 10px);
-    gap: 8px;
+    gap: 6px;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+  }
+
+  .market-filter-search {
+    display: none !important;
+  }
+
+  .market-mobile-search-btn {
+    display: inline-flex !important;
+  }
+
+  .market-filter-selects {
+    flex-wrap: nowrap;
+    gap: 6px;
+    flex: 1 1 auto;
+    justify-content: flex-start;
+  }
+
+  .market-select-wrap {
+    flex: 0 0 auto;
+  }
+
+  .market-popover-trigger {
+    width: var(--btn-h-sm);
+    min-width: var(--btn-h-sm);
+    padding: 0;
+    justify-content: center;
+  }
+
+  .market-popover-trigger-label,
+  .market-popover-chevron {
+    display: none !important;
+  }
+
+  .market-order-toggle {
+    margin-left: auto;
+  }
+
+  .market-toolbar-top {
+    gap: 6px;
   }
 
   .market-search-box {
-    flex: 1 1 100%;
+    flex: 1 1 160px;
     min-width: 0;
+  }
+
+  .market-view-pills {
+    width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .market-view-pills::-webkit-scrollbar {
+    display: none;
   }
 
   .market-tags-row {
     width: 100%;
     padding-bottom: 2px;
+  }
+
+  .market-shelf-row {
+    grid-auto-columns: calc((100% - var(--card-gap)) / 2.15);
+  }
+
+  .market-shelf-track {
+    grid-auto-columns: clamp(138px, 43vw, 168px);
+  }
+
+  .market-collection-shelf {
+    grid-auto-columns: clamp(148px, 45vw, 178px);
   }
 
   .market-grid {
@@ -274,19 +374,6 @@
   .connect-avatar {
     width: calc(var(--header-btn-h) - 6px);
     height: calc(var(--header-btn-h) - 6px);
-  }
-
-  .player-track-info {
-    max-width: 120px;
-  }
-
-  .player-controls {
-    gap: 4px;
-  }
-
-  .player-play-btn {
-    min-width: 60px;
-    padding: 4px 8px;
   }
 
   .modal-inner-card {
