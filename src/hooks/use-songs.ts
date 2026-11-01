@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { sdk } from '../lib/sdk';
+import { api } from '../lib/api';
 import { readSongs, writeSongs } from '../lib/cache';
 import type { Song, Folds, Page } from '../lib/schema';
 
@@ -9,7 +9,7 @@ export function useSongs() {
     initialData: () => readSongs() ?? undefined,
     initialDataUpdatedAt: 0,
     queryFn: async ({ signal }): Promise<Song[]> => {
-      const response = await sdk.fetch('/api/songs', { signal });
+      const response = await api.fetch('/api/songs', { signal });
       if (!response.ok) throw new Error('Could not load public songs');
       const songs = await response.json();
       if (!Array.isArray(songs) || songs.some((song) => typeof song.id !== 'string' || song.public !== true)) {
@@ -22,11 +22,18 @@ export function useSongs() {
   });
 }
 
-export function useMarketFolds(foldLimit = 20, refetchIntervalMs: number | false = 60 * 60 * 1000) {
+export function useMarketFolds(
+  foldLimit = 50,
+  refetchIntervalMs: number | false = 60 * 60 * 1000,
+  windowMinutes = 60
+) {
   return useQuery({
-    queryKey: ['market', 'folds', foldLimit],
+    queryKey: ['market', 'folds', foldLimit, windowMinutes],
     queryFn: async ({ signal }): Promise<Folds> => {
-      const response = await sdk.fetch(`/api/market/folds?limit=${foldLimit}`, { signal });
+      const response = await api.fetch(
+        `/api/market/folds?limit=${foldLimit}&windowMinutes=${windowMinutes}`,
+        { signal }
+      );
       if (!response.ok) throw new Error('Could not load market folds');
       return await response.json();
     },
@@ -76,7 +83,7 @@ export function usePaginatedSongs(options: PaginatedSongsOptions = {}) {
       if (search && search.trim()) params.set('search', search.trim());
       if (sinceMinutes && sinceMinutes > 0) params.set('sinceMinutes', String(sinceMinutes));
 
-      const response = await sdk.fetch(`/api/songs?${params.toString()}`, { signal });
+      const response = await api.fetch(`/api/songs?${params.toString()}`, { signal });
       if (!response.ok) throw new Error('Could not query public songs');
       return await response.json();
     },

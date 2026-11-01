@@ -29,7 +29,8 @@ import { Modal } from '../components/modal';
 import { Tooltip } from '../components/daw/Tooltip';
 import { Card, normalizeTags } from '../components/card';
 import { store } from '../lib/store';
-import { useSongs } from '../hooks/use-songs';
+import { useSongs, useMarketFolds, usePaginatedSongs } from '../hooks/use-songs';
+import { useGenreCovers } from '../hooks/use-genres';
 import { usePublicAlbums } from '../hooks/use-albums';
 import {
   usePublicPlaylists,
@@ -101,8 +102,10 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
   const [foldedShelves, setFoldedShelves] = useState<Record<string, boolean>>({});
   const [shelfRows, setShelfRows] = useState<Record<string, number>>({});
 
-  const batchSize = 20;
-  const [visibleCount, setVisibleCount] = useState<number>(batchSize);
+  const [batchSize, setBatchSize] = useState<20 | 50 | 100>(20);
+  const [pollIntervalMin, setPollIntervalMin] = useState<15 | 30 | 60>(60);
+  const [feedConfigOpen, setFeedConfigOpen] = useState(false);
+  const [visibleCount, setVisibleCount] = useState<number>(20);
 
   const [creatorOpen, setCreatorOpen] = useState(false);
   const [creatorQuery, setCreatorQuery] = useState('');
@@ -118,12 +121,66 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
   const shelvesViewportRef = useRef<HTMLDivElement>(null);
   const creatorPopoverRef = useRef<HTMLDivElement>(null);
   const genrePopoverRef = useRef<HTMLDivElement>(null);
+  const feedConfigRef = useRef<HTMLDivElement>(null);
   const playlistModalRef = useRef<HTMLDivElement>(null);
 
-  const { data: publicSongs = [], isPending, error } = useSongs();
+  const { data: cachedPublicSongs = [], isPending: isSongsPending, error } = useSongs();
+  const { data: foldsData, isPending: isFoldsPending } = useMarketFolds(
+    batchSize,
+    pollIntervalMin * 60 * 1000,
+    pollIntervalMin
+  );
+  const { data: paginatedData } = usePaginatedSongs({
+    sort: 'new',
+    limit: Math.max(visibleCount * 2, 50),
+    offset: 0,
+    genre: selectedGenres.length === 1 ? selectedGenres[0] : undefined,
+    creator:
+      selectedCreator && (selectedCreator.startsWith('0x') || selectedCreator.length >= 32)
+        ? selectedCreator
+        : undefined,
+    search: search.trim() || undefined,
+    enabled: Boolean(
+      selectedCreator || selectedGenres.length > 0 || selectedAlbumId || search.trim() || order === 'oldest'
+    ),
+  });
   const { data: publicAlbums = [] } = usePublicAlbums();
   const { data: publicPlaylists = [] } = usePublicPlaylists(50);
   const { data: myPlaylists = [] } = useCreatorPlaylists(readAddress);
+
+  const publicSongs = useMemo<Song[]>(() => {
+    const map = new Map<string, Song>();
+    for (const s of cachedPublicSongs) {
+      if (s && s.id) map.set(s.id, s);
+    }
+    if (foldsData) {
+      for (const s of foldsData.newReleases?.songs || []) {
+        if (s && s.id) map.set(s.id, s);
+      }
+      for (const s of foldsData.popular?.songs || []) {
+        if (s && s.id) map.set(s.id, s);
+      }
+      for (const g of foldsData.genres || []) {
+        for (const s of g.songs || []) {
+          if (s && s.id) map.set(s.id, s);
+        }
+      }
+      for (const c of foldsData.creators || []) {
+        for (const s of c.songs || []) {
+          if (s && s.id) map.set(s.id, s);
+        }
+      }
+    }
+    if (paginatedData?.items) {
+      for (const s of paginatedData.items) {
+        if (s && s.id) map.set(s.id, s);
+      }
+    }
+    return Array.from(map.values());
+  }, [cachedPublicSongs, foldsData, paginatedData]);
+
+  const isPending = isSongsPending && isFoldsPending && publicSongs.length === 0;
+  const totalPublicCount = foldsData?.newReleases?.total ?? paginatedData?.total ?? publicSongs.length;
 
   useEffect(() => {
     setVisibleCount(batchSize);
@@ -149,6 +206,7 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
 
   useDismiss(creatorOpen, () => setCreatorOpen(false), creatorPopoverRef);
   useDismiss(genreOpen, () => setGenreOpen(false), genrePopoverRef);
+  useDismiss(feedConfigOpen, () => setFeedConfigOpen(false), feedConfigRef);
   useDismiss(Boolean(playlistTargetSong), () => setPlaylistTargetSong(null), playlistModalRef);
 
   // Map public albums and songs by id for rapid lookup
@@ -360,22 +418,28 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
 
   // Derived full shelves for progressive row addition in the Discovery Matrix
   const newReleasesAll = useMemo<Song[]>(() => {
-    return [...publicSongs].sort((a, b) => {
+    const foldSongs = foldsData?.newReleases?.songs || [];
+    const seen = new Set(foldSongs.map((s) => s.id));
+    const rest = publicSongs.filter((s) => !seen.has(s.id));
+    return [...foldSongs, ...rest].sort((a, b) => {
       const tA = a.created_at ? new Date(a.created_at).getTime() : 0;
       const tB = b.created_at ? new Date(b.created_at).getTime() : 0;
       return tB - tA;
     });
-  }, [publicSongs]);
+  }, [foldsData, publicSongs]);
 
   const popularAll = useMemo<Song[]>(() => {
-    return [...publicSongs].sort((a, b) => {
+    const foldSongs = foldsData?.popular?.songs || [];
+    const seen = new Set(foldSongs.map((s) => s.id));
+    const rest = publicSongs.filter((s) => !seen.has(s.id));
+    return [...foldSongs, ...rest].sort((a, b) => {
       const playsDiff = (b.plays ?? 0) - (a.plays ?? 0);
       if (playsDiff !== 0) return playsDiff;
       const tA = a.created_at ? new Date(a.created_at).getTime() : 0;
       const tB = b.created_at ? new Date(b.created_at).getTime() : 0;
       return tB - tA;
     });
-  }, [publicSongs]);
+  }, [foldsData, publicSongs]);
 
   const newReleaseGroups = useMemo(() => groupSongs(newReleasesAll), [newReleasesAll]);
   const popularGroups = useMemo(() => groupSongs(popularAll), [popularAll]);
@@ -681,7 +745,7 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
         <div className="market-header-left">
           <Glitch text="AUDIO_MARKET" className="market-title-text" />
           <div className="market-subtitle">
-            STREAM TRACKS • {publicSongs.length} PUBLIC TRACKS
+            STREAM TRACKS • {totalPublicCount} PUBLIC TRACKS
             {hasActiveFilters && (
               <span className="market-subtitle-filter">({displayedSongs.length} SHOWN)</span>
             )}
@@ -944,6 +1008,65 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
                 <ArrowUpNarrowWide size={13} />
               </button>
             </Tooltip>
+          </div>
+
+          {/* Live Feed Batch & Polling Window Config Popover */}
+          <div className="market-select-wrap" ref={feedConfigRef} style={{ flex: '0 0 auto' }}>
+            <Tooltip title={`Feed: ${batchSize} / ${pollIntervalMin}m`}>
+              <button
+                type="button"
+                className={`market-reset-filters-btn ${feedConfigOpen ? 'active' : ''}`}
+                onClick={() => {
+                  setFeedConfigOpen((prev) => !prev);
+                  setCreatorOpen(false);
+                  setGenreOpen(false);
+                  setViewMenuOpen(false);
+                }}
+                aria-label="Feed batch and polling settings"
+                aria-expanded={feedConfigOpen}
+              >
+                <SlidersHorizontal size={12} />
+              </button>
+            </Tooltip>
+            {feedConfigOpen && (
+              <div
+                className="market-popover-menu market-feed-config-menu"
+                style={{ right: 0, left: 'auto' }}
+                role="dialog"
+                aria-label="Feed settings"
+              >
+                <div className="market-config-group">
+                  <span className="market-config-label">BATCH SIZE</span>
+                  <div className="market-config-pills">
+                    {([20, 50, 100] as const).map((size) => (
+                      <button
+                        key={size}
+                        type="button"
+                        className={`market-config-pill ${batchSize === size ? 'active' : ''}`}
+                        onClick={() => setBatchSize(size)}
+                      >
+                        {size}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="market-config-group">
+                  <span className="market-config-label">POLL WINDOW</span>
+                  <div className="market-config-pills">
+                    {([15, 30, 60] as const).map((mins) => (
+                      <button
+                        key={mins}
+                        type="button"
+                        className={`market-config-pill ${pollIntervalMin === mins ? 'active' : ''}`}
+                        onClick={() => setPollIntervalMin(mins)}
+                      >
+                        {mins}M
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Clear Filters Reset Button */}
