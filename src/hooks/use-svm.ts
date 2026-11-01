@@ -3,7 +3,7 @@ import type { FacilitatorChain } from "@compose-market/sdk/chains";
 import { getSwigWalletAddress } from "@swig-wallet/kit";
 import { deriveSwigId, deriveSwigConfigAddress, deriveSwigWalletAddress, recoverEvmSecp256k1Pubkey, SWIG_AUTH_SIGN_MESSAGE } from "@/lib/svm/account";
 import { createSolanaRpcFromNetwork, fetchSwigAccount, readSvmTokenBalance, buildSelfFundedCreateSwigTransaction, buildUsdcFundedCreateSwigTransaction, SVM_ACTIVATION_MINIMUM_LAMPORTS } from "@/lib/svm/swig";
-import { sdk } from "@/lib/sdk";
+import { compose } from "@/lib/compose";
 
 /**
  * useSolanaSmartAccount — deterministic Solana Swig smart account per
@@ -48,8 +48,8 @@ const activationDependencies = {
   pubkey: recoverEvmSecp256k1Pubkey,
   selfFunded: buildSelfFundedCreateSwigTransaction,
   usdcFunded: buildUsdcFundedCreateSwigTransaction,
-  feePayer: () => sdk.svm.feePayer(),
-  relay: (input: Parameters<typeof sdk.svm.relay>[0]) => sdk.svm.relay(input),
+  feePayer: () => compose.svm.feePayer(),
+  relay: (input: Parameters<typeof compose.svm.relay>[0]) => compose.svm.relay(input),
 };
 
 export function createActivationService(deps = activationDependencies) {

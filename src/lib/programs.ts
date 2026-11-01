@@ -9,7 +9,7 @@ import {
 } from "@solana/kit";
 import type { NetworkId, SolanaNetworkId } from "@compose-market/sdk/chains";
 
-import { sdk } from "@/lib/sdk";
+import { compose } from "@/lib/compose";
 import { isEvmNetwork } from "@/lib/chains";
 import { deriveSwigConfigAddress } from "@/lib/svm/account";
 import {
@@ -729,7 +729,7 @@ export async function relaySolanaInstructions(input: {
   assertCurrent?: () => void;
 }): Promise<{ signature: string; confirmed: boolean }> {
   input.assertCurrent?.();
-  const feePayer = address(input.feePayer ?? (await sdk.svm.feePayer()).feePayer);
+  const feePayer = address(input.feePayer ?? (await compose.svm.feePayer()).feePayer);
   const swigConfigAddress = await deriveSwigConfigAddress(input.evmSignerAddress);
   input.assertCurrent?.();
   const unsignedTransaction = await buildSwigInstructionTransaction({
@@ -750,7 +750,7 @@ export async function relaySolanaInstructions(input: {
   });
 
   input.assertCurrent?.();
-  return sdk.svm.relay({
+  return compose.svm.relay({
     unsignedTransaction,
     network: input.network,
   });
