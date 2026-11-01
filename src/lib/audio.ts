@@ -46,6 +46,7 @@ class AudioEngine {
   private trackSwitchId = 0;
   private fadeRafId: number | null = null;
   private fadeOutDeck: HTMLAudioElement | null = null;
+  private isAutoOverlap = false;
 
   private onTimeUpdateCallback: ((time: number) => void) | null = null;
   private onDurationCallback: ((duration: number) => void) | null = null;
@@ -158,8 +159,8 @@ class AudioEngine {
   }
 
   /**
-   * Applies an imperceptible 12ms (single-frame) zero-crossing anti-click ramp on start,
-   * or a tight 60ms overlap only when auto-advancing into a pre-buffered standby deck.
+   * Applies a smooth sine fade-in on start, or an equal-power (sin/cos) crossfade
+   * when transitioning from an outgoing deck on manual switch or auto-advance.
    */
   private startDeckEnvelope(incoming: HTMLAudioElement) {
     if (this.fadeRafId !== null && typeof cancelAnimationFrame !== 'undefined') {
@@ -182,8 +183,6 @@ class AudioEngine {
       }
       this.fadeOutDeck = null;
 
-      // Single-frame (12ms) zero-crossing de-click: starts at 88% gain and reaches 100% on next frame.
-      // Preserves 100% of the opening transient/kick with zero audible fade-in.
       if (typeof requestAnimationFrame === 'undefined' || typeof performance === 'undefined') {
         try {
           incoming.volume = this.masterVolume;
@@ -191,22 +190,34 @@ class AudioEngine {
         return;
       }
 
-      const initialGain = this.masterVolume * 0.88;
+      const fadeInMs = 140;
+      const startTime = performance.now();
+      const baseGain = this.masterVolume * 0.22;
       try {
-        incoming.volume = Math.max(0, Math.min(1, initialGain));
+        incoming.volume = Math.max(0, Math.min(1, baseGain));
       } catch {}
 
-      this.fadeRafId = requestAnimationFrame(() => {
-        this.fadeRafId = null;
+      const tickIn = (now: number) => {
+        const t = Math.min(1, Math.max(0, (now - startTime) / fadeInMs));
+        const inGain = baseGain + Math.sin(t * Math.PI * 0.5) * (this.masterVolume - baseGain);
         try {
-          incoming.volume = this.masterVolume;
+          incoming.volume = Math.max(0, Math.min(1, inGain));
         } catch {}
-      });
+        if (t < 1) {
+          this.fadeRafId = requestAnimationFrame(tickIn);
+        } else {
+          this.fadeRafId = null;
+          try {
+            incoming.volume = this.masterVolume;
+          } catch {}
+        }
+      };
+
+      this.fadeRafId = requestAnimationFrame(tickIn);
       return;
     }
 
-    // Pre-buffered auto-advance overlap (60ms gapless handoff)
-    const durationMs = 60;
+    const durationMs = this.isAutoOverlap ? 420 : 320;
     if (typeof requestAnimationFrame === 'undefined' || typeof performance === 'undefined') {
       try {
         incoming.volume = this.masterVolume;
@@ -219,9 +230,9 @@ class AudioEngine {
     }
 
     const startTime = performance.now();
-    const startOutgoingVol = outgoing.volume;
+    const startOutgoingVol = outgoing.volume > 0 ? outgoing.volume : this.masterVolume;
     try {
-      incoming.volume = this.masterVolume * 0.5;
+      incoming.volume = this.masterVolume * 0.18;
     } catch {}
 
     const tick = (now: number) => {
@@ -280,11 +291,75 @@ class AudioEngine {
   }
 
   /**
-   * Immediately stops any playing deck at 0ms when switching tracks so the old track
-   * never lingers or emits stale timeupdate events.
+   * Swaps the active deck out and fades it down smoothly so the new activeDeck is
+   * immediately isolated at 0s (zero stale timeupdate events) while avoiding sharp cuts.
    */
-  public stopImmediate() {
+  public stopImmediate(hard = false) {
     this.trackSwitchId++;
+    this.isAutoOverlap = false;
+
+    if (
+      !hard &&
+      !this.activeDeck.paused &&
+      this.activeDeck.currentTime > 0 &&
+      typeof requestAnimationFrame !== 'undefined' &&
+      typeof performance !== 'undefined'
+    ) {
+      if (this.fadeRafId !== null && typeof cancelAnimationFrame !== 'undefined') {
+        cancelAnimationFrame(this.fadeRafId);
+        this.fadeRafId = null;
+      }
+      if (this.fadeOutDeck && this.fadeOutDeck !== this.activeDeck) {
+        try {
+          this.fadeOutDeck.pause();
+          this.fadeOutDeck.currentTime = 0;
+          this.fadeOutDeck.volume = 0;
+        } catch {}
+      }
+
+      const outgoing = this.activeDeck;
+      this.activeDeck = this.standbyDeck;
+      this.standbyDeck = outgoing;
+      this.fadeOutDeck = outgoing;
+
+      this.resetting = true;
+      this.isPlaying = false;
+      this.pendingPlay = false;
+      this.pendingSeek = 0;
+      try {
+        this.activeDeck.pause();
+        this.activeDeck.currentTime = 0;
+      } catch {}
+      this.resetting = false;
+
+      const startTime = performance.now();
+      const startVol = outgoing.volume > 0 ? outgoing.volume : this.masterVolume;
+      const fadeOutMs = 300;
+      const tickOut = (now: number) => {
+        if (this.fadeOutDeck !== outgoing) return;
+        const t = Math.min(1, Math.max(0, (now - startTime) / fadeOutMs));
+        const outGain = Math.cos(t * Math.PI * 0.5) * startVol;
+        try {
+          outgoing.volume = Math.max(0, Math.min(1, outGain));
+        } catch {}
+        if (t < 1) {
+          this.fadeRafId = requestAnimationFrame(tickOut);
+        } else {
+          this.fadeRafId = null;
+          try {
+            outgoing.pause();
+            outgoing.currentTime = 0;
+            outgoing.volume = 0;
+          } catch {}
+          if (this.fadeOutDeck === outgoing) {
+            this.fadeOutDeck = null;
+          }
+        }
+      };
+      this.fadeRafId = requestAnimationFrame(tickOut);
+      return;
+    }
+
     this.cancelActiveFade();
     this.resetting = true;
     this.isPlaying = false;
@@ -302,27 +377,18 @@ class AudioEngine {
   }
 
   public reset() {
-    this.stopImmediate();
+    this.stopImmediate(true);
     this.duration = 0;
   }
 
   public load(url: string, allowAutoOverlap = false) {
     if (!url) return;
     this.trackSwitchId++;
+    this.isAutoOverlap = allowAutoOverlap;
     const resolved = resolveUrl(url);
     const activeResolved = resolveUrl(this.activeDeck.src);
-    const standbyResolved = resolveUrl(this.standbyDeck.src);
 
-    // Gapless handoff ONLY when auto-advancing at end of track AND standbyDeck is already buffered
-    const canGaplessSwap =
-      allowAutoOverlap &&
-      !this.activeDeck.paused &&
-      Boolean(activeResolved) &&
-      activeResolved !== resolved &&
-      standbyResolved === resolved &&
-      this.standbyDeck.readyState >= 3;
-
-    if (canGaplessSwap) {
+    if (!this.activeDeck.paused && Boolean(activeResolved) && activeResolved !== resolved) {
       if (this.fadeOutDeck && this.fadeOutDeck !== this.activeDeck) {
         try {
           this.fadeOutDeck.pause();
@@ -331,31 +397,23 @@ class AudioEngine {
         } catch {}
       }
       const previousDeck = this.activeDeck;
-      const nextDeck = this.standbyDeck;
-      this.activeDeck = nextDeck;
+      this.activeDeck = this.standbyDeck;
       this.standbyDeck = previousDeck;
-
-      this.resetting = true;
-      this.pendingPlay = false;
-      this.pendingSeek = 0;
-      this.duration = 0;
-      try {
-        this.activeDeck.currentTime = 0;
-      } catch {}
-      this.resetting = false;
       this.fadeOutDeck = previousDeck;
-      return;
+    } else if (!this.fadeOutDeck || this.fadeOutDeck.paused) {
+      this.cancelActiveFade();
     }
 
-    // Immediate cut of any outgoing audio
-    this.cancelActiveFade();
     this.resetting = true;
     this.isPlaying = false;
     this.pendingPlay = false;
     this.pendingSeek = 0;
     this.duration = 0;
 
-    if (activeResolved === resolved) {
+    const currentActiveResolved = resolveUrl(this.activeDeck.src);
+    const currentStandbyResolved = resolveUrl(this.standbyDeck.src);
+
+    if (currentActiveResolved === resolved) {
       try {
         this.activeDeck.pause();
         this.activeDeck.currentTime = 0;
@@ -364,7 +422,7 @@ class AudioEngine {
       return;
     }
 
-    if (standbyResolved === resolved) {
+    if (currentStandbyResolved === resolved && this.fadeOutDeck !== this.standbyDeck) {
       try {
         this.activeDeck.pause();
         this.activeDeck.currentTime = 0;
