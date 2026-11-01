@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { sdk } from '../lib/sdk';
+import { api } from '../lib/api';
 import type { Playlist } from '../lib/schema';
 
 export function usePublicPlaylists(limit = 50) {
@@ -7,7 +7,7 @@ export function usePublicPlaylists(limit = 50) {
     queryKey: ['playlists', 'public', limit],
     queryFn: async ({ signal }): Promise<Playlist[]> => {
       try {
-        const response = await sdk.fetch(`/api/playlists?limit=${limit}`, { signal });
+        const response = await api.fetch(`/api/playlists?limit=${limit}`, { signal });
         if (!response.ok) return [];
         const playlists = await response.json();
         return Array.isArray(playlists) ? playlists : [];
@@ -26,7 +26,7 @@ export function useCreatorPlaylists(creatorAddress?: string | null) {
     enabled: Boolean(addr),
     queryFn: async ({ signal }): Promise<Playlist[]> => {
       if (!addr) return [];
-      const response = await sdk.fetch(`/api/playlists?creator=${encodeURIComponent(addr)}`, {
+      const response = await api.fetch(`/api/playlists?creator=${encodeURIComponent(addr)}`, {
         signal,
         headers: { 'x-user-address': addr },
       });
@@ -45,7 +45,7 @@ export function usePlaylistDetail(playlistId?: string | null) {
     enabled: Boolean(id),
     queryFn: async ({ signal }): Promise<Playlist | null> => {
       if (!id) return null;
-      const response = await sdk.fetch(`/api/playlists/${encodeURIComponent(id)}`, { signal });
+      const response = await api.fetch(`/api/playlists/${encodeURIComponent(id)}`, { signal });
       if (!response.ok) return null;
       return await response.json();
     },
@@ -67,7 +67,7 @@ export async function createPlaylistApi(
 ): Promise<Playlist> {
   const effectiveUser = userAddress || data.creator;
   const songIds = data.song_ids ?? data.songs ?? [];
-  const res = await sdk.fetch('/api/playlists', {
+  const res = await api.fetch('/api/playlists', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -100,7 +100,7 @@ export async function updatePlaylistApi(
   },
   userAddress?: string,
 ): Promise<Playlist> {
-  const res = await sdk.fetch(`/api/playlists/${encodeURIComponent(id)}`, {
+  const res = await api.fetch(`/api/playlists/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
@@ -120,7 +120,7 @@ export async function addSongToPlaylistApi(
   songId: string,
   userAddress?: string,
 ): Promise<Playlist> {
-  const res = await sdk.fetch(`/api/playlists/${encodeURIComponent(id)}/songs`, {
+  const res = await api.fetch(`/api/playlists/${encodeURIComponent(id)}/songs`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -140,7 +140,7 @@ export async function removeSongFromPlaylistApi(
   songId: string,
   userAddress?: string,
 ): Promise<Playlist> {
-  const res = await sdk.fetch(`/api/playlists/${encodeURIComponent(id)}/songs/${encodeURIComponent(songId)}`, {
+  const res = await api.fetch(`/api/playlists/${encodeURIComponent(id)}/songs/${encodeURIComponent(songId)}`, {
     method: 'DELETE',
     headers: {
       ...(userAddress ? { 'x-user-address': userAddress } : {}),
@@ -154,7 +154,7 @@ export async function removeSongFromPlaylistApi(
 }
 
 export async function deletePlaylistApi(id: string, userAddress?: string): Promise<void> {
-  const res = await sdk.fetch(`/api/playlists/${encodeURIComponent(id)}`, {
+  const res = await api.fetch(`/api/playlists/${encodeURIComponent(id)}`, {
     method: 'DELETE',
     headers: {
       ...(userAddress ? { 'x-user-address': userAddress } : {}),
@@ -168,7 +168,7 @@ export async function deletePlaylistApi(id: string, userAddress?: string): Promi
 
 export async function recordPlaylistPlayApi(id: string): Promise<Playlist | null> {
   try {
-    const res = await sdk.fetch(`/api/playlists/${encodeURIComponent(id)}/play`, {
+    const res = await api.fetch(`/api/playlists/${encodeURIComponent(id)}/play`, {
       method: 'POST',
     });
     if (!res.ok) return null;

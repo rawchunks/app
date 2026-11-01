@@ -11,7 +11,7 @@ const { thirdwebClient, isEvmNetwork, getEvmChainObject, getNetworkRpcUrl } = ch
 import { buyLicense, getFactoryContract, getRoyaltiesContract, requireEvmDeployment } from '../lib/contracts';
 import { fetchSolanaHasLicense, fetchSolanaSong, relaySolanaBuyLicense, requireSolanaDeployment } from '../lib/programs';
 import { creditsApi } from '../lib/credits';
-import { sdk } from '../lib/sdk';
+import { api } from '../lib/api';
 import { store } from '../lib/store';
 import { fetchFromIpfs } from '../lib/pinata';
 import { licenseSales } from '../lib/versions';
@@ -307,7 +307,7 @@ export function useLicense(song: Song, onEditSong?: (song: Song) => void, includ
     try {
       const state = await query.refetch({ throwOnError: true });
       if (!state.data?.owned) throw new Error('A purchased license is required to remix this song');
-      const response = await sdk.fetch(`/api/songs/${encodeURIComponent(song.id)}/remix`, { method: 'POST', userAddress });
+      const response = await api.fetch(`/api/songs/${encodeURIComponent(song.id)}/remix`, { method: 'POST', userAddress });
       const created = await response.json();
       if (!response.ok) throw new Error(created.error || 'Could not open a remix');
       store.addSong(created);

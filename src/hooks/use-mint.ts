@@ -10,7 +10,7 @@ import { getFactoryContract, getRemixContract, requireEvmDeployment } from '../l
 import { fetchSolanaFactoryConfig, fetchSolanaSong, relaySolanaMintSong, relaySolanaRemixSong, requireSolanaDeployment } from '../lib/programs';
 import { uploadSongMetadata } from '../lib/pinata';
 import { mintSong, type Mint } from '../lib/mint';
-import { sdk } from '../lib/sdk';
+import { api } from '../lib/api';
 import { store } from '../lib/store';
 import type { Song } from '../lib/schema';
 import type { SolanaNetworkId } from '@compose-market/sdk/chains';
@@ -33,7 +33,7 @@ function notify() { for (const listener of listeners) listener(); }
 function sameAddress(left: string, right: string) { return left.startsWith('0x') ? left.toLowerCase() === right.toLowerCase() : left === right; }
 
 async function loadSong(id: string, userAddress: string): Promise<Song> {
-  const response = await sdk.fetch(`/api/songs/${encodeURIComponent(id)}`, { userAddress });
+  const response = await api.fetch(`/api/songs/${encodeURIComponent(id)}`, { userAddress });
   const result = await response.json();
   if (!response.ok || !result.song) throw new Error(result.error || 'Could not load the song');
   return result.song;
@@ -88,7 +88,7 @@ export function useMint() {
     const job = navigator.locks.request(key, async () => mintSong({
       load: () => loadSong(input.id, userAddress),
       save: async updates => {
-        const response = await sdk.fetch(`/api/songs/${encodeURIComponent(input.id)}`, { userAddress, method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updates) });
+        const response = await api.fetch(`/api/songs/${encodeURIComponent(input.id)}`, { userAddress, method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updates) });
         const result = await response.json();
         if (!response.ok) throw new Error(result.error || 'Could not save the mint');
         store.updateSong(input.id, result);

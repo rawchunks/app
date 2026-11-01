@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { isVoice, readVoices, writeVoices } from '@/lib/cache';
 import type { Voice } from '@/lib/schema';
-import { sdk, watch } from '@/lib/sdk';
+import { api, watch } from '@/lib/api';
 
 function identity(address: string): string {
   return /^0x[0-9a-f]{40}$/i.test(address) ? address.toLowerCase() : address;
@@ -120,7 +120,7 @@ export function useVoices(address: string | null) {
     initialDataUpdatedAt: 0,
     queryFn: async ({ signal }): Promise<Voice[]> => {
       if (!address) return [];
-      const response = await sdk.fetch(`/api/voices?creator=${encodeURIComponent(address)}`, { signal, userAddress: address });
+      const response = await api.fetch(`/api/voices?creator=${encodeURIComponent(address)}`, { signal, userAddress: address });
       const result = await response.json();
       if (!response.ok) throw new Error(result?.error || 'Could not load your voices');
       const voices: unknown = result.voices;
