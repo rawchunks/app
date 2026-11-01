@@ -97,4 +97,152 @@ export function buildShareIntentUrl(text: string): string {
   return `https://x.com/intent/post?${params.toString()}`;
 }
 
+function drawRoundedRect(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number
+): void {
+  const r = Math.min(radius, width / 2, height / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + width, y, x + width, y + height, r);
+  ctx.arcTo(x + width, y + height, x, y + height, r);
+  ctx.arcTo(x, y + height, x, y, r);
+  ctx.arcTo(x, y, x + width, y, r);
+  ctx.closePath();
+}
+
+function loadImageElement(src: string, anonymous = false): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    if (anonymous) img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = (err) => reject(err);
+    img.src = src;
+  });
+}
+
+async function loadCorsSafeImage(src: string): Promise<HTMLImageElement> {
+  try {
+    const response = await fetch(src, {
+      mode: 'cors',
+      credentials: 'omit',
+      cache: 'no-cache',
+    });
+    if (response.ok) {
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      try {
+        return await loadImageElement(objectUrl, false);
+      } finally {
+        URL.revokeObjectURL(objectUrl);
+      }
+    }
+  } catch {
+    // Fall back to direct image element loading
+  }
+  return loadImageElement(src, true);
+}
+
+function drawCoverFit(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  dx: number,
+  dy: number,
+  dWidth: number,
+  dHeight: number
+): void {
+  const iw = img.naturalWidth || img.width;
+  const ih = img.naturalHeight || img.height;
+  if (!iw || !ih) return;
+
+  const scale = Math.max(dWidth / iw, dHeight / ih);
+  const sw = dWidth / scale;
+  const sh = dHeight / scale;
+  const sx = (iw - sw) / 2;
+  const sy = (ih - sh) / 2;
+
+  ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dWidth, dHeight);
+}
+
+/**
+ * Renders the native 1:1 (1080x1080) cover-art frame:
+ * 1:1 square cover art + neon green (#00ff41) inset frame border,
+ * with zero outer background margin.
+ */
+export async function renderShareCardPng(
+  _title: string,
+  imageUrl?: string
+): Promise<Blob> {
+  // 1080x1080 (1:1): X's native 1:1 square single-image feed specification
+  const size = 1080;
+  const radius = 12;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    throw new Error('Canvas 2D context unavailable');
+  }
+
+  // Clip strictly to the 1:1 native frame
+  ctx.save();
+  drawRoundedRect(ctx, 0, 0, size, size, radius);
+  ctx.clip();
+
+  ctx.fillStyle = '#0c0c12';
+  ctx.fillRect(0, 0, size, size);
+
+  let drewCover = false;
+  if (imageUrl && imageUrl.trim()) {
+    try {
+      const coverImg = await loadCorsSafeImage(imageUrl.trim());
+      drawCoverFit(ctx, coverImg, 0, 0, size, size);
+      drewCover = true;
+    } catch (e) {
+      console.warn('Could not load track cover for share card, using brand mark:', e);
+    }
+  }
+
+  if (!drewCover) {
+    try {
+      const fallbackLogo = await loadImageElement('/branding/mark.svg', false);
+      const logoSize = Math.round(size * 0.28);
+      const logoX = Math.round((size - logoSize) / 2);
+      const logoY = Math.round((size - logoSize) / 2);
+      ctx.globalAlpha = 0.65;
+      ctx.drawImage(fallbackLogo, logoX, logoY, logoSize, logoSize);
+      ctx.globalAlpha = 1;
+    } catch {
+      // Keep dark cover surface if mark svg is unavailable
+    }
+  }
+
+  // Native frame border (--primary #00ff41) inset along perimeter
+  ctx.save();
+  ctx.strokeStyle = '#00ff41';
+  ctx.lineWidth = 4;
+  drawRoundedRect(ctx, 2, 2, size - 4, size - 4, radius - 1);
+  ctx.stroke();
+  ctx.restore();
+
+  ctx.restore();
+
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (blob) resolve(blob);
+        else reject(new Error('Failed to encode share card PNG'));
+      },
+      'image/png',
+      1
+    );
+  });
+}
+
 
