@@ -50,7 +50,9 @@ import {
   evmChainId,
   getChainObject,
 } from "@/lib/chains";
-import { sdk, setCreditRequestContext } from "@/lib/sdk";
+import { compose } from "@/lib/compose";
+import { setCreditRequestContext } from "@/lib/api";
+import { store } from "@/lib/store";
 import { readPreferredFundingSource, writePreferredFundingSource } from "@/lib/cache";
 import { approveTempoSession, CardCheckout } from "@/components/connector";
 import { useCreditAccount } from "@/hooks/use-credits";
@@ -228,12 +230,12 @@ export function SessionProvider({ children, userAddress: propUserAddress }: Sess
 
   const attach = useCallback((target: SessionScope, token?: string | null) => {
     const targetKey = scopeKey(target);
-    if (attachedRef.current !== targetKey || scopeKey({ address: sdk.wallets.current().address ?? "", network: target.network }) !== targetKey
-      || sdk.wallets.current().network !== target.network) {
-      sdk.wallets.attach(target);
+    if (attachedRef.current !== targetKey || scopeKey({ address: compose.wallets.current().address ?? "", network: target.network }) !== targetKey
+      || compose.wallets.current().network !== target.network) {
+      compose.wallets.attach(target);
       attachedRef.current = targetKey;
     }
-    if (token) sdk.keys.use(token);
+    if (token) compose.keys.use(token);
   }, []);
 
   const refreshSession = useCallback(async () => {
@@ -243,7 +245,7 @@ export function SessionProvider({ children, userAddress: propUserAddress }: Sess
     refreshController.current = controller;
     try {
       // Explicit context prevents an old session token from accompanying a new scope.
-      const response = await sdk.fetch("/api/session", {
+      const response = await compose.fetch("/api/session", {
         method: "GET", userAddress: scope.address, network: scope.network,
         key: null, paymentMode: "key", signal: controller.signal,
       });
@@ -255,7 +257,7 @@ export function SessionProvider({ children, userAddress: propUserAddress }: Sess
       let cached: SessionState | null = null;
       try { cached = readSession(localStorage, scope); } catch { /* Optional cache. */ }
       const prevWalletSession = sameScope(sessionRef.current, scope) ? sessionRef.current : null;
-      const token = status.token ?? prevWalletSession?.token ?? cached?.token ?? sdk.keys.currentToken();
+      const token = status.token ?? prevWalletSession?.token ?? cached?.token ?? compose.keys.currentToken();
       attach(scope, token);
       if (!status.hasSession) {
         sdk.keys.clearToken();
@@ -282,7 +284,7 @@ export function SessionProvider({ children, userAddress: propUserAddress }: Sess
     refreshController.current?.abort();
     if (!scope) {
       if (isReconnecting && displayScope) return;
-      sdk.wallets.clear();
+      compose.wallets.clear();
       attachedRef.current = null;
       setSession(emptySession);
       return;
@@ -310,7 +312,7 @@ export function SessionProvider({ children, userAddress: propUserAddress }: Sess
     const matches = (value: { userAddress?: string | null; network?: string | null }) =>
       current.current.generation === generation && sameScope(value, scope);
     const disposers = [
-      sdk.events.on("budget", event => {
+      compose.events.on("budget", event => {
         if (!matches(event)) return;
         setSession(previous => sameScope(previous, scope) ? {
           ...previous,
@@ -320,7 +322,7 @@ export function SessionProvider({ children, userAddress: propUserAddress }: Sess
           budgetRemaining: event.snapshot.remainingWei ?? previous.budgetRemaining,
         } : previous);
       }),
-      sdk.events.on("sessionActive", event => {
+      compose.events.on("sessionActive", event => {
         if (!matches(event)) return;
         setSession(previous => sameScope(previous, scope) ? {
           ...previous, active: true,
@@ -329,12 +331,12 @@ export function SessionProvider({ children, userAddress: propUserAddress }: Sess
           expiresAt: event.expiresAt ?? previous.expiresAt,
         } : previous);
       }),
-      sdk.events.on("sessionExpired", event => {
+      compose.events.on("sessionExpired", event => {
         if (!matches(event)) return;
         sdk.keys.clearToken();
         setSession(previous => sameScope(previous, scope) ? { ...previous, active: false, token: null, budgetRemaining: "0" } : previous);
       }),
-      sdk.events.on("sessionInvalid", event => { if (matches(event)) void refreshSession(); }),
+      compose.events.on("sessionInvalid", event => { if (matches(event)) void refreshSession(); }),
     ];
     return () => disposers.forEach(dispose => dispose());
   }, [key, generation, refreshSession]);
@@ -344,7 +346,7 @@ export function SessionProvider({ children, userAddress: propUserAddress }: Sess
     const controller = new AbortController();
     void (async () => {
       try {
-        for await (const event of sdk.session.subscribe({ userAddress: scope.address, network: scope.network, signal: controller.signal })) void event;
+        for await (const event of compose.session.subscribe({ userAddress: scope.address, network: scope.network, signal: controller.signal })) void event;
       } catch (cause) {
         if (!controller.signal.aborted) console.warn("[session] events stream ended", cause);
       }
@@ -366,7 +368,7 @@ export function SessionProvider({ children, userAddress: propUserAddress }: Sess
       assertCurrent();
       refreshController.current?.abort();
       attach(scope);
-      const support = await sdk.x402.facilitator.supported();
+      const support = await compose.x402.facilitator.supported();
       assertCurrent();
       const kind = requireSessionSupport(support, network);
       if (isEvmNetwork(network)) {
@@ -423,14 +425,14 @@ export function SessionProvider({ children, userAddress: propUserAddress }: Sess
           },
         });
         assertCurrent();
-        const approved = await sdk.svm.relay({ unsignedTransaction, network });
+        const approved = await compose.svm.relay({ unsignedTransaction, network });
         assertCurrent();
         if (!approved.confirmed) throw new Error("Session approval is awaiting confirmation");
       } else throw new Error(`Unsupported network: ${network}`);
 
       assertCurrent();
       attach(scope);
-      const response = await sdk.fetch("/api/keys", {
+      const response = await compose.fetch("/api/keys", {
         method: "POST", key: null, userAddress: scope.address, network,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -464,7 +466,7 @@ export function SessionProvider({ children, userAddress: propUserAddress }: Sess
     if (!scope) return;
     assertCurrent();
     attach(scope);
-    sdk.keys.clearToken();
+    compose.keys.clearToken();
     try { writeSession(localStorage, scope, emptySession); } catch { /* Optional cache. */ }
     setSession(emptySession);
   }, [key, assertCurrent, attach]);
