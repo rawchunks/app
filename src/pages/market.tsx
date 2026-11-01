@@ -27,7 +27,7 @@ import { Glitch } from '../components/glitch';
 import { Button } from '../components/button';
 import { Modal } from '../components/modal';
 import { Tooltip } from '../components/daw/Tooltip';
-import { Card, normalizeTags } from '../components/card';
+import { Card, normalizeTags, getGenreCoverImage, normalizeGenreSlug } from '../components/card';
 import { store } from '../lib/store';
 import { useSongs, useMarketFolds, usePaginatedSongs } from '../hooks/use-songs';
 import { useGenreCovers } from '../hooks/use-genres';
@@ -496,6 +496,9 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
       }))
       .sort((a, b) => b.total - a.total);
   }, [popularPlayable]);
+
+  const genreLabelsForCovers = useMemo(() => genreItems.map((g) => g.label), [genreItems]);
+  const { data: genreCovers } = useGenreCovers(genreLabelsForCovers);
 
   const selectedCreatorGroup = useMemo(
     () => findCreatorGroup(creatorGroups, selectedCreator),
@@ -1366,7 +1369,13 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
                               return (
                                 <div key={rowIdx} className="market-shelf-row">
                                   {rowSlice.map((genreFold) => {
-                                    const cover = genreFold.songs[0]?.image || '/branding/mark.svg';
+                                    const slug = normalizeGenreSlug(genreFold.label);
+                                    const dynamicCover = slug ? genreCovers?.[slug]?.imageUrl : null;
+                                    const pairedGenreCover =
+                                      getGenreCoverImage(genreFold.label) || dynamicCover;
+                                    const fallbackCover =
+                                      genreFold.songs[0]?.image || '/branding/mark.svg';
+                                    const cover = pairedGenreCover || fallbackCover;
                                     const genreCtx = `genre:${genreFold.key}`;
                                     const isPlayingGenre =
                                       playing.active && playing.contextId === genreCtx;
@@ -1390,6 +1399,11 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
                                             alt={genreFold.label}
                                             loading="lazy"
                                             decoding="async"
+                                            onError={(e) => {
+                                              if (e.currentTarget.src !== fallbackCover) {
+                                                e.currentTarget.src = fallbackCover;
+                                              }
+                                            }}
                                           />
                                           <button
                                             type="button"
