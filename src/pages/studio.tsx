@@ -2315,18 +2315,18 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
       >
         <div className="studio-param-modal-content">
           <div className="studio-param-presets-grid">
-            {[30, 60, 90, 120, 180, 240, 300].map((sec) => (
+            {(generation?.durationPresets ?? []).map((p) => (
               <Tooltip
-                key={sec}
-                title={`${sec} SECONDS`}
-                description={sec >= 60 ? `${sec / 60} minute${sec > 60 ? 's' : ''}` : `${sec} seconds`}
+                key={p.val}
+                title={p.label}
+                description={p.desc}
               >
                 <Button
-                  variant={audioDurationSeconds === sec ? 'primary' : 'ghost'}
+                  variant={audioDurationSeconds === p.val ? 'primary' : 'ghost'}
                   size="sm"
-                  onClick={() => setAudioDurationSeconds(sec)}
+                  onClick={() => setAudioDurationSeconds(p.val)}
                 >
-                  {sec}s
+                  {p.label}
                 </Button>
               </Tooltip>
             ))}
@@ -2370,23 +2370,17 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
         </div>
       </Modal>
 
-      {/* BPM / Tempo Modal */}
+      {/* BPM / Tempo & Meter Modal */}
       <Modal
         guideOwner="studio" guideAnchor="studio.tempo-editor"
         isOpen={activeModal === 'bpm'}
         onClose={() => setActiveModal(null)}
-        title="TEMPO"
+        title="TEMPO & METER"
       >
         <div className="studio-param-modal-content">
+          <div className="studio-field-label">TEMPO PRESETS</div>
           <div className="studio-param-presets-grid">
-            {[
-              { val: 80, label: '80 BPM', desc: 'Downtempo' },
-              { val: 110, label: '110 BPM', desc: 'Midtempo' },
-              { val: 128, label: '128 BPM', desc: 'House' },
-              { val: 140, label: '140 BPM', desc: 'Techno' },
-              { val: 160, label: '160 BPM', desc: 'Hardcore' },
-              { val: 174, label: '174 BPM', desc: 'Drum & Bass' },
-            ].map((p) => (
+            {(generation?.tempoPresets ?? []).map((p) => (
               <Tooltip key={p.val} title={p.label} description={p.desc}>
                 <Button
                   variant={bpm === p.val ? 'primary' : 'ghost'}
@@ -2415,12 +2409,28 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
             />
           </div>
 
+          <div className="studio-field-label studio-field-label-spaced">TIME SIGNATURE</div>
+          <div className="studio-param-presets-grid meter">
+            {(generation?.timeSignatures ?? []).map((ts) => (
+              <Tooltip key={ts.id} title={ts.label} description={ts.desc}>
+                <Button
+                  variant={timeSignature === ts.id ? 'primary' : 'ghost'}
+                  size="sm"
+                  onClick={() => setTimeSignature(timeSignature === ts.id ? null : ts.id)}
+                >
+                  {ts.label}
+                </Button>
+              </Tooltip>
+            ))}
+          </div>
+
           <div className="studio-param-actions-row">
             <Button
               variant="ghost"
               size="sm"
               onClick={() => {
                 setBpm(null);
+                setTimeSignature(null);
                 setActiveModal(null);
               }}
             >
@@ -2442,12 +2452,12 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
         guideOwner="studio" guideAnchor="studio.key-editor"
         isOpen={activeModal === 'key'}
         onClose={() => setActiveModal(null)}
-        title="KEY"
+        title="KEY & SCALE"
       >
         <div className="studio-param-modal-content">
           <div className="studio-field-label">ROOT</div>
           <div className="studio-param-presets-grid keys">
-            {['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'].map((n) => (
+            {(generation?.roots ?? []).map((n) => (
               <Button
                 key={n}
                 variant={selectedRootNote === n ? 'primary' : 'ghost'}
@@ -2464,20 +2474,21 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
 
           <div className="studio-field-label studio-field-label-spaced">SCALE</div>
           <div className="studio-param-presets-grid">
-            {['major', 'minor', 'dorian', 'phrygian', 'mixolydian'].map((m) => (
-              <Button
-                key={m}
-                variant={selectedScaleMode === m ? 'primary' : 'ghost'}
-                size="sm"
-                onClick={() => {
-                  setSelectedScaleMode(m);
-                  if (selectedRootNote) {
-                    setKeyScale(`${selectedRootNote} ${m}`);
-                  }
-                }}
-              >
-                {m.toUpperCase()}
-              </Button>
+            {(generation?.scales ?? []).map((m) => (
+              <Tooltip key={m.id} title={m.label.toUpperCase()} description={m.desc}>
+                <Button
+                  variant={selectedScaleMode === m.id ? 'primary' : 'ghost'}
+                  size="sm"
+                  onClick={() => {
+                    setSelectedScaleMode(m.id);
+                    if (selectedRootNote) {
+                      setKeyScale(`${selectedRootNote} ${m.id}`);
+                    }
+                  }}
+                >
+                  {m.label.toUpperCase()}
+                </Button>
+              </Tooltip>
             ))}
           </div>
 
