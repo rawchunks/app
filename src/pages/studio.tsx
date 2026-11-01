@@ -3190,84 +3190,171 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
         </div>
       </Modal>
 
-      {/* Style Tags Modal */}
+      {/* Expanding UI Tags Modal (Genres / Production / Mood / Vocal) */}
       <Modal
         guideOwner="studio" guideAnchor="studio.tags-editor"
         isOpen={activeModal === 'tags'}
         onClose={() => {
           setActiveModal(null);
-          setTagSearch('');
+          setExpandedTagCategory(null);
         }}
-        title="STYLE TAGS"
+        title={
+          tagDimension === 'genres'
+            ? `GENRES (${activeGenres.length}/3)`
+            : tagDimension === 'production'
+              ? `PRODUCTION (${activeProduction.length}/4)`
+              : tagDimension === 'mood'
+                ? `MOOD (${activeMoods.length}/3)`
+                : `VOCAL (${activeVocals.length}/4)`
+        }
         size="md"
       >
-        <div className="studio-param-modal-content">
-          <div className="studio-lang-search-wrap">
-            <input
-              type="text"
-              className="cyber-input-field studio-lang-search-input"
-              placeholder="Filter style tags..."
-              value={tagSearch}
-              onChange={(e) => setTagSearch(e.target.value)}
-            />
-            {tagSearch && (
-              <button
-                type="button"
-                className="studio-lang-search-clear"
-                onClick={() => setTagSearch('')}
-                aria-label="Clear tag filter"
+        {(() => {
+          const categories: TagCategory[] =
+            tagDimension === 'genres'
+              ? generation?.genres ?? []
+              : tagDimension === 'production'
+                ? generation?.production ?? []
+                : tagDimension === 'mood'
+                  ? generation?.moods ?? []
+                  : generation?.vocals ?? [];
+
+          const currentSelection =
+            tagDimension === 'genres'
+              ? activeGenres
+              : tagDimension === 'production'
+                ? activeProduction
+                : tagDimension === 'mood'
+                  ? activeMoods
+                  : activeVocals;
+
+          const currentSetter =
+            tagDimension === 'genres'
+              ? setActiveGenres
+              : tagDimension === 'production'
+                ? setActiveProduction
+                : tagDimension === 'mood'
+                  ? setActiveMoods
+                  : setActiveVocals;
+
+          const isSegmented = tagDimension === 'production' || tagDimension === 'vocal';
+          const expandedCategory = categories.find((c) => c.id === expandedTagCategory) ?? null;
+
+          const findTagMeta = (tagId: string) => {
+            for (const cat of categories) {
+              const found = cat.tags.find((t) => t.id === tagId);
+              if (found) return found;
+            }
+            return { id: tagId, label: tagId, desc: '' };
+          };
+
+          return (
+            <div className="studio-param-modal-content studio-tags-expanding-modal">
+              {/* Step 1: Core Categories (Click a Core category to reveal Sub-Tags below) */}
+              <div
+                className={`studio-tags-core-tabs ${
+                  categories.length === 4
+                    ? 'cols-4'
+                    : categories.length === 6
+                      ? 'cols-3'
+                      : 'cols-wrap'
+                }`}
               >
-                ✕
-              </button>
-            )}
-          </div>
+                {categories.map((cat) => {
+                  const isExpanded = expandedTagCategory === cat.id;
+                  const selectedInCat = cat.tags.filter((t) => currentSelection.includes(t.id));
+                  const hasSelection = selectedInCat.length > 0;
+                  return (
+                    <Tooltip key={cat.id} title={cat.desc}>
+                      <button
+                        type="button"
+                        aria-expanded={isExpanded}
+                        className={`studio-tags-core-pill ${isExpanded ? 'expanded' : ''} ${hasSelection ? 'has-selection' : ''}`}
+                        onClick={() => setExpandedTagCategory(isExpanded ? null : cat.id)}
+                      >
+                        <span className="studio-tags-core-title">{cat.label.toUpperCase()}</span>
+                        {hasSelection && (
+                          <span className="studio-tags-core-badge">{selectedInCat.length}</span>
+                        )}
+                        <span className="studio-tags-core-chevron">{isExpanded ? '▲' : '▼'}</span>
+                      </button>
+                    </Tooltip>
+                  );
+                })}
+              </div>
 
-          <div className="studio-field-label">
-            <span>SELECTED</span>
-            <span className="studio-highlight">{activeTags.length} / 5</span>
-          </div>
+              {/* Step 2: Sub-Tags (Directly revealed when a Core category is selected) */}
+              {expandedCategory && (
+                <div className="studio-tags-sub-grid">
+                  {expandedCategory.tags.map((tag) => {
+                    const isSelected = currentSelection.includes(tag.id);
+                    return (
+                      <Tooltip key={tag.id} title={tag.desc}>
+                        <button
+                          type="button"
+                          className={`studio-tags-sub-chip ${isSelected ? 'active' : ''}`}
+                          onClick={() => {
+                            if (isSegmented) {
+                              toggleSegmentedTag(tag.id, expandedCategory, currentSelection, currentSetter);
+                            } else {
+                              toggleMultiTag(tag.id, currentSelection, currentSetter, 3);
+                            }
+                          }}
+                        >
+                          <span className="studio-tags-sub-chip-label">{tag.label.toUpperCase()}</span>
+                          {isSelected && <span className="studio-tags-sub-chip-check">✓</span>}
+                        </button>
+                      </Tooltip>
+                    );
+                  })}
+                </div>
+              )}
 
-          <div className="studio-tags-modal-grid scrollable">
-            {(options.data?.editing?.promptTags ?? [])
-              .map((rawTag) => rawTag.toUpperCase())
-              .filter((t) => !tagSearch.trim() || t.includes(tagSearch.trim().toUpperCase()))
-              .map((t) => {
-                const isSelected = activeTags.includes(t);
-                return (
-                  <Badge
-                    key={t}
-                    clickable
-                    active={isSelected}
-                    variant={isSelected ? 'primary' : 'muted'}
-                    onClick={() => toggleTag(t)}
-                  >
-                    {t}
-                  </Badge>
-                );
-              })}
-          </div>
+              {/* Active Selection Pills (Only visible when tags are selected) */}
+              {currentSelection.length > 0 && (
+                <div className="studio-tags-selected-badges">
+                  {currentSelection.map((tagId) => {
+                    const meta = findTagMeta(tagId);
+                    return (
+                      <Tooltip key={tagId} title={meta.desc || 'Click to remove'}>
+                        <button
+                          type="button"
+                          className="studio-tags-active-pill"
+                          onClick={() => currentSetter(currentSelection.filter((t) => t !== tagId))}
+                        >
+                          <span>{meta.label.toUpperCase()}</span>
+                          <span className="studio-tags-active-pill-x">✕</span>
+                        </button>
+                      </Tooltip>
+                    );
+                  })}
+                </div>
+              )}
 
-          <div className="studio-param-actions-row">
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={activeTags.length === 0}
-              onClick={() => setActiveTags([])}
-            >
-              CLEAR
-            </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={() => {
-                setActiveModal(null);
-                setTagSearch('');
-              }}
-            >
-              DONE
-            </Button>
-          </div>
-        </div>
+              {/* Footer Actions */}
+              <div className="studio-param-actions-row">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={currentSelection.length === 0}
+                  onClick={() => currentSetter([])}
+                >
+                  CLEAR
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => {
+                    setActiveModal(null);
+                    setExpandedTagCategory(null);
+                  }}
+                >
+                  DONE
+                </Button>
+              </div>
+            </div>
+          );
+        })()}
       </Modal>
 
       {/* Cover Art Expand Modal */}
