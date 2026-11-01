@@ -21,6 +21,7 @@ import {
   Shuffle,
   Repeat,
   Repeat1,
+  Sparkles,
   X,
   FolderPlus,
   Trash2,
@@ -164,6 +165,7 @@ export const Player: React.FC<Props> = ({ className = '' }) => {
           prev.queueIndex === next.queueIndex &&
           prev.repeatMode === next.repeatMode &&
           prev.shuffle === next.shuffle &&
+          prev.autoplay === next.autoplay &&
           prev.activePlaylistId === next.activePlaylistId &&
           prev.activeContextId === next.activeContextId
         ) {
@@ -390,7 +392,7 @@ export const Player: React.FC<Props> = ({ className = '' }) => {
               variant="ghost"
               className="player-skip-btn"
               aria-label="Next"
-              disabled={state.queue.length <= 1}
+              disabled={state.queue.length === 0 && !currentSong}
               onClick={() => store.playNextTrack()}
             >
               <SkipForward size={13} />
@@ -460,6 +462,20 @@ export const Player: React.FC<Props> = ({ className = '' }) => {
                         aria-label="Repeat"
                       >
                         {state.repeatMode === 'one' ? <Repeat1 size={12} /> : <Repeat size={12} />}
+                      </button>
+                    </Tooltip>
+
+                    <Tooltip
+                      title={state.autoplay ? 'Continuous Autoplay: ON' : 'Continuous Autoplay: OFF'}
+                      position="top"
+                    >
+                      <button
+                        type="button"
+                        className={`player-mode-btn ${state.autoplay ? 'active' : ''}`}
+                        onClick={() => store.toggleAutoplay()}
+                        aria-label="Continuous Autoplay"
+                      >
+                        <Sparkles size={12} />
                       </button>
                     </Tooltip>
 

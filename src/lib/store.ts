@@ -917,9 +917,21 @@ class Store {
     }
   }
 
+  private getPublicCatalog(): Song[] {
+    const cachedPublic = readSongs('public') || [];
+    const map = new Map<string, Song>();
+    for (const s of this.state.songs) {
+      if (s && s.id && s.public) map.set(s.id, s);
+    }
+    for (const s of cachedPublic) {
+      if (s && s.id && s.public && !map.has(s.id)) map.set(s.id, s);
+    }
+    return Array.from(map.values());
+  }
+
   private peekNextSong(): Song | null {
-    const { queue, queueIndex, repeatMode, shuffle, activeSong } = this.state;
-    if (queue.length === 0) return null;
+    const { queue, queueIndex, repeatMode, shuffle, autoplay, activeSong } = this.state;
+    if (queue.length === 0 && !activeSong) return null;
     if (repeatMode === 'one' && activeSong) return activeSong;
     if (shuffle && queue.length > 1) {
       const candidates = queue.filter((_, idx) => idx !== queueIndex);
@@ -929,6 +941,13 @@ class Store {
     if (nextIdx < queue.length) {
       return queue[nextIdx];
     }
+    if (autoplay) {
+      const playedIds = new Set([activeSong?.id, ...this.playedHistory.map((s) => s.id)]);
+      const unplayedCatalog = this.getPublicCatalog().filter((s) => !playedIds.has(s.id));
+      if (unplayedCatalog.length > 0) {
+        return unplayedCatalog[0];
+      }
+    }
     if (repeatMode === 'all') {
       return this.playedHistory[0] || queue[0] || null;
     }
@@ -936,11 +955,11 @@ class Store {
   }
 
   public async playNextTrack(fromAutoAdvance = false): Promise<boolean> {
-    const { queue, queueIndex, repeatMode, shuffle, activeSong } = this.state;
-    if (queue.length === 0) return false;
+    const { queue, queueIndex, repeatMode, shuffle, autoplay, activeSong } = this.state;
+    if (queue.length === 0 && !activeSong) return false;
 
     if (fromAutoAdvance && repeatMode === 'one' && activeSong) {
-      this.setPlayhead(0);
+      this.setActiveSong(activeSong, undefined, undefined, undefined, true);
       return await this.setPlaying(true);
     }
 
@@ -953,10 +972,19 @@ class Store {
     let remaining = queue.slice(currentIdx + 1);
 
     if (remaining.length === 0) {
-      if (repeatMode === 'all' || !fromAutoAdvance) {
+      const publicCatalog = this.getPublicCatalog();
+      const playedIds = new Set([finishedSong?.id, ...this.playedHistory.map((s) => s.id)]);
+      const unplayedCatalog = publicCatalog.filter((s) => !playedIds.has(s.id));
+      if (unplayedCatalog.length > 0 && (!fromAutoAdvance || autoplay)) {
+        remaining = unplayedCatalog;
+      } else if (repeatMode === 'all' || !fromAutoAdvance) {
         const refill = [...this.playedHistory].reverse().filter((s) => s && s.id !== finishedSong?.id);
+        const catalogFallback = publicCatalog.filter((s) => s.id !== finishedSong?.id);
         if (refill.length > 0) {
           remaining = refill;
+          this.playedHistory = [];
+        } else if (catalogFallback.length > 0 && (!fromAutoAdvance || autoplay)) {
+          remaining = catalogFallback;
           this.playedHistory = [];
         } else if (finishedSong) {
           remaining = [finishedSong];
@@ -990,11 +1018,7 @@ class Store {
     };
     this.persistQueue(remaining);
 
-    if (nextSong.id === activeSong?.id) {
-      this.setPlayhead(0);
-      this.notify();
-      return await this.setPlaying(true);
-    }
+
 
     this.setActiveSong(nextSong, undefined, undefined, undefined, true);
     return await this.setPlaying(true);
@@ -1054,6 +1078,20 @@ class Store {
       } catch {}
     }
     this.notify();
+  }
+
+  public setAutoplay(autoplay: boolean) {
+    this.state = { ...this.state, autoplay };
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem(STORAGE_KEYS.autoplay, String(autoplay));
+      } catch {}
+    }
+    this.notify();
+  }
+
+  public toggleAutoplay() {
+    this.setAutoplay(!this.state.autoplay);
   }
 
   public toggleShuffle() {
