@@ -245,4 +245,44 @@ export async function renderShareCardPng(
   });
 }
 
+export async function copyShareCardToClipboard(
+  blobOrPromise: Blob | Promise<Blob>
+): Promise<boolean> {
+  if (
+    typeof navigator === 'undefined' ||
+    !navigator.clipboard?.write ||
+    typeof ClipboardItem === 'undefined'
+  ) {
+    return false;
+  }
+  try {
+    const item = new ClipboardItem({
+      'image/png': Promise.resolve(blobOrPromise),
+    });
+    await navigator.clipboard.write([item]);
+    return true;
+  } catch (e) {
+    console.warn('Clipboard image write failed:', e);
+    return false;
+  }
+}
 
+export function buildShareCardFilename(title: string): string {
+  const slug = (title || 'track')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return `${slug || 'track'}-rawchunks.png`;
+}
+
+export function downloadShareCard(blob: Blob, title: string): void {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = buildShareCardFilename(title);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 2000);
+}

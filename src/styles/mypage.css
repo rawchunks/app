@@ -815,6 +815,126 @@
   margin-top: 8px;
 }
 
+/* Share Modal */
+.share-spec-copy-btn {
+  max-width: 260px;
+  min-width: 0;
+}
+
+.share-spec-copy-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.share-compose-wrap {
+  gap: 8px;
+}
+
+.share-compose-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.share-compose-body {
+  display: grid;
+  grid-template-columns: clamp(108px, 31cqi, 134px) minmax(0, 1fr);
+  gap: 10px;
+  align-items: stretch;
+}
+
+.daw-tooltip-wrapper.share-card-preview-tooltip {
+  display: flex;
+  width: 100%;
+  height: 100%;
+}
+
+.share-native-frame {
+  position: relative;
+  display: flex;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  background-color: rgba(8, 8, 12, 0.98);
+  border: 1px solid var(--primary);
+  box-shadow: var(--glow-primary);
+  border-radius: 4px;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.daw-tooltip-wrapper.share-native-frame-copy-wrap {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 2;
+}
+
+.share-native-frame-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: rgba(8, 8, 12, 0.86);
+  border: 1px solid rgba(0, 255, 65, 0.45);
+  border-radius: 3px;
+  color: var(--text);
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.share-native-frame-copy-btn:hover,
+.share-native-frame-copy-btn.copied {
+  color: var(--primary);
+  border-color: var(--primary);
+  background: rgba(8, 8, 12, 0.95);
+}
+
+.share-native-frame-art {
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: none;
+  background: #0c0c12;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: filter 0.15s ease;
+}
+
+.share-native-frame-art:hover {
+  filter: brightness(1.08);
+}
+
+.share-native-frame-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.share-compose-textarea {
+  resize: none !important;
+  height: 100%;
+  min-height: clamp(108px, 31cqi, 134px);
+  line-height: 1.42;
+  font-size: var(--font-xs);
+  box-sizing: border-box;
+}
+
+.share-compose-char-count {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
 /* Edit Song Details Modal */
 .edit-song-content {
   display: flex;
