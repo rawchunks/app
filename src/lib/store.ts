@@ -313,21 +313,52 @@ class Store {
     } catch {}
   }
 
+  private getViewerAddresses(): string[] {
+    const candidates = new Set<string>();
+    if (this.state.userAddress) candidates.add(this.state.userAddress.trim());
+    if (this.state.evmAddress) candidates.add(this.state.evmAddress.trim());
+    if (this.state.svmAddress) candidates.add(this.state.svmAddress.trim());
+    const currentWallet = compose.wallets.current() as { address?: string; svmAddress?: string } | null;
+    if (currentWallet?.address) candidates.add(currentWallet.address.trim());
+    if (currentWallet?.svmAddress) candidates.add(currentWallet.svmAddress.trim());
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = localStorage.getItem('last_account');
+        if (raw) {
+          const parsed = JSON.parse(raw) as { address?: string; evmAddress?: string; svmAddress?: string };
+          if (parsed?.address) candidates.add(parsed.address.trim());
+          if (parsed?.evmAddress) candidates.add(parsed.evmAddress.trim());
+          if (parsed?.svmAddress) candidates.add(parsed.svmAddress.trim());
+        }
+      } catch {}
+    }
+    return Array.from(candidates).filter(Boolean);
+  }
+
   private async recordSongPlay(songId: string) {
-    if (!songId) return;
+    const activeContext = (this.state.activeContextId || '').toLowerCase();
+    const isMyPageRoute = typeof window !== 'undefined' && window.location.pathname.startsWith('/my-page');
+    if (activeContext.startsWith('mypage') || isMyPageRoute) return;
+
+    const song = this.state.activeSong?.id === songId ? this.state.activeSong : this.state.songs.find((s) => s.id === songId);
+    if (!songId || !song?.public || this.isCreatorOfSong(song)) return;
     try {
+      const viewerAddresses = this.getViewerAddresses();
       const effectiveUserAddress =
-        this.state.userAddress || this.state.evmAddress || this.state.svmAddress || compose.wallets.current()?.address || '';
+        this.state.userAddress || this.state.evmAddress || this.state.svmAddress || viewerAddresses[0] || '';
+      const pairedSvm = this.state.svmAddress || viewerAddresses.find((a) => !a.startsWith('0x')) || '';
       const res = await api.fetch(`/api/songs/${songId}/play`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...(effectiveUserAddress ? { 'x-user-address': effectiveUserAddress } : {}),
+          ...(pairedSvm ? { 'x-paired-svm-address': pairedSvm } : {}),
+          ...(activeContext ? { 'x-playback-context': activeContext } : {}),
         },
       });
       if (res.ok) {
         const data = await res.json().catch(() => null);
-        if (data && typeof data.plays === 'number') {
+        if (data && typeof data.plays === 'number' && !data.skipped) {
           this.updateSong(songId, { plays: data.plays, last_played_at: data.last_played_at });
         }
       }
@@ -460,8 +491,19 @@ class Store {
           }
           const pending = lane.pending;
           const options = streamOptions(lane.billing)!;
+          const activeContext = (this.state.activeContextId || '').toLowerCase();
+          const isMyPageRoute = typeof window !== 'undefined' && window.location.pathname.startsWith('/my-page');
+          const playbackContext = activeContext || (isMyPageRoute ? 'mypage' : '');
           const response = await api.fetch(`/api/songs/${lane.songId}/stream/checkpoint`, {
-            ...options, method: 'POST', headers: { ...options.headers, 'Content-Type': 'application/json' }, body: JSON.stringify(pending),
+            ...options,
+            method: 'POST',
+            headers: {
+              ...options.headers,
+              'Content-Type': 'application/json',
+              ...(this.state.svmAddress ? { 'x-paired-svm-address': this.state.svmAddress } : {}),
+              ...(playbackContext ? { 'x-playback-context': playbackContext } : {}),
+            },
+            body: JSON.stringify(pending),
           });
           const data = await response.json().catch(() => null);
           const receipt = data?.result;
@@ -1146,14 +1188,7 @@ class Store {
     const songCreator = song.creator.trim();
     const songCreatorLower = songCreator.toLowerCase();
 
-    const candidates = new Set<string>();
-
-    if (this.state.userAddress) candidates.add(this.state.userAddress.trim());
-    if (this.state.evmAddress) candidates.add(this.state.evmAddress.trim());
-    if (this.state.svmAddress) candidates.add(this.state.svmAddress.trim());
-
-    const sdkWallet = compose.wallets.current()?.address;
-    if (sdkWallet) candidates.add(sdkWallet.trim());
+    const candidates = new Set<string>(this.getViewerAddresses());
 
     if (additionalAddresses) {
       for (const addr of additionalAddresses) {
