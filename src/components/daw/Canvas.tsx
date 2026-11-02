@@ -12,7 +12,7 @@ import {
 } from '../../lib/daw/peaks';
 import { CheckCircle2, Check, Pencil, Loader2, X } from 'lucide-react';
 import { Tooltip } from './Tooltip';
-import { Languages } from '../languages';
+import { Languages } from '../studio/languages';
 
 const SECTION_TAGS = ['[Intro]', '[Verse]', '[Pre-Chorus]', '[Chorus]', '[Bridge]', '[Hook]', '[Outro]'];
 
@@ -358,106 +358,106 @@ const LyricsHighlightedCanvas: React.FC<LyricsHighlightedCanvasProps> = ({
           className="toolbox-lyrics-canvas toolbox-lyrics-canvas-highlighted"
           onDoubleClick={() => onStartEdit()}
         >
-        {alignment.lines.map((line, lineIdx) => {
-          const isInSelection = selectedLineIndices.has(lineIdx);
-          if (line.isTag) {
+          {alignment.lines.map((line, lineIdx) => {
+            const isInSelection = selectedLineIndices.has(lineIdx);
+            if (line.isTag) {
+              return (
+                <div
+                  key={`sec-${lineIdx}-${line.text}`}
+                  ref={(el) => {
+                    lineRefs.current[lineIdx] = el;
+                  }}
+                  className={`toolbox-lyrics-canvas-line is-tag-line ${isInSelection ? 'is-in-selection' : ''}`}
+                  onClick={() => handleSelectLineRange(lineIdx)}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    onStartEdit(lineIdx);
+                  }}
+                >
+                  <span className="toolbox-lyrics-sync-section-tag">{line.text}</span>
+                  {line.start !== null && (
+                    <span className="toolbox-lyrics-sync-timestamp">
+                      {formatSyncTimestamp(mapSourceTimeToPlayheadTime(line.start, clipStart, clipDuration, activeSculpt))}
+                    </span>
+                  )}
+                  {isInSelection && <span className="toolbox-lyrics-sync-sel-pill">SELECTED</span>}
+                </div>
+              );
+            }
+
+            const isActiveLine = lineIdx === activeLineIndex;
+            const isPastLine = line.end !== null && sourcePlayhead > line.end + 0.15;
+
             return (
               <div
-                key={`sec-${lineIdx}-${line.text}`}
+                key={`line-${lineIdx}-${line.start}`}
                 ref={(el) => {
                   lineRefs.current[lineIdx] = el;
                 }}
-                className={`toolbox-lyrics-canvas-line is-tag-line ${isInSelection ? 'is-in-selection' : ''}`}
-                onClick={() => handleSelectLineRange(lineIdx)}
+                className={`toolbox-lyrics-canvas-line ${isActiveLine ? 'is-active-line' : ''} ${isPastLine ? 'is-past-line' : ''} ${isInSelection ? 'is-in-selection' : ''}`}
                 onDoubleClick={(e) => {
                   e.stopPropagation();
                   onStartEdit(lineIdx);
                 }}
               >
-                <span className="toolbox-lyrics-sync-section-tag">{line.text}</span>
+                <div className="toolbox-lyrics-sync-words">
+                  {line.words.length > 0 ? (
+                    line.words.map((word, wIdx) => {
+                      const isActiveWord =
+                        sourcePlayhead >= word.start && sourcePlayhead <= word.end + 0.08;
+                      const isPastWord = sourcePlayhead > word.end + 0.08;
+                      const selStart = selection
+                        ? mapPlayheadTimeToSourceTime(selection.start, clipStart, clipDuration, activeSculpt)
+                        : 0;
+                      const selEnd = selection
+                        ? mapPlayheadTimeToSourceTime(selection.end, clipStart, clipDuration, activeSculpt)
+                        : 0;
+                      const isWordInSelection = Boolean(
+                        selection && word.end >= selStart && word.start <= selEnd,
+                      );
+                      const warpedWordStart = mapSourceTimeToPlayheadTime(word.start, clipStart, clipDuration, activeSculpt);
+                      const warpedWordEnd = mapSourceTimeToPlayheadTime(word.end, clipStart, clipDuration, activeSculpt);
+                      return (
+                        <Tooltip
+                          key={`w-${lineIdx}-${wIdx}-${word.start}`}
+                          title={`${word.text} [${formatSyncTimestamp(warpedWordStart)} – ${formatSyncTimestamp(warpedWordEnd)}]`}
+                        >
+                          <span
+                            className={`toolbox-lyrics-sync-word ${isActiveWord ? 'is-active-word' : ''} ${isPastWord ? 'is-past-word' : ''} ${isWordInSelection ? 'is-in-selection' : ''}`}
+                            onClick={() => handleSeek(word.start)}
+                          >
+                            {word.text}{wIdx < line.words.length - 1 ? ' ' : ''}
+                          </span>
+                        </Tooltip>
+                      );
+                    })
+                  ) : (
+                    <span
+                      className="toolbox-lyrics-sync-word"
+                      onClick={() => handleSeek(line.start)}
+                    >
+                      {line.text}
+                    </span>
+                  )}
+                </div>
                 {line.start !== null && (
-                  <span className="toolbox-lyrics-sync-timestamp">
-                    {formatSyncTimestamp(mapSourceTimeToPlayheadTime(line.start, clipStart, clipDuration, activeSculpt))}
-                  </span>
+                  <Tooltip
+                    title={`Select line range on timeline (${formatSyncTimestamp(mapSourceTimeToPlayheadTime(line.start, clipStart, clipDuration, activeSculpt))})`}
+                  >
+                    <span
+                      className="toolbox-lyrics-sync-timestamp"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleSelectLineRange(lineIdx);
+                      }}
+                    >
+                      {formatSyncTimestamp(mapSourceTimeToPlayheadTime(line.start, clipStart, clipDuration, activeSculpt))}
+                    </span>
+                  </Tooltip>
                 )}
-                {isInSelection && <span className="toolbox-lyrics-sync-sel-pill">SELECTED</span>}
               </div>
             );
-          }
-
-          const isActiveLine = lineIdx === activeLineIndex;
-          const isPastLine = line.end !== null && sourcePlayhead > line.end + 0.15;
-
-          return (
-            <div
-              key={`line-${lineIdx}-${line.start}`}
-              ref={(el) => {
-                lineRefs.current[lineIdx] = el;
-              }}
-              className={`toolbox-lyrics-canvas-line ${isActiveLine ? 'is-active-line' : ''} ${isPastLine ? 'is-past-line' : ''} ${isInSelection ? 'is-in-selection' : ''}`}
-              onDoubleClick={(e) => {
-                e.stopPropagation();
-                onStartEdit(lineIdx);
-              }}
-            >
-              <div className="toolbox-lyrics-sync-words">
-                {line.words.length > 0 ? (
-                  line.words.map((word, wIdx) => {
-                    const isActiveWord =
-                      sourcePlayhead >= word.start && sourcePlayhead <= word.end + 0.08;
-                    const isPastWord = sourcePlayhead > word.end + 0.08;
-                    const selStart = selection
-                      ? mapPlayheadTimeToSourceTime(selection.start, clipStart, clipDuration, activeSculpt)
-                      : 0;
-                    const selEnd = selection
-                      ? mapPlayheadTimeToSourceTime(selection.end, clipStart, clipDuration, activeSculpt)
-                      : 0;
-                    const isWordInSelection = Boolean(
-                      selection && word.end >= selStart && word.start <= selEnd,
-                    );
-                    const warpedWordStart = mapSourceTimeToPlayheadTime(word.start, clipStart, clipDuration, activeSculpt);
-                    const warpedWordEnd = mapSourceTimeToPlayheadTime(word.end, clipStart, clipDuration, activeSculpt);
-                    return (
-                      <Tooltip
-                        key={`w-${lineIdx}-${wIdx}-${word.start}`}
-                        title={`${word.text} [${formatSyncTimestamp(warpedWordStart)} – ${formatSyncTimestamp(warpedWordEnd)}]`}
-                      >
-                        <span
-                          className={`toolbox-lyrics-sync-word ${isActiveWord ? 'is-active-word' : ''} ${isPastWord ? 'is-past-word' : ''} ${isWordInSelection ? 'is-in-selection' : ''}`}
-                          onClick={() => handleSeek(word.start)}
-                        >
-                          {word.text}{wIdx < line.words.length - 1 ? ' ' : ''}
-                        </span>
-                      </Tooltip>
-                    );
-                  })
-                ) : (
-                  <span
-                    className="toolbox-lyrics-sync-word"
-                    onClick={() => handleSeek(line.start)}
-                  >
-                    {line.text}
-                  </span>
-                )}
-              </div>
-              {line.start !== null && (
-                <Tooltip
-                  title={`Select line range on timeline (${formatSyncTimestamp(mapSourceTimeToPlayheadTime(line.start, clipStart, clipDuration, activeSculpt))})`}
-                >
-                  <span
-                    className="toolbox-lyrics-sync-timestamp"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleSelectLineRange(lineIdx);
-                    }}
-                  >
-                    {formatSyncTimestamp(mapSourceTimeToPlayheadTime(line.start, clipStart, clipDuration, activeSculpt))}
-                  </span>
-                </Tooltip>
-              )}
-            </div>
-          );
-        })}
+          })}
         </div>
       </Tooltip>
 

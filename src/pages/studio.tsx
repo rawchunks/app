@@ -13,7 +13,7 @@ import { useSession } from '../components/session';
 import { openGate } from '@/lib/gate';
 import { toast } from 'sonner';
 import { Modal } from '../components/modal';
-import { Languages } from '../components/languages';
+import { Languages } from '../components/studio/languages';
 import { Tooltip } from '../components/daw/Tooltip';
 import { useDismiss } from '../hooks/use-dismiss';
 import { Mic2, UploadCloud, FileAudio, Play, Pause, Sliders, Globe, Lock, ListMusic, ArrowLeft, FolderOpen } from 'lucide-react';
@@ -153,7 +153,8 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
   };
   const guideInputs = { instrumental, busy: isVibing || state.isGenerating || isRecordingVibeAudio, lyricsBlocks, tracks: state.tracks, coverUrl, voiceSelected: !!(voiceFile || selectedVoiceId) };
   const guideInputsRef = useRef(guideInputs); guideInputsRef.current = guideInputs;
-  useGuideOwner({ id: 'studio', scope: userAddr ?? 'guest', handles: step => step.owner === 'studio',
+  useGuideOwner({
+    id: 'studio', scope: userAddr ?? 'guest', handles: step => step.owner === 'studio',
     prepare: ({ step, bind }) => {
       const id = step.id;
       if (isVibing || state.isGenerating || isRecordingVibeAudio) return { retry: () => !guideInputsRef.current.busy, target: isVibing ? 'studio.songwriter-progress' : isRecordingVibeAudio ? 'studio.vibe-audio' : 'studio.generate', description: 'Wait for the current task to finish before changing views.' };
@@ -164,9 +165,11 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
       const modal = blockedLyrics ? null : modalForStep(id);
       const previousModal = bind('studio.previous-modal', activeModal ?? 'none');
       const lyricId = ['L4', 'L5'].includes(id) ? bind('lyric-section', lyricsBlocks[0]?.id) : undefined;
-      const patch: Partial<typeof guideView> = { mobilePocket: feed ? 'feed' : 'create', modelMenuOpen: id === 'S6',
+      const patch: Partial<typeof guideView> = {
+        mobilePocket: feed ? 'feed' : 'create', modelMenuOpen: id === 'S6',
         studioFlow: id === 'S1' ? studioFlow : vibe ? 'vibe' : 'control', activeSection: ['S5', 'P3', 'P4', 'P5', 'P6', 'C2'].includes(id) ? 'params' : 'details', financialsOpen: id === 'C4',
-        activeModal: modal, showNewAlbumModal: id === 'C3' };
+        activeModal: modal, showNewAlbumModal: id === 'C3'
+      };
       if (id === 'O1') patch.voiceTab = 'saved';
       if (id === 'O2') patch.voiceTab = 'upload';
       if (modal === 'lyrics') {
@@ -178,15 +181,19 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
         if (id === 'L6' && lyricsMode !== 'raw') handleSwitchLyricsMode('raw');
         else if (['L2', 'L3', 'L4', 'L5'].includes(id) && lyricsMode !== 'canvas') handleSwitchLyricsMode('canvas');
       }
-      const view = prepareViews(guideView, () => guideViewRef.current, { mobilePocket: setMobilePocket, studioFlow: setStudioFlow, activeSection: setActiveSection,
+      const view = prepareViews(guideView, () => guideViewRef.current, {
+        mobilePocket: setMobilePocket, studioFlow: setStudioFlow, activeSection: setActiveSection,
         financialsOpen: setFinancialsOpen, activeModal: setActiveModal, modelMenuOpen: setModelMenuOpen, voiceTab: setVoiceTab,
-        showNewAlbumModal: setShowNewAlbumModal, lyricsPaletteCategory: setLyricsPaletteCategory, insertingSepIndex: setInsertingSepIndex, addingTagBlockId: setAddingTagBlockId }, patch);
-      const result = { ...view, canLeave: (next?: { id: string }) => modal && modalForStep(next?.id ?? '') === modal || draftCanLeave('studio'),
+        showNewAlbumModal: setShowNewAlbumModal, lyricsPaletteCategory: setLyricsPaletteCategory, insertingSepIndex: setInsertingSepIndex, addingTagBlockId: setAddingTagBlockId
+      }, patch);
+      const result = {
+        ...view, canLeave: (next?: { id: string }) => modal && modalForStep(next?.id ?? '') === modal || draftCanLeave('studio'),
         leave: (next?: { id: string }) => {
           if (modal && modalForStep(next?.id ?? '') === modal) return;
           if (draftCanLeave('studio')) { view.leave?.(); if (guideViewRef.current.activeModal === modal && previousModal === 'none') setActiveModal(null); }
         },
-        focus: id === 'S3' || id === 'V5' ? 'textarea' : id === 'P2' ? 'input' : id === 'P6' ? '.studio-tags-core-grid button' : id === 'P5' ? '.studio-param-presets-grid.keys button' : id === 'L2' || id === 'L4' ? '.studio-lyrics-tray-card' : id === 'L5' ? 'self' : id === 'O1' ? '.studio-voice-list button' : ['P3', 'P4', 'C4', 'C3'].includes(id) ? 'input' : id === 'S6' ? '[aria-selected="true"]' : id === 'L7' ? '[data-guide="lyrics.done"]' : undefined };
+        focus: id === 'S3' || id === 'V5' ? 'textarea' : id === 'P2' ? 'input' : id === 'P6' ? '.studio-tags-core-grid button' : id === 'P5' ? '.studio-param-presets-grid.keys button' : id === 'L2' || id === 'L4' ? '.studio-lyrics-tray-card' : id === 'L5' ? 'self' : id === 'O1' ? '.studio-voice-list button' : ['P3', 'P4', 'C4', 'C3'].includes(id) ? 'input' : id === 'S6' ? '[aria-selected="true"]' : id === 'L7' ? '[data-guide="lyrics.done"]' : undefined
+      };
       if (blockedLyrics) return { ...result, retry: () => !guideInputsRef.current.instrumental, target: 'studio.instrumental', description: 'Turn off INSTRUMENTAL to use lyrics and a vocal language.' };
       if (id === 'O3' && !voiceFile && !selectedVoiceId) return { ...result, target: 'voice.selection-status', focus: 'self', description: 'Choose a saved voice or reference recording to adjust resemblance.', retry: () => guideInputsRef.current.voiceSelected };
       if (id === 'V5') return { ...result, target: 'studio.details' };
@@ -3252,13 +3259,12 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
             <div className="studio-param-modal-content studio-tags-expanding-modal">
               {/* Step 1: Core Categories (Click a Core category to reveal Sub-Tags below) */}
               <div
-                className={`studio-tags-core-tabs ${
-                  categories.length === 4
+                className={`studio-tags-core-tabs ${categories.length === 4
                     ? 'cols-4'
                     : categories.length === 6
                       ? 'cols-3'
                       : 'cols-wrap'
-                }`}
+                  }`}
               >
                 {categories.map((cat) => {
                   const isExpanded = expandedTagCategory === cat.id;

@@ -11,7 +11,7 @@ import { useSession } from "@/hooks/use-session";
 import { useDisclaimerConsent } from "@/hooks/use-disclaimer";
 import { useGuide } from "@/components/guide/Tour";
 import { GUIDE_FLOWS } from "@/components/guide/Steps";
-import { ProfileModal } from "@/components/profile-modal";
+import { ProfileModal } from "@/components/profile";
 import { DisclaimerBody, DISCLAIMER_POLICY_VERSION } from "@/components/disclaimer";
 import { Modal } from "@/components/modal";
 import { Button } from "@/components/button";
@@ -84,7 +84,8 @@ export function AccountChip({ className }: AccountChipProps) {
 
   const guideView = { userOpen, view, showProfileModal };
   const guideViewRef = useRef(guideView); guideViewRef.current = guideView;
-  useGuideOwner({ id: 'account', scope: displayAddress ?? 'guest',
+  useGuideOwner({
+    id: 'account', scope: displayAddress ?? 'guest',
     handles: step => ['A1', 'A3', 'A4', 'A5'].includes(step.id),
     prepare: ({ step }) => {
       if (!account) return { target: 'account.sign-in', description: 'Sign in to keep your songs, voices and licenses in your workspace.' };
@@ -92,9 +93,11 @@ export function AccountChip({ className }: AccountChipProps) {
       const prepared = prepareViews(guideView, () => guideViewRef.current,
         { userOpen: setUserOpen, view: setView, showProfileModal: setShowProfileModal },
         { userOpen: !profile, view: step.id === 'A5' ? 'terms' : 'status', showProfileModal: profile });
-      return { ...prepared, canLeave: () => draftCanLeave('profile'),
+      return {
+        ...prepared, canLeave: () => draftCanLeave('profile'),
         leave: () => { if (draftCanLeave('profile')) prepared.leave?.(); },
-        focus: step.id === 'A4' ? 'input' : step.id === 'A3' ? '[aria-label="Edit profile"]' : undefined };
+        focus: step.id === 'A4' ? 'input' : step.id === 'A3' ? '[aria-label="Edit profile"]' : undefined
+      };
     },
   });
 
@@ -132,10 +135,10 @@ export function AccountChip({ className }: AccountChipProps) {
 
   const gateStep = gate.request
     ? unsatisfiedStep(gate.request, {
-        loggedIn: Boolean(userAddress),
-        consented: hasConsented,
-        funded: gate.request.action === 'stream' ? hasStreamBudget : hasBudget,
-      })
+      loggedIn: Boolean(userAddress),
+      consented: hasConsented,
+      funded: gate.request.action === 'stream' ? hasStreamBudget : hasBudget,
+    })
     ?? (gate.request.force ? 'funding' : null)
     : null;
 
