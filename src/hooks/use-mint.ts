@@ -64,10 +64,16 @@ export function useMint() {
       if (!chain) throw new Error('The song network is unavailable');
       return getFactoryContract(thirdwebClient, chain);
     };
+    const isRemix = (song: Song) => Boolean(song.is_remix || song.source);
     const parent = async (song: Song, network: string) => {
-      if (!song.source) return 0n;
+      if (!isRemix(song)) return 0n;
+      if (song.parent_chain_song_id) {
+        if (song.network && song.network !== network) throw new Error('The source song must be minted on the same network');
+        return BigInt(song.parent_chain_song_id);
+      }
+      if (!song.source) throw new Error('The source song must be minted on the same network');
       const source = await loadSong(song.source, userAddress);
-      if (source.source) throw new Error('Remixes cannot be remixed');
+      if (source.source || source.is_remix) throw new Error('Remixes cannot be remixed');
       if (!source.chain_song_id || source.network !== network) throw new Error('The source song must be minted on the same network');
       return BigInt(source.chain_song_id);
     };
@@ -78,7 +84,7 @@ export function useMint() {
       if (!mint.id) throw new Error('The mint has not been confirmed');
       const data = await read(mint.network, mint.id);
       const creator = song.creator;
-      if (!creator || !sameAddress(data.creator, creator) || data.metadataUri !== `ipfs://${mint.cid}` || data.isRemix !== Boolean(song.source) || data.parentSongId !== await parent(song, mint.network)) {
+      if (!creator || !sameAddress(data.creator, creator) || data.metadataUri !== `ipfs://${mint.cid}` || data.isRemix !== isRemix(song) || data.parentSongId !== await parent(song, mint.network)) {
         throw new Error('The saved mint does not match this song');
       }
     };
@@ -105,7 +111,11 @@ export function useMint() {
       prepare: async song => {
         assertCurrent();
         if (!account) throw new Error('Connect your wallet');
-        const network = song.metadata_cid && song.network ? song.network : song.source ? (await loadSong(song.source, userAddress)).network : paymentNetwork;
+        const network = song.metadata_cid && song.network
+          ? song.network
+          : isRemix(song)
+            ? (song.network || (song.source ? (await loadSong(song.source, userAddress)).network : undefined))
+            : paymentNetwork;
         if (!network) throw new Error('The source song network is unavailable');
         const cid = song.metadata_cid || await uploadSongMetadata(song, song.title);
         assertCurrent();

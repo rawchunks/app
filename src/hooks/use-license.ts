@@ -21,7 +21,7 @@ const licenseKey = (song: Song, evmAddress: string | null, svmAddress: string | 
   ['license', song.id, song.network, song.chain_song_id, song.metadata_cid, evmAddress, svmAddress];
 
 async function readLicense(song: Song, evmAddress: string | null, svmAddress: string | null) {
-  if (song.source) throw new Error('Remixes cannot be licensed');
+  if (song.source || song.is_remix) throw new Error('Remixes cannot be licensed');
   if (!song.chain_song_id || !song.network || !song.metadata_cid) throw new Error('The song has not been minted');
   const id = BigInt(song.chain_song_id);
   if (isEvmNetwork(song.network)) {
@@ -45,7 +45,7 @@ async function readLicense(song: Song, evmAddress: string | null, svmAddress: st
 export function useLicensedSongs(songs: Song[]) {
   const { readAddress, userAddress, evmAddress, svmAddress } = useSelectedUserAddress();
   const effectiveUser = userAddress || readAddress;
-  const originals = songs.filter(song => !song.source && song.chain_song_id && song.network && song.metadata_cid);
+  const originals = songs.filter(song => !song.source && !song.is_remix && song.chain_song_id && song.network && song.metadata_cid);
   const results = useQueries({ queries: originals.map(song => ({
     queryKey: licenseKey(song, evmAddress, svmAddress),
     enabled: Boolean(effectiveUser),
@@ -67,14 +67,14 @@ export function useLicense(song: Song, onEditSong?: (song: Song) => void, includ
   const queryClient = useQueryClient();
   const query = useQuery({
     queryKey: licenseKey(song, evmAddress, svmAddress),
-    enabled: Boolean(readOnMount && !song.source && song.chain_song_id && song.network),
+    enabled: Boolean(readOnMount && !song.source && !song.is_remix && song.chain_song_id && song.network),
     retry: false,
     queryFn: () => readLicense(song, evmAddress, svmAddress),
   });
 
   const allocation = useQuery({
     queryKey: ['allocation', song.metadata_cid],
-    enabled: Boolean(includeSales && !song.source && song.chain_song_id && song.metadata_cid),
+    enabled: Boolean(includeSales && !song.source && !song.is_remix && song.chain_song_id && song.metadata_cid),
     staleTime: Infinity,
     retry: false,
     queryFn: async () => {
@@ -154,12 +154,30 @@ export function useLicense(song: Song, onEditSong?: (song: Song) => void, includ
     if (!licensed.data?.owned) throw new Error('The purchase has not been confirmed');
     await queryClient.invalidateQueries({ queryKey: ['license', song.id] });
     assertCurrent();
+    if (userAddress) {
+      try {
+        const res = await api.fetch(`/api/songs/${encodeURIComponent(song.id)}/remix`, {
+          method: 'POST',
+          userAddress,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ensureOnly: true }),
+        });
+        if (res.ok) {
+          const created = await res.json();
+          if (created && typeof created.id === 'string') {
+            store.addSong(created);
+          }
+        }
+      } catch {
+        // Best-effort copy persistence
+      }
+    }
     toast.success('License purchased. You can remix this song from My-Page.');
   };
 
   const buy = async () => {
     if (pending) return;
-    if (song.source) { toast.error('Remixes cannot be licensed'); return; }
+    if (song.source || song.is_remix) { toast.error('Remixes cannot be licensed'); return; }
     if (!account || !userAddress) { toast.error('Connect your wallet'); return; }
     if (paymentNetwork !== song.network) { toast.error('Select the song network in your wallet'); return; }
     setPending(true);
@@ -181,7 +199,7 @@ export function useLicense(song: Song, onEditSong?: (song: Song) => void, includ
   };
 
   const createFiatOrder = async (idempotencyKey: string) => {
-    if (song.source) throw new Error('Remixes cannot be licensed');
+    if (song.source || song.is_remix) throw new Error('Remixes cannot be licensed');
     if (!account || !userAddress) throw new Error('Connect your wallet');
     if (paymentNetwork !== song.network) throw new Error('Select the song network in your wallet');
     if (!song.chain_song_id || !song.network) throw new Error('The license is unavailable');
@@ -234,7 +252,7 @@ export function useLicense(song: Song, onEditSong?: (song: Song) => void, includ
 
   const buyWithStripeBridge = async () => {
     if (pending) return;
-    if (song.source) { toast.error('Remixes cannot be licensed'); return; }
+    if (song.source || song.is_remix) { toast.error('Remixes cannot be licensed'); return; }
     if (!account || !userAddress) { toast.error('Connect your wallet'); return; }
     if (paymentNetwork !== song.network) { toast.error('Select the song network in your wallet'); return; }
     setPending(true);

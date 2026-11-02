@@ -52,6 +52,8 @@ export interface Song {
   family?: string | null;
   basis?: string | null;
   source?: string | null;
+  is_remix?: boolean;
+  parent_chain_song_id?: string | null;
   title: string;
   duration?: number;
   tags: string[];
@@ -75,6 +77,7 @@ export interface Song {
   tx_url?: string;
   plays?: number;
   last_played_at?: string | null;
+  published_at?: string | null;
   created_at?: string;
 }
 

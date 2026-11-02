@@ -27,9 +27,15 @@ export function usePublic() {
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Could not save song visibility');
-      const updatedSong: Song = { ...current, ...updates };
+      const updatedSong: Song = {
+        ...current,
+        ...updates,
+        ...(result?.published_at ? { published_at: result.published_at } : {}),
+      };
       store.updateSong(song.id, updatedSong);
       await queryClient.invalidateQueries({ queryKey: ['songs', 'public'] });
+      await queryClient.invalidateQueries({ queryKey: ['market', 'folds'] });
+      await queryClient.invalidateQueries({ queryKey: ['songs', 'paginated'] });
       toast.success(updates.public ? 'Song is public' : 'Song is private');
       return updatedSong;
     } catch (error) {

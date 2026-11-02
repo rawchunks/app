@@ -127,7 +127,7 @@ export function purgeUserCaches(): void {
                 k.startsWith("voices:") ||
                 k.startsWith("credits:") ||
                 k.startsWith("rawchunks:funding-source:") ||
-                k.startsWith("rawchunks:session:v2:") ||
+                k.startsWith("rawchunks:session:") ||
                 k.startsWith("rawchunks:compose-session:") ||
                 k.startsWith("rawchunks:credit-purchase:") ||
                 k === "rawchunks:session" ||

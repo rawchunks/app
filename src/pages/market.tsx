@@ -420,8 +420,10 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
     }
 
     list.sort((a, b) => {
-      const timeA = a.created_at ? new Date(a.created_at).getTime() : 0;
-      const timeB = b.created_at ? new Date(b.created_at).getTime() : 0;
+      const tsA = a.published_at || a.created_at;
+      const tsB = b.published_at || b.created_at;
+      const timeA = tsA ? new Date(tsA).getTime() : 0;
+      const timeB = tsB ? new Date(tsB).getTime() : 0;
       return order === 'latest' ? timeB - timeA : timeA - timeB;
     });
 
@@ -434,8 +436,10 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
     const seen = new Set(foldSongs.map((s) => s.id));
     const rest = publicSongs.filter((s) => !seen.has(s.id));
     return [...foldSongs, ...rest].sort((a, b) => {
-      const tA = a.created_at ? new Date(a.created_at).getTime() : 0;
-      const tB = b.created_at ? new Date(b.created_at).getTime() : 0;
+      const tsA = a.published_at || a.created_at;
+      const tsB = b.published_at || b.created_at;
+      const tA = tsA ? new Date(tsA).getTime() : 0;
+      const tB = tsB ? new Date(tsB).getTime() : 0;
       return tB - tA;
     });
   }, [foldsData, publicSongs]);
@@ -447,8 +451,10 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
     return [...foldSongs, ...rest].sort((a, b) => {
       const playsDiff = (b.plays ?? 0) - (a.plays ?? 0);
       if (playsDiff !== 0) return playsDiff;
-      const tA = a.created_at ? new Date(a.created_at).getTime() : 0;
-      const tB = b.created_at ? new Date(b.created_at).getTime() : 0;
+      const tsA = a.published_at || a.created_at;
+      const tsB = b.published_at || b.created_at;
+      const tA = tsA ? new Date(tsA).getTime() : 0;
+      const tB = tsB ? new Date(tsB).getTime() : 0;
       return tB - tA;
     });
   }, [foldsData, publicSongs]);

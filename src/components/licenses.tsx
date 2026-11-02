@@ -60,12 +60,12 @@ export function Licenses({
     if (placement !== 'market') return;
     const id = bind('song', song.id);
     if (id !== song.id) return;
-    if (song.source || data?.owned || pending || song.licenses <= 0 || !song.chain_song_id) return { target: 'card.license-status', entity: song.id, description: 'A license purchase is not available for this track.' };
+    if (song.source || song.is_remix || data?.owned || pending || song.licenses <= 0 || !song.chain_song_id) return { target: 'card.license-status', entity: song.id, description: 'A license purchase is not available for this track.' };
     if (cardMode) return { unavailable: 'Finish or cancel the current card checkout before continuing.' };
     return { ...prepareViews(guideView, () => guideViewRef.current, { confirm: setConfirm, cardMode: setCardMode }, { confirm: true }), target: 'license.review', entity: song.id, focus: '.session-balance-strip' };
   } });
 
-  if (song.source) {
+  if (placement === 'market' && (song.source || song.is_remix)) {
     return (
       <Tooltip title="Remix Track" description="This song is derived from another work">
         <Badge variant="secondary">

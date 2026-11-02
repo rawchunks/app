@@ -140,9 +140,10 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
       toast.error('Invalid stream price');
       return;
     }
+    const isRemix = Boolean(song.source || song.is_remix);
     const lCount = parseInt(licenses, 10);
     const lPrice = parseFloat(licensePrice);
-    if (!song.public) {
+    if (!song.public && !isRemix) {
       if (isNaN(lCount) || lCount < 0) {
         toast.error('Invalid license count');
         return;
@@ -161,7 +162,7 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
         image: image || null,
         stream_price: sPrice,
       };
-      if (!song.public) {
+      if (!song.public && !isRemix) {
         patchPayload.licenses = lCount;
         patchPayload.license_price = lPrice;
       }
@@ -183,7 +184,7 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
         tags: patchPayload.tags,
         image: patchPayload.image,
         stream_price: sPrice,
-        ...(!song.public ? { licenses: lCount, license_price: lPrice } : {}),
+        ...(!song.public && !isRemix ? { licenses: lCount, license_price: lPrice } : {}),
       });
 
       toast.success('Song details updated');

@@ -81,7 +81,7 @@ export function scopedAddress(network: NetworkId, evm: string | null, svm: strin
   return network.startsWith("eip155:") ? evm : svm;
 }
 const LEGACY_SESSION_KEY = "rawchunks:session";
-export function sessionCacheKey(scope: SessionScope): string { return `rawchunks:session:v2:${scopeKey(scope)}`; }
+export function sessionCacheKey(scope: SessionScope): string { return `rawchunks:session:${scopeKey(scope)}`; }
 export function readSession(storage: Storage, scope: SessionScope): SessionState | null {
   try {
     for (const key of [sessionCacheKey(scope), LEGACY_SESSION_KEY]) {
@@ -644,8 +644,10 @@ export function FundingPanel({ onDone, reason, funding }: FundingPanelProps) {
     ? Math.max(0, Math.min(100, Math.round((remainingNum / limitNum) * 100)))
     : 0;
 
-  useGuideOwner({ id: 'funding-panel', scope: displayAddress ?? 'guest', handles: step => ['F4', 'F5'].includes(step.id), prepare: ({ step: guideStep }) =>
-    isUsdcSession ? { target: guideStep.id === 'F5' ? 'funding.network-status' : 'funding.usdc-status', description: guideStep.id === 'F5' ? 'This session uses the network shown here.' : 'Check the remaining budget here. END SESSION closes this session.' } : { target: guideStep.id === 'F4' ? 'funding.budget' : 'funding.network-menu', focus: guideStep.id === 'F4' ? 'input' : '[aria-selected="true"]' } });
+  useGuideOwner({
+    id: 'funding-panel', scope: displayAddress ?? 'guest', handles: step => ['F4', 'F5'].includes(step.id), prepare: ({ step: guideStep }) =>
+      isUsdcSession ? { target: guideStep.id === 'F5' ? 'funding.network-status' : 'funding.usdc-status', description: guideStep.id === 'F5' ? 'This session uses the network shown here.' : 'Check the remaining budget here. END SESSION closes this session.' } : { target: guideStep.id === 'F4' ? 'funding.budget' : 'funding.network-menu', focus: guideStep.id === 'F4' ? 'input' : '[aria-selected="true"]' }
+  });
 
   const handleCopyKey = async () => {
     if (!session.keyId) return;
@@ -1249,7 +1251,8 @@ export function Session() {
   const [guideFunding, setGuideFunding] = useState<'campaign' | 'usdc' | 'card' | null>(null);
   const guideView = { manualOpen, guideFunding };
   const guideViewRef = useRef(guideView); guideViewRef.current = guideView;
-  useGuideOwner({ id: 'funding', scope: userAddress ?? 'guest', handles: step => step.owner === 'funding' || step.id === 'A2',
+  useGuideOwner({
+    id: 'funding', scope: userAddress ?? 'guest', handles: step => step.owner === 'funding' || step.id === 'A2',
     prepare: ({ step }) => {
       if (checkout || gate.request) return { unavailable: 'Finish or cancel the current checkout before opening this guide.' };
       const funding = step.id === 'F3' ? 'card' : ['F4', 'F5'].includes(step.id) ? 'usdc' : 'campaign';

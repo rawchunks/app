@@ -156,6 +156,22 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
     return map;
   }, [publicSongs, state.songs]);
 
+  const originalSongs = useMemo(
+    () => state.songs.filter((s) => !s.is_remix && !s.source),
+    [state.songs]
+  );
+  const remixSongs = useMemo(
+    () => state.songs.filter((s) => Boolean(s.is_remix || s.source)),
+    [state.songs]
+  );
+  const unforkedLicensedSongs = useMemo(() => {
+    const forkedSourceIds = new Set(
+      remixSongs.map((s) => s.source).filter((id): id is string => Boolean(id))
+    );
+    return licensed.songs.filter((s) => !forkedSourceIds.has(s.id));
+  }, [licensed.songs, remixSongs]);
+  const totalLicensesCount = remixSongs.length + unforkedLicensedSongs.length;
+
   // Close 3-dot dropdown when clicking outside (guide overlays excluded)
   useDismiss(Boolean(menuOpenId), () => setMenuOpenId(null), undefined, MENU_IGNORE_SELECTORS);
 
@@ -251,7 +267,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
         }));
         store.setSongs(mapped);
         if (!userToggledSongs.current) {
-          setSongsOpen(mapped.length > 0);
+          setSongsOpen(mapped.some((s) => !s.is_remix && !s.source));
         }
       } catch (err) {
         if (current)
@@ -318,9 +334,9 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
 
   useEffect(() => {
     if (!licensed.loading && !userToggledLicenses.current) {
-      setLicensesOpen(licensed.songs.length > 0);
+      setLicensesOpen(totalLicensesCount > 0);
     }
-  }, [licensed.loading, licensed.songs.length]);
+  }, [licensed.loading, totalLicensesCount]);
 
   useEffect(() => {
     if (!loadingAlbums && !userToggledAlbums.current) {
@@ -625,14 +641,14 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
             <ChevronDown className="board-section-chevron" size={14} />
             <Music size={13} />
             <span>MY SONGS</span>
-            <span className="board-section-badge">{state.songs.length}</span>
+            <span className="board-section-badge">{originalSongs.length}</span>
           </div>
         </div>
 
         {songsOpen && (
           <div className="mypage-section-body">
-            {error && state.songs.length > 0 && <div role="alert">{error}</div>}
-            {state.songs.length === 0 ? (
+            {error && originalSongs.length > 0 && <div role="alert">{error}</div>}
+            {originalSongs.length === 0 ? (
               <div className="mypage-empty">
                 <span className="mypage-empty-title">
                   {error
@@ -654,7 +670,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
               </div>
             ) : (
               <div className="market-grid">
-                {groupSongs(state.songs).map((versions) => {
+                {groupSongs(originalSongs).map((versions) => {
                   const family = versions[0].family ?? versions[0].id;
                   const song = versions.find((s) => s.id === selected[family]) ?? versions[0];
                   const isPlayingThis = state.isPlaying && state.activeSong?.id === song.id;
@@ -732,7 +748,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
             <ChevronDown className="board-section-chevron" size={14} />
             <Music size={13} />
             <span>MY LICENSES</span>
-            <span className="board-section-badge">{licensed.songs.length}</span>
+            <span className="board-section-badge">{totalLicensesCount}</span>
           </div>
         </div>
         {licensesOpen && (
@@ -740,7 +756,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
             {(publicSongsError || licensed.error) && (
               <div role="alert">{(publicSongsError || licensed.error)?.message}</div>
             )}
-            {licensed.songs.length === 0 ? (
+            {totalLicensesCount === 0 ? (
               <div className="mypage-empty">
                 <span className="mypage-empty-title">
                   {licensed.loading ? 'LOADING LICENSES…' : 'NO LICENSES PURCHASED'}
@@ -753,7 +769,67 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
               </div>
             ) : (
               <div className="market-grid">
-                {groupSongs(licensed.songs).map((versions) => {
+                {groupSongs(remixSongs).map((versions) => {
+                  const family = versions[0].family ?? versions[0].id;
+                  const song = versions.find((s) => s.id === selected[family]) ?? versions[0];
+                  const isPlayingThis = state.isPlaying && state.activeSong?.id === song.id;
+                  const album = song.album_id ? albumsMap.get(song.album_id) : null;
+                  const albumTitle = album?.title || song.album_title || null;
+                  const albumCover = album?.cover || null;
+
+                  return (
+                    <Card
+                      key={family}
+                      variant="mypage"
+                      song={song}
+                      versions={versions}
+                      albumTitle={albumTitle}
+                      albumCover={albumCover}
+                      isPlayingThis={isPlayingThis}
+                      onPlayToggle={() => {
+                        if (isPlayingThis) {
+                          store.setPlaying(false);
+                        } else {
+                          store.playSong(song, state.songs, null);
+                        }
+                      }}
+                      onSelectVersion={(v) => {
+                        setSelected((current) => ({ ...current, [family]: v.id }));
+                        setMenuOpenId(null);
+                        if (versions.some((item) => item.id === state.activeSong?.id)) {
+                          store.setActiveSong(v);
+                        }
+                      }}
+                      isMenuOpen={menuOpenId === song.id}
+                      onToggleMenu={() => setMenuOpenId(menuOpenId === song.id ? null : song.id)}
+                      onEditDetails={(s) => {
+                        setMenuOpenId(null);
+                        setEditingDetailsSong(s);
+                      }}
+                      onEditInStudio={(s) => {
+                        setMenuOpenId(null);
+                        onEditSong(s);
+                      }}
+                      onDownload={handleDownload}
+                      onDelete={handleDelete}
+                      onPublishClick={(s) => setPublishConfirmSong(s)}
+                      onShare={(s) => {
+                        setMenuOpenId(null);
+                        setShareData(
+                          songToShareData(
+                            s,
+                            nickname?.trim() || activeAddress || s.creator,
+                            false,
+                            albumCover
+                          )
+                        );
+                        setShowShareDialog(true);
+                      }}
+                      publicPending={Boolean(publicPending)}
+                    />
+                  );
+                })}
+                {groupSongs(unforkedLicensedSongs).map((versions) => {
                   const family = versions[0].family ?? versions[0].id;
                   const song = versions.find((s) => s.id === selected[family]) ?? versions[0];
                   const isPlayingThis = state.isPlaying && state.activeSong?.id === song.id;

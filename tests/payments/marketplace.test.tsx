@@ -28,13 +28,14 @@ vi.mock("@/lib/programs", () => ({ requireSolanaDeployment: mock.deployment,
   relaySolanaMintSong: mock.mint, relaySolanaRemixSong: mock.remix, relaySolanaBuyLicense: mock.buy,
   fetchSolanaFactoryConfig: async () => ({ totalSongs: mock.minted ? 1n : 0n }),
   fetchSolanaSong: async () => { const song = mock.songs.get("song"); return { creator: song.creator, metadataUri: "ipfs://cid",
-    isRemix: Boolean(song.source), parentSongId: song.source ? 7n : 0n }; }, fetchSolanaHasLicense: vi.fn() }));
+    isRemix: Boolean(song.source || song.is_remix), parentSongId: (song.source || song.is_remix) ? 7n : 0n }; }, fetchSolanaHasLicense: vi.fn() }));
 vi.mock("@/lib/pinata", () => ({ uploadSongMetadata: async () => "cid", fetchFromIpfs: vi.fn() }));
 vi.mock("@/lib/store", () => ({ store: { updateSong: vi.fn(), addSong: vi.fn() } }));
 vi.mock("@/lib/api", () => ({ api: { fetch: async (path: string, input: any) => {
   const id = path.split("/").at(-1)!;
   const song = mock.songs.get(id);
-  if (input.method === "PATCH") { const updated = { ...song, ...JSON.parse(input.body) }; mock.songs.set(id, updated); return new Response(JSON.stringify(updated)); }
+  if (input?.method === "PATCH") { const updated = { ...song, ...JSON.parse(input.body) }; mock.songs.set(id, updated); return new Response(JSON.stringify(updated)); }
+  if (!song) return new Response(JSON.stringify({ error: "Song not found" }), { status: 404 });
   return new Response(JSON.stringify({ song }));
 } } }));
 vi.mock("@tanstack/react-query", () => ({ useQueryClient: () => ({ invalidateQueries: mock.invalidate }), useQueries: () => [],
@@ -167,4 +168,44 @@ test.each([false, true])("Tempo mint (remix: %s) sends with the admin and record
   expect(mock.simulate.mock.calls[0][0].account.address).toBe(mock.admin);
   expect(mock.sendTransaction.mock.calls[0][0].account.address).toBe(mock.admin);
   expect(mock.capture).not.toHaveBeenCalled();
+});
+
+test("Remix mint succeeds via Remix.remixSong using parent_chain_song_id even when original source song was deleted", async () => {
+  const { encode } = await import("thirdweb");
+  mock.network = "eip155:42431";
+  mock.songs.set("song", {
+    id: "song",
+    title: "Young privilege",
+    creator: mock.smart,
+    source: "deleted-original",
+    is_remix: true,
+    parent_chain_song_id: "7",
+    network: mock.network,
+    licenses: 0,
+    license_price: 0,
+    stream_price: 0.1,
+  });
+  mock.contractRead.mockImplementation(async input => input.method === "totalSongs" ? 0n : {
+    creator: mock.smart, metadataUri: "ipfs://cid", isRemix: true, parentSongId: 7n,
+  });
+  mock.tempo.mockImplementation(async (input, transaction) => ({ account: { address: input.admin.address }, transaction }));
+  const hash = `0x${"cd".repeat(32)}`;
+  mock.sendTransaction.mockResolvedValue({ transactionHash: hash });
+  mock.receipt.mockResolvedValue({ status: "success", logs: [{
+    address: "0x4Ac838b970D44AB9056b4201e9ED3c1Ce271545e",
+    topics: encodeEventTopics({ abi: parseAbi(["event SongMinted(uint256 indexed songId,address indexed creator,uint256 licenseAmount,uint256 licensePrice,uint256 streamPrice,bool remixable,string metadataUri)"]),
+      eventName: "SongMinted", args: { songId: 1n, creator: mock.smart as `0x${string}` } }),
+    data: encodeAbiParameters([{ type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "bool" }, { type: "string" }],
+      [0n, 0n, 100_000n, false, "ipfs://cid"]),
+  }] });
+  const hook = renderHook(useMint);
+  let result: any;
+  await act(async () => { result = await hook.result.current.ensure(mock.songs.get("song")); });
+  expect(result).toMatchObject({ chain_song_id: "1", creator: mock.smart, network: "eip155:42431", tx_hash: hash, is_remix: true });
+  const [, transaction] = mock.tempo.mock.calls[0];
+  const decoded = decodeFunctionData({ abi: parseAbi([
+    "function remixSong(uint256,(uint256 licenseAmount,uint256 licensePrice,uint256 streamPrice),string) returns(uint256)",
+  ]), data: await encode(transaction) });
+  expect(decoded.functionName).toBe("remixSong");
+  expect(decoded.args).toEqual([7n, { licenseAmount: 0n, licensePrice: 0n, streamPrice: 100_000n }, "ipfs://cid"]);
 });

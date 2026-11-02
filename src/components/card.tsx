@@ -501,7 +501,7 @@ export const Card: React.FC<CardProps> = ({
   });
 
   const tags = normalizeTags(song.tags);
-  const maxVisibleTags = isRemixLicensed || albumTitle ? 1 : 2;
+  const maxVisibleTags = albumTitle ? 1 : 2;
   const visibleTags = tags.slice(0, maxVisibleTags);
   const overflowCount = Math.max(0, tags.length - maxVisibleTags);
 
@@ -691,14 +691,9 @@ export const Card: React.FC<CardProps> = ({
 
         {/* Zone 2: Proportional Album & Genre Tags Row */}
         <div
-          className={`market-card-row-tags ${tags.length === 0 && !isRemixLicensed && !(variant === 'market' && albumTitle) ? 'empty' : ''
+          className={`market-card-row-tags ${tags.length === 0 && !(variant === 'market' && albumTitle) ? 'empty' : ''
             }`}
         >
-          {isRemixLicensed && (
-            <Badge variant="warning" className="mypage-remix-badge">
-              REMIX
-            </Badge>
-          )}
           {variant === 'market' && albumTitle && (
             <Tooltip title={`Album: ${albumTitle}`}>
               <Badge variant="secondary" className="card-album-tag">
@@ -742,7 +737,7 @@ export const Card: React.FC<CardProps> = ({
                 </Tooltip>
               )}
             </>
-          ) : !isRemixLicensed && !(variant === 'market' && albumTitle) ? (
+          ) : !(variant === 'market' && albumTitle) ? (
             <span aria-hidden="true">&nbsp;</span>
           ) : null}
         </div>
@@ -792,7 +787,7 @@ export const Card: React.FC<CardProps> = ({
                 </span>
               </Tooltip>
               <span className="market-price-val market-price-val-license">
-                {song.source ? (
+                {song.source || song.is_remix ? (
                   <span className="market-price-remix">REMIX</span>
                 ) : (
                   `$${song.license_price.toFixed(2)}`
