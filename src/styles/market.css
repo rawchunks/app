@@ -1196,7 +1196,12 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  max-height: 200px;
+}
+
+.market-playlist-modal-option.in-playlist {
+  border-color: var(--primary);
+  background: rgba(0, 255, 65, 0.08);
+  color: var(--primary);
 }
 
 .market-playlist-modal-empty {

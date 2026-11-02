@@ -29,7 +29,7 @@ import { Glitch } from '../components/glitch';
 import { Button } from '../components/button';
 import { Modal } from '../components/modal';
 import { Tooltip } from '../components/daw/Tooltip';
-import { Card, normalizeTags, getGenreCoverImage, normalizeGenreSlug } from '../components/card';
+import { Card, normalizeTags, getGenreCoverImage, normalizeGenreSlug } from '../components/songs/card';
 import { store } from '../lib/store';
 import { useSongs, useMarketFolds, usePaginatedSongs } from '../hooks/use-songs';
 import { useGenreCovers } from '../hooks/use-genres';
@@ -2077,9 +2077,9 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
                                                   <button
                                                     type="button"
                                                     className={`market-playlist-track-row ${playing.id === s.id &&
-                                                        playing.playlistId === pl.id
-                                                        ? 'active'
-                                                        : ''
+                                                      playing.playlistId === pl.id
+                                                      ? 'active'
+                                                      : ''
                                                       }`}
                                                     onClick={() =>
                                                       store.playSong(

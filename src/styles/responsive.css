@@ -274,23 +274,145 @@
     padding: clamp(6px, 1.5vw, 10px);
   }
 
-  .mypage-list {
-    padding: clamp(6px, 1.5vw, 10px);
+  .mypage-profile-card {
+    padding: var(--space-xs) var(--space-sm);
+    gap: var(--space-xs);
   }
 
-  .mypage-profile-card {
-    padding: clamp(10px, 2.5vw, 16px);
-    gap: clamp(10px, 2.5vw, 16px);
+  .mypage-profile-right {
+    gap: 4px;
+  }
+
+  .mypage-profile-mode-tab {
+    width: 28px;
+    height: 26px;
+    padding: 0;
+    justify-content: center;
+    gap: 0;
   }
 
   .mypage-profile-stats {
-    gap: clamp(12px, 3vw, 20px);
+    display: grid;
+    grid-template-columns: repeat(2, auto);
+    gap: var(--space-2xs);
+  }
+
+  .mypage-dropdown-label,
+  .mypage-tab-label {
+    display: none !important;
+  }
+
+  .mypage-section .board-section-separator.search-open .mypage-section-title,
+  .earn-toolbar.search-open .earn-inline-stat:not(.primary) {
+    display: none;
+  }
+
+  .earn-toolbar {
+    flex-wrap: nowrap;
+    gap: 6px;
+  }
+
+  .earn-toolbar.search-open .earn-toolbar-right {
+    flex: 1 1 auto;
+    min-width: 0;
+    justify-content: flex-end;
+  }
+
+  .mypage-header-search:not(.expanded) {
+    width: var(--daw-ctrl-h);
+    padding: 0;
+    justify-content: center;
+  }
+
+  .mypage-header-search:not(.expanded) .mypage-header-search-input {
+    display: none;
+  }
+
+  .mypage-header-search.expanded .mypage-header-search-input {
+    width: 24vw;
   }
 
   /* Icon-only action buttons on small screens outside modals (tooltips remain active) */
   .board-btn-label,
-  .daw-btn-label {
+  .daw-btn-label,
+  .btn-text-label,
+  .earn-inline-sub,
+  .earn-network-name,
+  .earn-price-sub {
     display: none !important;
+  }
+
+  .earn-inline-stat {
+    padding: 0 6px;
+  }
+
+  .finder-list-header,
+  .earn-list-header {
+    display: none;
+  }
+
+  .finder-list-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--space-xs);
+    padding: var(--space-xs) var(--space-sm);
+  }
+
+  .finder-cell-album,
+  .finder-cell-genre,
+  .finder-cell-duration,
+  .finder-cell-date {
+    display: none;
+  }
+
+  .finder-columns-browser {
+    grid-template-columns: 1fr;
+  }
+
+  .finder-col-folders,
+  .finder-inspector-pane,
+  .finder-col-header {
+    display: none;
+  }
+
+  .mypage-mobile-col-filter {
+    display: inline-flex;
+  }
+
+  .finder-mobile-inline-inspector {
+    display: block;
+    padding: var(--space-xs) var(--space-sm);
+    border-bottom: 1px solid var(--border);
+    background: rgba(0, 0, 0, 0.35);
+  }
+
+  .finder-col-pane {
+    border-right: none;
+    border-bottom: none;
+  }
+
+  .earn-list-row {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: var(--space-xs);
+    padding: var(--space-xs) var(--space-sm);
+  }
+
+  .earn-cell-network,
+  .earn-cell-licenses,
+  .earn-cell-metrics {
+    display: none;
+  }
+
+  .album-studio-hero {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .album-cover-box {
+    margin: 0 auto;
+  }
+
+  .album-release-prep-row {
+    grid-template-columns: 1fr;
   }
 
   .modal-inner-card .daw-btn-label,

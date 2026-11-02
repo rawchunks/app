@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
-import { GENRE_COVER_IMAGES, normalizeGenreSlug } from '../components/card';
+import { GENRE_COVER_IMAGES, normalizeGenreSlug } from '../components/songs/card';
 
 export interface GenreCoverEntry {
   slug: string;
