@@ -160,6 +160,59 @@ export interface Album {
   songs?: Song[];
 }
 
+export interface SongEarningsItem {
+  songId: string;
+  chainSongId: string | null;
+  network: string | null;
+  networkFamily: 'base' | 'tempo' | 'solana' | 'other';
+  networkLabel: string;
+  explorerUrl: string | null;
+  txHash: string | null;
+  licensesMinted: number;
+  licensesRemaining: number;
+  licensesSold: number;
+  licensePriceUsd: number;
+  streamPriceUsd: number;
+  licenseProfitUsd: number;
+  streamProfitUsd: number;
+  totalProfitUsd: number;
+  plays: number;
+  streamSettlements: number;
+}
+
+export interface NetworkEarningsBreakdown {
+  network: string;
+  family: 'base' | 'tempo' | 'solana' | 'other';
+  label: string;
+  songCount: number;
+  licensesSold: number;
+  licensesRemaining: number;
+  plays: number;
+  licenseProfitUsd: number;
+  streamProfitUsd: number;
+  totalProfitUsd: number;
+}
+
+export interface CreatorEarningsSummary {
+  totalProfitUsd: number;
+  licenseProfitUsd: number;
+  streamProfitUsd: number;
+  licensesSold: number;
+  licensesRemaining: number;
+  licensesMinted: number;
+  totalPlays: number;
+  publishedCount: number;
+  activeNetworkFilter: string;
+}
+
+export interface CreatorEarningsResponse {
+  creator: string;
+  updatedAt: number;
+  summary: CreatorEarningsSummary;
+  networks: NetworkEarningsBreakdown[];
+  songs: Record<string, SongEarningsItem>;
+}
+
 export interface Voice {
   id: string;
   name: string;
