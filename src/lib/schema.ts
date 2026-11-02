@@ -128,12 +128,33 @@ export interface Page {
   hasMore: boolean;
 }
 
+export interface AlbumReleaseConfig {
+  targetNetwork?: string | null;
+  bundlePrice?: number;
+  bundle_price?: number;
+  editionSize?: number;
+  edition_size?: number;
+  ready?: boolean;
+  releaseNotes?: string | null;
+  licenses?: number;
+  license_price?: number;
+  stream_price?: number;
+  network?: string | null;
+  remixable?: boolean;
+  status?: 'draft' | 'ready' | 'released';
+  release_date?: string | null;
+}
+
 export interface Album {
   id: string;
   title: string;
   creator: string;
   description?: string | null;
+  concept?: string | null;
+  genre?: string | null;
   cover?: string | null;
+  gallery?: string[];
+  release_config?: AlbumReleaseConfig | null;
   public: boolean;
   created_at: string;
   songs?: Song[];
