@@ -283,6 +283,8 @@ export function PayPalCardFields({
   const cvvSlotRef = useRef<HTMLDivElement | null>(null);
   const cardFieldsRef = useRef<NonNullable<NonNullable<Window['paypal']>['CardFields']> extends (...args: any[]) => infer R ? R | null : null>(null);
   const renderPromiseRef = useRef<Promise<unknown> | null>(null);
+  const submittingRef = useRef(false);
+  const orderInFlightRef = useRef<Promise<string> | null>(null);
   const [fieldsReady, setFieldsReady] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
@@ -318,7 +320,16 @@ export function PayPalCardFields({
             callbacksRef.current.onError(null);
           },
         },
-        createOrder: () => callbacksRef.current.createOrder(),
+        createOrder: () => {
+          if (!orderInFlightRef.current) {
+            orderInFlightRef.current = Promise.resolve()
+              .then(() => callbacksRef.current.createOrder())
+              .finally(() => {
+                orderInFlightRef.current = null;
+              });
+          }
+          return orderInFlightRef.current;
+        },
         onApprove: async (data) => {
           try {
             await callbacksRef.current.onApprove(data);
@@ -403,7 +414,8 @@ export function PayPalCardFields({
   }, [isResolved]);
 
   const handleSubmit = async () => {
-    if (submitting || disabled) return;
+    if (submittingRef.current || submitting || disabled) return;
+    submittingRef.current = true;
     callbacksRef.current.onError(null);
     setSubmitting(true);
     try {
@@ -424,6 +436,7 @@ export function PayPalCardFields({
     } catch (cause) {
       callbacksRef.current.onError(formatPayPalError(cause));
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   };
@@ -513,7 +526,7 @@ export function CardCheckout({
   onComplete: () => void;
   onCancel: () => void;
 }) {
-  const { credits, creditsLoading, creditOwner, completeCreditPurchase } = useSession();
+  const { session, credits, creditsLoading, creditOwner, completeCreditPurchase } = useSession();
   const packs = credits.packs;
   const [packId, setPackId] = useState(packs[0]?.id ?? '');
   const pack = packs.find(value => value.id === packId) ?? packs[0];
@@ -521,8 +534,20 @@ export function CardCheckout({
   const operation = useRef<{ operationId: string; orderId: string } | null>(null);
   const requestKey = useRef(crypto.randomUUID());
 
-  const orderParamsRef = useRef({ packId: pack?.id ?? '', intent: effectiveIntent, creditOwner });
-  orderParamsRef.current = { packId: pack?.id ?? '', intent: effectiveIntent, creditOwner };
+  const orderParamsRef = useRef({
+    packId: pack?.id ?? '',
+    intent: effectiveIntent,
+    creditOwner,
+    network: session?.network ?? null,
+    userAddress: session?.userAddress ?? null,
+  });
+  orderParamsRef.current = {
+    packId: pack?.id ?? '',
+    intent: effectiveIntent,
+    creditOwner,
+    network: session?.network ?? null,
+    userAddress: session?.userAddress ?? null,
+  };
 
   useEffect(() => {
     operation.current = null;
@@ -590,24 +615,55 @@ export function CardCheckout({
             setError(null);
             const current = orderParamsRef.current;
             if (!current.creditOwner) throw new Error('Connect your account first');
-            const result = await creditsApi<{ operationId: string; orderId: string }>(
-              'paypal/create-order',
-              { packId: current.packId, checkout: current.intent },
-              requestKey.current,
-            );
-            operation.current = result;
-            localStorage.setItem(purchaseCacheKey(current.creditOwner), result.operationId);
-            return result.orderId;
+            try {
+              const result = await creditsApi<{ operationId: string; orderId: string }>(
+                'paypal/create-order',
+                {
+                  packId: current.packId,
+                  checkout: current.intent,
+                  ...(current.network ? { network: current.network } : {}),
+                  ...(current.userAddress || current.creditOwner ? { walletAddress: current.userAddress || current.creditOwner } : {}),
+                },
+                requestKey.current,
+              );
+              operation.current = { operationId: result.operationId, orderId: result.orderId };
+              localStorage.setItem(purchaseCacheKey(current.creditOwner), result.operationId);
+              return result.orderId;
+            } catch (err) {
+              operation.current = null;
+              requestKey.current = crypto.randomUUID();
+              throw err;
+            }
           }}
           onApprove={async data => {
             if (!operation.current || data.orderID !== operation.current.orderId) {
+              operation.current = null;
+              requestKey.current = crypto.randomUUID();
               throw new Error('Checkout order mismatch');
             }
-            await creditsApi('paypal/capture-order', operation.current);
-            await completeCreditPurchase(operation.current.operationId);
-            onComplete();
+            const currentOp = operation.current;
+            try {
+              await creditsApi('paypal/capture-order', {
+                operationId: currentOp.operationId,
+                orderId: currentOp.orderId,
+              });
+              await completeCreditPurchase(currentOp.operationId);
+              operation.current = null;
+              requestKey.current = crypto.randomUUID();
+              onComplete();
+            } catch (err) {
+              operation.current = null;
+              requestKey.current = crypto.randomUUID();
+              throw err;
+            }
           }}
-          onError={setError}
+          onError={(msg) => {
+            if (msg && operation.current) {
+              operation.current = null;
+              requestKey.current = crypto.randomUUID();
+            }
+            setError(msg);
+          }}
           onCancel={onCancel}
           cancelLabel={cancelLabel}
           submitLabel={`BUY $${Number(pack.usd)} CREDITS`}
