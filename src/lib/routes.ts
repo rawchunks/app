@@ -1,27 +1,63 @@
 import type { Route } from '../components/Layout';
 
-export function parseRoute(pathname: string): Route {
-  const clean = pathname.replace(/^\/+|\/+$/g, '').toLowerCase();
-  if (clean === 'my-page' || clean === 'mypage') return 'mypage';
-  if (clean === 'market' || /^market\/[^/]+$/.test(clean)) return 'market';
-  if (clean === 'editor' || /^editor\/[^/]+$/.test(clean)) return 'editor';
-  return 'studio';
-}
+const RESERVED_ROOT_SEGMENTS = new Set([
+  '',
+  'studio',
+  'my-page',
+  'mypage',
+  'market',
+  'editor',
+  'api',
+  'assets',
+  'branding',
+  'favicon.ico',
+]);
 
 export function marketCreator(pathname: string): string | null {
   const clean = pathname.replace(/^\/+|\/+$/g, '');
-  const match = /^market\/([^/]+)$/i.exec(clean);
-  if (!match) return null;
-  try {
-    return decodeURIComponent(match[1]).trim() || null;
-  } catch {
-    return match[1].trim() || null;
+  if (!clean) return null;
+
+  const legacyMatch = /^market\/([^/]+)$/i.exec(clean);
+  if (legacyMatch) {
+    try {
+      return decodeURIComponent(legacyMatch[1]).trim() || null;
+    } catch {
+      return legacyMatch[1].trim() || null;
+    }
   }
+
+  if (!clean.includes('/')) {
+    const lower = clean.toLowerCase();
+    if (RESERVED_ROOT_SEGMENTS.has(lower)) return null;
+    try {
+      return decodeURIComponent(clean).trim() || null;
+    } catch {
+      return clean.trim() || null;
+    }
+  }
+
+  return null;
+}
+
+export function parseRoute(pathname: string): Route {
+  const clean = pathname.replace(/^\/+|\/+$/g, '').toLowerCase();
+  if (clean === 'my-page' || clean === 'mypage') return 'mypage';
+  if (clean === 'editor' || /^editor\/[^/]+$/.test(clean)) return 'editor';
+  if (clean === 'market' || marketCreator(pathname) !== null) return 'market';
+  return 'studio';
 }
 
 export function marketPath(creator?: string | null): string {
   const clean = creator?.trim();
-  return clean ? `/market/${encodeURIComponent(clean)}` : '/market';
+  return clean ? `/${encodeURIComponent(clean)}` : '/market';
+}
+
+export function navigateToCreator(creator?: string | null): void {
+  const target = marketPath(creator);
+  if (window.location.pathname !== target) {
+    window.history.pushState(null, '', target);
+  }
+  window.dispatchEvent(new PopStateEvent('popstate'));
 }
 
 export function editorId(pathname: string): string | null {

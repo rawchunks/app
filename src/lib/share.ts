@@ -77,7 +77,7 @@ export function clearMintSuccessShare(): void {
 
 export function buildShareUrl(creator: string): string {
   const clean = creator?.trim();
-  return clean ? `${resolveOrigin()}/market/${clean}` : `${resolveOrigin()}/market`;
+  return clean ? `${resolveOrigin()}/${clean}` : `${resolveOrigin()}/`;
 }
 
 export function buildShareDisplayUrl(creator: string): string {
