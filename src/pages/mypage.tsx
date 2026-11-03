@@ -29,6 +29,7 @@ import {
   LayoutGrid,
   List,
   Columns3,
+  BarChart3,
   TrendingUp,
   Briefcase,
   DollarSign,
@@ -41,6 +42,7 @@ import { Button } from '../components/button';
 import { Badge } from '../components/badge';
 import { Draft, type FinderViewMode } from '../components/songs/draft';
 import { Asset } from '../components/songs/asset';
+import { Earn } from '../components/ag';
 import { AlbumModal } from '../components/songs/album';
 import {
   useCreatorEarnings,
@@ -55,7 +57,7 @@ import { useSelectedUserAddress } from '../hooks/use-address';
 import { usePublic } from '../hooks/use-public';
 import { useProfile } from '../hooks/use-profile';
 import { useSongs } from '../hooks/use-songs';
-import { useLicensedSongs } from '../hooks/use-license';
+import { useLicensedSongs, useCatalogLicenseSales } from '../hooks/use-license';
 import { useVoices, voiceStatus } from '../hooks/use-voices';
 import {
   useCreatorAlbums,
@@ -258,11 +260,27 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
   const [columnFolderDropdownOpen, setColumnFolderDropdownOpen] = useState(false);
   const [inspectedFamilyKey, setInspectedFamilyKey] = useState<string | null>(null);
 
-  // EARN Tab State (Aggregated Analytics + Network Filter + Sort)
+  // EARN Tab State (Aggregated Analytics + Network Filter + Sort + View)
   const [earnNetworkFilter, setEarnNetworkFilter] = useState<NetworkFilter>('all');
   const [earnNetDropdownOpen, setEarnNetDropdownOpen] = useState(false);
   const [earnSort, setEarnSort] = useState<'profit' | 'sold' | 'plays' | 'recent'>('profit');
   const [earnSortDropdownOpen, setEarnSortDropdownOpen] = useState(false);
+  const [earnView, setEarnView] = useState<'list' | 'charts'>(() => {
+    try {
+      const saved = sessionStorage.getItem('rawchunks:mypage:earnView');
+      return saved === 'charts' ? 'charts' : 'list';
+    } catch {
+      return 'list';
+    }
+  });
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('rawchunks:mypage:earnView', earnView);
+    } catch {
+      // Ignore storage write errors
+    }
+  }, [earnView]);
+  const [earnViewDropdownOpen, setEarnViewDropdownOpen] = useState(false);
 
   // Workspace Songs Filter, Sort & Time-Horizon State
   const [songSort, setSongSort] = useState<'recent' | 'date' | 'added' | 'edits'>('recent');
@@ -414,10 +432,17 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
 
   const draftsCount = workspaceFamilies.length;
   const publishedCount = publishedSongsList.length;
+  const liveLicenseSales = useCatalogLicenseSales(publishedSongsList);
 
   const earnAnalytics = useMemo(
-    () => computeAggregatedEarnings(publishedSongsList, earningsData, earnNetworkFilter),
-    [publishedSongsList, earningsData, earnNetworkFilter]
+    () =>
+      computeAggregatedEarnings(
+        publishedSongsList,
+        earningsData,
+        earnNetworkFilter,
+        liveLicenseSales
+      ),
+    [publishedSongsList, earningsData, earnNetworkFilter, liveLicenseSales]
   );
 
   const filteredSortedFamilies = useMemo(() => {
@@ -470,7 +495,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
     return filteredSortedFamilies[0];
   }, [filteredSortedFamilies, inspectedFamilyKey]);
 
-  const filteredEarnSongs = useMemo(() => {
+  const searchSortedEarnSongs = useMemo(() => {
     const q = songSearch.trim().toLowerCase();
     const filtered = publishedSongsList.filter((song) => {
       if (q) {
@@ -484,8 +509,8 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
     });
 
     return [...filtered].sort((a, b) => {
-      const metricA = earnAnalytics.songMetrics[a.id];
-      const metricB = earnAnalytics.songMetrics[b.id];
+      const metricA = earnAnalytics.allSongMetrics[a.id];
+      const metricB = earnAnalytics.allSongMetrics[b.id];
       if (earnSort === 'profit') {
         const diff = (metricB?.totalProfitUsd ?? 0) - (metricA?.totalProfitUsd ?? 0);
         if (diff !== 0) return diff;
@@ -500,7 +525,12 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
       const modB = new Date(b.created_at || 0).getTime() || 0;
       return modB - modA;
     });
-  }, [publishedSongsList, earnAnalytics.songMetrics, songSearch, earnSort, albumsMap]);
+  }, [publishedSongsList, earnAnalytics.allSongMetrics, songSearch, earnSort, albumsMap]);
+
+  const filteredEarnSongs = useMemo(() => {
+    const allowedIds = new Set(earnAnalytics.filteredSongs.map((s) => s.id));
+    return searchSortedEarnSongs.filter((song) => allowedIds.has(song.id));
+  }, [searchSortedEarnSongs, earnAnalytics.filteredSongs]);
 
   const horizonFolds = useMemo(() => {
     const now = Date.now();
@@ -540,11 +570,12 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
   useDismiss(
     Boolean(
       menuOpenId ||
-        viewDropdownOpen ||
-        sortDropdownOpen ||
-        columnFolderDropdownOpen ||
-        earnNetDropdownOpen ||
-        earnSortDropdownOpen
+      viewDropdownOpen ||
+      sortDropdownOpen ||
+      columnFolderDropdownOpen ||
+      earnNetDropdownOpen ||
+      earnSortDropdownOpen ||
+      earnViewDropdownOpen
     ),
     () => {
       setMenuOpenId(null);
@@ -553,12 +584,13 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
       setColumnFolderDropdownOpen(false);
       setEarnNetDropdownOpen(false);
       setEarnSortDropdownOpen(false);
+      setEarnViewDropdownOpen(false);
     },
     undefined,
     MENU_IGNORE_SELECTORS
   );
 
-  const guideView = { activeTab, finderView, songsOpen, licensesOpen, albumsOpen, voicesOpen, menuOpenId, editingDetailsSong, publishConfirmSong, profileModalOpen };
+  const guideView = { activeTab, finderView, earnView, songsOpen, licensesOpen, albumsOpen, voicesOpen, menuOpenId, editingDetailsSong, publishConfirmSong, profileModalOpen };
   const guideViewRef = useRef(guideView); guideViewRef.current = guideView;
   useGuideOwner({
     id: 'workspace', scope: activeAddress ?? 'guest', handles: step => ['W1', 'W2', 'W3', 'W4', 'K1', 'K2', 'K3', 'K4', 'K5', 'K6', 'K7'].includes(step.id),
@@ -571,6 +603,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
       const patch: Partial<typeof guideView> = {
         activeTab: isPublishedCandidate && ['W3', 'K5', 'K7'].includes(step.id) ? 'earn' : 'workspace',
         finderView: 'grid',
+        earnView: 'list',
       };
       if (!['K2', 'K3', 'K4', 'K6'].includes(step.id)) patch.songsOpen = true;
       if (step.id === 'K2') patch.licensesOpen = true;
@@ -582,7 +615,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
       if (step.id === 'W2' && privateSong) patch.editingDetailsSong = song;
       if (step.id === 'W4' && song && !song.public) patch.publishConfirmSong = song;
       const view = prepareViews(guideView, () => guideViewRef.current, {
-        activeTab: setActiveTab, finderView: setFinderView,
+        activeTab: setActiveTab, finderView: setFinderView, earnView: setEarnView,
         songsOpen: setSongsOpen, licensesOpen: setLicensesOpen, albumsOpen: setAlbumsOpen, voicesOpen: setVoicesOpen, menuOpenId: setMenuOpenId,
         editingDetailsSong: setEditingDetailsSong, publishConfirmSong: setPublishConfirmSong, profileModalOpen: setProfileModalOpen
       }, patch);
@@ -1500,10 +1533,10 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
                               : columnFolder === 'unassigned'
                                 ? 'UNASSIGNED'
                                 : (() => {
-                                    const albId = columnFolder.replace('album:', '');
-                                    const alb = albums.find((a) => a.id === albId);
-                                    return alb ? alb.title.toUpperCase() : 'COLLECTION';
-                                  })()}
+                                  const albId = columnFolder.replace('album:', '');
+                                  const alb = albums.find((a) => a.id === albId);
+                                  return alb ? alb.title.toUpperCase() : 'COLLECTION';
+                                })()}
                         </span>
                         <ChevronDown size={11} className="market-popover-chevron" />
                       </button>
@@ -2311,278 +2344,366 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
       ) : (
         /* EARN TAB: Published Catalog, Licenses & On-Chain x402 Streaming Analytics */
         <div className="earn-dashboard" data-guide="mypage-sections">
-          {/* Top Filter & View Bar */}
-          <div
-            className={`earn-toolbar ${mobileSearchOpen || Boolean(songSearch) ? 'search-open' : ''}`}
-          >
-            {/* Network Filter Dropdown (ALL | BASE | TEMPO | SOLANA) */}
-            <div className="market-view-select-wrap">
-              <button
-                type="button"
-                className={`mypage-header-trigger ${earnNetDropdownOpen ? 'open' : ''}`}
-                onClick={() => {
-                  setEarnSortDropdownOpen(false);
-                  setEarnNetDropdownOpen((prev) => !prev);
-                }}
-                aria-haspopup="listbox"
-                aria-expanded={earnNetDropdownOpen}
-                aria-label="Filter revenue by network"
-              >
-                {earnNetworkFilter === 'all' ? (
-                  <Globe size={12} />
-                ) : (
-                  <img
-                    src={getNetworkLogo(earnNetworkFilter) || ''}
-                    alt=""
-                    className="earn-net-logo"
-                  />
-                )}
-                <span className="mypage-dropdown-label">
-                  {earnNetworkFilter === 'all'
-                    ? 'ALL NETWORKS'
-                    : earnNetworkFilter.toUpperCase()}
-                </span>
-                <ChevronDown size={11} className="market-popover-chevron" />
-              </button>
-
-              {earnNetDropdownOpen && (
-                <div className="market-popover-menu mypage-header-popover">
-                  <div className="market-popover-list" role="listbox">
-                    <button
-                      type="button"
-                      role="option"
-                      aria-selected={earnNetworkFilter === 'all'}
-                      className={`market-popover-option ${earnNetworkFilter === 'all' ? 'selected' : ''}`}
-                      onClick={() => {
-                        setEarnNetworkFilter('all');
-                        setEarnNetDropdownOpen(false);
-                      }}
-                    >
-                      <Globe size={12} />
-                      <span>ALL NETWORKS</span>
-                    </button>
-                    {(['base', 'tempo', 'solana'] as const).map((netKey) => {
-                      const label =
-                        netKey === 'base' ? 'BASE' : netKey === 'tempo' ? 'TEMPO' : 'SOLANA';
-                      const logo = getNetworkLogo(netKey);
-                      return (
-                        <button
-                          key={netKey}
-                          type="button"
-                          role="option"
-                          aria-selected={earnNetworkFilter === netKey}
-                          className={`market-popover-option ${earnNetworkFilter === netKey ? 'selected' : ''}`}
-                          onClick={() => {
-                            setEarnNetworkFilter(netKey);
-                            setEarnNetDropdownOpen(false);
-                          }}
-                        >
-                          {logo && <img src={logo} alt="" className="earn-net-logo" />}
-                          <span>{label}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Compact Aggregated Revenue Pill Strip */}
-            <div className="earn-inline-summary" aria-label="Aggregated revenue summary">
-              <Tooltip
-                title="Creator Profit"
-                description={`Licenses: ${formatUsd(earnAnalytics.summary.licenseProfitUsd)} • Streams: ${formatUsd(earnAnalytics.summary.streamProfitUsd)}`}
-              >
-                <div className="earn-inline-stat primary">
-                  <DollarSign size={11} />
-                  <span className="earn-inline-val">
-                    {formatUsd(earnAnalytics.summary.totalProfitUsd, false)}
-                  </span>
-                  <span className="earn-inline-sub">
-                    L {formatUsd(earnAnalytics.summary.licenseProfitUsd)} · S {formatUsd(earnAnalytics.summary.streamProfitUsd)}
-                  </span>
-                </div>
-              </Tooltip>
-
-              <Tooltip
-                title="Licenses Sold"
-                description={`${earnAnalytics.summary.licensesSold} sold • ${earnAnalytics.summary.licensesRemaining} remaining of ${earnAnalytics.summary.licensesMinted} available`}
-              >
-                <div className="earn-inline-stat">
-                  <Disc3 size={11} />
-                  <span className="earn-inline-val">
-                    {earnAnalytics.summary.licensesSold}
-                  </span>
-                  <span className="earn-inline-sub">SOLD</span>
-                </div>
-              </Tooltip>
-
-              <Tooltip
-                title="Public Plays"
-                description={`${earnAnalytics.summary.totalPlays.toLocaleString()} public streams across ${earnAnalytics.summary.publishedCount} releases`}
-              >
-                <div className="earn-inline-stat">
-                  <Headphones size={11} />
-                  <span className="earn-inline-val">
-                    {earnAnalytics.summary.totalPlays.toLocaleString()}
-                  </span>
-                  <span className="earn-inline-sub">PLAYS</span>
-                </div>
-              </Tooltip>
-            </div>
-
-            <div className="earn-toolbar-right">
-              {/* Search inside Earn */}
-              <div
-                className={`mypage-header-search ${mobileSearchOpen || Boolean(songSearch) ? 'expanded' : ''}`}
-              >
-                <button
-                  type="button"
-                  className="mypage-header-search-toggle"
-                  onClick={() => {
-                    setMobileSearchOpen((prev) => {
-                      const next = !prev;
-                      if (next) {
-                        setTimeout(() => searchInputRef.current?.focus(), 0);
-                      }
-                      return next;
-                    });
-                  }}
-                  aria-label="Search published tracks"
+          {/* Top Filter & View Bar (shown in LIST view; CHARTS view renders its own .cm-dashboard-control-rail) */}
+          {(earnView !== 'charts' || publishedSongsList.length === 0) && (
+            <div
+              className={`earn-toolbar ${mobileSearchOpen || Boolean(songSearch) ? 'search-open' : ''}`}
+            >
+              {/* Network Filter Dropdown (ALL | BASE | SOLANA | TEMPO) */}
+              <div className="market-view-select-wrap">
+                <Tooltip
+                  title="Network Filter"
+                  description={
+                    earnNetworkFilter === 'all'
+                      ? 'ALL'
+                      : earnNetworkFilter.toUpperCase()
+                  }
                 >
-                  <Search size={12} />
-                </button>
-                <input
-                  ref={searchInputRef}
-                  type="text"
-                  className="mypage-header-search-input"
-                  placeholder="Search releases..."
-                  value={songSearch}
-                  onChange={(e) => setSongSearch(e.target.value)}
-                />
-                {(songSearch || mobileSearchOpen) && (
                   <button
                     type="button"
-                    className="mypage-header-search-clear"
+                    className={`mypage-header-trigger ${earnNetDropdownOpen ? 'open' : ''}`}
                     onClick={() => {
-                      setSongSearch('');
-                      setMobileSearchOpen(false);
+                      setEarnSortDropdownOpen(false);
+                      setEarnViewDropdownOpen(false);
+                      setEarnNetDropdownOpen((prev) => !prev);
                     }}
-                    aria-label="Clear search"
+                    aria-haspopup="listbox"
+                    aria-expanded={earnNetDropdownOpen}
+                    aria-label="Filter revenue by network"
                   >
-                    <X size={11} />
+                    {earnNetworkFilter === 'all' ? (
+                      <Globe size={12} />
+                    ) : (
+                      <img
+                        src={getNetworkLogo(earnNetworkFilter) || ''}
+                        alt=""
+                        className="earn-net-logo"
+                      />
+                    )}
+                    <span className="mypage-dropdown-label">
+                      {earnNetworkFilter === 'all'
+                        ? 'ALL'
+                        : earnNetworkFilter.toUpperCase()}
+                    </span>
+                    <ChevronDown size={11} className="market-popover-chevron" />
                   </button>
-                )}
-              </div>
+                </Tooltip>
 
-              {/* Sort Dropdown (PROFIT | SOLD | PLAYS | RECENT) */}
-              <div className="market-view-select-wrap">
-                <button
-                  type="button"
-                  className={`mypage-header-trigger ${earnSortDropdownOpen ? 'open' : ''}`}
-                  onClick={() => {
-                    setEarnNetDropdownOpen(false);
-                    setEarnSortDropdownOpen((prev) => !prev);
-                  }}
-                  aria-haspopup="listbox"
-                  aria-expanded={earnSortDropdownOpen}
-                  aria-label="Sort published releases"
-                >
-                  {earnSort === 'profit' ? (
-                    <DollarSign size={11} />
-                  ) : earnSort === 'sold' ? (
-                    <Disc3 size={11} />
-                  ) : earnSort === 'plays' ? (
-                    <Headphones size={11} />
-                  ) : (
-                    <Clock size={11} />
-                  )}
-                  <span className="mypage-dropdown-label">
-                    {earnSort === 'profit'
-                      ? 'PROFIT'
-                      : earnSort === 'sold'
-                        ? 'SOLD'
-                        : earnSort === 'plays'
-                          ? 'PLAYS'
-                          : 'RECENT'}
-                  </span>
-                  <ChevronDown size={11} className="market-popover-chevron" />
-                </button>
-
-                {earnSortDropdownOpen && (
+                {earnNetDropdownOpen && (
                   <div className="market-popover-menu mypage-header-popover">
                     <div className="market-popover-list" role="listbox">
                       <button
                         type="button"
                         role="option"
-                        aria-selected={earnSort === 'profit'}
-                        className={`market-popover-option ${earnSort === 'profit' ? 'selected' : ''}`}
+                        aria-selected={earnNetworkFilter === 'all'}
+                        className={`market-popover-option ${earnNetworkFilter === 'all' ? 'selected' : ''}`}
                         onClick={() => {
-                          setEarnSort('profit');
-                          setEarnSortDropdownOpen(false);
+                          setEarnNetworkFilter('all');
+                          setEarnNetDropdownOpen(false);
                         }}
                       >
-                        <DollarSign size={12} />
-                        <span>PROFIT</span>
+                        <Globe size={12} />
+                        <span>ALL</span>
                       </button>
-                      <button
-                        type="button"
-                        role="option"
-                        aria-selected={earnSort === 'sold'}
-                        className={`market-popover-option ${earnSort === 'sold' ? 'selected' : ''}`}
-                        onClick={() => {
-                          setEarnSort('sold');
-                          setEarnSortDropdownOpen(false);
-                        }}
-                      >
-                        <Disc3 size={12} />
-                        <span>LICENSES SOLD</span>
-                      </button>
-                      <button
-                        type="button"
-                        role="option"
-                        aria-selected={earnSort === 'plays'}
-                        className={`market-popover-option ${earnSort === 'plays' ? 'selected' : ''}`}
-                        onClick={() => {
-                          setEarnSort('plays');
-                          setEarnSortDropdownOpen(false);
-                        }}
-                      >
-                        <Headphones size={12} />
-                        <span>PLAYS</span>
-                      </button>
-                      <button
-                        type="button"
-                        role="option"
-                        aria-selected={earnSort === 'recent'}
-                        className={`market-popover-option ${earnSort === 'recent' ? 'selected' : ''}`}
-                        onClick={() => {
-                          setEarnSort('recent');
-                          setEarnSortDropdownOpen(false);
-                        }}
-                      >
-                        <Clock size={12} />
-                        <span>RECENT</span>
-                      </button>
+                      {(['base', 'solana', 'tempo'] as const).map((netKey) => {
+                        const label =
+                          netKey === 'base' ? 'BASE' : netKey === 'tempo' ? 'TEMPO' : 'SOLANA';
+                        const logo = getNetworkLogo(netKey);
+                        return (
+                          <button
+                            key={netKey}
+                            type="button"
+                            role="option"
+                            aria-selected={earnNetworkFilter === netKey}
+                            className={`market-popover-option ${earnNetworkFilter === netKey ? 'selected' : ''}`}
+                            onClick={() => {
+                              setEarnNetworkFilter(netKey);
+                              setEarnNetDropdownOpen(false);
+                            }}
+                          >
+                            {logo && <img src={logo} alt="" className="earn-net-logo" />}
+                            <span>{label}</span>
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
               </div>
 
-              <Tooltip title="Sync On-Chain Revenue">
-                <button
-                  type="button"
-                  className="mypage-header-icon-btn"
-                  onClick={() => void refetchEarnings()}
-                  aria-label="Sync on-chain revenue"
+              {/* Compact Aggregated Revenue Pill Strip */}
+              <div className="earn-inline-summary" aria-label="Aggregated revenue summary">
+                <Tooltip
+                  title="Creator Profit"
+                  description={`Licenses: ${formatUsd(earnAnalytics.summary.licenseProfitUsd)} • Streams: ${formatUsd(earnAnalytics.summary.streamProfitUsd)}`}
                 >
-                  <RotateCcw size={12} className={loadingEarnings ? 'spin-icon' : ''} />
-                </button>
-              </Tooltip>
-            </div>
-          </div>
+                  <div className="earn-inline-stat primary">
+                    <DollarSign size={11} />
+                    <span className="earn-inline-val">
+                      {formatUsd(earnAnalytics.summary.totalProfitUsd, false)}
+                    </span>
+                    <span className="earn-inline-sub">
+                      L {formatUsd(earnAnalytics.summary.licenseProfitUsd)} · S {formatUsd(earnAnalytics.summary.streamProfitUsd)}
+                    </span>
+                  </div>
+                </Tooltip>
 
-          {/* Published Releases Catalog Ledger */}
+                <Tooltip
+                  title="Licenses Sold"
+                  description={`${earnAnalytics.summary.licensesSold} sold • ${earnAnalytics.summary.licensesRemaining} remaining of ${earnAnalytics.summary.licensesMinted} available`}
+                >
+                  <div className="earn-inline-stat">
+                    <Disc3 size={11} />
+                    <span className="earn-inline-val">
+                      {earnAnalytics.summary.licensesSold}
+                    </span>
+                    <span className="earn-inline-sub">SOLD</span>
+                  </div>
+                </Tooltip>
+
+                <Tooltip
+                  title="Public Plays"
+                  description={`${earnAnalytics.summary.totalPlays.toLocaleString()} public streams across ${earnAnalytics.summary.publishedCount} releases`}
+                >
+                  <div className="earn-inline-stat">
+                    <Headphones size={11} />
+                    <span className="earn-inline-val">
+                      {earnAnalytics.summary.totalPlays.toLocaleString()}
+                    </span>
+                    <span className="earn-inline-sub">PLAYS</span>
+                  </div>
+                </Tooltip>
+              </div>
+
+              <div className="earn-toolbar-right">
+                {/* Search inside Earn */}
+                <div
+                  className={`mypage-header-search ${mobileSearchOpen || Boolean(songSearch) ? 'expanded' : ''}`}
+                >
+                  <Tooltip title="Search Releases">
+                    <button
+                      type="button"
+                      className="mypage-header-search-toggle"
+                      onClick={() => {
+                        setMobileSearchOpen((prev) => {
+                          const next = !prev;
+                          if (next) {
+                            setTimeout(() => searchInputRef.current?.focus(), 0);
+                          }
+                          return next;
+                        });
+                      }}
+                      aria-label="Search published tracks"
+                    >
+                      <Search size={12} />
+                    </button>
+                  </Tooltip>
+                  <input
+                    ref={searchInputRef}
+                    type="text"
+                    className="mypage-header-search-input"
+                    placeholder="Search releases..."
+                    value={songSearch}
+                    onChange={(e) => setSongSearch(e.target.value)}
+                  />
+                  {(songSearch || mobileSearchOpen) && (
+                    <button
+                      type="button"
+                      className="mypage-header-search-clear"
+                      onClick={() => {
+                        setSongSearch('');
+                        setMobileSearchOpen(false);
+                      }}
+                      aria-label="Clear search"
+                    >
+                      <X size={11} />
+                    </button>
+                  )}
+                </div>
+
+                {/* Sort Dropdown (PROFIT | SOLD | PLAYS | RECENT) */}
+                <div className="market-view-select-wrap">
+                  <Tooltip
+                    title="Sort Releases"
+                    description={
+                      earnSort === 'profit'
+                        ? 'PROFIT'
+                        : earnSort === 'sold'
+                          ? 'LICENSES SOLD'
+                          : earnSort === 'plays'
+                            ? 'PLAYS'
+                            : 'RECENT'
+                    }
+                  >
+                    <button
+                      type="button"
+                      className={`mypage-header-trigger ${earnSortDropdownOpen ? 'open' : ''}`}
+                      onClick={() => {
+                        setEarnNetDropdownOpen(false);
+                        setEarnViewDropdownOpen(false);
+                        setEarnSortDropdownOpen((prev) => !prev);
+                      }}
+                      aria-haspopup="listbox"
+                      aria-expanded={earnSortDropdownOpen}
+                      aria-label="Sort published releases"
+                    >
+                      {earnSort === 'profit' ? (
+                        <DollarSign size={11} />
+                      ) : earnSort === 'sold' ? (
+                        <Disc3 size={11} />
+                      ) : earnSort === 'plays' ? (
+                        <Headphones size={11} />
+                      ) : (
+                        <Clock size={11} />
+                      )}
+                      <span className="mypage-dropdown-label">
+                        {earnSort === 'profit'
+                          ? 'PROFIT'
+                          : earnSort === 'sold'
+                            ? 'SOLD'
+                            : earnSort === 'plays'
+                              ? 'PLAYS'
+                              : 'RECENT'}
+                      </span>
+                      <ChevronDown size={11} className="market-popover-chevron" />
+                    </button>
+                  </Tooltip>
+
+                  {earnSortDropdownOpen && (
+                    <div className="market-popover-menu mypage-header-popover">
+                      <div className="market-popover-list" role="listbox">
+                        <button
+                          type="button"
+                          role="option"
+                          aria-selected={earnSort === 'profit'}
+                          className={`market-popover-option ${earnSort === 'profit' ? 'selected' : ''}`}
+                          onClick={() => {
+                            setEarnSort('profit');
+                            setEarnSortDropdownOpen(false);
+                          }}
+                        >
+                          <DollarSign size={12} />
+                          <span>PROFIT</span>
+                        </button>
+                        <button
+                          type="button"
+                          role="option"
+                          aria-selected={earnSort === 'sold'}
+                          className={`market-popover-option ${earnSort === 'sold' ? 'selected' : ''}`}
+                          onClick={() => {
+                            setEarnSort('sold');
+                            setEarnSortDropdownOpen(false);
+                          }}
+                        >
+                          <Disc3 size={12} />
+                          <span>LICENSES SOLD</span>
+                        </button>
+                        <button
+                          type="button"
+                          role="option"
+                          aria-selected={earnSort === 'plays'}
+                          className={`market-popover-option ${earnSort === 'plays' ? 'selected' : ''}`}
+                          onClick={() => {
+                            setEarnSort('plays');
+                            setEarnSortDropdownOpen(false);
+                          }}
+                        >
+                          <Headphones size={12} />
+                          <span>PLAYS</span>
+                        </button>
+                        <button
+                          type="button"
+                          role="option"
+                          aria-selected={earnSort === 'recent'}
+                          className={`market-popover-option ${earnSort === 'recent' ? 'selected' : ''}`}
+                          onClick={() => {
+                            setEarnSort('recent');
+                            setEarnSortDropdownOpen(false);
+                          }}
+                        >
+                          <Clock size={12} />
+                          <span>RECENT</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* View Dropdown (LIST | CHARTS) */}
+                <div className="market-view-select-wrap">
+                  <Tooltip
+                    title="Earn View"
+                    description={earnView === 'charts' ? 'CHARTS' : 'LIST'}
+                  >
+                    <button
+                      type="button"
+                      className={`mypage-header-trigger ${earnViewDropdownOpen ? 'open' : ''}`}
+                      onClick={() => {
+                        setEarnNetDropdownOpen(false);
+                        setEarnSortDropdownOpen(false);
+                        setEarnViewDropdownOpen((prev) => !prev);
+                      }}
+                      aria-haspopup="listbox"
+                      aria-expanded={earnViewDropdownOpen}
+                      aria-label="Switch earn view"
+                    >
+                      {earnView === 'charts' ? <BarChart3 size={11} /> : <List size={11} />}
+                      <span className="mypage-dropdown-label">
+                        {earnView === 'charts' ? 'CHARTS' : 'LIST'}
+                      </span>
+                      <ChevronDown size={11} className="market-popover-chevron" />
+                    </button>
+                  </Tooltip>
+
+                  {earnViewDropdownOpen && (
+                    <div className="market-popover-menu mypage-header-popover">
+                      <div className="market-popover-list" role="listbox">
+                        <button
+                          type="button"
+                          role="option"
+                          aria-selected={earnView === 'list'}
+                          className={`market-popover-option ${earnView === 'list' ? 'selected' : ''}`}
+                          onClick={() => {
+                            setEarnView('list');
+                            setEarnViewDropdownOpen(false);
+                          }}
+                        >
+                          <List size={12} />
+                          <span>LIST</span>
+                        </button>
+                        <button
+                          type="button"
+                          role="option"
+                          aria-selected={earnView === 'charts'}
+                          className={`market-popover-option ${earnView === 'charts' ? 'selected' : ''}`}
+                          onClick={() => {
+                            setEarnView('charts');
+                            setEarnViewDropdownOpen(false);
+                          }}
+                        >
+                          <BarChart3 size={12} />
+                          <span>CHARTS</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <Tooltip title="Sync On-Chain Revenue">
+                  <button
+                    type="button"
+                    className="mypage-header-icon-btn"
+                    onClick={() => void refetchEarnings()}
+                    aria-label="Sync on-chain revenue"
+                  >
+                    <RotateCcw size={12} className={loadingEarnings ? 'spin-icon' : ''} />
+                  </button>
+                </Tooltip>
+              </div>
+            </div>
+          )}
+
+          {/* Published Releases Catalog Ledger / Visual Charts */}
           <div className="mypage-section earn-catalog-section">
             <div className="mypage-section-body">
               {publishedSongsList.length === 0 ? (
@@ -2598,11 +2719,31 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
                     </Button>
                   )}
                 </div>
+              ) : earnView === 'charts' ? (
+                <Earn
+                  songs={publishedSongsList}
+                  songMetrics={earnAnalytics.allSongMetrics}
+                  events={earnAnalytics.events}
+                  globalNetworkFilter={earnNetworkFilter}
+                  onNetworkFilterChange={setEarnNetworkFilter}
+                  earnView={earnView}
+                  onEarnViewChange={setEarnView}
+                  onRefresh={() => void refetchEarnings()}
+                  isRefreshing={loadingEarnings}
+                  onSelectSong={(song) => {
+                    const isPlayingThis = state.isPlaying && state.activeSong?.id === song.id;
+                    if (isPlayingThis) {
+                      store.setPlaying(false);
+                    } else {
+                      store.playSong(song, state.songs, null);
+                    }
+                  }}
+                />
               ) : filteredEarnSongs.length === 0 ? (
                 <div className="mypage-empty">
                   <span className="mypage-empty-title">NO MATCHING RELEASES</span>
                   <span className="mypage-empty-desc">
-                    Try clearing your search query to view all published releases.
+                    Try clearing your search or switching the network filter.
                   </span>
                 </div>
               ) : (
