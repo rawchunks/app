@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useQuery, useQueries, useQueryClient } from '@tanstack/react-query';
 import { useActiveAccount, useAdminWallet } from 'thirdweb/react';
 import { Bridge, readContract, simulateTransaction, sendAndConfirmTransaction, type PreparedTransaction } from 'thirdweb';
@@ -57,6 +57,77 @@ export function useLicensedSongs(songs: Song[]) {
     loading: Boolean(effectiveUser) && results.some(result => result.isPending),
     error: results.find(result => result.error)?.error ?? null,
   };
+}
+
+export interface LiveSongLicenseMetrics {
+  sold?: number;
+  remaining?: number;
+  minted?: number;
+  priceUsd?: number;
+}
+
+export function useCatalogLicenseSales(songs: Song[]): Record<string, LiveSongLicenseMetrics> {
+  const { evmAddress, svmAddress } = useSelectedUserAddress();
+  const eligible = songs.filter(
+    song => !song.source && !song.is_remix && Boolean(song.chain_song_id && song.network && song.metadata_cid),
+  );
+
+  const licenseResults = useQueries({
+    queries: eligible.map(song => ({
+      queryKey: licenseKey(song, evmAddress, svmAddress),
+      enabled: Boolean(song.chain_song_id && song.network),
+      retry: false,
+      queryFn: () => readLicense(song, evmAddress, svmAddress),
+    })),
+  });
+
+  const allocationResults = useQueries({
+    queries: eligible.map(song => ({
+      queryKey: ['allocation', song.metadata_cid],
+      enabled: Boolean(song.chain_song_id && song.metadata_cid),
+      staleTime: Infinity,
+      retry: false,
+      queryFn: async () => {
+        const metadata = await fetchFromIpfs<Song>(song.metadata_cid!);
+        if (!Number.isSafeInteger(metadata.licenses) || metadata.licenses < 0) {
+          throw new Error('The minted license allocation is unavailable');
+        }
+        return metadata.licenses;
+      },
+    })),
+  });
+
+  const out: Record<string, LiveSongLicenseMetrics> = {};
+  eligible.forEach((song, index) => {
+    const lic = licenseResults[index]?.data;
+    const minted = allocationResults[index]?.data;
+    let sold: number | undefined;
+    if (minted !== undefined && lic !== undefined) {
+      try {
+        sold = licenseSales(minted, lic.remaining);
+      } catch {
+        // Ignore allocation mismatch
+      }
+    }
+    if (lic !== undefined || minted !== undefined) {
+      out[song.id] = {
+        sold,
+        remaining: lic !== undefined ? Number(lic.remaining) : undefined,
+        minted,
+        priceUsd: lic !== undefined ? Number(lic.price) / 1_000_000 : undefined,
+      };
+    }
+  });
+
+  const prevRef = useRef<{ json: string; value: Record<string, LiveSongLicenseMetrics> }>({
+    json: '',
+    value: {},
+  });
+  const nextJson = JSON.stringify(out);
+  if (prevRef.current.json !== nextJson) {
+    prevRef.current = { json: nextJson, value: out };
+  }
+  return prevRef.current.value;
 }
 
 export function useLicense(song: Song, onEditSong?: (song: Song) => void, includeSales = true, readOnMount = true) {

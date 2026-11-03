@@ -162,6 +162,12 @@ export interface Album {
 
 export interface SongEarningsItem {
   songId: string;
+  title: string;
+  image: string | null;
+  genres: string[];
+  primaryGenre: string;
+  durationSec: number;
+  durationMs: number;
   chainSongId: string | null;
   network: string | null;
   networkFamily: 'base' | 'tempo' | 'solana' | 'other';
@@ -176,8 +182,35 @@ export interface SongEarningsItem {
   licenseProfitUsd: number;
   streamProfitUsd: number;
   totalProfitUsd: number;
+  platformFeeUsd: number;
+  grossUsd: number;
   plays: number;
   streamSettlements: number;
+  streamedMs: number;
+  avgStreamedMs: number;
+  ratioPct: number;
+  lastPlayedAt: number;
+}
+
+export interface EarningEventItem {
+  id: string;
+  songId: string;
+  songTitle: string;
+  genre: string;
+  network: string;
+  networkFamily: 'base' | 'tempo' | 'solana' | 'other';
+  networkLabel: string;
+  kind: 'stream' | 'license';
+  royaltiesUsd: number;
+  platformFeeUsd: number;
+  totalUsd: number;
+  streamedMs: number;
+  durationMs: number;
+  ratioPct: number;
+  txHash: string | null;
+  explorerUrl: string | null;
+  payer: string | null;
+  timestamp: number;
 }
 
 export interface NetworkEarningsBreakdown {
@@ -188,19 +221,28 @@ export interface NetworkEarningsBreakdown {
   licensesSold: number;
   licensesRemaining: number;
   plays: number;
+  streamedMs: number;
   licenseProfitUsd: number;
   streamProfitUsd: number;
   totalProfitUsd: number;
+  platformFeeUsd: number;
+  grossUsd: number;
 }
 
 export interface CreatorEarningsSummary {
   totalProfitUsd: number;
   licenseProfitUsd: number;
   streamProfitUsd: number;
+  platformFeeUsd: number;
+  grossUsd: number;
   licensesSold: number;
   licensesRemaining: number;
   licensesMinted: number;
   totalPlays: number;
+  totalStreamedMs: number;
+  avgStreamedMs: number;
+  avgRatioPct: number;
+  peakRatioPct: number;
   publishedCount: number;
   activeNetworkFilter: string;
 }
@@ -211,6 +253,7 @@ export interface CreatorEarningsResponse {
   summary: CreatorEarningsSummary;
   networks: NetworkEarningsBreakdown[];
   songs: Record<string, SongEarningsItem>;
+  events: EarningEventItem[];
 }
 
 export interface Voice {
