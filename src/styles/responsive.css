@@ -338,12 +338,42 @@
   .btn-text-label,
   .earn-inline-sub,
   .earn-network-name,
-  .earn-price-sub {
+  .earn-price-sub,
+  .earn-chart-title,
+  .earn-toolbar .market-popover-chevron,
+  .earn-chart-controls .market-popover-chevron {
     display: none !important;
+  }
+
+  .earn-toolbar .mypage-header-trigger,
+  .earn-chart-controls .mypage-header-trigger {
+    width: 26px;
+    min-width: 26px;
+    padding: 0;
+    justify-content: center;
   }
 
   .earn-inline-stat {
     padding: 0 6px;
+  }
+
+  .earn-visual-grid {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .earn-visual-grid[data-focus="profit"] {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 2.15fr) minmax(94px, 0.85fr);
+  }
+
+  .earn-visual-grid[data-focus="plays"] {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(94px, 0.85fr) minmax(0, 2.15fr);
+  }
+
+  .earn-chart-header {
+    padding: 4px var(--space-xs);
   }
 
   .finder-list-header,

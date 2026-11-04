@@ -4,6 +4,8 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { toast } from 'sonner';
 import {
   User,
+  UserPlus,
+  UserCheck,
   Search,
   X,
   Music,
@@ -11,6 +13,7 @@ import {
   ArrowUpNarrowWide,
   RotateCcw,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   Check,
   Sparkles,
@@ -20,16 +23,20 @@ import {
   Play,
   Pause,
   Plus,
-  Lock,
-  Globe,
+  Heart,
+  Share2,
+  ArrowLeft,
   SlidersHorizontal,
   Trash2,
+  Copy,
 } from 'lucide-react';
 import { Glitch } from '../components/glitch';
 import { Button } from '../components/button';
 import { Modal } from '../components/modal';
 import { Tooltip } from '../components/daw/Tooltip';
 import { Card, normalizeTags, getGenreCoverImage, normalizeGenreSlug } from '../components/songs/card';
+import { Row } from '../components/songs/row';
+import { Timeline } from '../components/songs/timeline';
 import { store } from '../lib/store';
 import { useSongs, useMarketFolds, usePaginatedSongs } from '../hooks/use-songs';
 import { useGenreCovers } from '../hooks/use-genres';
@@ -38,11 +45,11 @@ import {
   usePublicPlaylists,
   useCreatorPlaylists,
   createPlaylistApi,
-  addSongToPlaylistApi,
   removeSongFromPlaylistApi,
   deletePlaylistApi,
   recordPlaylistPlayApi,
 } from '../hooks/use-playlists';
+import { useLikes, useFollows, useCreatorSocial } from '../hooks/use-social';
 import { useSelectedUserAddress } from '../hooks/use-address';
 import { fetchUserProfilesBatch, type WalletPairProfile } from '../hooks/use-profile';
 import { readCachedProfile } from '../lib/cache';
@@ -63,8 +70,11 @@ interface CreatorGroup {
   label: string;
   nicknameKey: string | null;
   avatar: string | null;
+  bio: string | null;
   addresses: Set<string>;
 }
+
+type SnapStageId = 'pulse' | 'discovery' | 'collections';
 
 function findCreatorGroup(groups: CreatorGroup[], rawCreator: string | null): CreatorGroup | null {
   if (!rawCreator) return null;
@@ -79,6 +89,13 @@ function findCreatorGroup(groups: CreatorGroup[], rawCreator: string | null): Cr
     ) ?? null
   );
 }
+
+const formatShortAddr = (addr?: string | null): string => {
+  if (!addr) return '—';
+  return addr.startsWith('0x')
+    ? `${addr.slice(0, 6)}…${addr.slice(-4)}`
+    : `${addr.slice(0, 4)}…${addr.slice(-4)}`;
+};
 
 export const Market: React.FC<Props> = ({ className = '' }) => {
   const { readAddress } = useSelectedUserAddress();
@@ -96,19 +113,24 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
   const [shareData, setShareData] = useState<MintShareData | null>(null);
   const [selectedGenres, setSelectedGenres] = useState<string[]>([]);
   const [selectedAlbumId, setSelectedAlbumId] = useState<string | null>(null);
+  const [likedOnly, setLikedOnly] = useState(false);
+  const [followingOnly, setFollowingOnly] = useState(false);
   const [order, setOrder] = useState<'latest' | 'oldest'>('latest');
   const [search, setSearch] = useState<string>('');
   const [searchModalOpen, setSearchModalOpen] = useState(false);
   const [selected, setSelected] = useState<Record<string, string>>({});
 
-  // Foldable categories & progressive row expansion per category (10 bounded items per horizontal shelf row)
-  const ITEMS_PER_SHELF_ROW = 10;
-  const [foldedShelves, setFoldedShelves] = useState<Record<string, boolean>>({});
-  const [shelfRows, setShelfRows] = useState<Record<string, number>>({});
-  const [viewMode, setViewMode] = useState<
-    'all' | 'new' | 'popular' | 'genres' | 'creators' | 'albums' | 'playlists'
-  >('all');
-  const [viewMenuOpen, setViewMenuOpen] = useState(false);
+  // Vertical Snap-Deck Stage & In-Stage Pagination
+  const [activeStage, setActiveStage] = useState<SnapStageId>('pulse');
+  const [pulseMobileTab, setPulseMobileTab] = useState<'new' | 'popular'>('new');
+  const [pulseRightMode, setPulseRightMode] = useState<'popular' | 'liked'>('popular');
+  const [pulseNewFollowingOnly, setPulseNewFollowingOnly] = useState(false);
+  const [newPage, setNewPage] = useState(0);
+  const [popularPage, setPopularPage] = useState(0);
+  const [genrePage, setGenrePage] = useState(0);
+  const [creatorPage, setCreatorPage] = useState(0);
+  const [albumPage, setAlbumPage] = useState(0);
+  const [playlistPage, setPlaylistPage] = useState(0);
 
   const [batchSize, setBatchSize] = useState<20 | 50 | 100>(20);
   const [pollIntervalMin, setPollIntervalMin] = useState<15 | 30 | 60>(60);
@@ -120,20 +142,23 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
   const [genreOpen, setGenreOpen] = useState(false);
   const [genreQuery, setGenreQuery] = useState('');
 
-  // Playlist modal & expanded playlist state
-  const [playlistTargetSong, setPlaylistTargetSong] = useState<Song | null>(null);
-  const [newPlaylistTitle, setNewPlaylistTitle] = useState('');
+  // Playlist creation & expanded playlist state
   const [creatingPlaylist, setCreatingPlaylist] = useState(false);
   const [expandedPlaylistId, setExpandedPlaylistId] = useState<string | null>(null);
   const [showShelfPlaylistCreate, setShowShelfPlaylistCreate] = useState(false);
   const [shelfPlaylistTitle, setShelfPlaylistTitle] = useState('');
 
-  const shelvesViewportRef = useRef<HTMLDivElement>(null);
-  const viewMenuRef = useRef<HTMLDivElement>(null);
+  const snapDeckRef = useRef<HTMLDivElement>(null);
+  const stagePulseRef = useRef<HTMLElement>(null);
+  const stageDiscoveryRef = useRef<HTMLElement>(null);
+  const stageCollectionsRef = useRef<HTMLElement>(null);
   const creatorPopoverRef = useRef<HTMLDivElement>(null);
   const genrePopoverRef = useRef<HTMLDivElement>(null);
   const feedConfigRef = useRef<HTMLDivElement>(null);
-  const playlistModalRef = useRef<HTMLDivElement>(null);
+
+  // Social Hooks (Likes, Follows)
+  const { likedSongIds: likedIds, isLiked } = useLikes(readAddress);
+  const { followedCreators: following, isFollowing, toggleFollow } = useFollows(readAddress);
 
   const { data: cachedPublicSongs = [], isPending: isSongsPending, error } = useSongs();
   const { data: foldsData, isPending: isFoldsPending } = useMarketFolds(
@@ -157,7 +182,7 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
   });
   const { data: publicAlbums = [] } = usePublicAlbums();
   const { data: publicPlaylists = [] } = usePublicPlaylists(50);
-  const { data: myPlaylists = [] } = useCreatorPlaylists(readAddress);
+  useCreatorPlaylists(readAddress);
 
   const publicSongs = useMemo<Song[]>(() => {
     const map = new Map<string, Song>();
@@ -195,7 +220,7 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
 
   useEffect(() => {
     setVisibleCount(batchSize);
-  }, [batchSize, selectedCreator, selectedGenres, selectedAlbumId, search]);
+  }, [batchSize, selectedCreator, selectedGenres, selectedAlbumId, search, likedOnly, followingOnly]);
 
   useEffect(() => {
     return store.subscribe((state) => {
@@ -215,13 +240,10 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
     });
   }, []);
 
-  useDismiss(viewMenuOpen, () => setViewMenuOpen(false), viewMenuRef);
   useDismiss(creatorOpen, () => setCreatorOpen(false), creatorPopoverRef);
   useDismiss(genreOpen, () => setGenreOpen(false), genrePopoverRef);
   useDismiss(feedConfigOpen, () => setFeedConfigOpen(false), feedConfigRef);
-  useDismiss(Boolean(playlistTargetSong), () => setPlaylistTargetSong(null), playlistModalRef);
 
-  // Map public albums and songs by id for rapid lookup
   const albumsMap = useMemo(() => {
     const map = new Map<string, Album>();
     for (const album of publicAlbums) {
@@ -238,7 +260,7 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
     return map;
   }, [publicSongs]);
 
-  // Extract unique creators & batch-resolve paired identities + nicknames
+  // Extract unique creators & batch-resolve paired identities + nicknames + bios
   const rawCreatorAddresses = useMemo(() => {
     const set = new Set<string>();
     for (const song of publicSongs) {
@@ -275,15 +297,14 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
       const cached = readCachedProfile(raw);
       const rawNickname = pair?.nickname?.trim() || cached?.nickname?.trim() || null;
       const rawAvatar = pair?.avatar?.trim() || cached?.avatar?.trim() || null;
+      const rawBio = pair?.bio?.trim() || cached?.bio?.trim() || null;
       const nicknameKey = rawNickname ? rawNickname.toLowerCase() : null;
 
       const candidateAddresses = new Set<string>([lower]);
       if (pair?.evmAddress) candidateAddresses.add(pair.evmAddress.toLowerCase());
       if (pair?.svmAddress) candidateAddresses.add(pair.svmAddress.toLowerCase());
 
-      const shortAddr = raw.startsWith('0x')
-        ? `${raw.slice(0, 6)}…${raw.slice(-4)}`
-        : `${raw.slice(0, 4)}…${raw.slice(-4)}`;
+      const shortAddr = formatShortAddr(raw);
 
       const existing = groups.find(
         (g) =>
@@ -302,6 +323,9 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
         if (rawAvatar && !existing.avatar) {
           existing.avatar = rawAvatar;
         }
+        if (rawBio && !existing.bio) {
+          existing.bio = rawBio;
+        }
       } else {
         const canonicalKey =
           pair?.evmAddress?.toLowerCase() || pair?.svmAddress?.toLowerCase() || lower;
@@ -310,6 +334,7 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
           label: rawNickname || shortAddr,
           nicknameKey,
           avatar: rawAvatar,
+          bio: rawBio,
           addresses: candidateAddresses,
         });
       }
@@ -323,9 +348,7 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
     const lower = address.toLowerCase();
     const found = creatorGroups.find((g) => g.addresses.has(lower));
     if (found) return found.label;
-    return address.startsWith('0x')
-      ? `${address.slice(0, 6)}…${address.slice(-4)}`
-      : `${address.slice(0, 4)}…${address.slice(-4)}`;
+    return formatShortAddr(address);
   };
 
   const handleSelectCreatorAddress = (rawAddress: string) => {
@@ -339,7 +362,6 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
     });
   };
 
-  // Extract unique normalized genres / tags
   const uniqueGenres = useMemo(() => {
     const map = new Map<string, string>();
     for (const song of publicSongs) {
@@ -380,6 +402,20 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
     });
   };
 
+  // All followed creator addresses (expanded via creatorGroups wallet pairs)
+  const followedAddressSet = useMemo(() => {
+    const set = new Set<string>();
+    for (const f of following) {
+      const lower = f.toLowerCase();
+      set.add(lower);
+      const grp = findCreatorGroup(creatorGroups, lower);
+      if (grp) {
+        for (const addr of grp.addresses) set.add(addr);
+      }
+    }
+    return set;
+  }, [following, creatorGroups]);
+
   // Apply filters and ordering
   const displayedSongs = useMemo(() => {
     let list = [...publicSongs];
@@ -397,6 +433,14 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
           Boolean(s.creator && targetAddresses.has(s.creator.toLowerCase())) ||
           Boolean(group && s.creator && group.addresses.has(s.creator.toLowerCase()))
       );
+    }
+
+    if (likedOnly) {
+      list = list.filter((s) => isLiked(s.id));
+    }
+
+    if (followingOnly) {
+      list = list.filter((s) => Boolean(s.creator && followedAddressSet.has(s.creator.toLowerCase())));
     }
 
     if (selectedGenres.length > 0) {
@@ -428,9 +472,20 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
     });
 
     return list;
-  }, [publicSongs, selectedAlbumId, selectedCreator, selectedGenres, search, order, creatorGroups]);
+  }, [
+    publicSongs,
+    selectedAlbumId,
+    selectedCreator,
+    likedOnly,
+    followingOnly,
+    followedAddressSet,
+    isLiked,
+    selectedGenres,
+    search,
+    order,
+    creatorGroups,
+  ]);
 
-  // Derived full shelves for progressive row addition in the Discovery Matrix
   const newReleasesAll = useMemo<Song[]>(() => {
     const foldSongs = foldsData?.newReleases?.songs || [];
     const seen = new Set(foldSongs.map((s) => s.id));
@@ -462,7 +517,6 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
   const newReleaseGroups = useMemo(() => groupSongs(newReleasesAll), [newReleasesAll]);
   const popularGroups = useMemo(() => groupSongs(popularAll), [popularAll]);
 
-  // Deduplicated playable tracklists (one selected version per song family)
   const newReleasePlayable = useMemo<Song[]>(() => {
     return newReleaseGroups.map(
       (versions) =>
@@ -478,6 +532,21 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
         versions[0]
     );
   }, [popularGroups, selected]);
+
+  const likedPlayable = useMemo<Song[]>(() => {
+    return popularPlayable.filter((s) => isLiked(s.id));
+  }, [popularPlayable, isLiked]);
+
+  const pulseNewList = useMemo<Song[]>(() => {
+    if (!pulseNewFollowingOnly) return newReleasePlayable;
+    return newReleasePlayable.filter(
+      (s) => Boolean(s.creator && followedAddressSet.has(s.creator.toLowerCase()))
+    );
+  }, [newReleasePlayable, pulseNewFollowingOnly, followedAddressSet]);
+
+  const pulseRightList = useMemo<Song[]>(() => {
+    return pulseRightMode === 'liked' ? likedPlayable : popularPlayable;
+  }, [pulseRightMode, likedPlayable, popularPlayable]);
 
   const creatorItems = useMemo(() => {
     return creatorGroups
@@ -523,15 +592,23 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
     [creatorGroups, selectedCreator]
   );
 
+  const selectedCreatorCanonicalAddr = useMemo(() => {
+    if (selectedCreatorGroup) return selectedCreatorGroup.key;
+    return selectedCreator?.trim() || null;
+  }, [selectedCreatorGroup, selectedCreator]);
+
+  const {
+    stats: selectedCreatorSocial,
+    toggleFollow: toggleFollowSelectedCreator,
+  } = useCreatorSocial(selectedCreatorCanonicalAddr, readAddress);
+  const isFollowingSelectedCreator = Boolean(selectedCreatorSocial?.isFollowed);
+
   const selectedCreatorLabel = useMemo(() => {
     if (!selectedCreator) return null;
     if (selectedCreatorGroup) return selectedCreatorGroup.label;
     const raw = selectedCreator.trim();
-    if (raw.startsWith('0x') && raw.length > 14) {
-      return `${raw.slice(0, 6)}…${raw.slice(-4)}`;
-    }
-    if (raw.length >= 32) {
-      return `${raw.slice(0, 4)}…${raw.slice(-4)}`;
+    if ((raw.startsWith('0x') && raw.length > 14) || raw.length >= 32) {
+      return formatShortAddr(raw);
     }
     return raw;
   }, [selectedCreator, selectedCreatorGroup]);
@@ -562,32 +639,46 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
   );
 
   const hasFilterPills = Boolean(
-    selectedCreator || selectedGenres.length > 0 || selectedAlbumId || search.trim()
+    selectedGenres.length > 0 ||
+      selectedAlbumId ||
+      likedOnly ||
+      followingOnly ||
+      search.trim()
   );
 
-  const hasActiveFilters = Boolean(hasFilterPills || order === 'oldest');
+  const hasActiveFilters = Boolean(selectedCreator || hasFilterPills || order === 'oldest');
 
   const clearAllFilters = () => {
     setSelectedCreator(null);
     setSelectedGenres([]);
     setSelectedAlbumId(null);
+    setLikedOnly(false);
+    setFollowingOnly(false);
     setSearch('');
     setOrder('latest');
   };
 
-  const toggleShelfFold = (shelfId: string) => {
-    setFoldedShelves((prev) => ({ ...prev, [shelfId]: !prev[shelfId] }));
+  const scrollToStage = (stage: SnapStageId) => {
+    setActiveStage(stage);
+    const map: Record<SnapStageId, HTMLElement | null> = {
+      pulse: stagePulseRef.current,
+      discovery: stageDiscoveryRef.current,
+      collections: stageCollectionsRef.current,
+    };
+    map[stage]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
-  const handleMoreRows = (shelfId: string, totalItems: number) => {
-    const totalRows = Math.max(1, Math.ceil(totalItems / ITEMS_PER_SHELF_ROW));
-    setShelfRows((prev) => {
-      const current = prev[shelfId] ?? 1;
-      if (current < totalRows) {
-        return { ...prev, [shelfId]: current + 1 };
-      }
-      return { ...prev, [shelfId]: 1 };
-    });
+  const handleSnapScroll = () => {
+    const container = snapDeckRef.current;
+    if (!container) return;
+    const scrollTop = container.scrollTop;
+    const stageH = container.clientHeight || 1;
+    const idx = Math.round(scrollTop / stageH);
+    const nextStage: SnapStageId =
+      idx <= 0 ? 'pulse' : idx === 1 ? 'discovery' : 'collections';
+    if (nextStage !== activeStage) {
+      setActiveStage(nextStage);
+    }
   };
 
   const handlePlaySong = (song: Song, contextSongs?: Song[], contextId: string = 'default') => {
@@ -632,26 +723,11 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
     void store.playCollection(albumSongs, `album:${album.id}`);
   };
 
-  const handleToggleTrackInPlaylist = async (playlist: Playlist) => {
-    if (!playlistTargetSong || !readAddress) return;
-    const alreadyIn = (playlist.song_ids || []).includes(playlistTargetSong.id);
-    try {
-      if (alreadyIn) {
-        await removeSongFromPlaylistApi(playlist.id, playlistTargetSong.id, readAddress);
-        await queryClient.invalidateQueries({ queryKey: ['playlists'] });
-        toast.success(`Removed "${playlistTargetSong.title}" from "${playlist.title}"`);
-      } else {
-        await addSongToPlaylistApi(playlist.id, playlistTargetSong.id, readAddress);
-        await queryClient.invalidateQueries({ queryKey: ['playlists'] });
-        toast.success(`Added "${playlistTargetSong.title}" to "${playlist.title}"`);
-        setPlaylistTargetSong(null);
-      }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to update playlist');
-    }
-  };
-
-  const handleRemoveSongFromExpandedPlaylist = async (playlist: Playlist, songId: string, songTitle: string) => {
+  const handleRemoveSongFromExpandedPlaylist = async (
+    playlist: Playlist,
+    songId: string,
+    songTitle: string
+  ) => {
     if (!readAddress) return;
     try {
       await removeSongFromPlaylistApi(playlist.id, songId, readAddress);
@@ -690,12 +766,12 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
           creator: readAddress,
           song_ids: [],
           cover: '',
-          public: false,
+          public: true,
         },
         readAddress
       );
       await queryClient.invalidateQueries({ queryKey: ['playlists'] });
-      toast.success(`Created private playlist "${title}" — toggle Public anytime in /my-page`);
+      toast.success(`Created playlist "${title}"`);
       setShelfPlaylistTitle('');
       setShowShelfPlaylistCreate(false);
     } catch (err) {
@@ -705,36 +781,11 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
     }
   };
 
-  const handleCreatePlaylistWithSong = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!playlistTargetSong) return;
-    if (!readAddress) {
-      openGate();
-      return;
-    }
-    const title = newPlaylistTitle.trim();
-    if (!title) return;
-    setCreatingPlaylist(true);
-    try {
-      await createPlaylistApi(
-        {
-          title,
-          creator: readAddress,
-          song_ids: [playlistTargetSong.id],
-          cover: playlistTargetSong.image || '',
-          public: false,
-        },
-        readAddress
-      );
-      await queryClient.invalidateQueries({ queryKey: ['playlists'] });
-      toast.success(`Created private playlist "${title}" — toggle Public anytime in /my-page`);
-      setNewPlaylistTitle('');
-      setPlaylistTargetSong(null);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Could not create playlist');
-    } finally {
-      setCreatingPlaylist(false);
-    }
+  const handleShareSong = (s: Song) => {
+    const group = findCreatorGroup(creatorGroups, s.creator);
+    const creatorSlug = group?.nicknameKey ? group.label : s.creator;
+    const album = s.album_id ? albumsMap.get(s.album_id) : null;
+    setShareData(songToShareData(s, creatorSlug, false, album?.cover || null));
   };
 
   const renderSongCard = (versions: Song[], contextSongs: Song[], contextId: string) => {
@@ -771,18 +822,7 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
         selectedGenres={selectedGenres}
         onSelectGenre={toggleGenre}
         onSelectCreator={handleSelectCreatorAddress}
-        onShare={(s: Song) => {
-          const group = findCreatorGroup(creatorGroups, s.creator);
-          const creatorSlug = group?.nicknameKey ? group.label : s.creator;
-          setShareData(songToShareData(s, creatorSlug, false, albumCover));
-        }}
-        onAddToPlaylist={(s: Song) => {
-          if (!readAddress) {
-            openGate();
-            return;
-          }
-          setPlaylistTargetSong(s);
-        }}
+        onShare={handleShareSong}
       />
     );
   };
@@ -793,7 +833,9 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
     [groupedDisplayed, visibleCount]
   );
 
-  const isMatrixView = !hasFilterPills && order === 'latest';
+  // Is Dedicated Creator Studio View (`/:creator`) active?
+  const isCreatorStudioView = Boolean(selectedCreator);
+  const isMatrixView = !isCreatorStudioView && !hasFilterPills && order === 'latest';
 
   const guideView = { creatorOpen, genreOpen };
   const guideViewRef = useRef(guideView);
@@ -825,95 +867,297 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
     },
   });
 
+  // ---------------------------------------------------------------------------
+  // 1. DEDICATED CREATOR STUDIO VIEW (`/:creator`)
+  // ---------------------------------------------------------------------------
+  if (isCreatorStudioView) {
+    const creatorPlayableSongs = groupedDisplayed.map(
+      (versions) =>
+        versions.find((item) => item.id === selected[versions[0].family ?? versions[0].id]) ??
+        versions[0]
+    );
+    const totalCreatorStreams = creatorPlayableSongs.reduce((acc, s) => acc + (s.plays ?? 0), 0);
+    const creatorCtx = `creator:${selectedCreatorCanonicalAddr || selectedCreator}`;
+    const isPlayingCreatorAll = playing.active && playing.contextId === creatorCtx;
+    const isSelfCreator = Boolean(
+      readAddress &&
+        ((selectedCreatorCanonicalAddr &&
+          selectedCreatorCanonicalAddr.toLowerCase() === readAddress.toLowerCase()) ||
+          selectedCreatorGroup?.addresses.has(readAddress.toLowerCase()))
+    );
+    const creatorAvatar = selectedCreatorGroup?.avatar || null;
+    const creatorBio = selectedCreatorGroup?.bio || null;
+    const creatorShortWallet = selectedCreatorCanonicalAddr
+      ? formatShortAddr(selectedCreatorCanonicalAddr)
+      : null;
+
+    return (
+      <div className={`market-container creator-studio-container ${className}`}>
+        {/* Creator Studio Header */}
+        <header className="creator-studio-header panel">
+          <div className="creator-studio-top-row">
+            <button
+              type="button"
+              className="creator-back-btn"
+              onClick={() => setSelectedCreator(null)}
+            >
+              <ArrowLeft size={13} />
+              <span>MARKET</span>
+            </button>
+
+            <div className="creator-studio-actions">
+              {!isSelfCreator && selectedCreatorCanonicalAddr && (
+                <button
+                  type="button"
+                  className={`creator-follow-btn ${isFollowingSelectedCreator ? 'is-following' : ''}`}
+                  onClick={(e) => toggleFollowSelectedCreator(e)}
+                >
+                  {isFollowingSelectedCreator ? (
+                    <>
+                      <UserCheck size={13} />
+                      <span>FOLLOWING</span>
+                    </>
+                  ) : (
+                    <>
+                      <UserPlus size={13} />
+                      <span>FOLLOW</span>
+                    </>
+                  )}
+                </button>
+              )}
+
+              {creatorPlayableSongs.length > 0 && (
+                <button
+                  type="button"
+                  className={`creator-playall-btn ${isPlayingCreatorAll ? 'active' : ''}`}
+                  onClick={() => handlePlayCollection(creatorPlayableSongs, creatorCtx)}
+                >
+                  {isPlayingCreatorAll ? <Pause size={13} /> : <Play size={13} />}
+                  <span>{isPlayingCreatorAll ? 'PAUSE' : 'PLAY ALL'}</span>
+                </button>
+              )}
+
+              <Tooltip title="Share Creator Studio URL">
+                <button
+                  type="button"
+                  className="creator-share-btn"
+                  onClick={() => {
+                    const url = window.location.href;
+                    navigator.clipboard?.writeText(url);
+                    toast.success('Creator Studio link copied');
+                  }}
+                  aria-label="Share creator link"
+                >
+                  <Share2 size={13} />
+                </button>
+              </Tooltip>
+            </div>
+          </div>
+
+          <div className="creator-studio-identity">
+            <div className="creator-studio-avatar-wrap">
+              {creatorAvatar ? (
+                <img src={creatorAvatar} alt={selectedCreatorLabel || ''} className="creator-studio-avatar" />
+              ) : (
+                <div className="creator-studio-avatar creator-studio-avatar-fallback">
+                  <img src="/branding/mark.svg" alt="" className="creator-studio-mark" />
+                </div>
+              )}
+            </div>
+
+            <div className="creator-studio-meta">
+              <div className="creator-studio-name-row">
+                <h1 className="creator-studio-name">{selectedCreatorLabel}</h1>
+                {creatorShortWallet && selectedCreatorCanonicalAddr && (
+                  <button
+                    type="button"
+                    className="creator-wallet-pill"
+                    onClick={() => {
+                      navigator.clipboard?.writeText(selectedCreatorCanonicalAddr);
+                      toast.success('Address copied');
+                    }}
+                    title="Copy creator address"
+                  >
+                    <span>{creatorShortWallet}</span>
+                    <Copy size={10} />
+                  </button>
+                )}
+              </div>
+
+              {creatorBio && <p className="creator-studio-bio">{creatorBio}</p>}
+
+              <div className="creator-studio-stats">
+                <div className="creator-stat-chip">
+                  <span className="creator-stat-value">{creatorPlayableSongs.length}</span>
+                  <span className="creator-stat-label">TRACKS</span>
+                </div>
+                <div className="creator-stat-chip">
+                  <span className="creator-stat-value">{totalCreatorStreams}</span>
+                  <span className="creator-stat-label">STREAMS</span>
+                </div>
+                <div className="creator-stat-chip">
+                  <span className="creator-stat-value">{selectedCreatorSocial?.followers ?? 0}</span>
+                  <span className="creator-stat-label">FOLLOWERS</span>
+                </div>
+                <div className="creator-stat-chip">
+                  <span className="creator-stat-value">{selectedCreatorSocial?.following ?? 0}</span>
+                  <span className="creator-stat-label">FOLLOWING</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        {/* Published Songs Timeline List (Base Waveform + Timed Comments) */}
+        <div className="creator-studio-tracks panel scrollable">
+          {groupedDisplayed.length === 0 ? (
+            <div className="market-empty" data-guide="market.empty">
+              <span className="market-empty-title">{isPending ? 'LOADING' : 'NO PUBLISHED TRACKS'}</span>
+            </div>
+          ) : (
+            groupedDisplayed.map((versions) => {
+              const family = versions[0].family ?? versions[0].id;
+              const song = versions.find((item) => item.id === selected[family]) ?? versions[0];
+              const isPlayingThis =
+                playing.active &&
+                playing.id === song.id &&
+                (playing.contextId ?? 'default') === creatorCtx;
+
+              return (
+                <Timeline
+                  key={family}
+                  song={song}
+                  versions={versions}
+                  isPlayingThis={isPlayingThis}
+                  onPlayToggle={() => handlePlaySong(song, creatorPlayableSongs, creatorCtx)}
+                  onSelectVersion={(version) => {
+                    setSelected((current) => ({ ...current, [family]: version.id }));
+                    if (
+                      versions.some((item) => item.id === playing.id) &&
+                      (playing.contextId ?? 'default') === creatorCtx
+                    ) {
+                      store.setActiveSong(version, undefined, creatorCtx);
+                    }
+                  }}
+                  onSelectGenre={(genre) => {
+                    setSelectedCreator(null);
+                    toggleGenre(genre);
+                  }}
+                  onShare={handleShareSong}
+                />
+              );
+            })
+          )}
+        </div>
+
+        <ShareModal
+          isOpen={Boolean(shareData)}
+          onClose={() => setShareData(null)}
+          data={shareData}
+        />
+      </div>
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // 2. MAIN `/market` VIEW — OPTION A: "THE VERTICAL SNAP-DECK"
+  // ---------------------------------------------------------------------------
+  const PULSE_ROWS_PER_PAGE = 6;
+  const GENRES_PER_PAGE = 6;
+  const CREATORS_PER_PAGE = 6;
+  const ALBUMS_PER_PAGE = 6;
+  const PLAYLISTS_PER_PAGE = 5;
+
+  const newTotalPages = Math.max(1, Math.ceil(pulseNewList.length / PULSE_ROWS_PER_PAGE));
+  const clampedNewPage = Math.min(newPage, newTotalPages - 1);
+  const visibleNewRows = pulseNewList.slice(
+    clampedNewPage * PULSE_ROWS_PER_PAGE,
+    (clampedNewPage + 1) * PULSE_ROWS_PER_PAGE
+  );
+
+  const popularTotalPages = Math.max(1, Math.ceil(pulseRightList.length / PULSE_ROWS_PER_PAGE));
+  const clampedPopularPage = Math.min(popularPage, popularTotalPages - 1);
+  const visiblePopularRows = pulseRightList.slice(
+    clampedPopularPage * PULSE_ROWS_PER_PAGE,
+    (clampedPopularPage + 1) * PULSE_ROWS_PER_PAGE
+  );
+
+  const genreTotalPages = Math.max(1, Math.ceil(genreItems.length / GENRES_PER_PAGE));
+  const clampedGenrePage = Math.min(genrePage, genreTotalPages - 1);
+  const visibleGenres = genreItems.slice(
+    clampedGenrePage * GENRES_PER_PAGE,
+    (clampedGenrePage + 1) * GENRES_PER_PAGE
+  );
+
+  const creatorTotalPages = Math.max(1, Math.ceil(creatorItems.length / CREATORS_PER_PAGE));
+  const clampedCreatorPage = Math.min(creatorPage, creatorTotalPages - 1);
+  const visibleCreators = creatorItems.slice(
+    clampedCreatorPage * CREATORS_PER_PAGE,
+    (clampedCreatorPage + 1) * CREATORS_PER_PAGE
+  );
+
+  const albumTotalPages = Math.max(1, Math.ceil(publicAlbums.length / ALBUMS_PER_PAGE));
+  const clampedAlbumPage = Math.min(albumPage, albumTotalPages - 1);
+  const visibleAlbums = publicAlbums.slice(
+    clampedAlbumPage * ALBUMS_PER_PAGE,
+    (clampedAlbumPage + 1) * ALBUMS_PER_PAGE
+  );
+
+  const playlistTotalPages = Math.max(1, Math.ceil(publicPlaylists.length / PLAYLISTS_PER_PAGE));
+  const clampedPlaylistPage = Math.min(playlistPage, playlistTotalPages - 1);
+  const visiblePlaylists = publicPlaylists.slice(
+    clampedPlaylistPage * PLAYLISTS_PER_PAGE,
+    (clampedPlaylistPage + 1) * PLAYLISTS_PER_PAGE
+  );
+
+  const recentWindowCount = foldsData?.newReleases?.lastHourCount ?? 0;
+
   return (
     <div className={`market-container ${className}`}>
-      {/* Marketplace Header */}
+      {/* Marketplace Header + Stage Indicator Pills */}
       <div className="market-header">
         <div className="market-header-left">
           <Glitch text="AUDIO_MARKET" className="market-title-text" />
           <div className="market-subtitle">
-            STREAM TRACKS • {totalPublicCount} PUBLIC TRACKS
+            {totalPublicCount} TRACKS
             {hasActiveFilters && (
-              <span className="market-subtitle-filter">({displayedSongs.length} SHOWN)</span>
+              <span className="market-subtitle-filter">• {displayedSongs.length} SHOWN</span>
             )}
           </div>
         </div>
-        {(() => {
-          const viewOptions = [
-            { id: 'all', label: 'ALL', Icon: Globe },
-            { id: 'new', label: 'NEW', Icon: Sparkles },
-            { id: 'popular', label: 'POPULAR', Icon: Flame },
-            { id: 'genres', label: 'GENRES', Icon: Music },
-            { id: 'creators', label: 'CREATORS', Icon: User },
-            { id: 'albums', label: 'ALBUMS', Icon: Disc3 },
-            { id: 'playlists', label: 'PLAYLISTS', Icon: ListMusic },
-          ] as const;
-          const activeOption =
-            viewOptions.find((opt) => opt.id === viewMode) ?? viewOptions[0];
-          const ActiveIcon = activeOption.Icon;
 
-          return (
-            <div className="market-view-select-wrap" ref={viewMenuRef}>
-              <button
-                type="button"
-                className={`market-view-trigger ${viewMode !== 'all' ? 'has-selection' : ''} ${viewMenuOpen ? 'is-open' : ''}`}
-                onClick={() => {
-                  setViewMenuOpen((prev) => !prev);
-                  setCreatorOpen(false);
-                  setGenreOpen(false);
-                  setFeedConfigOpen(false);
-                }}
-                aria-label="Market Shelves"
-                aria-haspopup="listbox"
-                aria-expanded={viewMenuOpen}
-              >
-                <ActiveIcon size={13} className="market-select-icon" />
-                <span className="market-view-trigger-label">{activeOption.label}</span>
-                <ChevronDown size={12} className="market-view-chevron" />
-              </button>
-
-              {viewMenuOpen && (
-                <div
-                  className="market-popover-menu market-view-menu"
-                  role="listbox"
-                  aria-label="Market Shelves"
-                >
-                  <div className="market-popover-list">
-                    {viewOptions.map((option) => {
-                      const OptionIcon = option.Icon;
-                      const isSelected = viewMode === option.id;
-                      return (
-                        <button
-                          key={option.id}
-                          type="button"
-                          role="option"
-                          aria-selected={isSelected}
-                          className={`market-popover-option ${isSelected ? 'selected' : ''}`}
-                          onClick={() => {
-                            setViewMode(option.id);
-                            if (option.id !== 'all') {
-                              setFoldedShelves((prev) => ({ ...prev, [option.id]: false }));
-                            }
-                            setViewMenuOpen(false);
-                          }}
-                        >
-                          <span className="market-view-option-left">
-                            <OptionIcon size={12} className="market-select-icon" />
-                            <span className="market-popover-option-text">{option.label}</span>
-                          </span>
-                          {isSelected && <Check size={11} className="market-popover-check" />}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        })()}
+        {/* Snap-Deck Stage Quick-Jump Pills */}
+        {isMatrixView && (
+          <nav className="market-stage-nav" aria-label="Market stages">
+            <button
+              type="button"
+              className={`market-stage-pill ${activeStage === 'pulse' ? 'active' : ''}`}
+              onClick={() => scrollToStage('pulse')}
+            >
+              <span className="market-stage-num">01</span>
+              <span>PULSE</span>
+            </button>
+            <button
+              type="button"
+              className={`market-stage-pill ${activeStage === 'discovery' ? 'active' : ''}`}
+              onClick={() => scrollToStage('discovery')}
+            >
+              <span className="market-stage-num">02</span>
+              <span>DISCOVERY</span>
+            </button>
+            <button
+              type="button"
+              className={`market-stage-pill ${activeStage === 'collections' ? 'active' : ''}`}
+              onClick={() => scrollToStage('collections')}
+            >
+              <span className="market-stage-num">03</span>
+              <span>COLLECTIONS</span>
+            </button>
+          </nav>
+        )}
       </div>
 
-      {/* Filter and Search Bar */}
+      {/* Filter & Command Bar */}
       <div className="market-filter-bar" data-guide="market-toolbar">
         {/* Desktop Search input */}
         <div className="market-filter-search">
@@ -940,7 +1184,7 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
           )}
         </div>
 
-        {/* Mobile Icon-Only Search Trigger (opens small Modal like /editor AI Ops) */}
+        {/* Mobile Icon-Only Search Trigger */}
         <button
           type="button"
           className={`market-mobile-search-btn ${search.trim() ? 'has-selection' : ''}`}
@@ -952,6 +1196,34 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
 
         {/* Filters cluster */}
         <div className="market-filter-selects">
+          {/* 1-Tap LIKED Queue Filter Pill */}
+          <Tooltip title="Filter by Liked Tracks">
+            <button
+              type="button"
+              className={`market-quick-filter-btn liked ${likedOnly ? 'active' : ''}`}
+              onClick={() => setLikedOnly((prev) => !prev)}
+              aria-pressed={likedOnly}
+            >
+              <Heart size={12} fill={likedOnly ? 'currentColor' : 'none'} />
+              <span>LIKED</span>
+              {likedIds.length > 0 && <span className="market-quick-count">{likedIds.length}</span>}
+            </button>
+          </Tooltip>
+
+          {/* 1-Tap FOLLOWING Feed Filter Pill */}
+          <Tooltip title="Filter by Followed Creators">
+            <button
+              type="button"
+              className={`market-quick-filter-btn following ${followingOnly ? 'active' : ''}`}
+              onClick={() => setFollowingOnly((prev) => !prev)}
+              aria-pressed={followingOnly}
+            >
+              <UserCheck size={12} />
+              <span>FOLLOWING</span>
+              {following.length > 0 && <span className="market-quick-count">{following.length}</span>}
+            </button>
+          </Tooltip>
+
           {/* Searchable Creator Combobox Popover */}
           <div className="market-select-wrap" ref={creatorPopoverRef}>
             <button
@@ -961,9 +1233,8 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
                 setCreatorOpen((prev) => !prev);
                 setGenreOpen(false);
                 setFeedConfigOpen(false);
-                setViewMenuOpen(false);
               }}
-              aria-label="Filter by creator"
+              aria-label="Open Creator Studio"
               aria-expanded={creatorOpen}
             >
               <User size={13} className="market-select-icon" />
@@ -986,7 +1257,7 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
                   <Search size={11} className="market-search-icon" />
                   <input
                     type="text"
-                    placeholder="SEARCH CREATORS..."
+                    placeholder="FIND CREATOR STUDIO..."
                     value={creatorQuery}
                     onChange={(e) => setCreatorQuery(e.target.value)}
                     className="market-popover-search-input"
@@ -1005,48 +1276,26 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
                 </div>
 
                 <div className="market-popover-list scrollable">
-                  {!creatorQuery.trim() && (
-                    <button
-                      type="button"
-                      role="option"
-                      aria-selected={!selectedCreator}
-                      className={`market-popover-option ${!selectedCreator ? 'selected' : ''}`}
-                      onClick={() => {
-                        setSelectedCreator(null);
-                        setCreatorOpen(false);
-                        setCreatorQuery('');
-                      }}
-                    >
-                      <span className="market-popover-option-text">
-                        ALL ({creatorGroups.length})
-                      </span>
-                      {!selectedCreator && <Check size={11} className="market-popover-check" />}
-                    </button>
-                  )}
-
                   {filteredCreatorGroups.length === 0 ? (
                     <div className="market-popover-empty">NONE</div>
                   ) : (
                     filteredCreatorGroups.map((g) => {
-                      const isSelected =
-                        selectedCreatorGroup?.key === g.key ||
-                        selectedCreator?.toLowerCase() === g.key;
                       const slug = g.nicknameKey ? g.label : g.key;
                       return (
                         <button
                           key={g.key}
                           type="button"
                           role="option"
-                          aria-selected={isSelected}
-                          className={`market-popover-option ${isSelected ? 'selected' : ''}`}
+                          aria-selected={false}
+                          className="market-popover-option"
                           onClick={() => {
-                            setSelectedCreator(isSelected ? null : slug);
+                            setSelectedCreator(slug);
                             setCreatorOpen(false);
                             setCreatorQuery('');
                           }}
                         >
                           <span className="market-popover-option-text">{g.label}</span>
-                          {isSelected && <Check size={11} className="market-popover-check" />}
+                          <ChevronRight size={11} className="market-popover-check" />
                         </button>
                       );
                     })
@@ -1065,7 +1314,6 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
                 setGenreOpen((prev) => !prev);
                 setCreatorOpen(false);
                 setFeedConfigOpen(false);
-                setViewMenuOpen(false);
               }}
               aria-label="Filter by genre"
               aria-expanded={genreOpen}
@@ -1150,7 +1398,7 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
             )}
           </div>
 
-          {/* Order Toggle (Latest | Oldest) - Icon + Tooltip */}
+          {/* Order Toggle (Latest | Oldest) */}
           <div className="market-order-toggle">
             <Tooltip title="Latest">
               <button
@@ -1184,7 +1432,6 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
                   setFeedConfigOpen((prev) => !prev);
                   setCreatorOpen(false);
                   setGenreOpen(false);
-                  setViewMenuOpen(false);
                 }}
                 aria-label="Feed batch and polling settings"
                 aria-expanded={feedConfigOpen}
@@ -1233,7 +1480,6 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
             )}
           </div>
 
-          {/* Clear Filters Reset Button */}
           {hasActiveFilters && (
             <Tooltip title="Reset">
               <button
@@ -1252,15 +1498,26 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
       {/* Active Filter Pills Bar */}
       {hasFilterPills && (
         <div className="market-active-pills" role="region" aria-label="Active filters">
-          {selectedCreatorLabel && (
+          {likedOnly && (
             <button
               type="button"
               className="market-filter-pill creator"
-              onClick={() => setSelectedCreator(null)}
-              aria-label={`Remove creator filter ${selectedCreatorLabel}`}
+              onClick={() => setLikedOnly(false)}
             >
-              <User size={10} />
-              <span>{selectedCreatorLabel}</span>
+              <Heart size={10} fill="currentColor" />
+              <span>LIKED</span>
+              <X size={10} className="market-filter-pill-close" />
+            </button>
+          )}
+
+          {followingOnly && (
+            <button
+              type="button"
+              className="market-filter-pill creator"
+              onClick={() => setFollowingOnly(false)}
+            >
+              <UserCheck size={10} />
+              <span>FOLLOWING</span>
               <X size={10} className="market-filter-pill-close" />
             </button>
           )}
@@ -1314,9 +1571,13 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
         </div>
       )}
 
-      {/* Main Content Area: Foldable Categories with Progressive Row Addition OR Filtered Grid */}
+      {/* Main Content Area: 3-Stage Vertical Snap-Deck OR Filtered Track View */}
       {isMatrixView ? (
-        <div className="market-shelves-viewport panel scrollable" ref={shelvesViewportRef}>
+        <div
+          className="market-snap-deck panel"
+          ref={snapDeckRef}
+          onScroll={handleSnapScroll}
+        >
           {error && publicSongs.length === 0 ? (
             <div className="market-empty">
               <span className="market-empty-title">ERROR</span>
@@ -1324,835 +1585,855 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
             </div>
           ) : publicSongs.length === 0 ? (
             <div className="market-empty">
-              <span className="market-empty-title">
-                {isPending ? 'LOADING' : 'EMPTY'}
-              </span>
+              <span className="market-empty-title">{isPending ? 'LOADING' : 'EMPTY'}</span>
             </div>
           ) : (
             <>
-              {/* 1. NEW CATEGORY */}
-              {(viewMode === 'all' || viewMode === 'new') &&
-                (() => {
-                  const isFolded = Boolean(foldedShelves.new);
-                  const totalRows = Math.max(1, Math.ceil(newReleaseGroups.length / ITEMS_PER_SHELF_ROW));
-                  const rows =
-                    viewMode === 'new'
-                      ? Math.max(shelfRows.new ?? 2, Math.min(totalRows, 3))
-                      : Math.min(shelfRows.new ?? 1, totalRows);
-                  const allExpanded = rows >= totalRows;
-                  const isPlayingNewShelf =
-                    playing.active && playing.contextId === 'new';
-                  const recentWindowCount = foldsData?.newReleases?.lastHourCount ?? 0;
-                  return (
-                    <section className={`market-shelf ${isFolded ? 'is-folded' : ''}`} aria-label="New">
-                      <div className="market-shelf-header">
+              {/* =========================================================
+                  STAGE 01: THE PULSE (NEW + POPULAR + LIKED + FOLLOWING)
+                  Spotify / VKontakte Compact Track Rows
+              ========================================================= */}
+              <section
+                ref={stagePulseRef}
+                className="market-snap-stage stage-pulse"
+                aria-label="Pulse: New and Popular Tracks"
+              >
+                {/* Mobile Column Switcher */}
+                <div className="market-pulse-mobile-tabs">
+                  <button
+                    type="button"
+                    className={`market-pulse-mobile-tab ${pulseMobileTab === 'new' ? 'active' : ''}`}
+                    onClick={() => setPulseMobileTab('new')}
+                  >
+                    <Sparkles size={12} />
+                    <span>NEW</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`market-pulse-mobile-tab ${pulseMobileTab === 'popular' ? 'active' : ''}`}
+                    onClick={() => setPulseMobileTab('popular')}
+                  >
+                    <Flame size={12} />
+                    <span>{pulseRightMode === 'liked' ? 'LIKED' : 'POPULAR'}</span>
+                  </button>
+                </div>
+
+                <div className="market-pulse-grid">
+                  {/* Left Deck: NEW DROPS (Compact Rows) */}
+                  <div
+                    className={`market-pulse-column ${pulseMobileTab === 'new' ? 'is-mobile-active' : ''}`}
+                  >
+                    <div className="market-pulse-col-header">
+                      <div className="market-pulse-col-title-wrap">
+                        <Sparkles size={14} className="market-shelf-icon accent" />
+                        <h2 className="market-shelf-title">NEW</h2>
+                        {recentWindowCount > 0 && (
+                          <span className="market-live-badge">
+                            +{recentWindowCount} / {pollIntervalMin}M
+                          </span>
+                        )}
                         <button
                           type="button"
-                          className="market-shelf-title-btn"
-                          onClick={() => toggleShelfFold('new')}
-                          aria-expanded={!isFolded}
+                          className={`market-inline-filter-chip ${pulseNewFollowingOnly ? 'active' : ''}`}
+                          onClick={() => {
+                            setPulseNewFollowingOnly((prev) => !prev);
+                            setNewPage(0);
+                          }}
+                          title="Show new tracks from creators you follow"
                         >
-                          {isFolded ? (
-                            <ChevronRight size={14} className="market-shelf-fold-icon" />
-                          ) : (
-                            <ChevronDown size={14} className="market-shelf-fold-icon" />
-                          )}
-                          <Sparkles size={14} className="market-shelf-icon accent" />
-                          <h2 className="market-shelf-title">NEW</h2>
-                          {recentWindowCount > 0 && (
-                            <span className="market-live-badge">
-                              +{recentWindowCount} / {pollIntervalMin}M
-                            </span>
-                          )}
+                          <UserCheck size={11} />
+                          <span>FOLLOWING</span>
                         </button>
-                        <div className="market-shelf-actions">
+                      </div>
+
+                      <div className="market-pulse-col-actions">
+                        {newTotalPages > 1 && (
+                          <div className="market-page-stepper">
+                            <button
+                              type="button"
+                              className="market-stepper-btn"
+                              disabled={clampedNewPage <= 0}
+                              onClick={() => setNewPage((p) => Math.max(0, p - 1))}
+                              aria-label="Previous new tracks page"
+                            >
+                              <ChevronLeft size={12} />
+                            </button>
+                            <span className="market-stepper-label">
+                              {clampedNewPage + 1}/{newTotalPages}
+                            </span>
+                            <button
+                              type="button"
+                              className="market-stepper-btn"
+                              disabled={clampedNewPage >= newTotalPages - 1}
+                              onClick={() => setNewPage((p) => Math.min(newTotalPages - 1, p + 1))}
+                              aria-label="Next new tracks page"
+                            >
+                              <ChevronRight size={12} />
+                            </button>
+                          </div>
+                        )}
+                        {pulseNewList.length > 0 && (
                           <button
                             type="button"
-                            className={`market-shelf-playall-btn ${isPlayingNewShelf ? 'active' : ''}`}
-                            onClick={() => handlePlayCollection(newReleasePlayable, 'new')}
-                            aria-label={isPlayingNewShelf ? 'Pause New' : 'Play All New'}
+                            className={`market-shelf-playall-btn ${playing.active && playing.contextId === 'new' ? 'active' : ''}`}
+                            onClick={() => handlePlayCollection(pulseNewList, 'new')}
                           >
-                            {isPlayingNewShelf ? <Pause size={12} /> : <Play size={12} />}
+                            {playing.active && playing.contextId === 'new' ? (
+                              <Pause size={11} />
+                            ) : (
+                              <Play size={11} />
+                            )}
                             <span>PLAY ALL</span>
                           </button>
-                        </div>
+                        )}
                       </div>
-                      {!isFolded && (
-                        <>
-                          <div className="market-shelf-rows">
-                            {Array.from({ length: rows }, (_, rowIdx) => {
-                              const rowSlice = newReleaseGroups.slice(
-                                rowIdx * ITEMS_PER_SHELF_ROW,
-                                (rowIdx + 1) * ITEMS_PER_SHELF_ROW
-                              );
-                              return (
-                                <div key={rowIdx} className="market-shelf-row">
-                                  {rowSlice.map((versions) =>
-                                    renderSongCard(versions, newReleasePlayable, 'new')
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
-                          {newReleaseGroups.length > ITEMS_PER_SHELF_ROW && (
-                            <div className="market-shelf-footer">
-                              <button
-                                type="button"
-                                className={`market-shelf-more-row-btn ${allExpanded ? 'expanded' : ''}`}
-                                onClick={() => handleMoreRows('new', newReleaseGroups.length)}
-                              >
-                                <span>MORE</span>
-                                {allExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                              </button>
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </section>
-                  );
-                })()}
+                    </div>
 
-              {/* 2. POPULAR CATEGORY */}
-              {(viewMode === 'all' || viewMode === 'popular') &&
-                (() => {
-                  const isFolded = Boolean(foldedShelves.popular);
-                  const totalRows = Math.max(1, Math.ceil(popularGroups.length / ITEMS_PER_SHELF_ROW));
-                  const rows =
-                    viewMode === 'popular'
-                      ? Math.max(shelfRows.popular ?? 2, Math.min(totalRows, 3))
-                      : Math.min(shelfRows.popular ?? 1, totalRows);
-                  const allExpanded = rows >= totalRows;
-                  const isPlayingPopularShelf =
-                    playing.active && playing.contextId === 'popular';
-                  return (
-                    <section
-                      className={`market-shelf ${isFolded ? 'is-folded' : ''}`}
-                      aria-label="Popular"
-                    >
-                      <div className="market-shelf-header">
+                    <div className="market-pulse-rows-list">
+                      {visibleNewRows.length === 0 ? (
+                        <div className="market-col-empty">
+                          {pulseNewFollowingOnly
+                            ? 'Follow creators to see their latest drops here.'
+                            : 'No new tracks yet.'}
+                        </div>
+                      ) : (
+                        visibleNewRows.map((song, idx) => {
+                          const globalIdx = clampedNewPage * PULSE_ROWS_PER_PAGE + idx;
+                          const isPlayingThis =
+                            playing.active &&
+                            playing.id === song.id &&
+                            (playing.contextId ?? 'default') === 'new';
+                          return (
+                            <Row
+                              key={`new-${song.id}`}
+                              song={song}
+                              index={globalIdx}
+                              isPlayingThis={isPlayingThis}
+                              onPlayToggle={() => handlePlaySong(song, pulseNewList, 'new')}
+                              onSelectCreator={handleSelectCreatorAddress}
+                              onSelectGenre={toggleGenre}
+                              onShare={handleShareSong}
+                            />
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Right Deck: POPULAR VELOCITY / LIKED QUEUE (Compact Rows) */}
+                  <div
+                    className={`market-pulse-column ${pulseMobileTab === 'popular' ? 'is-mobile-active' : ''}`}
+                  >
+                    <div className="market-pulse-col-header">
+                      <div className="market-pulse-col-title-wrap">
                         <button
                           type="button"
-                          className="market-shelf-title-btn"
-                          onClick={() => toggleShelfFold('popular')}
-                          aria-expanded={!isFolded}
+                          className={`market-col-mode-btn ${pulseRightMode === 'popular' ? 'active' : ''}`}
+                          onClick={() => {
+                            setPulseRightMode('popular');
+                            setPopularPage(0);
+                          }}
                         >
-                          {isFolded ? (
-                            <ChevronRight size={14} className="market-shelf-fold-icon" />
-                          ) : (
-                            <ChevronDown size={14} className="market-shelf-fold-icon" />
-                          )}
                           <Flame size={14} className="market-shelf-icon hot" />
                           <h2 className="market-shelf-title">POPULAR</h2>
                         </button>
-                        <div className="market-shelf-actions">
-                          <button
-                            type="button"
-                            className={`market-shelf-playall-btn ${isPlayingPopularShelf ? 'active' : ''}`}
-                            onClick={() => handlePlayCollection(popularPlayable, 'popular')}
-                            aria-label={isPlayingPopularShelf ? 'Pause Popular' : 'Play All Popular'}
-                          >
-                            {isPlayingPopularShelf ? <Pause size={12} /> : <Play size={12} />}
-                            <span>PLAY ALL</span>
-                          </button>
-                        </div>
-                      </div>
-                      {!isFolded && (
-                        <>
-                          <div className="market-shelf-rows">
-                            {Array.from({ length: rows }, (_, rowIdx) => {
-                              const rowSlice = popularGroups.slice(
-                                rowIdx * ITEMS_PER_SHELF_ROW,
-                                (rowIdx + 1) * ITEMS_PER_SHELF_ROW
-                              );
-                              return (
-                                <div key={rowIdx} className="market-shelf-row">
-                                  {rowSlice.map((versions) =>
-                                    renderSongCard(versions, popularPlayable, 'popular')
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
-                          {popularGroups.length > ITEMS_PER_SHELF_ROW && (
-                            <div className="market-shelf-footer">
-                              <button
-                                type="button"
-                                className={`market-shelf-more-row-btn ${allExpanded ? 'expanded' : ''}`}
-                                onClick={() => handleMoreRows('popular', popularGroups.length)}
-                              >
-                                <span>MORE</span>
-                                {allExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                              </button>
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </section>
-                  );
-                })()}
-
-              {/* 3. GENRES CATEGORY */}
-              {(viewMode === 'all' || viewMode === 'genres') &&
-                genreItems.length > 0 &&
-                (() => {
-                  const isFolded = Boolean(foldedShelves.genres);
-                  const totalRows = Math.max(1, Math.ceil(genreItems.length / ITEMS_PER_SHELF_ROW));
-                  const rows = Math.min(shelfRows.genres ?? 1, totalRows);
-                  const allExpanded = rows >= totalRows;
-                  const genreAllSongs = genreItems.flatMap((g) => g.songs);
-                  const isPlayingGenresShelf =
-                    playing.active && playing.contextId === 'genres';
-                  return (
-                    <section
-                      className={`market-shelf ${isFolded ? 'is-folded' : ''}`}
-                      aria-label="Genres"
-                    >
-                      <div className="market-shelf-header">
                         <button
                           type="button"
-                          className="market-shelf-title-btn"
-                          onClick={() => toggleShelfFold('genres')}
-                          aria-expanded={!isFolded}
+                          className={`market-col-mode-btn liked ${pulseRightMode === 'liked' ? 'active' : ''}`}
+                          onClick={() => {
+                            setPulseRightMode('liked');
+                            setPopularPage(0);
+                          }}
                         >
-                          {isFolded ? (
-                            <ChevronRight size={14} className="market-shelf-fold-icon" />
-                          ) : (
-                            <ChevronDown size={14} className="market-shelf-fold-icon" />
-                          )}
-                          <Music size={14} className="market-shelf-icon" />
-                          <h2 className="market-shelf-title">GENRES</h2>
+                          <Heart
+                            size={12}
+                            fill={pulseRightMode === 'liked' ? 'currentColor' : 'none'}
+                          />
+                          <span>LIKED ({likedPlayable.length})</span>
                         </button>
-                        <div className="market-shelf-actions">
-                          <button
-                            type="button"
-                            className={`market-shelf-playall-btn ${isPlayingGenresShelf ? 'active' : ''}`}
-                            onClick={() => handlePlayCollection(genreAllSongs, 'genres')}
-                            aria-label={isPlayingGenresShelf ? 'Pause Genres' : 'Play All Genres'}
-                          >
-                            {isPlayingGenresShelf ? <Pause size={12} /> : <Play size={12} />}
-                            <span>PLAY ALL</span>
-                          </button>
-                        </div>
                       </div>
-                      {!isFolded && (
-                        <>
-                          <div className="market-shelf-rows">
-                            {Array.from({ length: rows }, (_, rowIdx) => {
-                              const rowSlice = genreItems.slice(
-                                rowIdx * ITEMS_PER_SHELF_ROW,
-                                (rowIdx + 1) * ITEMS_PER_SHELF_ROW
-                              );
-                              return (
-                                <div key={rowIdx} className="market-shelf-row">
-                                  {rowSlice.map((genreFold) => {
-                                    const slug = normalizeGenreSlug(genreFold.label);
-                                    const dynamicCover = slug ? genreCovers?.[slug]?.imageUrl : null;
-                                    const pairedGenreCover =
-                                      getGenreCoverImage(genreFold.label) || dynamicCover;
-                                    const fallbackCover =
-                                      genreFold.songs[0]?.image || '/branding/mark.svg';
-                                    const cover = pairedGenreCover || fallbackCover;
-                                    const genreCtx = `genre:${genreFold.key}`;
-                                    const isPlayingGenre =
-                                      playing.active && playing.contextId === genreCtx;
-                                    return (
-                                      <div
-                                        key={genreFold.key}
-                                        className="market-collection-card"
-                                        onClick={() => toggleGenre(genreFold.label)}
-                                        role="button"
-                                        tabIndex={0}
-                                        onKeyDown={(e) => {
-                                          if (e.key === 'Enter' || e.key === ' ') {
-                                            e.preventDefault();
-                                            toggleGenre(genreFold.label);
-                                          }
-                                        }}
-                                      >
-                                        <div className="market-collection-media">
-                                          <img
-                                            src={cover}
-                                            alt={genreFold.label}
-                                            loading="lazy"
-                                            decoding="async"
-                                            onError={(e) => {
-                                              if (e.currentTarget.src !== fallbackCover) {
-                                                e.currentTarget.src = fallbackCover;
-                                              }
-                                            }}
-                                          />
-                                          <button
-                                            type="button"
-                                            className={`market-collection-play-btn ${isPlayingGenre ? 'playing' : ''}`}
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              handlePlayCollection(genreFold.songs, genreCtx);
-                                            }}
-                                            aria-label={`Play ${genreFold.label}`}
-                                          >
-                                            {isPlayingGenre ? <Pause size={14} /> : <Play size={14} />}
-                                          </button>
-                                        </div>
-                                        <div className="market-collection-body">
-                                          <div className="market-collection-title">
-                                            #{genreFold.label}
-                                          </div>
-                                          <div className="market-collection-meta">
-                                            <span>{genreFold.total}</span>
-                                          </div>
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              );
-                            })}
-                          </div>
-                          {genreItems.length > ITEMS_PER_SHELF_ROW && (
-                            <div className="market-shelf-footer">
-                              <button
-                                type="button"
-                                className={`market-shelf-more-row-btn ${allExpanded ? 'expanded' : ''}`}
-                                onClick={() => handleMoreRows('genres', genreItems.length)}
-                              >
-                                <span>MORE</span>
-                                {allExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                              </button>
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </section>
-                  );
-                })()}
 
-              {/* 4. CREATORS CATEGORY (Preview = Creator Avatar or Brand Logo) */}
-              {(viewMode === 'all' || viewMode === 'creators') &&
-                creatorItems.length > 0 &&
-                (() => {
-                  const isFolded = Boolean(foldedShelves.creators);
-                  const totalRows = Math.max(1, Math.ceil(creatorItems.length / ITEMS_PER_SHELF_ROW));
-                  const rows = Math.min(shelfRows.creators ?? 1, totalRows);
-                  const allExpanded = rows >= totalRows;
-                  const creatorAllSongs = creatorItems.flatMap((c) => c.songs);
-                  const isPlayingCreatorsShelf =
-                    playing.active && playing.contextId === 'creators';
-                  return (
-                    <section
-                      className={`market-shelf ${isFolded ? 'is-folded' : ''}`}
-                      aria-label="Creators"
-                    >
-                      <div className="market-shelf-header">
-                        <button
-                          type="button"
-                          className="market-shelf-title-btn"
-                          onClick={() => toggleShelfFold('creators')}
-                          aria-expanded={!isFolded}
-                        >
-                          {isFolded ? (
-                            <ChevronRight size={14} className="market-shelf-fold-icon" />
-                          ) : (
-                            <ChevronDown size={14} className="market-shelf-fold-icon" />
-                          )}
-                          <User size={14} className="market-shelf-icon" />
-                          <h2 className="market-shelf-title">CREATORS</h2>
-                        </button>
-                        <div className="market-shelf-actions">
-                          <button
-                            type="button"
-                            className={`market-shelf-playall-btn ${isPlayingCreatorsShelf ? 'active' : ''}`}
-                            onClick={() => handlePlayCollection(creatorAllSongs, 'creators')}
-                            aria-label={isPlayingCreatorsShelf ? 'Pause Creators' : 'Play All Creators'}
-                          >
-                            {isPlayingCreatorsShelf ? <Pause size={12} /> : <Play size={12} />}
-                            <span>PLAY ALL</span>
-                          </button>
-                        </div>
-                      </div>
-                      {!isFolded && (
-                        <>
-                          <div className="market-shelf-rows">
-                            {Array.from({ length: rows }, (_, rowIdx) => {
-                              const rowSlice = creatorItems.slice(
-                                rowIdx * ITEMS_PER_SHELF_ROW,
-                                (rowIdx + 1) * ITEMS_PER_SHELF_ROW
-                              );
-                              return (
-                                <div key={rowIdx} className="market-shelf-row">
-                                  {rowSlice.map(({ group, songs }) => {
-                                    const cover = group.avatar || '/branding/mark.svg';
-                                    const creatorCtx = `creator:${group.key}`;
-                                    const isPlayingCreator =
-                                      playing.active && playing.contextId === creatorCtx;
-                                    const creatorSlug = group.nicknameKey ? group.label : group.key;
-                                    return (
-                                      <div
-                                        key={group.key}
-                                        className="market-collection-card"
-                                        onClick={() => setSelectedCreator(creatorSlug)}
-                                        role="button"
-                                        tabIndex={0}
-                                        onKeyDown={(e) => {
-                                          if (e.key === 'Enter' || e.key === ' ') {
-                                            e.preventDefault();
-                                            setSelectedCreator(creatorSlug);
-                                          }
-                                        }}
-                                      >
-                                        <div
-                                          className={`market-collection-media ${!group.avatar ? 'is-logo' : ''}`}
-                                        >
-                                          <img
-                                            src={cover}
-                                            alt={group.label}
-                                            loading="lazy"
-                                            decoding="async"
-                                            onError={(e) => {
-                                              e.currentTarget.src = '/branding/mark.svg';
-                                              e.currentTarget.parentElement?.classList.add('is-logo');
-                                            }}
-                                          />
-                                          <button
-                                            type="button"
-                                            className={`market-collection-play-btn ${isPlayingCreator ? 'playing' : ''}`}
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              handlePlayCollection(songs, creatorCtx);
-                                            }}
-                                            aria-label={`Play ${group.label}`}
-                                          >
-                                            {isPlayingCreator ? <Pause size={14} /> : <Play size={14} />}
-                                          </button>
-                                        </div>
-                                        <div className="market-collection-body">
-                                          <div className="market-collection-title">{group.label}</div>
-                                          <div className="market-collection-meta">
-                                            <span>{songs.length}</span>
-                                          </div>
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              );
-                            })}
-                          </div>
-                          {creatorItems.length > ITEMS_PER_SHELF_ROW && (
-                            <div className="market-shelf-footer">
-                              <button
-                                type="button"
-                                className={`market-shelf-more-row-btn ${allExpanded ? 'expanded' : ''}`}
-                                onClick={() => handleMoreRows('creators', creatorItems.length)}
-                              >
-                                <span>MORE</span>
-                                {allExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                              </button>
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </section>
-                  );
-                })()}
-
-              {/* 5. ALBUMS CATEGORY */}
-              {(viewMode === 'all' || viewMode === 'albums') &&
-                publicAlbums.length > 0 &&
-                (() => {
-                  const isFolded = Boolean(foldedShelves.albums);
-                  const totalRows = Math.max(1, Math.ceil(publicAlbums.length / ITEMS_PER_SHELF_ROW));
-                  const rows = Math.min(shelfRows.albums ?? 1, totalRows);
-                  const allExpanded = rows >= totalRows;
-                  const albumAllSongs = publicAlbums.flatMap((album) =>
-                    popularPlayable.filter((s) => s.album_id === album.id)
-                  );
-                  const isPlayingAlbumsShelf =
-                    playing.active && playing.contextId === 'albums';
-                  return (
-                    <section
-                      className={`market-shelf ${isFolded ? 'is-folded' : ''}`}
-                      aria-label="Albums"
-                    >
-                      <div className="market-shelf-header">
-                        <button
-                          type="button"
-                          className="market-shelf-title-btn"
-                          onClick={() => toggleShelfFold('albums')}
-                          aria-expanded={!isFolded}
-                        >
-                          {isFolded ? (
-                            <ChevronRight size={14} className="market-shelf-fold-icon" />
-                          ) : (
-                            <ChevronDown size={14} className="market-shelf-fold-icon" />
-                          )}
-                          <Disc3 size={14} className="market-shelf-icon" />
-                          <h2 className="market-shelf-title">ALBUMS</h2>
-                        </button>
-                        {albumAllSongs.length > 0 && (
-                          <div className="market-shelf-actions">
+                      <div className="market-pulse-col-actions">
+                        {popularTotalPages > 1 && (
+                          <div className="market-page-stepper">
                             <button
                               type="button"
-                              className={`market-shelf-playall-btn ${isPlayingAlbumsShelf ? 'active' : ''}`}
-                              onClick={() => handlePlayCollection(albumAllSongs, 'albums')}
-                              aria-label={isPlayingAlbumsShelf ? 'Pause Albums' : 'Play All Albums'}
+                              className="market-stepper-btn"
+                              disabled={clampedPopularPage <= 0}
+                              onClick={() => setPopularPage((p) => Math.max(0, p - 1))}
+                              aria-label="Previous popular tracks page"
                             >
-                              {isPlayingAlbumsShelf ? <Pause size={12} /> : <Play size={12} />}
-                              <span>PLAY ALL</span>
+                              <ChevronLeft size={12} />
+                            </button>
+                            <span className="market-stepper-label">
+                              {clampedPopularPage + 1}/{popularTotalPages}
+                            </span>
+                            <button
+                              type="button"
+                              className="market-stepper-btn"
+                              disabled={clampedPopularPage >= popularTotalPages - 1}
+                              onClick={() =>
+                                setPopularPage((p) => Math.min(popularTotalPages - 1, p + 1))
+                              }
+                              aria-label="Next popular tracks page"
+                            >
+                              <ChevronRight size={12} />
+                            </button>
+                          </div>
+                        )}
+                        {pulseRightList.length > 0 && (
+                          <button
+                            type="button"
+                            className={`market-shelf-playall-btn ${playing.active && playing.contextId === pulseRightMode ? 'active' : ''}`}
+                            onClick={() => handlePlayCollection(pulseRightList, pulseRightMode)}
+                          >
+                            {playing.active && playing.contextId === pulseRightMode ? (
+                              <Pause size={11} />
+                            ) : (
+                              <Play size={11} />
+                            )}
+                            <span>PLAY ALL</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="market-pulse-rows-list">
+                      {visiblePopularRows.length === 0 ? (
+                        <div className="market-col-empty">
+                          {pulseRightMode === 'liked'
+                            ? 'Tap ♥ on any track to build your Liked queue.'
+                            : 'No popular tracks yet.'}
+                        </div>
+                      ) : (
+                        visiblePopularRows.map((song, idx) => {
+                          const globalIdx = clampedPopularPage * PULSE_ROWS_PER_PAGE + idx;
+                          const isPlayingThis =
+                            playing.active &&
+                            playing.id === song.id &&
+                            (playing.contextId ?? 'default') === pulseRightMode;
+                          return (
+                            <Row
+                              key={`${pulseRightMode}-${song.id}`}
+                              song={song}
+                              index={globalIdx}
+                              isPlayingThis={isPlayingThis}
+                              onPlayToggle={() =>
+                                handlePlaySong(song, pulseRightList, pulseRightMode)
+                              }
+                              onSelectCreator={handleSelectCreatorAddress}
+                              onSelectGenre={toggleGenre}
+                              onShare={handleShareSong}
+                            />
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Stage Peek Cue for Next Snap Stage */}
+                <button
+                  type="button"
+                  className="market-stage-peek-cue"
+                  onClick={() => scrollToStage('discovery')}
+                >
+                  <span>02 // DISCOVERY — GENRES &amp; CREATORS</span>
+                  <ChevronDown size={13} />
+                </button>
+              </section>
+
+              {/* =========================================================
+                  STAGE 02: SONIC DISCOVERY (GENRES + CREATORS)
+                  Wide Sonic Banners + Circular Creator Medallions
+              ========================================================= */}
+              <section
+                ref={stageDiscoveryRef}
+                className="market-snap-stage stage-discovery"
+                aria-label="Discovery: Genres and Creators"
+              >
+                <div className="market-discovery-stack">
+                  {/* Top Half: GENRES Wide Sonic Banners */}
+                  <div className="market-discovery-block">
+                    <div className="market-pulse-col-header">
+                      <div className="market-pulse-col-title-wrap">
+                        <Music size={14} className="market-shelf-icon" />
+                        <h2 className="market-shelf-title">GENRES</h2>
+                        <span className="market-block-count">{genreItems.length}</span>
+                      </div>
+                      <div className="market-pulse-col-actions">
+                        {genreTotalPages > 1 && (
+                          <div className="market-page-stepper">
+                            <button
+                              type="button"
+                              className="market-stepper-btn"
+                              disabled={clampedGenrePage <= 0}
+                              onClick={() => setGenrePage((p) => Math.max(0, p - 1))}
+                              aria-label="Previous genres page"
+                            >
+                              <ChevronLeft size={12} />
+                            </button>
+                            <span className="market-stepper-label">
+                              {clampedGenrePage + 1}/{genreTotalPages}
+                            </span>
+                            <button
+                              type="button"
+                              className="market-stepper-btn"
+                              disabled={clampedGenrePage >= genreTotalPages - 1}
+                              onClick={() =>
+                                setGenrePage((p) => Math.min(genreTotalPages - 1, p + 1))
+                              }
+                              aria-label="Next genres page"
+                            >
+                              <ChevronRight size={12} />
                             </button>
                           </div>
                         )}
                       </div>
-                      {!isFolded && (
-                        <>
-                          <div className="market-shelf-rows">
-                            {Array.from({ length: rows }, (_, rowIdx) => {
-                              const rowSlice = publicAlbums.slice(
-                                rowIdx * ITEMS_PER_SHELF_ROW,
-                                (rowIdx + 1) * ITEMS_PER_SHELF_ROW
-                              );
-                              return (
-                                <div key={rowIdx} className="market-shelf-row">
-                                  {rowSlice.map((album) => {
-                                    const albumSongs = popularPlayable.filter(
-                                      (s) => s.album_id === album.id
-                                    );
-                                    const cover =
-                                      album.cover && album.cover.trim() !== ''
-                                        ? album.cover
-                                        : albumSongs[0]?.image || '/branding/mark.svg';
-                                    const isPlayingAlbum =
-                                      playing.active && playing.contextId === `album:${album.id}`;
-                                    return (
-                                      <div
-                                        key={album.id}
-                                        className="market-collection-card"
-                                        onClick={() => setSelectedAlbumId(album.id)}
-                                        role="button"
-                                        tabIndex={0}
-                                        onKeyDown={(e) => {
-                                          if (e.key === 'Enter' || e.key === ' ') {
-                                            e.preventDefault();
-                                            setSelectedAlbumId(album.id);
-                                          }
-                                        }}
-                                      >
-                                        <div className="market-collection-media">
-                                          <img
-                                            src={cover}
-                                            alt={album.title}
-                                            loading="lazy"
-                                            decoding="async"
-                                          />
-                                          <button
-                                            type="button"
-                                            className={`market-collection-play-btn ${isPlayingAlbum ? 'playing' : ''}`}
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              handlePlayAlbum(album);
-                                            }}
-                                            aria-label={`Play ${album.title}`}
-                                          >
-                                            {isPlayingAlbum ? <Pause size={14} /> : <Play size={14} />}
-                                          </button>
-                                        </div>
-                                        <div className="market-collection-body">
-                                          <div className="market-collection-title">{album.title}</div>
-                                          <div className="market-collection-meta">
-                                            <span>{resolveCreatorLabel(album.creator)}</span>
-                                            <span>•</span>
-                                            <span>{albumSongs.length}</span>
-                                          </div>
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              );
-                            })}
-                          </div>
-                          {publicAlbums.length > ITEMS_PER_SHELF_ROW && (
-                            <div className="market-shelf-footer">
-                              <button
-                                type="button"
-                                className={`market-shelf-more-row-btn ${allExpanded ? 'expanded' : ''}`}
-                                onClick={() => handleMoreRows('albums', publicAlbums.length)}
-                              >
-                                <span>MORE</span>
-                                {allExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                              </button>
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </section>
-                  );
-                })()}
+                    </div>
 
-              {/* 6. PLAYLISTS CATEGORY */}
-              {(viewMode === 'all' || viewMode === 'playlists') &&
-                (publicPlaylists.length > 0 || viewMode === 'playlists') &&
-                (() => {
-                  const isFolded = Boolean(foldedShelves.playlists);
-                  const totalRows = Math.max(
-                    1,
-                    Math.ceil(publicPlaylists.length / ITEMS_PER_SHELF_ROW)
-                  );
-                  const rows = Math.min(shelfRows.playlists ?? 1, totalRows);
-                  const allExpanded = rows >= totalRows;
-                  const playlistAllSongs = publicPlaylists.flatMap((pl) =>
-                    (pl.song_ids || [])
-                      .map((id) => songsById.get(id))
-                      .filter((s): s is Song => Boolean(s))
-                  );
-                  const isPlayingPlaylistsShelf =
-                    playing.active && playing.contextId === 'playlists';
-                  return (
-                    <section
-                      className={`market-shelf ${isFolded ? 'is-folded' : ''}`}
-                      aria-label="Playlists"
-                    >
-                      <div className="market-shelf-header">
-                        <button
-                          type="button"
-                          className="market-shelf-title-btn"
-                          onClick={() => toggleShelfFold('playlists')}
-                          aria-expanded={!isFolded}
-                        >
-                          {isFolded ? (
-                            <ChevronRight size={14} className="market-shelf-fold-icon" />
-                          ) : (
-                            <ChevronDown size={14} className="market-shelf-fold-icon" />
-                          )}
-                          <ListMusic size={14} className="market-shelf-icon" />
-                          <h2 className="market-shelf-title">PLAYLISTS</h2>
-                        </button>
-                        <div className="market-shelf-actions">
-                          <Tooltip title="New Playlist">
-                            <button
-                              type="button"
-                              className="market-shelf-more-btn"
-                              onClick={() => {
-                                if (!readAddress) {
-                                  openGate();
-                                  return;
-                                }
-                                setShowShelfPlaylistCreate((prev) => !prev);
-                              }}
-                              aria-label="New Playlist"
-                            >
-                              <Plus size={12} />
-                            </button>
-                          </Tooltip>
-                          {playlistAllSongs.length > 0 && (
-                            <button
-                              type="button"
-                              className={`market-shelf-playall-btn ${isPlayingPlaylistsShelf ? 'active' : ''}`}
-                              onClick={() => handlePlayCollection(playlistAllSongs, 'playlists')}
-                              aria-label={
-                                isPlayingPlaylistsShelf ? 'Pause Playlists' : 'Play All Playlists'
+                    <div className="market-genre-banners-grid">
+                      {visibleGenres.map((genreFold) => {
+                        const slug = normalizeGenreSlug(genreFold.label);
+                        const dynamicCover = slug ? genreCovers?.[slug]?.imageUrl : null;
+                        const pairedGenreCover =
+                          getGenreCoverImage(genreFold.label) || dynamicCover;
+                        const fallbackCover =
+                          genreFold.songs[0]?.image || '/branding/mark.svg';
+                        const cover = pairedGenreCover || fallbackCover;
+                        const genreCtx = `genre:${genreFold.key}`;
+                        const isPlayingGenre =
+                          playing.active && playing.contextId === genreCtx;
+
+                        return (
+                          <div
+                            key={genreFold.key}
+                            className={`market-genre-banner ${isPlayingGenre ? 'is-playing' : ''}`}
+                            onClick={() => toggleGenre(genreFold.label)}
+                            role="button"
+                            tabIndex={0}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                toggleGenre(genreFold.label);
                               }
-                            >
-                              {isPlayingPlaylistsShelf ? <Pause size={12} /> : <Play size={12} />}
-                              <span>PLAY ALL</span>
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                      {showShelfPlaylistCreate && (
-                        <form className="market-shelf-inline-form" onSubmit={handleCreateShelfPlaylist}>
-                          <input
-                            type="text"
-                            className="market-playlist-modal-input"
-                            placeholder="NEW PLAYLIST..."
-                            value={shelfPlaylistTitle}
-                            onChange={(e) => setShelfPlaylistTitle(e.target.value)}
-                            maxLength={80}
-                            autoFocus
-                          />
-                          <Button
-                            type="submit"
-                            size="xs"
-                            variant="primary"
-                            disabled={creatingPlaylist || !shelfPlaylistTitle.trim()}
-                            aria-label="Create playlist"
+                            }}
                           >
-                            <Check size={12} />
-                          </Button>
-                          <Button
-                            type="button"
-                            size="xs"
-                            variant="ghost"
-                            onClick={() => setShowShelfPlaylistCreate(false)}
-                            aria-label="Cancel"
-                          >
-                            <X size={12} />
-                          </Button>
-                        </form>
-                      )}
-                      {!isFolded && (
-                        <>
-                          <div className="market-shelf-rows">
-                            {Array.from({ length: rows }, (_, rowIdx) => {
-                              const rowSlice = publicPlaylists.slice(
-                                rowIdx * ITEMS_PER_SHELF_ROW,
-                                (rowIdx + 1) * ITEMS_PER_SHELF_ROW
-                              );
-                              return (
-                                <div key={rowIdx} className="market-shelf-row">
-                                  {rowSlice.map((pl) => {
-                                    const plSongs = (pl.song_ids || [])
-                                      .map((id) => songsById.get(id))
-                                      .filter((s): s is Song => Boolean(s));
-                                    const cover =
-                                      pl.cover && pl.cover.trim() !== ''
-                                        ? pl.cover
-                                        : plSongs[0]?.image || '/branding/mark.svg';
-                                    const isPlayingPl =
-                                      playing.active && playing.playlistId === pl.id;
-                                    const isExpanded = expandedPlaylistId === pl.id;
-                                    const isOwner = Boolean(
-                                      readAddress &&
-                                      pl.creator &&
-                                      pl.creator.toLowerCase() === readAddress.toLowerCase()
-                                    );
-                                    return (
-                                      <div
-                                        key={pl.id}
-                                        className="market-collection-card"
-                                        onClick={() =>
-                                          setExpandedPlaylistId(isExpanded ? null : pl.id)
-                                        }
-                                        role="button"
-                                        tabIndex={0}
-                                      >
-                                        <div className="market-collection-media">
-                                          <img
-                                            src={cover}
-                                            alt={pl.title}
-                                            loading="lazy"
-                                            decoding="async"
-                                          />
-                                          {isOwner && (
-                                            <button
-                                              type="button"
-                                              className="market-collection-delete-btn"
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                void handleDeletePlaylistInMarket(pl);
-                                              }}
-                                              aria-label={`Delete ${pl.title}`}
-                                            >
-                                              <Trash2 size={11} />
-                                            </button>
-                                          )}
-                                          <button
-                                            type="button"
-                                            className={`market-collection-play-btn ${isPlayingPl ? 'playing' : ''}`}
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              handlePlayPlaylist(pl);
-                                            }}
-                                            aria-label={`Play ${pl.title}`}
-                                          >
-                                            {isPlayingPl ? <Pause size={14} /> : <Play size={14} />}
-                                          </button>
-                                        </div>
-                                        <div className="market-collection-body">
-                                          <div className="market-collection-title">{pl.title}</div>
-                                          <div className="market-collection-meta">
-                                            <span>{resolveCreatorLabel(pl.creator)}</span>
-                                            <span>•</span>
-                                            <span>{plSongs.length}</span>
-                                          </div>
-                                          {isExpanded && plSongs.length > 0 && (
-                                            <div
-                                              className="market-playlist-tracklist"
-                                              onClick={(e) => e.stopPropagation()}
-                                            >
-                                              {plSongs.map((s, i) => (
-                                                <div
-                                                  key={`${s.id}-${i}`}
-                                                  className="market-playlist-track-row-wrap"
-                                                >
-                                                  <button
-                                                    type="button"
-                                                    className={`market-playlist-track-row ${playing.id === s.id &&
-                                                      playing.playlistId === pl.id
-                                                      ? 'active'
-                                                      : ''
-                                                      }`}
-                                                    onClick={() =>
-                                                      store.playSong(
-                                                        s,
-                                                        plSongs,
-                                                        pl.id,
-                                                        `playlist:${pl.id}`
-                                                      )
-                                                    }
-                                                  >
-                                                    <span className="market-playlist-track-idx">
-                                                      {i + 1}
-                                                    </span>
-                                                    <span className="market-playlist-track-name">
-                                                      {s.title}
-                                                    </span>
-                                                  </button>
-                                                  {isOwner && (
-                                                    <button
-                                                      type="button"
-                                                      className="market-playlist-track-remove-btn"
-                                                      onClick={() =>
-                                                        void handleRemoveSongFromExpandedPlaylist(
-                                                          pl,
-                                                          s.id,
-                                                          s.title
-                                                        )
-                                                      }
-                                                      aria-label={`Remove ${s.title}`}
-                                                    >
-                                                      <X size={10} />
-                                                    </button>
-                                                  )}
-                                                </div>
-                                              ))}
-                                            </div>
-                                          )}
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              );
-                            })}
-                          </div>
-                          {publicPlaylists.length > ITEMS_PER_SHELF_ROW && (
-                            <div className="market-shelf-footer">
+                            <img
+                              src={cover}
+                              alt={genreFold.label}
+                              className="market-genre-banner-bg"
+                              loading="lazy"
+                              onError={(e) => {
+                                if (e.currentTarget.src !== fallbackCover) {
+                                  e.currentTarget.src = fallbackCover;
+                                }
+                              }}
+                            />
+                            <div className="market-genre-banner-overlay" />
+                            <div className="market-genre-banner-content">
+                              <div className="market-genre-banner-info">
+                                <span className="market-genre-banner-tag">#{genreFold.label}</span>
+                                <span className="market-genre-banner-count">
+                                  {genreFold.total} {genreFold.total === 1 ? 'TRACK' : 'TRACKS'}
+                                </span>
+                              </div>
                               <button
                                 type="button"
-                                className={`market-shelf-more-row-btn ${allExpanded ? 'expanded' : ''}`}
-                                onClick={() =>
-                                  handleMoreRows('playlists', publicPlaylists.length)
-                                }
+                                className={`market-genre-banner-play ${isPlayingGenre ? 'playing' : ''}`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handlePlayCollection(genreFold.songs, genreCtx);
+                                }}
+                                aria-label={`Play ${genreFold.label}`}
                               >
-                                <span>MORE</span>
-                                {allExpanded ? (
-                                  <ChevronDown size={12} />
-                                ) : (
-                                  <ChevronRight size={12} />
-                                )}
+                                {isPlayingGenre ? <Pause size={13} /> : <Play size={13} />}
                               </button>
                             </div>
-                          )}
-                        </>
-                      )}
-                    </section>
-                  );
-                })()}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Bottom Half: CREATORS Circular Identity Medallions */}
+                  <div className="market-discovery-block">
+                    <div className="market-pulse-col-header">
+                      <div className="market-pulse-col-title-wrap">
+                        <User size={14} className="market-shelf-icon" />
+                        <h2 className="market-shelf-title">CREATORS</h2>
+                        <span className="market-block-count">{creatorItems.length}</span>
+                      </div>
+                      <div className="market-pulse-col-actions">
+                        {creatorTotalPages > 1 && (
+                          <div className="market-page-stepper">
+                            <button
+                              type="button"
+                              className="market-stepper-btn"
+                              disabled={clampedCreatorPage <= 0}
+                              onClick={() => setCreatorPage((p) => Math.max(0, p - 1))}
+                              aria-label="Previous creators page"
+                            >
+                              <ChevronLeft size={12} />
+                            </button>
+                            <span className="market-stepper-label">
+                              {clampedCreatorPage + 1}/{creatorTotalPages}
+                            </span>
+                            <button
+                              type="button"
+                              className="market-stepper-btn"
+                              disabled={clampedCreatorPage >= creatorTotalPages - 1}
+                              onClick={() =>
+                                setCreatorPage((p) => Math.min(creatorTotalPages - 1, p + 1))
+                              }
+                              aria-label="Next creators page"
+                            >
+                              <ChevronRight size={12} />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="market-creators-medallion-grid">
+                      {visibleCreators.map(({ group, songs, totalPlays }) => {
+                        const cover = group.avatar || '/branding/mark.svg';
+                        const creatorCtx = `creator:${group.key}`;
+                        const isPlayingCreator =
+                          playing.active && playing.contextId === creatorCtx;
+                        const creatorSlug = group.nicknameKey ? group.label : group.key;
+                        const followed =
+                          isFollowing(group.key) ||
+                          Array.from(group.addresses).some((a) => isFollowing(a));
+                        const isSelf = Boolean(
+                          readAddress && group.addresses.has(readAddress.toLowerCase())
+                        );
+
+                        return (
+                          <div
+                            key={group.key}
+                            className={`market-creator-medallion-card ${isPlayingCreator ? 'is-playing' : ''}`}
+                            onClick={() => setSelectedCreator(creatorSlug)}
+                            role="button"
+                            tabIndex={0}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                setSelectedCreator(creatorSlug);
+                              }
+                            }}
+                          >
+                            <div
+                              className={`market-creator-avatar-ring ${!group.avatar ? 'is-logo' : ''}`}
+                            >
+                              <img
+                                src={cover}
+                                alt={group.label}
+                                loading="lazy"
+                                onError={(e) => {
+                                  e.currentTarget.src = '/branding/mark.svg';
+                                  e.currentTarget.parentElement?.classList.add('is-logo');
+                                }}
+                              />
+                              <button
+                                type="button"
+                                className={`market-creator-play-badge ${isPlayingCreator ? 'playing' : ''}`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handlePlayCollection(songs, creatorCtx);
+                                }}
+                                aria-label={`Play ${group.label}`}
+                              >
+                                {isPlayingCreator ? <Pause size={12} /> : <Play size={12} />}
+                              </button>
+                            </div>
+
+                            <div className="market-creator-card-info">
+                              <span className="market-creator-card-name">{group.label}</span>
+                              <span className="market-creator-card-stats">
+                                {songs.length} {songs.length === 1 ? 'TRACK' : 'TRACKS'}
+                                {totalPlays > 0 ? ` • ${totalPlays} PLAYS` : ''}
+                              </span>
+                            </div>
+
+                            {!isSelf && (
+                              <button
+                                type="button"
+                                className={`market-creator-follow-pill ${followed ? 'is-following' : ''}`}
+                                onClick={(e) => toggleFollow(group.key, e)}
+                                aria-label={followed ? `Unfollow ${group.label}` : `Follow ${group.label}`}
+                              >
+                                {followed ? <UserCheck size={11} /> : <UserPlus size={11} />}
+                                <span>{followed ? 'FOLLOWING' : 'FOLLOW'}</span>
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  className="market-stage-peek-cue"
+                  onClick={() => scrollToStage('collections')}
+                >
+                  <span>03 // COLLECTIONS — ALBUMS &amp; PLAYLISTS</span>
+                  <ChevronDown size={13} />
+                </button>
+              </section>
+
+              {/* =========================================================
+                  STAGE 03: CURATED COLLECTIONS (ALBUMS + PLAYLISTS + LIKED)
+                  Vinyl Record Sleeves & Community Crates
+              ========================================================= */}
+              <section
+                ref={stageCollectionsRef}
+                className="market-snap-stage stage-collections"
+                aria-label="Collections: Albums and Playlists"
+              >
+                <div className="market-collections-grid">
+                  {/* Left Block: ALBUMS (Vinyl Sleeve Cards) */}
+                  <div className="market-collections-column">
+                    <div className="market-pulse-col-header">
+                      <div className="market-pulse-col-title-wrap">
+                        <Disc3 size={14} className="market-shelf-icon" />
+                        <h2 className="market-shelf-title">ALBUMS</h2>
+                        <span className="market-block-count">{publicAlbums.length}</span>
+                      </div>
+                      <div className="market-pulse-col-actions">
+                        {albumTotalPages > 1 && (
+                          <div className="market-page-stepper">
+                            <button
+                              type="button"
+                              className="market-stepper-btn"
+                              disabled={clampedAlbumPage <= 0}
+                              onClick={() => setAlbumPage((p) => Math.max(0, p - 1))}
+                              aria-label="Previous albums page"
+                            >
+                              <ChevronLeft size={12} />
+                            </button>
+                            <span className="market-stepper-label">
+                              {clampedAlbumPage + 1}/{albumTotalPages}
+                            </span>
+                            <button
+                              type="button"
+                              className="market-stepper-btn"
+                              disabled={clampedAlbumPage >= albumTotalPages - 1}
+                              onClick={() =>
+                                setAlbumPage((p) => Math.min(albumTotalPages - 1, p + 1))
+                              }
+                              aria-label="Next albums page"
+                            >
+                              <ChevronRight size={12} />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {visibleAlbums.length === 0 ? (
+                      <div className="market-col-empty">No public albums yet.</div>
+                    ) : (
+                      <div className="market-vinyl-grid">
+                        {visibleAlbums.map((album) => {
+                          const albumSongs = popularPlayable.filter(
+                            (s) => s.album_id === album.id
+                          );
+                          const cover =
+                            album.cover && album.cover.trim() !== ''
+                              ? album.cover
+                              : albumSongs[0]?.image || '/branding/mark.svg';
+                          const isPlayingAlbum =
+                            playing.active && playing.contextId === `album:${album.id}`;
+
+                          return (
+                            <div
+                              key={album.id}
+                              className={`market-vinyl-card ${isPlayingAlbum ? 'is-playing' : ''}`}
+                              onClick={() => setSelectedAlbumId(album.id)}
+                              role="button"
+                              tabIndex={0}
+                            >
+                              <div className="market-vinyl-sleeve">
+                                <img src={cover} alt={album.title} loading="lazy" />
+                                <div className="market-vinyl-disc" />
+                                <button
+                                  type="button"
+                                  className={`market-collection-play-btn ${isPlayingAlbum ? 'playing' : ''}`}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handlePlayAlbum(album);
+                                  }}
+                                  aria-label={`Play ${album.title}`}
+                                >
+                                  {isPlayingAlbum ? <Pause size={13} /> : <Play size={13} />}
+                                </button>
+                              </div>
+                              <div className="market-vinyl-info">
+                                <span className="market-vinyl-title">{album.title}</span>
+                                <span className="market-vinyl-meta">
+                                  {resolveCreatorLabel(album.creator)} • {albumSongs.length}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Right Block: LIKED CRATE + COMMUNITY PLAYLISTS */}
+                  <div className="market-collections-column">
+                    <div className="market-pulse-col-header">
+                      <div className="market-pulse-col-title-wrap">
+                        <ListMusic size={14} className="market-shelf-icon" />
+                        <h2 className="market-shelf-title">PLAYLISTS</h2>
+                        <span className="market-block-count">{publicPlaylists.length}</span>
+                      </div>
+                      <div className="market-pulse-col-actions">
+                        <Tooltip title="New Playlist">
+                          <button
+                            type="button"
+                            className="market-stepper-btn"
+                            onClick={() => {
+                              if (!readAddress) {
+                                openGate();
+                                return;
+                              }
+                              setShowShelfPlaylistCreate((prev) => !prev);
+                            }}
+                            aria-label="New Playlist"
+                          >
+                            <Plus size={12} />
+                          </button>
+                        </Tooltip>
+                        {playlistTotalPages > 1 && (
+                          <div className="market-page-stepper">
+                            <button
+                              type="button"
+                              className="market-stepper-btn"
+                              disabled={clampedPlaylistPage <= 0}
+                              onClick={() => setPlaylistPage((p) => Math.max(0, p - 1))}
+                              aria-label="Previous playlists page"
+                            >
+                              <ChevronLeft size={12} />
+                            </button>
+                            <span className="market-stepper-label">
+                              {clampedPlaylistPage + 1}/{playlistTotalPages}
+                            </span>
+                            <button
+                              type="button"
+                              className="market-stepper-btn"
+                              disabled={clampedPlaylistPage >= playlistTotalPages - 1}
+                              onClick={() =>
+                                setPlaylistPage((p) => Math.min(playlistTotalPages - 1, p + 1))
+                              }
+                              aria-label="Next playlists page"
+                            >
+                              <ChevronRight size={12} />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {showShelfPlaylistCreate && (
+                      <form className="market-shelf-inline-form" onSubmit={handleCreateShelfPlaylist}>
+                        <input
+                          type="text"
+                          className="market-playlist-modal-input"
+                          placeholder="NEW PLAYLIST..."
+                          value={shelfPlaylistTitle}
+                          onChange={(e) => setShelfPlaylistTitle(e.target.value)}
+                          maxLength={80}
+                          autoFocus
+                        />
+                        <Button
+                          type="submit"
+                          size="xs"
+                          variant="primary"
+                          disabled={creatingPlaylist || !shelfPlaylistTitle.trim()}
+                          aria-label="Create playlist"
+                        >
+                          <Check size={12} />
+                        </Button>
+                        <Button
+                          type="button"
+                          size="xs"
+                          variant="ghost"
+                          onClick={() => setShowShelfPlaylistCreate(false)}
+                          aria-label="Cancel"
+                        >
+                          <X size={12} />
+                        </Button>
+                      </form>
+                    )}
+
+                    <div className="market-playlists-crate-grid">
+                      {/* Pinned Personal LIKED Tracks Crate */}
+                      <div
+                        className={`market-liked-crate ${playing.active && playing.contextId === 'liked-crate' ? 'is-playing' : ''}`}
+                        onClick={() => setLikedOnly(true)}
+                        role="button"
+                        tabIndex={0}
+                      >
+                        <div className="market-liked-crate-icon">
+                          <Heart size={18} fill="currentColor" />
+                        </div>
+                        <div className="market-liked-crate-info">
+                          <span className="market-liked-crate-title">LIKED TRACKS</span>
+                          <span className="market-liked-crate-meta">
+                            {likedPlayable.length} SAVED
+                          </span>
+                        </div>
+                        {likedPlayable.length > 0 && (
+                          <button
+                            type="button"
+                            className={`market-collection-play-btn ${playing.active && playing.contextId === 'liked-crate' ? 'playing' : ''}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handlePlayCollection(likedPlayable, 'liked-crate');
+                            }}
+                            aria-label="Play Liked Tracks"
+                          >
+                            {playing.active && playing.contextId === 'liked-crate' ? (
+                              <Pause size={13} />
+                            ) : (
+                              <Play size={13} />
+                            )}
+                          </button>
+                        )}
+                      </div>
+
+                      {visiblePlaylists.map((pl) => {
+                        const plSongs = (pl.song_ids || [])
+                          .map((id) => songsById.get(id))
+                          .filter((s): s is Song => Boolean(s));
+                        const cover =
+                          pl.cover && pl.cover.trim() !== ''
+                            ? pl.cover
+                            : plSongs[0]?.image || '/branding/mark.svg';
+                        const isPlayingPl =
+                          playing.active && playing.playlistId === pl.id;
+                        const isExpanded = expandedPlaylistId === pl.id;
+                        const isOwner = Boolean(
+                          readAddress &&
+                            pl.creator &&
+                            pl.creator.toLowerCase() === readAddress.toLowerCase()
+                        );
+
+                        return (
+                          <div
+                            key={pl.id}
+                            className={`market-crate-playlist-card ${isExpanded ? 'is-expanded' : ''}`}
+                            onClick={() => setExpandedPlaylistId(isExpanded ? null : pl.id)}
+                            role="button"
+                            tabIndex={0}
+                          >
+                            <div className="market-crate-playlist-top">
+                              <img
+                                src={cover}
+                                alt={pl.title}
+                                className="market-crate-playlist-cover"
+                                loading="lazy"
+                              />
+                              <div className="market-crate-playlist-info">
+                                <span className="market-crate-playlist-title">{pl.title}</span>
+                                <span className="market-crate-playlist-meta">
+                                  {resolveCreatorLabel(pl.creator)} • {plSongs.length}
+                                </span>
+                              </div>
+                              <div className="market-crate-playlist-actions">
+                                {isOwner && (
+                                  <button
+                                    type="button"
+                                    className="market-crate-delete-btn"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      void handleDeletePlaylistInMarket(pl);
+                                    }}
+                                    aria-label={`Delete ${pl.title}`}
+                                  >
+                                    <Trash2 size={11} />
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  className={`market-collection-play-btn ${isPlayingPl ? 'playing' : ''}`}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handlePlayPlaylist(pl);
+                                  }}
+                                  aria-label={`Play ${pl.title}`}
+                                >
+                                  {isPlayingPl ? <Pause size={13} /> : <Play size={13} />}
+                                </button>
+                              </div>
+                            </div>
+
+                            {isExpanded && plSongs.length > 0 && (
+                              <div
+                                className="market-playlist-tracklist"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                {plSongs.map((s, i) => (
+                                  <div
+                                    key={`${s.id}-${i}`}
+                                    className="market-playlist-track-row-wrap"
+                                  >
+                                    <button
+                                      type="button"
+                                      className={`market-playlist-track-row ${
+                                        playing.id === s.id && playing.playlistId === pl.id
+                                          ? 'active'
+                                          : ''
+                                      }`}
+                                      onClick={() =>
+                                        store.playSong(
+                                          s,
+                                          plSongs,
+                                          pl.id,
+                                          `playlist:${pl.id}`
+                                        )
+                                      }
+                                    >
+                                      <span className="market-playlist-track-idx">{i + 1}</span>
+                                      <span className="market-playlist-track-name">{s.title}</span>
+                                    </button>
+                                    {isOwner && (
+                                      <button
+                                        type="button"
+                                        className="market-playlist-track-remove-btn"
+                                        onClick={() =>
+                                          void handleRemoveSongFromExpandedPlaylist(
+                                            pl,
+                                            s.id,
+                                            s.title
+                                          )
+                                        }
+                                        aria-label={`Remove ${s.title}`}
+                                      >
+                                        <X size={10} />
+                                      </button>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </section>
             </>
           )}
         </div>
       ) : (
-        /* Filtered / Search Grid View with Chunked Pagination */
+        /* Filtered / Search View */
         <div className="market-grid panel scrollable">
           {error && publicSongs.length > 0 && <div role="alert">{error.message}</div>}
 
@@ -2195,7 +2476,7 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
         </div>
       )}
 
-      {/* Mobile Search Modal Popup (matches /editor AI Ops small modal pattern) */}
+      {/* Mobile Search Modal Popup */}
       <Modal
         isOpen={searchModalOpen}
         onClose={() => setSearchModalOpen(false)}
@@ -2233,78 +2514,6 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
         </form>
       </Modal>
 
-      {/* Add to Playlist Modal (Entry Point Strictly on /market) */}
-      {playlistTargetSong && (
-        <div className="market-modal-backdrop" role="dialog" aria-modal="true" aria-label="Playlist">
-          <div className="market-playlist-modal panel" ref={playlistModalRef}>
-            <div className="market-playlist-modal-header">
-              <div className="market-playlist-modal-title-wrap">
-                <ListMusic size={14} />
-                <span>PLAYLIST</span>
-              </div>
-              <button
-                type="button"
-                className="market-filter-clear-btn"
-                onClick={() => setPlaylistTargetSong(null)}
-                aria-label="Close modal"
-              >
-                <X size={13} />
-              </button>
-            </div>
-
-            <div className="market-playlist-modal-target">
-              <strong>{playlistTargetSong.title}</strong>
-            </div>
-
-            <div className="market-playlist-modal-list scrollable">
-              {myPlaylists.length === 0 ? (
-                <div className="market-playlist-modal-empty">NONE</div>
-              ) : (
-                myPlaylists.map((pl) => {
-                  const alreadyIn = (pl.song_ids || []).includes(playlistTargetSong.id);
-                  return (
-                    <button
-                      key={pl.id}
-                      type="button"
-                      className="market-playlist-modal-option"
-                      onClick={() => handleToggleTrackInPlaylist(pl)}
-                    >
-                      <div className="market-playlist-modal-option-left">
-                        {pl.public ? <Globe size={11} /> : <Lock size={11} />}
-                        <span className="market-playlist-modal-option-title">{pl.title}</span>
-                      </div>
-                      <span className="market-playlist-modal-option-meta">
-                        {alreadyIn ? <Check size={11} /> : (pl.song_ids || []).length}
-                      </span>
-                    </button>
-                  );
-                })
-              )}
-            </div>
-
-            <form className="market-playlist-modal-create" onSubmit={handleCreatePlaylistWithSong}>
-              <input
-                type="text"
-                className="market-playlist-modal-input"
-                placeholder="NEW PLAYLIST..."
-                value={newPlaylistTitle}
-                onChange={(e) => setNewPlaylistTitle(e.target.value)}
-                maxLength={80}
-              />
-              <Button
-                type="submit"
-                size="xs"
-                variant="primary"
-                disabled={creatingPlaylist || !newPlaylistTitle.trim()}
-                aria-label="Create playlist"
-              >
-                <Plus size={12} />
-              </Button>
-            </form>
-          </div>
-        </div>
-      )}
-      {/* Track Share Modal */}
       <ShareModal
         isOpen={Boolean(shareData)}
         onClose={() => setShareData(null)}
