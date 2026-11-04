@@ -221,13 +221,13 @@ export function ActivityFeed({
               ? [
                   {
                     value: 'plays',
-                    label: `Plays (${streamEventsCount})`,
+                    label: `PLAYS (${streamEventsCount})`,
                     icon: Radio,
                     tooltip: 'Chronological stream and license activity feed',
                   },
                   {
                     value: 'settlements',
-                    label: `Settlements (${settlementEvents.length})`,
+                    label: `SETTLEMENTS (${settlementEvents.length})`,
                     icon: Layers,
                     tooltip: 'Verified on-chain royalty settlements and transactions',
                   },
@@ -245,21 +245,21 @@ export function ActivityFeed({
               options={[
                 {
                   value: 'all',
-                  label: 'All',
+                  label: 'ALL',
                   count: events.length,
                   icon: Layers,
                   tooltip: 'All stream and license events',
                 },
                 {
                   value: 'stream',
-                  label: 'Streamed',
+                  label: 'STREAMED',
                   count: streamEventsCount,
                   icon: Headphones,
                   tooltip: 'Filter to qualified stream plays only',
                 },
                 {
                   value: 'license',
-                  label: 'Licensed',
+                  label: 'LICENSED',
                   count: licenseEventsCount,
                   icon: Disc3,
                   tooltip: 'Filter to license purchases only',
@@ -275,14 +275,14 @@ export function ActivityFeed({
               options={[
                 {
                   value: 'all',
-                  label: 'All',
+                  label: 'ALL',
                   count: settlementEvents.length,
                   icon: Layers,
                   tooltip: 'All royalty settlements',
                 },
                 {
                   value: 'settled',
-                  label: 'Settled',
+                  label: 'SETTLED',
                   count: settlementEvents.length,
                   icon: CheckCircle2,
                   tooltip: 'Filter to settled on-chain royalty payouts',
@@ -302,12 +302,12 @@ export function ActivityFeed({
             <>
               <span className="cm-feed-summary__item">
                 <span className="cm-feed-summary__dot" data-tone="emerald" />
-                {streamEventsCount} streamed
+                {streamEventsCount} STREAMED
               </span>
               {licenseEventsCount > 0 && (
                 <span className="cm-feed-summary__item">
                   <span className="cm-feed-summary__dot" data-tone="violet" />
-                  {licenseEventsCount} licensed
+                  {licenseEventsCount} LICENSED
                 </span>
               )}
             </>
@@ -315,7 +315,7 @@ export function ActivityFeed({
             <>
               <span className="cm-feed-summary__item">
                 <span className="cm-feed-summary__dot" data-tone="emerald" />
-                {settlementEvents.length} settled
+                {settlementEvents.length} SETTLED
               </span>
               <span
                 className="cm-feed-summary__item"
@@ -329,7 +329,7 @@ export function ActivityFeed({
 
         {feedRows.length === 0 ? (
           <div className="cm-block__empty">
-            {feedView === 'plays' ? 'No plays in window' : 'No settlements in window'}
+            {feedView === 'plays' ? 'NO PLAYS IN WINDOW' : 'NO SETTLEMENTS IN WINDOW'}
           </div>
         ) : (
           <div

@@ -40,13 +40,21 @@ export function TimelineChart({
 
   const chartBadgeLabel = useMemo(() => {
     if (chartView === 'profit') return formatUsd(overviewStats.totalProfitUsd);
-    if (chartView === 'plays') return `${overviewStats.totalPlays.toLocaleString()} plays`;
+    if (chartView === 'plays') return `${overviewStats.totalPlays.toLocaleString()} PLAYS`;
     if (chartView === 'streamed') return formatMs(overviewStats.totalStreamedMs);
-    return `avg ${overviewStats.avgRatioPct.toFixed(1)}%`;
+    return `AVG ${overviewStats.avgRatioPct.toFixed(1)}%`;
   }, [chartView, overviewStats]);
 
   const agChartOptions = useMemo<AgChartOptions>(() => {
-    const axisFontSize = isMobile ? 11 : 12;
+    const axisFontSize = isMobile ? 11 : 11;
+    const terminalFont = "'Share Tech Mono', 'JetBrains Mono', monospace";
+    const chartTheme = {
+      baseTheme: 'ag-default-dark' as const,
+      params: {
+        fontFamily: terminalFont,
+        fontSize: axisFontSize,
+      },
+    };
     const baseAxes = {
       x: {
         type: 'category' as const,
@@ -54,8 +62,8 @@ export function TimelineChart({
         tick: { enabled: false },
         gridLine: { enabled: false },
         label: {
-          color: '#888888',
-          fontFamily: "'Courier New', Courier, monospace",
+          color: '#7a869a',
+          fontFamily: terminalFont,
           fontSize: axisFontSize,
           rotation: 0,
           avoidCollisions: true,
@@ -67,11 +75,11 @@ export function TimelineChart({
         tick: { enabled: false },
         gridLine: {
           enabled: true,
-          style: [{ stroke: 'rgba(255, 255, 255, 0.06)', lineDash: [3, 3] }],
+          style: [{ stroke: 'rgba(0, 255, 65, 0.08)', lineDash: [3, 3] }],
         },
         label: {
-          color: '#888888',
-          fontFamily: "'Courier New', Courier, monospace",
+          color: '#7a869a',
+          fontFamily: terminalFont,
           fontSize: axisFontSize,
           formatter: ({ value }: { value: number }) => {
             if (chartView === 'profit') return formatUsd(value);
@@ -85,6 +93,7 @@ export function TimelineChart({
 
     if (chartView === 'profit') {
       return {
+        theme: chartTheme,
         background: { fill: 'transparent' },
         padding: { top: 8, right: 18, bottom: 4, left: 6 },
         data: timeSeriesData,
@@ -181,6 +190,7 @@ export function TimelineChart({
       };
 
       return {
+        theme: chartTheme,
         background: { fill: 'transparent' },
         padding: { top: 8, right: 18, bottom: 4, left: 6 },
         data: timeSeriesData,
@@ -279,6 +289,7 @@ export function TimelineChart({
       };
 
       return {
+        theme: chartTheme,
         background: { fill: 'transparent' },
         padding: { top: 8, right: 18, bottom: 4, left: 6 },
         data: timeSeriesData,
@@ -349,6 +360,7 @@ export function TimelineChart({
       ]);
 
     return {
+      theme: chartTheme,
       background: { fill: 'transparent' },
       padding: { top: 8, right: 18, bottom: 4, left: 6 },
       data: timeSeriesData,

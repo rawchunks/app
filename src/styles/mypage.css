@@ -1820,16 +1820,18 @@
    ========================================================================== */
 
 .cm-dashboard {
-  /* Desktop Typography Floors (>= 12px micro/ticks, >= 13px body/data, >= 20px KPIs) */
-  --cm-fs-micro: clamp(12px, 0.78vw, 13px);
-  --cm-fs-sm: clamp(12.5px, 0.85vw, 13.5px);
-  --cm-fs-body: clamp(13px, 0.92vw, 14.5px);
-  --cm-fs-title: clamp(13.5px, 1vw, 15.5px);
-  --cm-fs-badge: clamp(15px, 1.15vw, 18px);
-  --cm-fs-kpi: clamp(20px, 1.65vw, 26px);
+  /* Canonical Rawchunks Typography Tokens (aligned 1:1 with variables.css & /my-page) */
+  --cm-fs-micro: var(--font-xs);
+  --cm-fs-sm: var(--font-xs);
+  --cm-fs-body: var(--font-xs);
+  --cm-fs-title: var(--font-base);
+  --cm-fs-badge: var(--font-base);
+  --cm-fs-kpi: var(--font-lg);
   --cm-text-muted: var(--text-muted);
   --cm-text-secondary: var(--text-secondary);
 
+  font-family: var(--font-family);
+  font-size: var(--font-xs);
   container-type: inline-size;
   display: grid;
   grid-template-areas:
@@ -1848,6 +1850,13 @@
   min-height: 0;
   overflow: hidden;
   box-sizing: border-box;
+}
+
+.cm-dashboard *,
+.cm-dashboard button,
+.cm-dashboard input,
+.cm-dashboard select {
+  font-family: var(--font-family);
 }
 
 .cm-dashboard[data-focus="chart"] {
@@ -1875,6 +1884,38 @@
     "feed   feed   feed   chart"
     "feed   feed   feed   songs";
   grid-template-rows: auto auto repeat(2, minmax(0, 1fr));
+}
+
+.cm-dashboard[data-rail="hidden"] {
+  grid-template-areas:
+    "stats  stats  stats  stats"
+    "chart  chart  chart  feed"
+    "songs  songs  songs  feed";
+  grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.cm-dashboard[data-rail="hidden"][data-focus="chart"] {
+  grid-template-areas:
+    "stats  stats  stats  stats"
+    "chart  chart  chart  songs"
+    "chart  chart  chart  feed";
+  grid-template-rows: auto repeat(2, minmax(0, 1fr));
+}
+
+.cm-dashboard[data-rail="hidden"][data-focus="songs"] {
+  grid-template-areas:
+    "stats  stats  stats  stats"
+    "songs  songs  songs  chart"
+    "songs  songs  songs  feed";
+  grid-template-rows: auto repeat(2, minmax(0, 1fr));
+}
+
+.cm-dashboard[data-rail="hidden"][data-focus="feed"] {
+  grid-template-areas:
+    "stats  stats  stats  stats"
+    "feed   feed   feed   chart"
+    "feed   feed   feed   songs";
+  grid-template-rows: auto repeat(2, minmax(0, 1fr));
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -1929,21 +1970,22 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: var(--space-2xs);
   height: var(--daw-ctrl-h);
-  padding: 0 10px;
-  border: 1px solid var(--border-bright);
+  padding: 0 var(--space-xs);
+  border: 1px solid var(--border);
   border-radius: var(--space-2xs);
-  background: var(--bg-panel);
+  background: var(--bg);
   color: var(--text-secondary);
-  font-family: var(--font-mono);
-  font-size: var(--cm-fs-body);
+  font-family: var(--font-family);
+  font-size: var(--font-xs);
   font-weight: 700;
-  letter-spacing: 0.04em;
+  letter-spacing: var(--letter-spacing-tight);
   text-transform: uppercase;
   white-space: nowrap;
   cursor: pointer;
   transition: border-color 150ms ease, background 150ms ease, color 150ms ease;
+  box-sizing: border-box;
 }
 
 .cm-control-switcher:hover,
@@ -2065,16 +2107,16 @@
   align-items: center;
   gap: 8px;
   width: 100%;
-  min-height: 30px;
-  padding: 5px 10px;
+  min-height: 28px;
+  padding: 4px 8px;
   border: 1px solid transparent;
   border-radius: 3px;
   background: transparent;
   color: var(--cm-text-secondary);
-  font-family: var(--font-mono);
-  font-size: var(--cm-fs-sm);
-  font-weight: 700;
-  letter-spacing: 0.04em;
+  font-family: var(--font-family);
+  font-size: var(--font-xs);
+  font-weight: 600;
+  letter-spacing: var(--letter-spacing-tight);
   text-transform: uppercase;
   text-align: left;
   white-space: nowrap;
@@ -2183,10 +2225,10 @@ button.cm-stat-card--picker {
   align-items: center;
   gap: 6px;
   color: var(--cm-text-muted);
-  font-family: var(--font-mono);
-  font-size: var(--cm-fs-micro);
+  font-family: var(--font-family);
+  font-size: var(--font-xs);
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--letter-spacing-tight);
   text-transform: uppercase;
   white-space: nowrap;
 }
@@ -2206,10 +2248,10 @@ button.cm-stat-card--picker {
 .cm-stat-card__value {
   color: var(--text);
   font-family: var(--font-family);
-  font-size: var(--cm-fs-kpi);
-  font-weight: 800;
+  font-size: var(--font-lg);
+  font-weight: 700;
   line-height: 1.1;
-  letter-spacing: 0.01em;
+  letter-spacing: var(--letter-spacing-tight);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   overflow: hidden;
@@ -2226,8 +2268,8 @@ button.cm-stat-card--picker {
 
 .cm-stat-card__sub {
   color: var(--cm-text-secondary);
-  font-family: var(--font-mono);
-  font-size: var(--cm-fs-micro);
+  font-family: var(--font-family);
+  font-size: var(--font-xs);
   line-height: 1.3;
   white-space: nowrap;
   overflow: hidden;
@@ -2240,7 +2282,8 @@ button.cm-stat-card--picker {
   border: 1px solid var(--border-bright);
   border-radius: 999px;
   padding: 1px 7px;
-  font-size: var(--cm-fs-micro);
+  font-family: var(--font-family);
+  font-size: var(--font-xs);
   font-weight: 700;
 }
 
@@ -2345,18 +2388,18 @@ button.cm-stat-card--picker {
 
 .cm-block__title {
   color: var(--cm-text-muted);
-  font-family: var(--font-mono);
-  font-size: var(--cm-fs-title);
+  font-family: var(--font-family);
+  font-size: var(--font-xs);
   font-weight: 700;
-  letter-spacing: 0.06em;
+  letter-spacing: var(--letter-spacing-tight);
   text-transform: uppercase;
 }
 
 .cm-block__badge {
   color: var(--text);
   font-family: var(--font-family);
-  font-size: var(--cm-fs-badge);
-  font-weight: 800;
+  font-size: var(--font-base);
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -2405,11 +2448,11 @@ button.cm-stat-card--picker {
   border-radius: var(--space-2xs);
   background: var(--bg-panel);
   color: var(--text-secondary);
-  font-family: var(--font-mono);
-  font-size: var(--cm-fs-sm);
+  font-family: var(--font-family);
+  font-size: var(--font-xs);
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: var(--letter-spacing-tight);
   white-space: nowrap;
   cursor: pointer;
   transition: border-color 140ms ease, background 140ms ease, color 140ms ease;
@@ -2509,11 +2552,20 @@ button.cm-stat-card--picker {
 }
 
 /* AG Charts Glass Tooltip (.cm-chart-tooltip) */
-.ag-charts-tooltip {
+.ag-charts-tooltip,
+.ag-charts-tooltip-container {
   background: transparent !important;
   border: none !important;
   box-shadow: none !important;
   padding: 0 !important;
+  font-family: var(--font-family) !important;
+  font-size: var(--font-xs) !important;
+}
+
+.cm-chart-tooltip,
+.cm-chart-tooltip * {
+  font-family: var(--font-family) !important;
+  font-size: var(--font-xs) !important;
 }
 
 .cm-chart-tooltip {
@@ -2531,10 +2583,10 @@ button.cm-stat-card--picker {
 
 .cm-chart-tooltip__time {
   color: var(--text);
-  font-family: var(--font-mono);
-  font-size: var(--cm-fs-sm);
+  font-family: var(--font-family);
+  font-size: var(--font-xs);
   font-weight: 700;
-  letter-spacing: 0.05em;
+  letter-spacing: var(--letter-spacing-tight);
   text-transform: uppercase;
   padding-bottom: 4px;
   border-bottom: 1px solid var(--border-bright);
@@ -2545,8 +2597,8 @@ button.cm-stat-card--picker {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  font-family: var(--font-mono);
-  font-size: var(--cm-fs-micro);
+  font-family: var(--font-family);
+  font-size: var(--font-xs);
 }
 
 .cm-chart-tooltip__row[data-strong="true"] .cm-chart-tooltip__value {
@@ -2656,8 +2708,9 @@ button.cm-stat-card--picker {
 
 .cm-usage-song__id {
   color: var(--text);
+  font-family: var(--font-family);
   font-weight: 700;
-  font-size: var(--cm-fs-body);
+  font-size: var(--font-xs);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2665,9 +2718,10 @@ button.cm-stat-card--picker {
 
 .cm-usage-song__provider {
   color: var(--cm-text-muted);
-  font-size: var(--cm-fs-micro);
+  font-family: var(--font-family);
+  font-size: var(--font-xs);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: var(--letter-spacing-tight);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2675,22 +2729,30 @@ button.cm-stat-card--picker {
 
 .cm-usage-cost {
   color: var(--primary);
+  font-family: var(--font-family);
+  font-size: var(--font-xs);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 
 .cm-usage-success[data-tone="emerald"] {
   color: var(--text);
+  font-family: var(--font-family);
+  font-size: var(--font-xs);
   font-weight: 700;
 }
 
 .cm-usage-success[data-tone="amber"] {
   color: #ffaa00;
+  font-family: var(--font-family);
+  font-size: var(--font-xs);
   font-weight: 700;
 }
 
 .cm-usage-success[data-tone="danger"] {
   color: #ff3366;
+  font-family: var(--font-family);
+  font-size: var(--font-xs);
   font-weight: 700;
 }
 
@@ -2703,10 +2765,11 @@ button.cm-stat-card--picker {
   border: 1px solid var(--border-bright);
   border-radius: var(--space-2xs);
   padding: 2px 7px;
-  font-size: var(--cm-fs-micro);
+  font-family: var(--font-family);
+  font-size: var(--font-xs);
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: var(--letter-spacing-tight);
   color: var(--text-secondary);
   background: rgba(255, 255, 255, 0.03);
   box-sizing: border-box;
@@ -2798,8 +2861,8 @@ button.cm-stat-card--picker {
   align-items: center;
   gap: 6px;
   color: var(--text);
-  font-family: var(--font-mono);
-  font-size: var(--cm-fs-body);
+  font-family: var(--font-family);
+  font-size: var(--font-xs);
   font-weight: 700;
   text-transform: uppercase;
 }
@@ -2809,8 +2872,8 @@ button.cm-stat-card--picker {
   align-items: center;
   gap: 10px;
   color: var(--cm-text-secondary);
-  font-family: var(--font-mono);
-  font-size: var(--cm-fs-sm);
+  font-family: var(--font-family);
+  font-size: var(--font-xs);
   font-variant-numeric: tabular-nums;
 }
 
@@ -2910,8 +2973,8 @@ button.cm-stat-card--picker {
   gap: 6px;
   min-width: 0;
   color: var(--text);
-  font-family: var(--font-mono);
-  font-size: var(--cm-fs-body);
+  font-family: var(--font-family);
+  font-size: var(--font-xs);
   font-weight: 700;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2921,8 +2984,8 @@ button.cm-stat-card--picker {
 .cm-receipt-item__amount {
   color: var(--text);
   font-family: var(--font-family);
-  font-size: var(--cm-fs-title);
-  font-weight: 800;
+  font-size: var(--font-xs);
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -3043,23 +3106,34 @@ button.cm-stat-card--picker {
    AG Grid Enterprise Native Theme Adaptation (.cm-ag-grid-wrap)
    ═══════════════════════════════════════════════════════════════ */
 
+.cm-ag-grid-wrap,
+.cm-ag-grid-wrap .ag-root-wrapper,
+.cm-ag-grid-wrap [class*="ag-theme-"] {
+  --ag-background-color: transparent !important;
+  --ag-foreground-color: var(--text) !important;
+  --ag-header-background-color: #121212 !important;
+  --ag-header-foreground-color: var(--cm-text-muted) !important;
+  --ag-border-color: var(--border) !important;
+  --ag-row-border-color: var(--border) !important;
+  --ag-row-hover-color: rgba(255, 255, 255, 0.03) !important;
+  --ag-selected-row-background-color: rgba(255, 255, 255, 0.05) !important;
+  --ag-font-family: var(--font-family) !important;
+  --ag-font-size: var(--font-xs) !important;
+  --ag-cell-horizontal-padding: 8px !important;
+  font-family: var(--font-family) !important;
+  font-size: var(--font-xs) !important;
+}
+
 .cm-ag-grid-wrap {
   width: 100%;
   height: 100%;
   flex: 1 1 0;
   min-height: 0;
   min-width: 0;
-  --ag-background-color: transparent;
-  --ag-foreground-color: var(--text);
-  --ag-header-background-color: #121212;
-  --ag-header-foreground-color: var(--cm-text-muted);
-  --ag-border-color: var(--border);
-  --ag-row-border-color: var(--border);
-  --ag-row-hover-color: rgba(255, 255, 255, 0.03);
-  --ag-selected-row-background-color: rgba(255, 255, 255, 0.05);
-  --ag-font-family: var(--font-mono);
-  --ag-font-size: var(--cm-fs-body);
-  --ag-cell-horizontal-padding: 8px;
+}
+
+.cm-ag-grid-wrap * {
+  font-family: var(--font-family) !important;
 }
 
 .cm-ag-grid-wrap .ag-root-wrapper {
@@ -3080,13 +3154,15 @@ button.cm-stat-card--picker {
   background-color: #121212 !important;
 }
 
-.cm-ag-grid-wrap .ag-header-cell-label {
-  font-family: var(--font-mono);
-  font-size: var(--cm-fs-micro);
-  font-weight: 700;
+.cm-ag-grid-wrap .ag-header-cell-label,
+.cm-ag-grid-wrap .ag-header-cell-text,
+.cm-ag-grid-wrap .cm-ag-header-label {
+  font-family: var(--font-family) !important;
+  font-size: var(--font-xs) !important;
+  font-weight: 800;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--cm-text-muted);
+  color: var(--text-dim);
 }
 
 .cm-ag-grid-wrap .ag-header-cell.cm-ag-right .ag-header-cell-label {
@@ -3103,14 +3179,16 @@ button.cm-stat-card--picker {
 .cm-ag-grid-wrap .ag-cell-wrapper,
 .cm-ag-grid-wrap .ag-cell-value {
   line-height: 1.25 !important;
+  font-family: var(--font-family) !important;
+  font-size: var(--font-xs) !important;
 }
 
 .cm-ag-grid-wrap .ag-cell {
   display: flex;
   align-items: center;
   border: none !important;
-  font-family: var(--font-mono);
-  font-size: var(--cm-fs-body);
+  font-family: var(--font-family) !important;
+  font-size: var(--font-xs) !important;
   color: var(--cm-text-secondary);
 }
 
@@ -3163,13 +3241,13 @@ button.cm-stat-card--picker {
 @container (max-width: 42rem) {
   .cm-dashboard,
   .cm-dashboard[data-focus] {
-    /* Mobile Typography Floors (>= 11px micro/ticks, >= 12px body/data, >= 18px KPIs) */
-    --cm-fs-micro: clamp(11px, 2.9vw, 12px);
-    --cm-fs-sm: clamp(11.5px, 3.1vw, 12.5px);
-    --cm-fs-body: clamp(12px, 3.3vw, 13.5px);
-    --cm-fs-title: clamp(12.5px, 3.5vw, 14px);
-    --cm-fs-badge: clamp(13.5px, 3.8vw, 15.5px);
-    --cm-fs-kpi: clamp(18px, 4.8vw, 22px);
+    /* Mobile Typography Tokens aligned 1:1 with variables.css & /my-page */
+    --cm-fs-micro: var(--font-xs);
+    --cm-fs-sm: var(--font-xs);
+    --cm-fs-body: var(--font-xs);
+    --cm-fs-title: var(--font-base);
+    --cm-fs-badge: var(--font-base);
+    --cm-fs-kpi: var(--font-lg);
 
     grid-template-areas:
       "header"
@@ -3180,6 +3258,16 @@ button.cm-stat-card--picker {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto auto minmax(175px, 1.35fr) minmax(105px, 0.55fr) minmax(105px, 0.55fr);
     gap: 6px;
+  }
+
+  .cm-dashboard[data-rail="hidden"],
+  .cm-dashboard[data-rail="hidden"][data-focus] {
+    grid-template-areas:
+      "stats"
+      "main"
+      "sideA"
+      "sideB";
+    grid-template-rows: auto minmax(175px, 1.35fr) minmax(105px, 0.55fr) minmax(105px, 0.55fr);
   }
 
   .cm-dashboard__updating {
@@ -3263,7 +3351,6 @@ button.cm-stat-card--picker {
     padding: 6px 8px;
   }
 
-  .mypage-container:has(.cm-dashboard) .mypage-header,
   .mypage-container:has(.cm-dashboard) .mypage-subtitle,
   .mypage-container:has(.cm-dashboard) .mypage-profile-bio,
   .mypage-container:has(.cm-dashboard) .mypage-profile-stats {
@@ -3297,12 +3384,12 @@ button.cm-stat-card--picker {
 
   .cm-dashboard,
   .cm-dashboard[data-focus] {
-    --cm-fs-micro: clamp(11px, 2.9vw, 12px);
-    --cm-fs-sm: clamp(11.5px, 3.1vw, 12.5px);
-    --cm-fs-body: clamp(12px, 3.3vw, 13.5px);
-    --cm-fs-title: clamp(12.5px, 3.5vw, 14px);
-    --cm-fs-badge: clamp(13.5px, 3.8vw, 15.5px);
-    --cm-fs-kpi: clamp(18px, 4.8vw, 22px);
+    --cm-fs-micro: var(--font-xs);
+    --cm-fs-sm: var(--font-xs);
+    --cm-fs-body: var(--font-xs);
+    --cm-fs-title: var(--font-base);
+    --cm-fs-badge: var(--font-base);
+    --cm-fs-kpi: var(--font-lg);
 
     grid-template-areas:
       "header"
@@ -3313,6 +3400,16 @@ button.cm-stat-card--picker {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto auto minmax(175px, 1.35fr) minmax(105px, 0.55fr) minmax(105px, 0.55fr);
     gap: 6px;
+  }
+
+  .cm-dashboard[data-rail="hidden"],
+  .cm-dashboard[data-rail="hidden"][data-focus] {
+    grid-template-areas:
+      "stats"
+      "main"
+      "sideA"
+      "sideB";
+    grid-template-rows: auto minmax(175px, 1.35fr) minmax(105px, 0.55fr) minmax(105px, 0.55fr);
   }
 
   .cm-dashboard__updating {

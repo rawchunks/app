@@ -84,7 +84,7 @@ export function SongsBlock({
   const songsColumnDefs = useMemo<ColDef<NormalizedSongRow>[]>(() => {
     const cols: ColDef<NormalizedSongRow>[] = [
       {
-        headerName: 'Song',
+        headerName: 'SONG',
         headerComponent: AgHeaderTooltip,
         headerComponentParams: {
           tooltip: 'Track title, cover art, and genres',
@@ -132,7 +132,7 @@ export function SongsBlock({
         },
       },
       {
-        headerName: 'Profit',
+        headerName: 'PROFIT',
         headerComponent: AgHeaderTooltip,
         headerComponentParams: {
           tooltip: 'Net creator royalties (80% share) from streams and licenses',
@@ -148,7 +148,7 @@ export function SongsBlock({
           ) : null,
       },
       {
-        headerName: 'Plays',
+        headerName: 'PLAYS',
         headerComponent: AgHeaderTooltip,
         headerComponentParams: {
           tooltip: 'Qualified streams played for 30 seconds or more',
@@ -165,7 +165,7 @@ export function SongsBlock({
     if (focused && !isMobile) {
       cols.push(
         {
-          headerName: 'Streamed',
+          headerName: 'STREAMED',
           headerComponent: AgHeaderTooltip,
           headerComponentParams: {
             tooltip: 'Total exact listening duration (s / m / h)',
@@ -178,7 +178,7 @@ export function SongsBlock({
           valueFormatter: (p) => formatMs(Number(p.value || 0)),
         },
         {
-          headerName: 'Ratio',
+          headerName: 'RATIO',
           headerComponent: AgHeaderTooltip,
           headerComponentParams: {
             tooltip: 'Average % of track duration streamed per play',
@@ -198,7 +198,7 @@ export function SongsBlock({
           },
         },
         {
-          headerName: 'Genre',
+          headerName: 'GENRE',
           headerComponent: AgHeaderTooltip,
           headerComponentParams: {
             tooltip: 'Track genres (hover badge to view full list)',
@@ -229,7 +229,7 @@ export function SongsBlock({
       );
     } else if (focused && isMobile) {
       cols.push({
-        headerName: 'Ratio',
+        headerName: 'RATIO',
         headerComponent: AgHeaderTooltip,
         headerComponentParams: {
           tooltip: 'Average % of track duration streamed per play',

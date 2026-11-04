@@ -160,10 +160,10 @@ export interface GenreSlice {
 export const BRAND_PALETTE = [
   '#00ff41',
   '#00ccff',
-  '#a855f7',
+  '#ff0055',
   '#ffaa00',
+  '#00e5a3',
   '#38bdf8',
-  '#10b981',
 ] as const;
 
 export const DEFAULT_AG_COL_DEF: ColDef = {
@@ -173,48 +173,48 @@ export const DEFAULT_AG_COL_DEF: ColDef = {
 };
 
 export const DATE_WINDOW_OPTIONS: DropdownOption<DateWindow>[] = [
-  { value: '24h', label: 'Last 24h', icon: Calendar, tooltip: 'Activity over the last 24 hours' },
-  { value: '7d', label: 'Last 7d', icon: Calendar, tooltip: 'Activity over the last 7 days' },
-  { value: '30d', label: 'Last 30d', icon: Calendar, tooltip: 'Activity over the last 30 days' },
-  { value: '180d', label: 'Last 6m', icon: Calendar, tooltip: 'Activity over the last 6 months' },
+  { value: '24h', label: 'LAST 24H', icon: Calendar, tooltip: 'Activity over the last 24 hours' },
+  { value: '7d', label: 'LAST 7D', icon: Calendar, tooltip: 'Activity over the last 7 days' },
+  { value: '30d', label: 'LAST 30D', icon: Calendar, tooltip: 'Activity over the last 30 days' },
+  { value: '180d', label: 'LAST 6M', icon: Calendar, tooltip: 'Activity over the last 6 months' },
 ];
 
 export const SOURCE_OPTIONS: DropdownOption<RevenueSourceFilter>[] = [
-  { value: 'all', label: 'Total', icon: Filter, tooltip: 'Combined earnings from streams and licenses' },
-  { value: 'streams', label: 'Streams', icon: Headphones, tooltip: 'Royalties from x402 pay-per-stream plays' },
-  { value: 'licenses', label: 'Licenses', icon: Disc3, tooltip: 'Royalties from commercial & remix license sales' },
+  { value: 'all', label: 'ALL SOURCES', icon: Filter, tooltip: 'Combined earnings from streams and licenses' },
+  { value: 'streams', label: 'STREAMS', icon: Headphones, tooltip: 'Royalties from x402 pay-per-stream plays' },
+  { value: 'licenses', label: 'LICENSES', icon: Disc3, tooltip: 'Royalties from commercial & remix license sales' },
 ];
 
 export const CHART_VIEW_OPTIONS: DropdownOption<ChartView>[] = [
-  { value: 'profit', label: 'Profit', icon: DollarSign, tooltip: 'Net creator royalties (80%) and platform fee breakdown over time' },
-  { value: 'plays', label: 'Plays', icon: Headphones, tooltip: 'Qualified plays (>= 30s) segmented by Top 3 songs + Others' },
-  { value: 'streamed', label: 'Streamed', icon: Clock, tooltip: 'Exact listening duration segmented by Top 3 songs + Others' },
-  { value: 'ratio', label: 'Ratio', icon: Activity, tooltip: 'Percentage of track duration streamed vs. average' },
+  { value: 'profit', label: 'PROFIT', icon: DollarSign, tooltip: 'Net creator royalties (80%) and platform fee breakdown over time' },
+  { value: 'plays', label: 'PLAYS', icon: Headphones, tooltip: 'Qualified plays (>= 30s) segmented by Top 3 songs + Others' },
+  { value: 'streamed', label: 'STREAMED', icon: Clock, tooltip: 'Exact listening duration segmented by Top 3 songs + Others' },
+  { value: 'ratio', label: 'RATIO', icon: Activity, tooltip: 'Percentage of track duration streamed vs. average' },
 ];
 
 export const SONGS_VIEW_OPTIONS: DropdownOption<SongsView>[] = [
-  { value: 'songs', label: 'Songs', icon: Music2, tooltip: 'Per-song performance, earnings, and listening ratio' },
-  { value: 'genre', label: 'By Genre', icon: Layers, tooltip: 'Catalog performance aggregated by genre' },
+  { value: 'songs', label: 'SONGS', icon: Music2, tooltip: 'Per-song performance, earnings, and listening ratio' },
+  { value: 'genre', label: 'BY GENRE', icon: Layers, tooltip: 'Catalog performance aggregated by genre' },
 ];
 
 export const SONGS_SORT_OPTIONS: DropdownOption<SongsSortKey>[] = [
-  { value: 'profit', label: 'Profit', icon: DollarSign, tooltip: 'Sort songs by net profit earned' },
-  { value: 'plays', label: 'Plays', icon: Headphones, tooltip: 'Sort songs by qualified play count' },
-  { value: 'streamed', label: 'Streamed', icon: Clock, tooltip: 'Sort songs by total listening duration' },
-  { value: 'ratio', label: 'Ratio', icon: Activity, tooltip: 'Sort songs by streamed-to-duration ratio (%)' },
-  { value: 'recent', label: 'Recent', icon: Clock, tooltip: 'Sort songs by most recent activity' },
-  { value: 'genre', label: 'Genre', icon: Layers, tooltip: 'Sort songs alphabetically by genre' },
+  { value: 'profit', label: 'PROFIT', icon: DollarSign, tooltip: 'Sort songs by net profit earned' },
+  { value: 'plays', label: 'PLAYS', icon: Headphones, tooltip: 'Sort songs by qualified play count' },
+  { value: 'streamed', label: 'STREAMED', icon: Clock, tooltip: 'Sort songs by total listening duration' },
+  { value: 'ratio', label: 'RATIO', icon: Activity, tooltip: 'Sort songs by streamed-to-duration ratio (%)' },
+  { value: 'recent', label: 'RECENT', icon: Clock, tooltip: 'Sort songs by most recent activity' },
+  { value: 'genre', label: 'GENRE', icon: Layers, tooltip: 'Sort songs alphabetically by genre' },
 ];
 
 export const GENRE_METRIC_OPTIONS: DropdownOption<GenreMetric>[] = [
-  { value: 'profit', label: 'Profit', icon: DollarSign, tooltip: 'Share of net profit by genre' },
-  { value: 'plays', label: 'Plays', icon: Headphones, tooltip: 'Share of total plays by genre' },
-  { value: 'streamed', label: 'Streamed', icon: Clock, tooltip: 'Share of total listening duration by genre' },
+  { value: 'profit', label: 'PROFIT', icon: DollarSign, tooltip: 'Share of net profit by genre' },
+  { value: 'plays', label: 'PLAYS', icon: Headphones, tooltip: 'Share of total plays by genre' },
+  { value: 'streamed', label: 'STREAMED', icon: Clock, tooltip: 'Share of total listening duration by genre' },
 ];
 
 export const FEED_VIEW_OPTIONS: DropdownOption<FeedView>[] = [
-  { value: 'plays', label: 'Plays', icon: Radio, tooltip: 'Chronological stream and license activity feed' },
-  { value: 'settlements', label: 'Settlements', icon: Layers, tooltip: 'Verified on-chain royalty settlements and transactions' },
+  { value: 'plays', label: 'PLAYS', icon: Radio, tooltip: 'Chronological stream and license activity feed' },
+  { value: 'settlements', label: 'SETTLEMENTS', icon: Layers, tooltip: 'Verified on-chain royalty settlements and transactions' },
 ];
 
 // ============================================================================

@@ -87,35 +87,35 @@ export function OverviewCards({ stats }: OverviewCardsProps) {
   }> = [
     {
       id: 'profit',
-      label: 'Profit',
+      label: 'PROFIT',
       value: formatUsd(stats.totalProfitUsd),
       icon: DollarSign,
       tooltip: 'Net creator royalties (80% share) from streams and licenses',
     },
     {
       id: 'plays',
-      label: 'Plays',
+      label: 'PLAYS',
       value: stats.totalPlays.toLocaleString(),
       icon: Headphones,
       tooltip: 'Qualified streams played for 30 seconds or more',
     },
     {
       id: 'streamed',
-      label: 'Streamed',
+      label: 'STREAMED',
       value: formatMs(stats.totalStreamedMs),
       icon: Clock,
       tooltip: 'Total exact listening duration across all plays',
     },
     {
       id: 'ratio',
-      label: 'Avg Ratio',
+      label: 'AVG RATIO',
       value: `${stats.avgRatioPct.toFixed(1)}%`,
       icon: Activity,
       tooltip: 'Average % of track duration streamed per play',
     },
     {
       id: 'licenses',
-      label: 'Licenses',
+      label: 'LICENSES',
       value: `${stats.licensesSold} / ${stats.licensesMinted}`,
       icon: Disc3,
       tooltip: 'Commercial & remix licenses sold out of total minted supply',
@@ -136,14 +136,14 @@ export function OverviewCards({ stats }: OverviewCardsProps) {
           >
             <span className="cm-stat-card__label">
               <DollarSign className="cm-stat-card__label-icon" />
-              Profit
+              PROFIT
             </span>
           </Tooltip>
           <span className="cm-stat-card__value" data-tone="primary">
             {formatUsd(stats.totalProfitUsd)}
           </span>
           <span className="cm-stat-card__sub">
-            {stats.totalPlays.toLocaleString()} plays settled
+            {stats.totalPlays.toLocaleString()} PLAYS SETTLED
           </span>
           <Sparkline values={stats.profitSparkline} />
         </div>
@@ -158,13 +158,13 @@ export function OverviewCards({ stats }: OverviewCardsProps) {
           >
             <span className="cm-stat-card__label">
               <Headphones className="cm-stat-card__label-icon" />
-              Plays
+              PLAYS
             </span>
           </Tooltip>
           <span className="cm-stat-card__value">{stats.totalPlays.toLocaleString()}</span>
           <span className="cm-stat-card__sub">
             <span className="cm-stat-card__pill" data-tone={ratioTone(stats.avgRatioPct)}>
-              {stats.avgRatioPct.toFixed(1)}% ratio
+              {stats.avgRatioPct.toFixed(1)}% RATIO
             </span>
           </span>
         </div>
@@ -179,11 +179,11 @@ export function OverviewCards({ stats }: OverviewCardsProps) {
           >
             <span className="cm-stat-card__label">
               <Clock className="cm-stat-card__label-icon" />
-              Streamed
+              STREAMED
             </span>
           </Tooltip>
           <span className="cm-stat-card__value">{formatMs(stats.totalStreamedMs)}</span>
-          <span className="cm-stat-card__sub">{formatMs(stats.avgMsPerPlay)} / play</span>
+          <span className="cm-stat-card__sub">{formatMs(stats.avgMsPerPlay)} / PLAY</span>
         </div>
 
         {/* 4. RATIO */}
@@ -196,11 +196,11 @@ export function OverviewCards({ stats }: OverviewCardsProps) {
           >
             <span className="cm-stat-card__label">
               <Activity className="cm-stat-card__label-icon" />
-              Avg Ratio
+              AVG RATIO
             </span>
           </Tooltip>
           <span className="cm-stat-card__value">{stats.avgRatioPct.toFixed(1)}%</span>
-          <span className="cm-stat-card__sub">peak {stats.peakRatioPct.toFixed(1)}%</span>
+          <span className="cm-stat-card__sub">PEAK {stats.peakRatioPct.toFixed(1)}%</span>
         </div>
 
         {/* 5. LICENSES */}
@@ -213,14 +213,14 @@ export function OverviewCards({ stats }: OverviewCardsProps) {
           >
             <span className="cm-stat-card__label">
               <Disc3 className="cm-stat-card__label-icon" />
-              Licenses
+              LICENSES
             </span>
           </Tooltip>
           <span className="cm-stat-card__value" data-tone="accent">
             {stats.licensesSold} / {stats.licensesMinted}
           </span>
           <span className="cm-stat-card__sub">
-            {formatUsd(stats.licenseProfitUsd)} royalties
+            {formatUsd(stats.licenseProfitUsd)} ROYALTIES
           </span>
         </div>
 
@@ -238,13 +238,13 @@ export function OverviewCards({ stats }: OverviewCardsProps) {
           >
             <span className="cm-stat-card__label">
               <Layers className="cm-stat-card__label-icon" />
-              More stats
+              MORE STATS
             </span>
             <span className="cm-stat-card--picker__value">
               <span className="cm-stat-card__value">{otherStatItems.length}</span>
               <ChevronDown className="cm-stat-card--picker__chevron" />
             </span>
-            <span className="cm-stat-card__sub">swap this card</span>
+            <span className="cm-stat-card__sub">SWAP METRIC</span>
           </button>
 
           {statPickerOpen && (
