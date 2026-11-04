@@ -17,10 +17,8 @@ import { toast } from 'sonner';
 import {
   Upload,
   Sparkles,
-  X,
   Disc3,
   Music,
-  Image as ImageIcon,
 } from 'lucide-react';
 
 export interface AlbumModalProps {
@@ -62,18 +60,15 @@ export const AlbumModal: React.FC<AlbumModalProps> = ({
   const [concept, setConcept] = useState('');
   const [cover, setCover] = useState<string | null>(null);
   const [gallery, setGallery] = useState<string[]>([]);
-  const [galleryPrompt, setGalleryPrompt] = useState('');
   const [isPublic, setIsPublic] = useState(false);
   const [targetNetwork, setTargetNetwork] = useState<'base' | 'tempo' | 'solana'>('base');
   const [bundlePrice, setBundlePrice] = useState('45');
   const [editionSize, setEditionSize] = useState('100');
   const [selectedSongIds, setSelectedSongIds] = useState<Set<string>>(new Set());
 
-  const [albumTab, setAlbumTab] = useState<'details' | 'tracks' | 'booklet'>('details');
+  const [albumTab, setAlbumTab] = useState<'details' | 'tracks'>('details');
   const [uploadingCover, setUploadingCover] = useState(false);
   const [generatingCover, setGeneratingCover] = useState(false);
-  const [uploadingGallery, setUploadingGallery] = useState(false);
-  const [generatingGallery, setGeneratingGallery] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const coverInputRef = useRef<HTMLInputElement>(null);
@@ -108,11 +103,6 @@ export const AlbumModal: React.FC<AlbumModalProps> = ({
       setConcept('');
       setCover(null);
       setGallery([]);
-      setGalleryPrompt('');
-      setIsPublic(false);
-      setTargetNetwork('base');
-      setBundlePrice('45');
-      setEditionSize('100');
       setSelectedSongIds(new Set());
     }
   }, [isOpen, album, songs]);
@@ -180,44 +170,6 @@ export const AlbumModal: React.FC<AlbumModalProps> = ({
       toast.error(err.message || 'Album cover generation failed');
     } finally {
       setGeneratingCover(false);
-    }
-  };
-
-  const handleGenerateGalleryArt = async (retry = false) => {
-    if (!(await openGate({ steps: ['login', 'funding'] }))) return;
-    setGeneratingGallery(true);
-    try {
-      const customPrompt =
-        galleryPrompt.trim() ||
-        `${title.trim() || 'concept album'} visual booklet insert, ${concept.trim() || genre}, atmospheric editorial photography`;
-      const res = await api.fetch('/api/generation/cover', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: customPrompt,
-          title: title.trim() || undefined,
-          style: genre || undefined,
-        }),
-      });
-      if (res.status === 402) {
-        void openGate({ steps: ['login', 'funding'], reason: 'Session budget exhausted' }).then(
-          (ready) => {
-            if (ready && !retry) void handleGenerateGalleryArt(true);
-          }
-        );
-        return;
-      }
-      const result = await res.json();
-      if (!res.ok || !result.imageUrl) {
-        throw new Error(result.error || 'Could not generate booklet image');
-      }
-      setGallery((prev) => [...prev, result.imageUrl]);
-      setGalleryPrompt('');
-      toast.success('Added visual to album booklet');
-    } catch (err: any) {
-      toast.error(err.message || 'Booklet generation failed');
-    } finally {
-      setGeneratingGallery(false);
     }
   };
 
@@ -349,17 +301,6 @@ export const AlbumModal: React.FC<AlbumModalProps> = ({
           ref={galleryInputRef}
           accept="image/*"
           className="hidden-file-input"
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) {
-              void handleUploadImage(
-                file,
-                (url) => setGallery((prev) => [...prev, url]),
-                setUploadingGallery
-              );
-            }
-            if (galleryInputRef.current) galleryInputRef.current.value = '';
-          }}
         />
 
         {/* Studio-style Mode Switcher Tabs */}
@@ -380,15 +321,6 @@ export const AlbumModal: React.FC<AlbumModalProps> = ({
             <Music size={13} />
             <span>TRACKS</span>
             <span className="studio-voice-count-badge">{selectedSongIds.size}</span>
-          </button>
-          <button
-            type="button"
-            className={`studio-voice-mode-btn ${albumTab === 'booklet' ? 'active' : ''}`}
-            onClick={() => setAlbumTab('booklet')}
-          >
-            <ImageIcon size={13} />
-            <span>BOOKLET</span>
-            <span className="studio-voice-count-badge">{gallery.length}</span>
           </button>
         </div>
 
@@ -420,18 +352,6 @@ export const AlbumModal: React.FC<AlbumModalProps> = ({
                       {g}
                     </option>
                   ))}
-                </select>
-              </div>
-
-              <div className="cyber-input-wrap">
-                <label className="cyber-input-label">VISIBILITY</label>
-                <select
-                  className="cyber-input-field"
-                  value={isPublic ? 'public' : 'private'}
-                  onChange={(e) => setIsPublic(e.target.value === 'public')}
-                >
-                  <option value="private">PRIVATE WORKSPACE</option>
-                  <option value="public">PUBLIC ON MARKET</option>
                 </select>
               </div>
             </div>
@@ -508,42 +428,6 @@ export const AlbumModal: React.FC<AlbumModalProps> = ({
               />
             </div>
 
-            <div className="studio-pricing-grid">
-              <div className="cyber-input-wrap">
-                <label className="cyber-input-label">TARGET NETWORK</label>
-                <select
-                  className="cyber-input-field"
-                  value={targetNetwork}
-                  onChange={(e) => setTargetNetwork(e.target.value as 'base' | 'tempo' | 'solana')}
-                >
-                  <option value="base">BASE</option>
-                  <option value="tempo">TEMPO</option>
-                  <option value="solana">SOLANA</option>
-                </select>
-              </div>
-              <div className="cyber-input-wrap">
-                <label className="cyber-input-label">BUNDLE ($)</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="1"
-                  className="cyber-input-field"
-                  value={bundlePrice}
-                  onChange={(e) => setBundlePrice(e.target.value)}
-                />
-              </div>
-              <div className="cyber-input-wrap">
-                <label className="cyber-input-label">EDITIONS</label>
-                <input
-                  type="number"
-                  min="1"
-                  step="1"
-                  className="cyber-input-field"
-                  value={editionSize}
-                  onChange={(e) => setEditionSize(e.target.value)}
-                />
-              </div>
-            </div>
           </div>
         )}
 
@@ -601,70 +485,6 @@ export const AlbumModal: React.FC<AlbumModalProps> = ({
               )}
             </div>
           </>
-        )}
-
-        {/* Tab 3: Visual Booklet */}
-        {albumTab === 'booklet' && (
-          <div className="edit-song-content">
-            <div className="cyber-input-wrap">
-              <label className="cyber-input-label">BOOKLET PROMPT</label>
-              <input
-                type="text"
-                className="cyber-input-field"
-                value={galleryPrompt}
-                onChange={(e) => setGalleryPrompt(e.target.value)}
-                placeholder="Describe visual insert or editorial artwork..."
-                maxLength={120}
-              />
-            </div>
-
-            <div className="edit-song-2col-row">
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => void handleGenerateGalleryArt()}
-                disabled={generatingGallery || uploadingGallery}
-              >
-                <Sparkles size={12} />
-                {generatingGallery ? 'GENERATING…' : 'GENERATE AI PLATE'}
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => galleryInputRef.current?.click()}
-                disabled={uploadingGallery || generatingGallery}
-              >
-                <Upload size={12} />
-                {uploadingGallery ? 'UPLOADING…' : 'UPLOAD IMAGE'}
-              </Button>
-            </div>
-
-            {gallery.length === 0 ? (
-              <div className="studio-voice-empty-state">
-                <ImageIcon size={24} className="studio-voice-empty-icon" />
-                <span className="studio-voice-empty-title">NO BOOKLET PLATES</span>
-                <span className="studio-voice-empty-desc">
-                  Add custom visual plates or generate booklet inserts for your album release.
-                </span>
-              </div>
-            ) : (
-              <div className="album-gallery-strip">
-                {gallery.map((imgUrl, idx) => (
-                  <div key={`${imgUrl}-${idx}`} className="album-gallery-thumb-wrap">
-                    <img src={imgUrl} alt={`Plate ${idx + 1}`} className="album-gallery-thumb" />
-                    <button
-                      type="button"
-                      className="album-gallery-remove-btn"
-                      onClick={() => setGallery((prev) => prev.filter((_, i) => i !== idx))}
-                      aria-label="Remove image"
-                    >
-                      <X size={10} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
         )}
 
         <div className="studio-param-actions-row">
