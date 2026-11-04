@@ -76,9 +76,32 @@ export interface Song {
   tx_hash?: string;
   tx_url?: string;
   plays?: number;
+  likes?: number;
+  comments_count?: number;
   last_played_at?: string | null;
   published_at?: string | null;
   created_at?: string;
+}
+
+export interface Comment {
+  id: string;
+  song_id: string;
+  author: string;
+  author_nickname?: string | null;
+  author_avatar?: string | null;
+  timestamp_sec: number;
+  body: string;
+  created_at: string;
+}
+
+export interface Social {
+  creator: string;
+  nickname?: string | null;
+  avatar?: string | null;
+  bio?: string | null;
+  followers: number;
+  following: number;
+  isFollowed: boolean;
 }
 
 export interface Playlist {
