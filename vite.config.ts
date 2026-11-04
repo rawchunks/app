@@ -10,8 +10,8 @@ export default defineConfig(({ mode }) => {
     plugins: [react()],
     resolve: {
       alias: [
-        { find: '@', replacement: path.resolve(__dirname, './src') },
-        { find: /^tone$/, replacement: path.resolve(__dirname, './src/lib/daw/tone.ts') },
+        { find: '@', replacement: path.resolve(import.meta.dirname, './src') },
+        { find: /^tone$/, replacement: path.resolve(import.meta.dirname, './src/lib/daw/tone.ts') },
       ],
     },
     test: {
