@@ -35,6 +35,11 @@ export function Earn({
   events = [],
   globalNetworkFilter,
   onNetworkFilterChange,
+  dateWindow: controlledDateWindow,
+  onDateWindowChange,
+  sourceFilter: controlledSourceFilter,
+  onSourceFilterChange,
+  hideControlRail = false,
   earnView = 'charts',
   onEarnViewChange,
   onRefresh,
@@ -56,8 +61,13 @@ export function Earn({
     return () => mq.removeEventListener('change', onChange);
   }, []);
 
-  const [dateWindow, setDateWindow] = useState<DateWindow>('7d');
-  const [sourceFilter, setSourceFilter] = useState<RevenueSourceFilter>('all');
+  const [internalDateWindow, setInternalDateWindow] = useState<DateWindow>('7d');
+  const [internalSourceFilter, setInternalSourceFilter] = useState<RevenueSourceFilter>('all');
+
+  const dateWindow = controlledDateWindow ?? internalDateWindow;
+  const setDateWindow = onDateWindowChange ?? setInternalDateWindow;
+  const sourceFilter = controlledSourceFilter ?? internalSourceFilter;
+  const setSourceFilter = onSourceFilterChange ?? setInternalSourceFilter;
 
   const toggleFocus = (id: BlockId) => {
     setFocusedBlock((prev) => (prev === id ? null : id));
@@ -554,66 +564,72 @@ export function Earn({
   }, [normalizedSongs, timeSeriesData]);
 
   return (
-    <div className="cm-dashboard" data-focus={focusedBlock ?? undefined}>
-      <header className="cm-dashboard-control-rail">
-        <div className="cm-dashboard-control-rail__brand">
-          {onEarnViewChange && (
+    <div
+      className="cm-dashboard"
+      data-focus={focusedBlock ?? undefined}
+      data-rail={hideControlRail ? 'hidden' : undefined}
+    >
+      {!hideControlRail && (
+        <header className="cm-dashboard-control-rail">
+          <div className="cm-dashboard-control-rail__brand">
+            {onEarnViewChange && (
+              <BlockDropdown
+                variant="header"
+                value={earnView}
+                options={viewSwitchOptions}
+                onChange={onEarnViewChange}
+                ariaLabel="Switch Earn View"
+              />
+            )}
+            {isRefreshing && <span className="cm-dashboard__updating">UPDATING…</span>}
+          </div>
+
+          <div />
+
+          <div className="cm-dashboard-control-rail__actions">
             <BlockDropdown
               variant="header"
-              value={earnView}
-              options={viewSwitchOptions}
-              onChange={onEarnViewChange}
-              ariaLabel="Switch Earn View"
+              value={globalNetworkFilter}
+              options={networkOptions}
+              onChange={onNetworkFilterChange}
+              ariaLabel="Filter by Network"
+              align="end"
             />
-          )}
-          {isRefreshing && <span className="cm-dashboard__updating">Updating…</span>}
-        </div>
 
-        <div />
+            <BlockDropdown
+              variant="header"
+              value={sourceFilter}
+              options={SOURCE_OPTIONS}
+              onChange={setSourceFilter}
+              ariaLabel="Filter by Revenue Source"
+              align="end"
+            />
 
-        <div className="cm-dashboard-control-rail__actions">
-          <BlockDropdown
-            variant="header"
-            value={globalNetworkFilter}
-            options={networkOptions}
-            onChange={onNetworkFilterChange}
-            ariaLabel="Filter by Network"
-            align="end"
-          />
+            <BlockDropdown
+              variant="header"
+              value={dateWindow}
+              options={DATE_WINDOW_OPTIONS}
+              onChange={setDateWindow}
+              ariaLabel="Select Date Range"
+              align="end"
+            />
 
-          <BlockDropdown
-            variant="header"
-            value={sourceFilter}
-            options={SOURCE_OPTIONS}
-            onChange={setSourceFilter}
-            ariaLabel="Filter by Revenue Source"
-            align="end"
-          />
-
-          <BlockDropdown
-            variant="header"
-            value={dateWindow}
-            options={DATE_WINDOW_OPTIONS}
-            onChange={setDateWindow}
-            ariaLabel="Select Date Range"
-            align="end"
-          />
-
-          {onRefresh && (
-            <Tooltip title="Sync Revenue" description="Refresh on-chain & streaming metrics">
-              <button
-                type="button"
-                className="cm-control-icon-button"
-                onClick={onRefresh}
-                disabled={isRefreshing}
-                aria-label="Sync on-chain revenue"
-              >
-                <RotateCcw size={13} className={isRefreshing ? 'spin-icon' : ''} />
-              </button>
-            </Tooltip>
-          )}
-        </div>
-      </header>
+            {onRefresh && (
+              <Tooltip title="Sync Revenue" description="Refresh on-chain & streaming metrics">
+                <button
+                  type="button"
+                  className="cm-control-icon-button"
+                  onClick={onRefresh}
+                  disabled={isRefreshing}
+                  aria-label="Sync on-chain revenue"
+                >
+                  <RotateCcw size={13} className={isRefreshing ? 'spin-icon' : ''} />
+                </button>
+              </Tooltip>
+            )}
+          </div>
+        </header>
+      )}
 
       <OverviewCards stats={overviewStats} />
 

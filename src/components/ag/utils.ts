@@ -48,6 +48,11 @@ export interface EarnChartsProps {
   events?: EarningEventItem[];
   globalNetworkFilter: NetworkFilter;
   onNetworkFilterChange: (net: NetworkFilter) => void;
+  dateWindow?: DateWindow;
+  onDateWindowChange?: (win: DateWindow) => void;
+  sourceFilter?: RevenueSourceFilter;
+  onSourceFilterChange?: (src: RevenueSourceFilter) => void;
+  hideControlRail?: boolean;
   earnView?: 'list' | 'charts';
   onEarnViewChange?: (view: 'list' | 'charts') => void;
   onRefresh?: () => void;
