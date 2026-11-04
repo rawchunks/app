@@ -1,6 +1,6 @@
 import { useGuideOwner, prepareViews, draftCanLeave } from '../components/guide/owners';
 import { api } from '@/lib/api';
-import React, { useState, useEffect, useRef, useMemo, Fragment } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback, Fragment } from 'react';
 import { toast } from 'sonner';
 import {
   Pencil,
@@ -35,6 +35,8 @@ import {
   DollarSign,
   Folder,
   Image as ImageIcon,
+  KeyRound,
+  Layers,
 } from 'lucide-react';
 import { Tooltip } from '../components/daw/Tooltip';
 import { Glitch } from '../components/glitch';
@@ -43,6 +45,12 @@ import { Badge } from '../components/badge';
 import { Draft, type FinderViewMode } from '../components/songs/draft';
 import { Asset } from '../components/songs/asset';
 import { Earn } from '../components/ag';
+import {
+  DATE_WINDOW_OPTIONS,
+  SOURCE_OPTIONS,
+  type DateWindow,
+  type RevenueSourceFilter,
+} from '../components/ag/utils';
 import { AlbumModal } from '../components/songs/album';
 import {
   useCreatorEarnings,
@@ -219,7 +227,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
   );
   const [licensesOpen, setLicensesOpen] = useState(false);
   const [albumsOpen, setAlbumsOpen] = useState(false);
-  const [playlistsOpen, setPlaylistsOpen] = useState(false);
+  const [, setPlaylistsOpen] = useState(false);
   const [voicesOpen, setVoicesOpen] = useState(false);
 
   // Track manual user toggle overrides so clicks remain responsive
@@ -281,6 +289,115 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
     }
   }, [earnView]);
   const [earnViewDropdownOpen, setEarnViewDropdownOpen] = useState(false);
+  const [earnSourceFilter, setEarnSourceFilter] = useState<RevenueSourceFilter>('all');
+  const [earnSourceDropdownOpen, setEarnSourceDropdownOpen] = useState(false);
+  const [earnDateWindow, setEarnDateWindow] = useState<DateWindow>('30d');
+  const [earnDateDropdownOpen, setEarnDateDropdownOpen] = useState(false);
+
+  // Workspace Snap-Deck & Stage Navigation State
+  const [workspaceStage, setWorkspaceStage] = useState<'songs' | 'licenses' | 'catalog'>('songs');
+  const [licenseSearch, setLicenseSearch] = useState('');
+  const [catalogMobileTab, setCatalogMobileTab] = useState<'albums' | 'playlists' | 'voices'>('albums');
+  const workspaceDeckRef = useRef<HTMLDivElement | null>(null);
+  const stageSongsRef = useRef<HTMLElement | null>(null);
+  const stageLicensesRef = useRef<HTMLElement | null>(null);
+  const stageCatalogRef = useRef<HTMLElement | null>(null);
+  const workspaceSnapLockRef = useRef(0);
+  const workspaceTouchStartYRef = useRef<number | null>(null);
+  const workspaceTouchTargetRef = useRef<EventTarget | null>(null);
+
+  const scrollToWorkspaceStage = useCallback((stage: 'songs' | 'licenses' | 'catalog') => {
+    setWorkspaceStage(stage);
+    const el =
+      stage === 'songs'
+        ? stageSongsRef.current
+        : stage === 'licenses'
+          ? stageLicensesRef.current
+          : stageCatalogRef.current;
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, []);
+
+  const handleWorkspaceDeckScroll = useCallback(() => {
+    const deck = workspaceDeckRef.current;
+    if (!deck) return;
+    const h = deck.clientHeight || 1;
+    const idx = Math.round(deck.scrollTop / h);
+    const nextStage = idx <= 0 ? 'songs' : idx === 1 ? 'licenses' : 'catalog';
+    setWorkspaceStage((prev) => (prev === nextStage ? prev : nextStage));
+  }, []);
+
+  const canInnerElementScroll = useCallback(
+    (target: EventTarget | null, deltaY: number): boolean => {
+      const deck = workspaceDeckRef.current;
+      let el = target instanceof HTMLElement ? target : null;
+      while (el && el !== deck) {
+        const style = window.getComputedStyle(el);
+        const overflowY = style.overflowY;
+        if (
+          (overflowY === 'auto' || overflowY === 'scroll') &&
+          el.scrollHeight > el.clientHeight + 2
+        ) {
+          if (deltaY > 0 && el.scrollTop + el.clientHeight < el.scrollHeight - 2) {
+            return true;
+          }
+          if (deltaY < 0 && el.scrollTop > 1) {
+            return true;
+          }
+        }
+        el = el.parentElement;
+      }
+      return false;
+    },
+    []
+  );
+
+  const stepWorkspaceStage = useCallback(
+    (direction: 1 | -1) => {
+      const now = Date.now();
+      if (now - workspaceSnapLockRef.current < 450) return;
+      const stages: Array<'songs' | 'licenses' | 'catalog'> = ['songs', 'licenses', 'catalog'];
+      const deck = workspaceDeckRef.current;
+      const currentIdx = deck
+        ? Math.max(0, Math.min(2, Math.round(deck.scrollTop / (deck.clientHeight || 1))))
+        : stages.indexOf(workspaceStage);
+      const nextIdx = Math.max(0, Math.min(stages.length - 1, currentIdx + direction));
+      if (nextIdx !== currentIdx) {
+        workspaceSnapLockRef.current = now;
+        scrollToWorkspaceStage(stages[nextIdx]);
+      }
+    },
+    [workspaceStage, scrollToWorkspaceStage]
+  );
+
+  const handleWorkspaceWheel = useCallback(
+    (e: React.WheelEvent<HTMLDivElement>) => {
+      if (Math.abs(e.deltaY) < 18 || Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+      if (canInnerElementScroll(e.target, e.deltaY)) return;
+      stepWorkspaceStage(e.deltaY > 0 ? 1 : -1);
+    },
+    [canInnerElementScroll, stepWorkspaceStage]
+  );
+
+  const handleWorkspaceTouchStart = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
+    if (e.touches.length !== 1) return;
+    workspaceTouchStartYRef.current = e.touches[0].clientY;
+    workspaceTouchTargetRef.current = e.target;
+  }, []);
+
+  const handleWorkspaceTouchEnd = useCallback(
+    (e: React.TouchEvent<HTMLDivElement>) => {
+      const startY = workspaceTouchStartYRef.current;
+      workspaceTouchStartYRef.current = null;
+      if (startY === null || e.changedTouches.length === 0) return;
+      const deltaY = startY - e.changedTouches[0].clientY;
+      if (Math.abs(deltaY) < 36) return;
+      if (canInnerElementScroll(workspaceTouchTargetRef.current, deltaY)) return;
+      stepWorkspaceStage(deltaY > 0 ? 1 : -1);
+    },
+    [canInnerElementScroll, stepWorkspaceStage]
+  );
 
   // Workspace Songs Filter, Sort & Time-Horizon State
   const [songSort, setSongSort] = useState<'recent' | 'date' | 'added' | 'edits'>('recent');
@@ -323,7 +440,18 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
   const formattedAddress = activeAddress
     ? `${activeAddress.slice(0, 6)}...${activeAddress.slice(-4)}`
     : '';
-  const displayName = nickname || formattedAddress || '0x...';
+  const sanitizedNickname = useMemo(() => {
+    const n = (nickname || '').trim();
+    if (!n) return '';
+    if (activeAddress && n.toLowerCase() === activeAddress.toLowerCase()) {
+      return formattedAddress;
+    }
+    if (/^0x[a-fA-F0-9]{16,}$/.test(n) || /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(n)) {
+      return `${n.slice(0, 6)}...${n.slice(-4)}`;
+    }
+    return n;
+  }, [nickname, activeAddress, formattedAddress]);
+  const displayName = sanitizedNickname || formattedAddress || '0x...';
   const { toggle: togglePublic, pending: publicPending } = usePublic();
   const {
     data: earningsData,
@@ -352,7 +480,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
   );
   const originalFamilies = useMemo(() => groupSongs(originalSongs), [originalSongs]);
 
-  // Strict separation: WORKSPACE holds private WIP versions; EARN holds each published version as an individual row
+  // Strict separation: WORKSPACE holds private WIP versions; EARN holds each published version (including published remixes)
   const workspaceFamilies = useMemo(
     () =>
       originalFamilies
@@ -365,8 +493,8 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
 
   const publishedSongsList = useMemo(
     () =>
-      originalSongs.filter((s) => Boolean(s.public || s.chain_song_id || s.metadata_cid)),
-    [originalSongs]
+      state.songs.filter((s) => Boolean(s.public || s.chain_song_id || s.metadata_cid)),
+    [state.songs]
   );
 
   // Progressive version numbers (#1, #2, #3...) strictly for songs with >1 published version
@@ -554,17 +682,42 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
     }
     return buckets.filter((b) => b.families.length > 0);
   }, [filteredSortedFamilies, songSort]);
-  const remixSongs = useMemo(
+  const allUserRemixSongs = useMemo(
     () => state.songs.filter((s) => Boolean(s.is_remix || s.source)),
     [state.songs]
   );
+  const remixSongs = useMemo(
+    () =>
+      allUserRemixSongs.filter((s) => !s.public && !s.chain_song_id && !s.metadata_cid),
+    [allUserRemixSongs]
+  );
   const unforkedLicensedSongs = useMemo(() => {
     const forkedSourceIds = new Set(
-      remixSongs.map((s) => s.source).filter((id): id is string => Boolean(id))
+      allUserRemixSongs.map((s) => s.source).filter((id): id is string => Boolean(id))
     );
     return licensed.songs.filter((s) => !forkedSourceIds.has(s.id));
-  }, [licensed.songs, remixSongs]);
+  }, [licensed.songs, allUserRemixSongs]);
   const totalLicensesCount = remixSongs.length + unforkedLicensedSongs.length;
+
+  const filteredRemixSongs = useMemo(() => {
+    const q = licenseSearch.trim().toLowerCase();
+    if (!q) return remixSongs;
+    return remixSongs.filter(
+      (s) =>
+        s.title.toLowerCase().includes(q) ||
+        (s.tags || []).some((t) => t.toLowerCase().includes(q))
+    );
+  }, [remixSongs, licenseSearch]);
+
+  const filteredUnforkedLicensedSongs = useMemo(() => {
+    const q = licenseSearch.trim().toLowerCase();
+    if (!q) return unforkedLicensedSongs;
+    return unforkedLicensedSongs.filter(
+      (s) =>
+        s.title.toLowerCase().includes(q) ||
+        (s.tags || []).some((t) => t.toLowerCase().includes(q))
+    );
+  }, [unforkedLicensedSongs, licenseSearch]);
 
   // Close dropdowns when clicking outside (guide overlays excluded)
   useDismiss(
@@ -575,7 +728,9 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
       columnFolderDropdownOpen ||
       earnNetDropdownOpen ||
       earnSortDropdownOpen ||
-      earnViewDropdownOpen
+      earnViewDropdownOpen ||
+      earnSourceDropdownOpen ||
+      earnDateDropdownOpen
     ),
     () => {
       setMenuOpenId(null);
@@ -585,6 +740,8 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
       setEarnNetDropdownOpen(false);
       setEarnSortDropdownOpen(false);
       setEarnViewDropdownOpen(false);
+      setEarnSourceDropdownOpen(false);
+      setEarnDateDropdownOpen(false);
     },
     undefined,
     MENU_IGNORE_SELECTORS
@@ -605,10 +762,26 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
         finderView: 'grid',
         earnView: 'list',
       };
-      if (!['K2', 'K3', 'K4', 'K6'].includes(step.id)) patch.songsOpen = true;
-      if (step.id === 'K2') patch.licensesOpen = true;
-      if (step.id === 'K3') patch.albumsOpen = true;
-      if (step.id === 'K4') patch.voicesOpen = true;
+      if (!['K2', 'K3', 'K4', 'K6'].includes(step.id)) {
+        patch.songsOpen = true;
+        if (patch.activeTab === 'workspace') {
+          setTimeout(() => scrollToWorkspaceStage('songs'), 30);
+        }
+      }
+      if (step.id === 'K2') {
+        patch.licensesOpen = true;
+        setTimeout(() => scrollToWorkspaceStage('licenses'), 30);
+      }
+      if (step.id === 'K3') {
+        patch.albumsOpen = true;
+        setCatalogMobileTab('albums');
+        setTimeout(() => scrollToWorkspaceStage('catalog'), 30);
+      }
+      if (step.id === 'K4') {
+        patch.voicesOpen = true;
+        setCatalogMobileTab('voices');
+        setTimeout(() => scrollToWorkspaceStage('catalog'), 30);
+      }
       if (step.id === 'K6') patch.profileModalOpen = true;
       if (step.id === 'W3' && song) patch.menuOpenId = song.id;
       const privateSong = song && !song.public && !song.tx_hash && !song.metadata_cid;
@@ -781,31 +954,6 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
       setVoicesOpen(voices.length > 0);
     }
   }, [loadingVoices, voices.length]);
-
-  const toggleSongs = () => {
-    userToggledSongs.current = true;
-    setSongsOpen((prev) => !prev);
-  };
-
-  const toggleLicenses = () => {
-    userToggledLicenses.current = true;
-    setLicensesOpen((prev) => !prev);
-  };
-
-  const toggleAlbums = () => {
-    userToggledAlbums.current = true;
-    setAlbumsOpen((prev) => !prev);
-  };
-
-  const togglePlaylists = () => {
-    userToggledPlaylists.current = true;
-    setPlaylistsOpen((prev) => !prev);
-  };
-
-  const toggleVoices = () => {
-    userToggledVoices.current = true;
-    setVoicesOpen((prev) => !prev);
-  };
 
   const handleCreateAlbum = async (e: React.FormEvent, songToAttach?: Song | null) => {
     e.preventDefault();
@@ -1246,14 +1394,56 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
 
   return (
     <div className={`mypage-container ${className}`}>
-      {/* Page Header */}
+      {/* Page Header + Workspace Snap-Stage Indicator Pills */}
       <div className="mypage-header">
-        <div>
-          <Glitch text="MY_PAGE" className="mypage-title-text" />
+        <div className="mypage-header-left">
+          <div className="mypage-title-cluster">
+            <Glitch text="MY_PAGE" className="mypage-title-text" />
+            <span className={`mypage-vault-pill ${activeTab === 'workspace' ? 'private' : 'public'}`}>
+              {activeTab === 'workspace' ? <Lock size={10} /> : <Globe size={10} />}
+              <span>{activeTab === 'workspace' ? 'WORKSPACE' : 'DASHBOARD'}</span>
+            </span>
+          </div>
           <div className="mypage-subtitle">
-            {activeTab === 'workspace' ? "YOUR CREATOR'S WORKSPACE" : 'PUBLISHED CATALOG & ROYALTIES'}
+            {activeTab === 'workspace'
+              ? `${workspaceFamilies.length} DRAFTS • ${totalLicensesCount} LICENSES • ${albums.length} ALBUMS • ${voices.length} VOICES`
+              : `${publishedSongsList.length} PUBLISHED RELEASES • ${earnAnalytics.summary.licensesSold} LICENSES SOLD`}
           </div>
         </div>
+
+        {activeTab === 'workspace' && (
+          <nav className="market-stage-nav workspace-stage-nav" aria-label="Workspace stages">
+            <button
+              type="button"
+              className={`market-stage-pill ${workspaceStage === 'songs' ? 'active' : ''}`}
+              onClick={() => scrollToWorkspaceStage('songs')}
+            >
+              <span className="market-stage-num">01</span>
+              <span>MY SONGS</span>
+              <span className="workspace-stage-pill-count">{workspaceFamilies.length}</span>
+            </button>
+            <button
+              type="button"
+              className={`market-stage-pill ${workspaceStage === 'licenses' ? 'active' : ''}`}
+              onClick={() => scrollToWorkspaceStage('licenses')}
+            >
+              <span className="market-stage-num">02</span>
+              <span>MY LICENSES</span>
+              <span className="workspace-stage-pill-count">{totalLicensesCount}</span>
+            </button>
+            <button
+              type="button"
+              className={`market-stage-pill ${workspaceStage === 'catalog' ? 'active' : ''}`}
+              onClick={() => scrollToWorkspaceStage('catalog')}
+            >
+              <span className="market-stage-num">03</span>
+              <span>CATALOG</span>
+              <span className="workspace-stage-pill-count">
+                {albums.length + myPlaylists.length + voices.length}
+              </span>
+            </button>
+          </nav>
+        )}
       </div>
 
       {/* SECTION (i): Profile Header */}
@@ -1264,7 +1454,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
               <img src={avatar} alt="Profile Avatar" className="mypage-profile-avatar" />
             ) : (
               <div className="mypage-profile-avatar-placeholder">
-                <User size={24} />
+                <User size={20} />
               </div>
             )}
             <div className="mypage-profile-details">
@@ -1277,10 +1467,25 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
                     onClick={() => setProfileModalOpen(true)}
                     aria-label="Edit Profile"
                   >
-                    <Pencil size={12} />
+                    <Pencil size={11} />
                   </button>
                 </Tooltip>
               </div>
+              {formattedAddress && (
+                <div className="mypage-profile-meta">
+                  <Tooltip title="Copy Wallet Address" description={activeAddress}>
+                    <button
+                      type="button"
+                      className="mypage-copy-btn"
+                      onClick={copyAddress}
+                      aria-label="Copy wallet address"
+                    >
+                      <span>{formattedAddress}</span>
+                      {copied ? <Check size={9} /> : <Copy size={9} />}
+                    </button>
+                  </Tooltip>
+                </div>
+              )}
               {bio ? (
                 <p className="mypage-profile-bio">{bio}</p>
               ) : (
@@ -1291,19 +1496,6 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
                   Add a creator bio...
                 </p>
               )}
-              <div className="mypage-profile-meta">
-                <Tooltip title="Copy Wallet Address" description={activeAddress}>
-                  <button
-                    type="button"
-                    className="mypage-copy-btn"
-                    onClick={copyAddress}
-                    aria-label="Copy wallet address"
-                  >
-                    <span>{formattedAddress}</span>
-                    {copied ? <Check size={11} /> : <Copy size={11} />}
-                  </button>
-                </Tooltip>
-              </div>
             </div>
           </div>
 
@@ -1322,7 +1514,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
                   <span className="mypage-tab-label">WORKSPACE</span>
                 </button>
               ) : (
-                <Tooltip title="Go to WORKSPACE">
+                <Tooltip title="Go to WORKSPACE (Private Drafts, Stems & Voices)">
                   <button
                     type="button"
                     role="tab"
@@ -1350,7 +1542,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
                   <span className="mypage-tab-label">EARN</span>
                 </button>
               ) : (
-                <Tooltip title="Go to EARN">
+                <Tooltip title="Go to EARN (Published Releases & On-Chain Royalties)">
                   <button
                     type="button"
                     role="tab"
@@ -1367,29 +1559,78 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
             </div>
 
             <div className="mypage-profile-stats">
-              <Tooltip title="Tracks">
-                <div className="mypage-profile-stat-box" aria-label="Tracks">
-                  <Music size={12} />
+              <Tooltip title="Studio Drafts & Releases">
+                <button
+                  type="button"
+                  className={`mypage-profile-stat-box interactive ${activeTab === 'workspace' && workspaceStage === 'songs' ? 'active' : ''}`}
+                  onClick={() => {
+                    setActiveTab('workspace');
+                    setTimeout(() => scrollToWorkspaceStage('songs'), 20);
+                  }}
+                  aria-label="Tracks"
+                >
+                  <Music size={11} />
                   <span className="mypage-profile-stat-val">{originalFamilies.length}</span>
-                </div>
+                </button>
+              </Tooltip>
+              <Tooltip title="Licensed Stems & Remixes">
+                <button
+                  type="button"
+                  className={`mypage-profile-stat-box interactive ${activeTab === 'workspace' && workspaceStage === 'licenses' ? 'active' : ''}`}
+                  onClick={() => {
+                    setActiveTab('workspace');
+                    setTimeout(() => scrollToWorkspaceStage('licenses'), 20);
+                  }}
+                  aria-label="Licenses"
+                >
+                  <KeyRound size={11} />
+                  <span className="mypage-profile-stat-val">{totalLicensesCount}</span>
+                </button>
               </Tooltip>
               <Tooltip title="Albums">
-                <div className="mypage-profile-stat-box" aria-label="Albums">
-                  <Disc3 size={12} />
+                <button
+                  type="button"
+                  className={`mypage-profile-stat-box interactive ${activeTab === 'workspace' && workspaceStage === 'catalog' && catalogMobileTab === 'albums' ? 'active' : ''}`}
+                  onClick={() => {
+                    setActiveTab('workspace');
+                    setCatalogMobileTab('albums');
+                    setTimeout(() => scrollToWorkspaceStage('catalog'), 20);
+                  }}
+                  aria-label="Albums"
+                >
+                  <Disc3 size={11} />
                   <span className="mypage-profile-stat-val">{albums.length}</span>
-                </div>
+                </button>
               </Tooltip>
               <Tooltip title="Playlists">
-                <div className="mypage-profile-stat-box" aria-label="Playlists">
-                  <ListMusic size={12} />
+                <button
+                  type="button"
+                  className={`mypage-profile-stat-box interactive ${activeTab === 'workspace' && workspaceStage === 'catalog' && catalogMobileTab === 'playlists' ? 'active' : ''}`}
+                  onClick={() => {
+                    setActiveTab('workspace');
+                    setCatalogMobileTab('playlists');
+                    setTimeout(() => scrollToWorkspaceStage('catalog'), 20);
+                  }}
+                  aria-label="Playlists"
+                >
+                  <ListMusic size={11} />
                   <span className="mypage-profile-stat-val">{myPlaylists.length}</span>
-                </div>
+                </button>
               </Tooltip>
-              <Tooltip title="Voices">
-                <div className="mypage-profile-stat-box" aria-label="Voices">
-                  <Mic2 size={12} />
+              <Tooltip title="AI Voices">
+                <button
+                  type="button"
+                  className={`mypage-profile-stat-box interactive ${activeTab === 'workspace' && workspaceStage === 'catalog' && catalogMobileTab === 'voices' ? 'active' : ''}`}
+                  onClick={() => {
+                    setActiveTab('workspace');
+                    setCatalogMobileTab('voices');
+                    setTimeout(() => scrollToWorkspaceStage('catalog'), 20);
+                  }}
+                  aria-label="Voices"
+                >
+                  <Mic2 size={11} />
                   <span className="mypage-profile-stat-val">{voices.length}</span>
-                </div>
+                </button>
               </Tooltip>
             </div>
           </div>
@@ -1398,7 +1639,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
         <div className="mypage-profile-card">
           <div className="mypage-profile-left">
             <div className="mypage-profile-avatar-placeholder">
-              <User size={24} />
+              <User size={20} />
             </div>
             <div className="mypage-profile-details">
               <div className="mypage-profile-nickname-row">
@@ -1426,384 +1667,416 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
       )}
 
       {activeTab === 'workspace' ? (
-        <>
-          {/* SECTION (ii): My Songs (Private WIP Studio) */}
-          <div className="mypage-section" data-guide="mypage-sections">
-            <div
-              className={`board-section-separator ${!songsOpen ? 'collapsed' : ''} ${mobileSearchOpen || Boolean(songSearch) ? 'search-open' : ''}`}
-              data-guide="workspace.songs-heading"
-              onClick={toggleSongs}
-            >
+        <div
+          ref={workspaceDeckRef}
+          className="workspace-snap-deck"
+          data-guide="mypage-sections"
+          onScroll={handleWorkspaceDeckScroll}
+          onWheel={handleWorkspaceWheel}
+          onTouchStart={handleWorkspaceTouchStart}
+          onTouchEnd={handleWorkspaceTouchEnd}
+        >
+          {/* STAGE 01: MY SONGS (Private Studio Drafts & macOS Finder) */}
+          <section
+            ref={stageSongsRef}
+            className="workspace-snap-stage"
+            data-stage="songs"
+            aria-label="My Songs"
+          >
+            <div className="mypage-section workspace-stage-panel">
               <div
-                className="board-section-left"
-                role="button"
-                tabIndex={0}
-                aria-expanded={songsOpen}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault();
-                    toggleSongs();
-                  }
-                }}
+                className={`board-section-separator workspace-stage-header ${mobileSearchOpen || Boolean(songSearch) ? 'search-open' : ''}`}
+                data-guide="workspace.songs-heading"
               >
-                <ChevronDown className="board-section-chevron" size={14} />
-                <Lock size={12} />
-                <span className="mypage-section-title">MY SONGS</span>
-                <span className="board-section-badge">{filteredSortedFamilies.length}</span>
-              </div>
+                <div className="board-section-left">
+                  <span className="market-stage-num">01</span>
+                  <Lock size={12} />
+                  <span className="mypage-section-title">MY SONGS</span>
+                  <span className="board-section-badge">{filteredSortedFamilies.length}</span>
+                </div>
 
-              {workspaceFamilies.length > 0 && (
-                <div
-                  className="board-section-actions mypage-header-controls"
-                  onClick={(e) => e.stopPropagation()}
-                  onKeyDown={(e) => e.stopPropagation()}
-                >
-                  {/* Expandable Search (compact icon on mobile unless expanded/populated) */}
+                {workspaceFamilies.length > 0 && (
                   <div
-                    className={`mypage-header-search ${mobileSearchOpen || Boolean(songSearch) ? 'expanded' : ''}`}
+                    className="board-section-actions mypage-header-controls"
+                    onClick={(e) => e.stopPropagation()}
+                    onKeyDown={(e) => e.stopPropagation()}
                   >
-                    <button
-                      type="button"
-                      className="mypage-header-search-toggle"
-                      onClick={() => {
-                        setMobileSearchOpen((prev) => {
-                          const next = !prev;
-                          if (next) {
-                            setTimeout(() => searchInputRef.current?.focus(), 0);
-                          }
-                          return next;
-                        });
-                      }}
-                      aria-label="Search tracks"
+                    {/* Expandable Search */}
+                    <div
+                      className={`mypage-header-search ${mobileSearchOpen || Boolean(songSearch) ? 'expanded' : ''}`}
                     >
-                      <Search size={12} />
-                    </button>
-                    <input
-                      ref={searchInputRef}
-                      type="text"
-                      className="mypage-header-search-input"
-                      placeholder="Search..."
-                      value={songSearch}
-                      onChange={(e) => setSongSearch(e.target.value)}
-                    />
-                    {(songSearch || mobileSearchOpen) && (
                       <button
                         type="button"
-                        className="mypage-header-search-clear"
+                        className="mypage-header-search-toggle"
                         onClick={() => {
-                          setSongSearch('');
-                          setMobileSearchOpen(false);
+                          setMobileSearchOpen((prev) => {
+                            const next = !prev;
+                            if (next) {
+                              setTimeout(() => searchInputRef.current?.focus(), 0);
+                            }
+                            return next;
+                          });
                         }}
-                        aria-label="Clear search"
+                        aria-label="Search tracks"
                       >
-                        <X size={11} />
+                        <Search size={12} />
                       </button>
-                    )}
-                  </div>
+                      <input
+                        ref={searchInputRef}
+                        type="text"
+                        className="mypage-header-search-input"
+                        placeholder="Search drafts..."
+                        value={songSearch}
+                        onChange={(e) => setSongSearch(e.target.value)}
+                      />
+                      {(songSearch || mobileSearchOpen) && (
+                        <button
+                          type="button"
+                          className="mypage-header-search-clear"
+                          onClick={() => {
+                            setSongSearch('');
+                            setMobileSearchOpen(false);
+                          }}
+                          aria-label="Clear search"
+                        >
+                          <X size={11} />
+                        </button>
+                      )}
+                    </div>
 
-                  {/* Mobile Collections Filter Dropdown (shown in Columns view on mobile) */}
-                  {finderView === 'columns' && (
-                    <div className="market-view-select-wrap mypage-mobile-col-filter">
+                    {/* Mobile Collections Filter Dropdown (shown in Columns view on mobile) */}
+                    {finderView === 'columns' && (
+                      <div className="market-view-select-wrap mypage-mobile-col-filter">
+                        <button
+                          type="button"
+                          className={`mypage-header-trigger ${columnFolderDropdownOpen ? 'open' : ''}`}
+                          onClick={() => {
+                            setViewDropdownOpen(false);
+                            setSortDropdownOpen(false);
+                            setColumnFolderDropdownOpen((prev) => !prev);
+                          }}
+                          aria-haspopup="listbox"
+                          aria-expanded={columnFolderDropdownOpen}
+                          aria-label="Filter collection folder"
+                        >
+                          {columnFolder === 'all' ? (
+                            <Folder size={12} />
+                          ) : columnFolder === 'multi' ? (
+                            <GitBranch size={12} />
+                          ) : columnFolder === 'unassigned' ? (
+                            <Music size={12} />
+                          ) : (
+                            <Disc3 size={12} />
+                          )}
+                          <span className="mypage-dropdown-label">
+                            {columnFolder === 'all'
+                              ? 'ALL DRAFTS'
+                              : columnFolder === 'multi'
+                                ? 'MULTI-VERSION'
+                                : columnFolder === 'unassigned'
+                                  ? 'UNASSIGNED'
+                                  : (() => {
+                                    const albId = columnFolder.replace('album:', '');
+                                    const alb = albums.find((a) => a.id === albId);
+                                    return alb ? alb.title.toUpperCase() : 'COLLECTION';
+                                  })()}
+                          </span>
+                          <ChevronDown size={11} className="market-popover-chevron" />
+                        </button>
+
+                        {columnFolderDropdownOpen && (
+                          <div className="market-popover-menu mypage-header-popover">
+                            <div className="market-popover-list" role="listbox">
+                              <button
+                                type="button"
+                                role="option"
+                                aria-selected={columnFolder === 'all'}
+                                className={`market-popover-option ${columnFolder === 'all' ? 'selected' : ''}`}
+                                onClick={() => {
+                                  setColumnFolder('all');
+                                  setColumnFolderDropdownOpen(false);
+                                }}
+                              >
+                                <Folder size={12} />
+                                <span>ALL DRAFTS ({workspaceFamilies.length})</span>
+                              </button>
+                              <button
+                                type="button"
+                                role="option"
+                                aria-selected={columnFolder === 'multi'}
+                                className={`market-popover-option ${columnFolder === 'multi' ? 'selected' : ''}`}
+                                onClick={() => {
+                                  setColumnFolder('multi');
+                                  setColumnFolderDropdownOpen(false);
+                                }}
+                              >
+                                <GitBranch size={12} />
+                                <span>
+                                  MULTI-VERSION ({workspaceFamilies.filter((v) => v.length > 1).length})
+                                </span>
+                              </button>
+                              <button
+                                type="button"
+                                role="option"
+                                aria-selected={columnFolder === 'unassigned'}
+                                className={`market-popover-option ${columnFolder === 'unassigned' ? 'selected' : ''}`}
+                                onClick={() => {
+                                  setColumnFolder('unassigned');
+                                  setColumnFolderDropdownOpen(false);
+                                }}
+                              >
+                                <Music size={12} />
+                                <span>
+                                  UNASSIGNED (
+                                  {
+                                    workspaceFamilies.filter((v) => {
+                                      const f = v[0].family ?? v[0].id;
+                                      const h = v.find((s) => s.id === selected[f]) ?? v[0];
+                                      return !h.album_id;
+                                    }).length
+                                  }
+                                  )
+                                </span>
+                              </button>
+                              {albums.map((alb) => {
+                                const folderKey = `album:${alb.id}`;
+                                const count = workspaceFamilies.filter((v) => {
+                                  const f = v[0].family ?? v[0].id;
+                                  const h = v.find((s) => s.id === selected[f]) ?? v[0];
+                                  return h.album_id === alb.id;
+                                }).length;
+                                return (
+                                  <button
+                                    key={alb.id}
+                                    type="button"
+                                    role="option"
+                                    aria-selected={columnFolder === folderKey}
+                                    className={`market-popover-option ${columnFolder === folderKey ? 'selected' : ''}`}
+                                    onClick={() => {
+                                      setColumnFolder(folderKey);
+                                      setColumnFolderDropdownOpen(false);
+                                    }}
+                                  >
+                                    <Disc3 size={12} />
+                                    <span>
+                                      {alb.title} ({count})
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Desktop Segmented macOS Finder View Switcher (GRID | LIST | COLUMNS) */}
+                    <div className="finder-segmented-bar" role="group" aria-label="Finder view mode">
                       <button
                         type="button"
-                        className={`mypage-header-trigger ${columnFolderDropdownOpen ? 'open' : ''}`}
+                        className={`finder-segmented-btn ${finderView === 'grid' ? 'active' : ''}`}
+                        onClick={() => setFinderView('grid')}
+                        title="Icon Grid View"
+                      >
+                        <LayoutGrid size={11} />
+                        <span>GRID</span>
+                      </button>
+                      <button
+                        type="button"
+                        className={`finder-segmented-btn ${finderView === 'list' ? 'active' : ''}`}
+                        onClick={() => setFinderView('list')}
+                        title="Ledger List View"
+                      >
+                        <List size={11} />
+                        <span>LIST</span>
+                      </button>
+                      <button
+                        type="button"
+                        className={`finder-segmented-btn ${finderView === 'columns' ? 'active' : ''}`}
+                        onClick={() => setFinderView('columns')}
+                        title="Miller Column Browser"
+                      >
+                        <Columns3 size={11} />
+                        <span>COLUMNS</span>
+                      </button>
+                    </div>
+
+                    {/* Mobile Finder View Dropdown (GRID | LIST | COLUMNS) */}
+                    <div className="market-view-select-wrap finder-mobile-view-select">
+                      <button
+                        type="button"
+                        className={`mypage-header-trigger ${viewDropdownOpen ? 'open' : ''}`}
                         onClick={() => {
-                          setViewDropdownOpen(false);
                           setSortDropdownOpen(false);
-                          setColumnFolderDropdownOpen((prev) => !prev);
+                          setColumnFolderDropdownOpen(false);
+                          setViewDropdownOpen((prev) => !prev);
                         }}
                         aria-haspopup="listbox"
-                        aria-expanded={columnFolderDropdownOpen}
-                        aria-label="Filter collection folder"
+                        aria-expanded={viewDropdownOpen}
+                        aria-label="Finder view mode"
                       >
-                        {columnFolder === 'all' ? (
-                          <Folder size={12} />
-                        ) : columnFolder === 'multi' ? (
-                          <GitBranch size={12} />
-                        ) : columnFolder === 'unassigned' ? (
-                          <Music size={12} />
+                        {finderView === 'list' ? (
+                          <List size={12} />
+                        ) : finderView === 'columns' ? (
+                          <Columns3 size={12} />
                         ) : (
-                          <Disc3 size={12} />
+                          <LayoutGrid size={12} />
                         )}
                         <span className="mypage-dropdown-label">
-                          {columnFolder === 'all'
-                            ? 'ALL DRAFTS'
-                            : columnFolder === 'multi'
-                              ? 'MULTI-VERSION'
-                              : columnFolder === 'unassigned'
-                                ? 'UNASSIGNED'
-                                : (() => {
-                                  const albId = columnFolder.replace('album:', '');
-                                  const alb = albums.find((a) => a.id === albId);
-                                  return alb ? alb.title.toUpperCase() : 'COLLECTION';
-                                })()}
+                          {finderView === 'list'
+                            ? 'LIST'
+                            : finderView === 'columns'
+                              ? 'COLUMNS'
+                              : 'GRID'}
                         </span>
                         <ChevronDown size={11} className="market-popover-chevron" />
                       </button>
 
-                      {columnFolderDropdownOpen && (
+                      {viewDropdownOpen && (
                         <div className="market-popover-menu mypage-header-popover">
                           <div className="market-popover-list" role="listbox">
                             <button
                               type="button"
                               role="option"
-                              aria-selected={columnFolder === 'all'}
-                              className={`market-popover-option ${columnFolder === 'all' ? 'selected' : ''}`}
+                              aria-selected={finderView === 'grid'}
+                              className={`market-popover-option ${finderView === 'grid' ? 'selected' : ''}`}
                               onClick={() => {
-                                setColumnFolder('all');
-                                setColumnFolderDropdownOpen(false);
+                                setFinderView('grid');
+                                setViewDropdownOpen(false);
                               }}
                             >
-                              <Folder size={12} />
-                              <span>ALL DRAFTS ({workspaceFamilies.length})</span>
+                              <LayoutGrid size={12} />
+                              <span>GRID</span>
                             </button>
                             <button
                               type="button"
                               role="option"
-                              aria-selected={columnFolder === 'multi'}
-                              className={`market-popover-option ${columnFolder === 'multi' ? 'selected' : ''}`}
+                              aria-selected={finderView === 'list'}
+                              className={`market-popover-option ${finderView === 'list' ? 'selected' : ''}`}
                               onClick={() => {
-                                setColumnFolder('multi');
-                                setColumnFolderDropdownOpen(false);
+                                setFinderView('list');
+                                setViewDropdownOpen(false);
                               }}
                             >
-                              <GitBranch size={12} />
-                              <span>
-                                MULTI-VERSION ({workspaceFamilies.filter((v) => v.length > 1).length})
-                              </span>
+                              <List size={12} />
+                              <span>LIST</span>
                             </button>
                             <button
                               type="button"
                               role="option"
-                              aria-selected={columnFolder === 'unassigned'}
-                              className={`market-popover-option ${columnFolder === 'unassigned' ? 'selected' : ''}`}
+                              aria-selected={finderView === 'columns'}
+                              className={`market-popover-option ${finderView === 'columns' ? 'selected' : ''}`}
                               onClick={() => {
-                                setColumnFolder('unassigned');
-                                setColumnFolderDropdownOpen(false);
+                                setFinderView('columns');
+                                setViewDropdownOpen(false);
                               }}
                             >
-                              <Music size={12} />
-                              <span>
-                                UNASSIGNED (
-                                {
-                                  workspaceFamilies.filter((v) => {
-                                    const f = v[0].family ?? v[0].id;
-                                    const h = v.find((s) => s.id === selected[f]) ?? v[0];
-                                    return !h.album_id;
-                                  }).length
-                                }
-                                )
-                              </span>
+                              <Columns3 size={12} />
+                              <span>COLUMNS</span>
                             </button>
-                            {albums.map((alb) => {
-                              const folderKey = `album:${alb.id}`;
-                              const count = workspaceFamilies.filter((v) => {
-                                const f = v[0].family ?? v[0].id;
-                                const h = v.find((s) => s.id === selected[f]) ?? v[0];
-                                return h.album_id === alb.id;
-                              }).length;
-                              return (
-                                <button
-                                  key={alb.id}
-                                  type="button"
-                                  role="option"
-                                  aria-selected={columnFolder === folderKey}
-                                  className={`market-popover-option ${columnFolder === folderKey ? 'selected' : ''}`}
-                                  onClick={() => {
-                                    setColumnFolder(folderKey);
-                                    setColumnFolderDropdownOpen(false);
-                                  }}
-                                >
-                                  <Disc3 size={12} />
-                                  <span>
-                                    {alb.title} ({count})
-                                  </span>
-                                </button>
-                              );
-                            })}
                           </div>
                         </div>
                       )}
                     </div>
-                  )}
 
-                  {/* Finder View Dropdown (GRID | LIST | COLUMNS) */}
-                  <div className="market-view-select-wrap">
-                    <button
-                      type="button"
-                      className={`mypage-header-trigger ${viewDropdownOpen ? 'open' : ''}`}
-                      onClick={() => {
-                        setSortDropdownOpen(false);
-                        setColumnFolderDropdownOpen(false);
-                        setViewDropdownOpen((prev) => !prev);
-                      }}
-                      aria-haspopup="listbox"
-                      aria-expanded={viewDropdownOpen}
-                      aria-label="Finder view mode"
-                    >
-                      {finderView === 'list' ? (
-                        <List size={12} />
-                      ) : finderView === 'columns' ? (
-                        <Columns3 size={12} />
-                      ) : (
-                        <LayoutGrid size={12} />
-                      )}
-                      <span className="mypage-dropdown-label">
-                        {finderView === 'list'
-                          ? 'LIST'
-                          : finderView === 'columns'
-                            ? 'COLUMNS'
-                            : 'GRID'}
-                      </span>
-                      <ChevronDown size={11} className="market-popover-chevron" />
-                    </button>
+                    {/* Sort Dropdown (RECENT | BY DATE | ADDED | EDITS) */}
+                    <div className="market-view-select-wrap">
+                      <button
+                        type="button"
+                        className={`mypage-header-trigger ${sortDropdownOpen ? 'open' : ''}`}
+                        onClick={() => {
+                          setViewDropdownOpen(false);
+                          setSortDropdownOpen((prev) => !prev);
+                        }}
+                        aria-haspopup="listbox"
+                        aria-expanded={sortDropdownOpen}
+                        aria-label="Sort tracks"
+                      >
+                        {songSort === 'date' ? (
+                          <Calendar size={11} />
+                        ) : songSort === 'added' ? (
+                          <Sparkles size={11} />
+                        ) : songSort === 'edits' ? (
+                          <GitBranch size={11} />
+                        ) : (
+                          <Clock size={11} />
+                        )}
+                        <span className="mypage-dropdown-label">
+                          {songSort === 'date'
+                            ? 'BY DATE'
+                            : songSort === 'added'
+                              ? 'ADDED'
+                              : songSort === 'edits'
+                                ? 'EDITS'
+                                : 'RECENT'}
+                        </span>
+                        <ChevronDown size={11} className="market-popover-chevron" />
+                      </button>
 
-                    {viewDropdownOpen && (
-                      <div className="market-popover-menu mypage-header-popover">
-                        <div className="market-popover-list" role="listbox">
-                          <button
-                            type="button"
-                            role="option"
-                            aria-selected={finderView === 'grid'}
-                            className={`market-popover-option ${finderView === 'grid' ? 'selected' : ''}`}
-                            onClick={() => {
-                              setFinderView('grid');
-                              setViewDropdownOpen(false);
-                            }}
-                          >
-                            <LayoutGrid size={12} />
-                            <span>GRID</span>
-                          </button>
-                          <button
-                            type="button"
-                            role="option"
-                            aria-selected={finderView === 'list'}
-                            className={`market-popover-option ${finderView === 'list' ? 'selected' : ''}`}
-                            onClick={() => {
-                              setFinderView('list');
-                              setViewDropdownOpen(false);
-                            }}
-                          >
-                            <List size={12} />
-                            <span>LIST</span>
-                          </button>
-                          <button
-                            type="button"
-                            role="option"
-                            aria-selected={finderView === 'columns'}
-                            className={`market-popover-option ${finderView === 'columns' ? 'selected' : ''}`}
-                            onClick={() => {
-                              setFinderView('columns');
-                              setViewDropdownOpen(false);
-                            }}
-                          >
-                            <Columns3 size={12} />
-                            <span>COLUMNS</span>
-                          </button>
+                      {sortDropdownOpen && (
+                        <div className="market-popover-menu mypage-header-popover">
+                          <div className="market-popover-list" role="listbox">
+                            <button
+                              type="button"
+                              role="option"
+                              aria-selected={songSort === 'recent'}
+                              className={`market-popover-option ${songSort === 'recent' ? 'selected' : ''}`}
+                              onClick={() => {
+                                setSongSort('recent');
+                                setSortDropdownOpen(false);
+                              }}
+                            >
+                              <Clock size={12} />
+                              <span>RECENT</span>
+                            </button>
+                            <button
+                              type="button"
+                              role="option"
+                              aria-selected={songSort === 'date'}
+                              className={`market-popover-option ${songSort === 'date' ? 'selected' : ''}`}
+                              onClick={() => {
+                                setSongSort('date');
+                                setSortDropdownOpen(false);
+                              }}
+                            >
+                              <Calendar size={12} />
+                              <span>BY DATE</span>
+                            </button>
+                            <button
+                              type="button"
+                              role="option"
+                              aria-selected={songSort === 'added'}
+                              className={`market-popover-option ${songSort === 'added' ? 'selected' : ''}`}
+                              onClick={() => {
+                                setSongSort('added');
+                                setSortDropdownOpen(false);
+                              }}
+                            >
+                              <Sparkles size={12} />
+                              <span>ADDED</span>
+                            </button>
+                            <button
+                              type="button"
+                              role="option"
+                              aria-selected={songSort === 'edits'}
+                              className={`market-popover-option ${songSort === 'edits' ? 'selected' : ''}`}
+                              onClick={() => {
+                                setSongSort('edits');
+                                setSortDropdownOpen(false);
+                              }}
+                            >
+                              <GitBranch size={12} />
+                              <span>EDITS</span>
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Sort Dropdown (RECENT | BY DATE | ADDED | EDITS) */}
-                  <div className="market-view-select-wrap">
-                    <button
-                      type="button"
-                      className={`mypage-header-trigger ${sortDropdownOpen ? 'open' : ''}`}
-                      onClick={() => {
-                        setViewDropdownOpen(false);
-                        setSortDropdownOpen((prev) => !prev);
-                      }}
-                      aria-haspopup="listbox"
-                      aria-expanded={sortDropdownOpen}
-                      aria-label="Sort tracks"
-                    >
-                      {songSort === 'date' ? (
-                        <Calendar size={11} />
-                      ) : songSort === 'added' ? (
-                        <Sparkles size={11} />
-                      ) : songSort === 'edits' ? (
-                        <GitBranch size={11} />
-                      ) : (
-                        <Clock size={11} />
                       )}
-                      <span className="mypage-dropdown-label">
-                        {songSort === 'date'
-                          ? 'BY DATE'
-                          : songSort === 'added'
-                            ? 'ADDED'
-                            : songSort === 'edits'
-                              ? 'EDITS'
-                              : 'RECENT'}
-                      </span>
-                      <ChevronDown size={11} className="market-popover-chevron" />
-                    </button>
-
-                    {sortDropdownOpen && (
-                      <div className="market-popover-menu mypage-header-popover">
-                        <div className="market-popover-list" role="listbox">
-                          <button
-                            type="button"
-                            role="option"
-                            aria-selected={songSort === 'recent'}
-                            className={`market-popover-option ${songSort === 'recent' ? 'selected' : ''}`}
-                            onClick={() => {
-                              setSongSort('recent');
-                              setSortDropdownOpen(false);
-                            }}
-                          >
-                            <Clock size={12} />
-                            <span>RECENT</span>
-                          </button>
-                          <button
-                            type="button"
-                            role="option"
-                            aria-selected={songSort === 'date'}
-                            className={`market-popover-option ${songSort === 'date' ? 'selected' : ''}`}
-                            onClick={() => {
-                              setSongSort('date');
-                              setSortDropdownOpen(false);
-                            }}
-                          >
-                            <Calendar size={12} />
-                            <span>BY DATE</span>
-                          </button>
-                          <button
-                            type="button"
-                            role="option"
-                            aria-selected={songSort === 'added'}
-                            className={`market-popover-option ${songSort === 'added' ? 'selected' : ''}`}
-                            onClick={() => {
-                              setSongSort('added');
-                              setSortDropdownOpen(false);
-                            }}
-                          >
-                            <Sparkles size={12} />
-                            <span>ADDED</span>
-                          </button>
-                          <button
-                            type="button"
-                            role="option"
-                            aria-selected={songSort === 'edits'}
-                            className={`market-popover-option ${songSort === 'edits' ? 'selected' : ''}`}
-                            onClick={() => {
-                              setSongSort('edits');
-                              setSortDropdownOpen(false);
-                            }}
-                          >
-                            <GitBranch size={12} />
-                            <span>EDITS</span>
-                          </button>
-                        </div>
-                      </div>
-                    )}
+                    </div>
                   </div>
-                </div>
-              )}
-            </div>
+                )}
+              </div>
 
-            {songsOpen && (
-              <div className="mypage-section-body">
+              <div className="mypage-section-body workspace-stage-content">
                 {error && originalSongs.length > 0 && <div role="alert">{error}</div>}
 
                 {workspaceFamilies.length === 0 ? (
@@ -2036,34 +2309,77 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
                   </div>
                 )}
               </div>
-            )}
-          </div>
 
-          {/* SECTION (iii): My Licenses */}
-          <div className="mypage-section">
-            <div
-              className={`board-section-separator ${!licensesOpen ? 'collapsed' : ''}`}
-              data-guide="workspace.licenses-heading"
-              aria-expanded={licensesOpen}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault();
-                  toggleLicenses();
-                }
-              }}
-              onClick={toggleLicenses}
-              role="button"
-              tabIndex={0}
-            >
-              <div className="board-section-left">
-                <ChevronDown className="board-section-chevron" size={14} />
-                <Music size={13} />
-                <span>MY LICENSES</span>
-                <span className="board-section-badge">{totalLicensesCount}</span>
-              </div>
+              <button
+                type="button"
+                className="market-stage-peek-cue"
+                onClick={() => scrollToWorkspaceStage('licenses')}
+              >
+                <span className="market-stage-peek-num">02 //</span>
+                <span className="market-stage-peek-label">
+                  MY LICENSES ({totalLicensesCount})
+                </span>
+                <ChevronDown size={11} />
+              </button>
             </div>
-            {licensesOpen && (
-              <div className="mypage-section-body">
+          </section>
+
+          {/* STAGE 02: MY LICENSES (Licenses & Remixes) */}
+          <section
+            ref={stageLicensesRef}
+            className="workspace-snap-stage"
+            data-stage="licenses"
+            aria-label="My Licenses"
+          >
+            <div className="mypage-section workspace-stage-panel">
+              <div
+                className="board-section-separator workspace-stage-header"
+                data-guide="workspace.licenses-heading"
+              >
+                <div className="board-section-left">
+                  <span className="market-stage-num">02</span>
+                  <KeyRound size={12} />
+                  <span className="mypage-section-title">MY LICENSES</span>
+                  <span className="board-section-badge">{totalLicensesCount}</span>
+                </div>
+
+                {totalLicensesCount > 0 && (
+                  <div
+                    className="board-section-actions mypage-header-controls"
+                    onClick={(e) => e.stopPropagation()}
+                    onKeyDown={(e) => e.stopPropagation()}
+                  >
+                    <div className={`mypage-header-search ${licenseSearch ? 'expanded' : ''}`}>
+                      <button
+                        type="button"
+                        className="mypage-header-search-toggle"
+                        aria-label="Search licenses"
+                      >
+                        <Search size={12} />
+                      </button>
+                      <input
+                        type="text"
+                        className="mypage-header-search-input"
+                        placeholder="Search licenses..."
+                        value={licenseSearch}
+                        onChange={(e) => setLicenseSearch(e.target.value)}
+                      />
+                      {licenseSearch && (
+                        <button
+                          type="button"
+                          className="mypage-header-search-clear"
+                          onClick={() => setLicenseSearch('')}
+                          aria-label="Clear search"
+                        >
+                          <X size={11} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="mypage-section-body workspace-stage-content">
                 {(publicSongsError || licensed.error) && (
                   <div role="alert">{(publicSongsError || licensed.error)?.message}</div>
                 )}
@@ -2075,281 +2391,718 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
                     <span className="mypage-empty-desc">
                       {licensed.loading
                         ? 'Retrieving your on-chain licenses…'
-                        : 'Licenses you purchase in the Market will appear here for remixing.'}
+                        : 'Licenses you purchase in the Market will appear here for remixing and stem extraction.'}
                     </span>
+                  </div>
+                ) : filteredRemixSongs.length === 0 &&
+                  filteredUnforkedLicensedSongs.length === 0 ? (
+                  <div className="mypage-empty">
+                    <span className="mypage-empty-title">NO MATCHING LICENSES</span>
                   </div>
                 ) : (
                   <div className="market-grid">
-                    {groupSongs(remixSongs).map((versions) =>
-                      renderDraftItem(versions, false, 'grid', false)
+                    {groupSongs(filteredRemixSongs).map((versions) =>
+                      renderDraftItem(versions, true, 'grid', false)
                     )}
-                    {groupSongs(unforkedLicensedSongs).map((versions) =>
+                    {groupSongs(filteredUnforkedLicensedSongs).map((versions) =>
                       renderDraftItem(versions, false, 'grid', true)
                     )}
                   </div>
                 )}
               </div>
-            )}
-          </div>
 
-          {/* SECTION (iv): My Albums */}
-          <div className="mypage-section">
-            <div
-              className={`board-section-separator ${!albumsOpen ? 'collapsed' : ''}`}
-              data-guide="workspace.albums-heading"
-              onClick={toggleAlbums}
-            >
-              <div
-                className="board-section-left"
-                role="button"
-                tabIndex={0}
-                aria-expanded={albumsOpen}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault();
-                    toggleAlbums();
-                  }
-                }}
+              <button
+                type="button"
+                className="market-stage-peek-cue"
+                onClick={() => scrollToWorkspaceStage('catalog')}
               >
-                <ChevronDown className="board-section-chevron" size={14} />
-                <Disc3 size={13} />
-                <span>MY ALBUMS</span>
-                <span className="board-section-badge">{albums.length}</span>
+                <span className="market-stage-peek-num">03 //</span>
+                <span className="market-stage-peek-label">
+                  CATALOG ({albums.length + myPlaylists.length + voices.length})
+                </span>
+                <ChevronDown size={11} />
+              </button>
+            </div>
+          </section>
+
+          {/* CATALOG (3-Column Studio Rack: Albums, Playlists, Voices) */}
+          <section
+            ref={stageCatalogRef}
+            className="workspace-snap-stage"
+            data-stage="catalog"
+            aria-label="Catalog and Voices"
+          >
+            <div className="mypage-section workspace-stage-panel workspace-catalog-stage">
+              <div className="board-section-separator workspace-stage-header">
+                <div className="board-section-left">
+                  <span className="market-stage-num">03</span>
+                  <Layers size={12} />
+                  <span className="mypage-section-title">CATALOG</span>
+                  <span className="board-section-badge">
+                    {albums.length + myPlaylists.length + voices.length}
+                  </span>
+                </div>
+
+                {/* Mobile Sub-Tab Switcher for 3-Column Studio Rack */}
+                <div
+                  className="market-pulse-mobile-tabs workspace-catalog-mobile-tabs"
+                  role="tablist"
+                >
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={catalogMobileTab === 'albums'}
+                    className={`market-pulse-mobile-tab ${catalogMobileTab === 'albums' ? 'active' : ''}`}
+                    onClick={() => setCatalogMobileTab('albums')}
+                  >
+                    <Disc3 size={11} />
+                    <span>ALBUMS ({albums.length})</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={catalogMobileTab === 'playlists'}
+                    className={`market-pulse-mobile-tab ${catalogMobileTab === 'playlists' ? 'active' : ''}`}
+                    onClick={() => setCatalogMobileTab('playlists')}
+                  >
+                    <ListMusic size={11} />
+                    <span>PLAYLISTS ({myPlaylists.length})</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={catalogMobileTab === 'voices'}
+                    className={`market-pulse-mobile-tab ${catalogMobileTab === 'voices' ? 'active' : ''}`}
+                    onClick={() => setCatalogMobileTab('voices')}
+                  >
+                    <Mic2 size={11} />
+                    <span>VOICES ({voices.length})</span>
+                  </button>
+                </div>
               </div>
 
-              {activeAddress && (
+              <div className="workspace-catalog-rack">
+                {/* COLUMN 1: MY ALBUMS */}
                 <div
-                  className="board-section-actions mypage-header-controls"
-                  onClick={(e) => e.stopPropagation()}
-                  onKeyDown={(e) => e.stopPropagation()}
+                  className={`workspace-rack-col ${catalogMobileTab === 'albums' ? 'mobile-active' : ''}`}
                 >
-                  <Tooltip title="Create Album in Album Studio">
-                    <button
-                      type="button"
-                      className="mypage-header-icon-btn"
-                      onClick={() => {
-                        if (!albumsOpen) {
-                          userToggledAlbums.current = true;
-                          setAlbumsOpen(true);
-                        }
-                        setEditingAlbum(null);
-                        setAlbumStudioOpen(true);
-                      }}
-                      aria-label="New album"
-                    >
-                      <Plus size={12} />
-                    </button>
-                  </Tooltip>
-                </div>
-              )}
-            </div>
-
-            {albumsOpen && (
-              <div className="mypage-section-body">
-                {loadingAlbums ? (
-                  <div className="mypage-empty">
-                    <span className="mypage-empty-title">LOADING ALBUMS...</span>
-                  </div>
-                ) : albums.length === 0 ? (
-                  <div className="mypage-empty">
-                    <span className="mypage-empty-title">NO ALBUMS CREATED YET</span>
-                    <span className="mypage-empty-desc">
-                      Bundle tracks with AI cover art, liner notes, and visual booklet plates.
-                    </span>
+                  <div className="workspace-rack-header" data-guide="workspace.albums-heading">
+                    <div className="workspace-rack-title">
+                      <Disc3 size={12} />
+                      <span>MY ALBUMS</span>
+                      <span className="board-section-badge">{albums.length}</span>
+                    </div>
                     {activeAddress && (
-                      <Button
-                        variant="secondary"
-                        size="xs"
-                        onClick={() => {
-                          setEditingAlbum(null);
-                          setAlbumStudioOpen(true);
-                        }}
-                      >
-                        <Plus size={11} />
-                        <span>NEW ALBUM</span>
-                      </Button>
+                      <Tooltip title="Create Album in Album Studio">
+                        <button
+                          type="button"
+                          className="mypage-header-icon-btn"
+                          onClick={() => {
+                            setEditingAlbum(null);
+                            setAlbumStudioOpen(true);
+                          }}
+                          aria-label="New album"
+                        >
+                          <Plus size={12} />
+                        </button>
+                      </Tooltip>
                     )}
                   </div>
-                ) : (
-                  <div className="market-grid">
-                    {albums.map((album) => {
-                      const resolvedSongs = state.songs.filter((s) => s.album_id === album.id);
-                      const cover =
-                        album.cover && album.cover.trim() !== ''
-                          ? album.cover
-                          : resolvedSongs[0]?.image || '';
-                      const isExpanded = expandedAlbumId === album.id;
-                      const isPlayingAlb = state.isPlaying && state.activePlaylistId === album.id;
-                      const isToggling = togglingAlbumId === album.id;
-                      const galleryCount = Array.isArray(album.gallery) ? album.gallery.length : 0;
 
-                      return (
-                        <div
-                          key={album.id}
-                          className="market-collection-card"
-                          onClick={() => setExpandedAlbumId(isExpanded ? null : album.id)}
-                          role="button"
-                          tabIndex={0}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault();
-                              setExpandedAlbumId(isExpanded ? null : album.id);
-                            }
-                          }}
-                        >
-                          <div className={`market-collection-media ${!cover ? 'is-logo' : ''}`}>
-                            <img
-                              src={cover || '/branding/mark.svg'}
-                              alt={album.title}
-                              loading="lazy"
-                              decoding="async"
-                            />
+                  <div className="workspace-rack-body">
+                    {loadingAlbums ? (
+                      <div className="mypage-empty">
+                        <span className="mypage-empty-title">LOADING ALBUMS...</span>
+                      </div>
+                    ) : albums.length === 0 ? (
+                      <div className="mypage-empty">
+                        <span className="mypage-empty-title">NO ALBUMS CREATED YET</span>
+                        <span className="mypage-empty-desc">
+                          Bundle tracks with AI cover art, liner notes, and visual booklet plates.
+                        </span>
+                        {activeAddress && (
+                          <Button
+                            variant="secondary"
+                            size="xs"
+                            onClick={() => {
+                              setEditingAlbum(null);
+                              setAlbumStudioOpen(true);
+                            }}
+                          >
+                            <Plus size={11} />
+                            <span>NEW ALBUM</span>
+                          </Button>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="market-grid workspace-rack-grid">
+                        {albums.map((album) => {
+                          const resolvedSongs = state.songs.filter((s) => s.album_id === album.id);
+                          const cover =
+                            album.cover && album.cover.trim() !== ''
+                              ? album.cover
+                              : resolvedSongs[0]?.image || '';
+                          const isExpanded = expandedAlbumId === album.id;
+                          const isPlayingAlb =
+                            state.isPlaying && state.activePlaylistId === album.id;
+                          const isToggling = togglingAlbumId === album.id;
+                          const galleryCount = Array.isArray(album.gallery)
+                            ? album.gallery.length
+                            : 0;
 
-                            <button
-                              type="button"
-                              className={`market-collection-vis-btn ${album.public ? 'public' : 'private'}`}
-                              disabled={isToggling}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                void handleToggleAlbumPublic(album);
+                          return (
+                            <div
+                              key={album.id}
+                              className="market-collection-card"
+                              onClick={() => setExpandedAlbumId(isExpanded ? null : album.id)}
+                              role="button"
+                              tabIndex={0}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                  e.preventDefault();
+                                  setExpandedAlbumId(isExpanded ? null : album.id);
+                                }
                               }}
-                              title={
-                                album.public
-                                  ? 'Public · Click to make Private'
-                                  : 'Private · Click to make Public'
-                              }
-                              aria-label={`Toggle visibility, currently ${album.public ? 'Public' : 'Private'}`}
                             >
-                              {album.public ? <Globe size={11} /> : <Lock size={11} />}
-                            </button>
+                              <div className={`market-collection-media ${!cover ? 'is-logo' : ''}`}>
+                                <img
+                                  src={cover || '/branding/mark.svg'}
+                                  alt={album.title}
+                                  loading="lazy"
+                                  decoding="async"
+                                />
 
-                            <button
-                              type="button"
-                              className="market-collection-edit-btn"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setEditingAlbum(album);
-                                setAlbumStudioOpen(true);
-                              }}
-                              title="Edit Album Studio (Cover, Concept, Booklet)"
-                              aria-label={`Edit album ${album.title}`}
-                            >
-                              <Pencil size={11} />
-                            </button>
+                                <button
+                                  type="button"
+                                  className={`market-collection-vis-btn ${album.public ? 'public' : 'private'}`}
+                                  disabled={isToggling}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    void handleToggleAlbumPublic(album);
+                                  }}
+                                  title={
+                                    album.public
+                                      ? 'Public · Click to make Private'
+                                      : 'Private · Click to make Public'
+                                  }
+                                  aria-label={`Toggle visibility, currently ${album.public ? 'Public' : 'Private'}`}
+                                >
+                                  {album.public ? <Globe size={11} /> : <Lock size={11} />}
+                                </button>
 
-                            <button
-                              type="button"
-                              className="market-collection-delete-btn"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                void handleDeleteAlbum(album);
-                              }}
-                              title="Delete Album"
-                              aria-label={`Delete album ${album.title}`}
-                            >
-                              <Trash2 size={11} />
-                            </button>
+                                <button
+                                  type="button"
+                                  className="market-collection-edit-btn"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setEditingAlbum(album);
+                                    setAlbumStudioOpen(true);
+                                  }}
+                                  title="Edit Album Studio (Cover, Concept, Booklet)"
+                                  aria-label={`Edit album ${album.title}`}
+                                >
+                                  <Pencil size={11} />
+                                </button>
 
-                            <button
-                              type="button"
-                              className={`market-collection-play-btn ${isPlayingAlb ? 'playing' : ''}`}
-                              disabled={resolvedSongs.length === 0}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handlePlayMyAlbum(album);
-                              }}
-                              aria-label={
-                                isPlayingAlb ? `Pause ${album.title}` : `Play ${album.title}`
-                              }
-                            >
-                              {isPlayingAlb ? <Pause size={14} /> : <Play size={14} />}
-                            </button>
-                          </div>
+                                <button
+                                  type="button"
+                                  className="market-collection-delete-btn"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    void handleDeleteAlbum(album);
+                                  }}
+                                  title="Delete Album"
+                                  aria-label={`Delete album ${album.title}`}
+                                >
+                                  <Trash2 size={11} />
+                                </button>
 
-                          <div className="market-collection-body">
-                            <div className="market-collection-title" title={album.title}>
-                              {album.title}
-                            </div>
+                                <button
+                                  type="button"
+                                  className={`market-collection-play-btn ${isPlayingAlb ? 'playing' : ''}`}
+                                  disabled={resolvedSongs.length === 0}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handlePlayMyAlbum(album);
+                                  }}
+                                  aria-label={
+                                    isPlayingAlb ? `Pause ${album.title}` : `Play ${album.title}`
+                                  }
+                                >
+                                  {isPlayingAlb ? <Pause size={14} /> : <Play size={14} />}
+                                </button>
+                              </div>
 
-                            <div className="market-collection-meta">
-                              <Music size={10} />
-                              <span>{resolvedSongs.length}</span>
-                              {album.genre && (
-                                <>
-                                  <span>•</span>
-                                  <span className="album-meta-genre">{album.genre}</span>
-                                </>
-                              )}
-                              {galleryCount > 0 && (
-                                <>
-                                  <span>•</span>
-                                  <ImageIcon size={10} />
-                                  <span>{galleryCount}</span>
-                                </>
-                              )}
-                              {resolvedSongs.length > 0 && (
-                                <ChevronDown size={11} className="market-popover-chevron" />
-                              )}
-                            </div>
+                              <div className="market-collection-body">
+                                <div className="market-collection-title" title={album.title}>
+                                  {album.title}
+                                </div>
 
-                            {isExpanded && (
-                              <div
-                                className="market-playlist-tracklist"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                {(album.description || album.concept) && (
-                                  <div className="album-expanded-concept">
-                                    {album.description || album.concept}
+                                <div className="market-collection-meta">
+                                  <Music size={10} />
+                                  <span>{resolvedSongs.length}</span>
+                                  {album.genre && (
+                                    <>
+                                      <span>•</span>
+                                      <span className="album-meta-genre">{album.genre}</span>
+                                    </>
+                                  )}
+                                  {galleryCount > 0 && (
+                                    <>
+                                      <span>•</span>
+                                      <ImageIcon size={10} />
+                                      <span>{galleryCount}</span>
+                                    </>
+                                  )}
+                                  {resolvedSongs.length > 0 && (
+                                    <ChevronDown size={11} className="market-popover-chevron" />
+                                  )}
+                                </div>
+
+                                {isExpanded && (
+                                  <div
+                                    className="market-playlist-tracklist"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    {(album.description || album.concept) && (
+                                      <div className="album-expanded-concept">
+                                        {album.description || album.concept}
+                                      </div>
+                                    )}
+                                    {resolvedSongs.map((s, idx) => {
+                                      const isPlayingTrack =
+                                        state.isPlaying && state.activeSong?.id === s.id;
+                                      return (
+                                        <div
+                                          key={`${s.id}-${idx}`}
+                                          className="market-playlist-track-row-wrap"
+                                        >
+                                          <button
+                                            type="button"
+                                            className={`market-playlist-track-row ${isPlayingTrack ? 'active' : ''}`}
+                                            onClick={() =>
+                                              store.playSong(s, resolvedSongs, album.id)
+                                            }
+                                          >
+                                            <span className="market-playlist-track-idx">
+                                              {idx + 1}
+                                            </span>
+                                            <span className="market-playlist-track-name">
+                                              {s.title}
+                                            </span>
+                                          </button>
+                                          <button
+                                            type="button"
+                                            className="market-playlist-track-remove-btn"
+                                            onClick={() =>
+                                              void handleRemoveAlbumSong(album.id, s.id)
+                                            }
+                                            aria-label={`Remove ${s.title}`}
+                                          >
+                                            <X size={10} />
+                                          </button>
+                                        </div>
+                                      );
+                                    })}
                                   </div>
                                 )}
-                                {resolvedSongs.map((s, idx) => {
-                                  const isPlayingTrack =
-                                    state.isPlaying && state.activeSong?.id === s.id;
-                                  return (
-                                    <div
-                                      key={`${s.id}-${idx}`}
-                                      className="market-playlist-track-row-wrap"
-                                    >
-                                      <button
-                                        type="button"
-                                        className={`market-playlist-track-row ${isPlayingTrack ? 'active' : ''}`}
-                                        onClick={() => store.playSong(s, resolvedSongs, album.id)}
-                                      >
-                                        <span className="market-playlist-track-idx">{idx + 1}</span>
-                                        <span className="market-playlist-track-name">{s.title}</span>
-                                      </button>
-                                      <button
-                                        type="button"
-                                        className="market-playlist-track-remove-btn"
-                                        onClick={() => void handleRemoveAlbumSong(album.id, s.id)}
-                                        aria-label={`Remove ${s.title}`}
-                                      >
-                                        <X size={10} />
-                                      </button>
-                                    </div>
-                                  );
-                                })}
                               </div>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
-                )}
+                </div>
+
+                {/* COLUMN 2: MY PLAYLISTS */}
+                <div
+                  className={`workspace-rack-col ${catalogMobileTab === 'playlists' ? 'mobile-active' : ''}`}
+                >
+                  <div className="workspace-rack-header">
+                    <div className="workspace-rack-title">
+                      <ListMusic size={12} />
+                      <span>MY PLAYLISTS</span>
+                      <span className="board-section-badge">{myPlaylists.length}</span>
+                    </div>
+
+                    {activeAddress && (
+                      <div
+                        className="mypage-header-controls"
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => e.stopPropagation()}
+                      >
+                        {showCreatePlaylistInput ? (
+                          <form
+                            className="mypage-header-inline-create"
+                            onSubmit={handleCreatePlaylist}
+                          >
+                            <input
+                              type="text"
+                              className="mypage-header-search-input"
+                              placeholder="Playlist title..."
+                              value={newPlaylistName}
+                              onChange={(e) => setNewPlaylistName(e.target.value)}
+                              maxLength={80}
+                              autoFocus
+                            />
+                            <button
+                              type="submit"
+                              className="mypage-header-icon-btn primary"
+                              disabled={creatingPlaylist || !newPlaylistName.trim()}
+                              aria-label="Create playlist"
+                            >
+                              <Check size={12} />
+                            </button>
+                            <button
+                              type="button"
+                              className="mypage-header-icon-btn"
+                              onClick={() => {
+                                setShowCreatePlaylistInput(false);
+                                setNewPlaylistName('');
+                              }}
+                              aria-label="Cancel"
+                            >
+                              <X size={12} />
+                            </button>
+                          </form>
+                        ) : (
+                          <Tooltip title="New Playlist">
+                            <button
+                              type="button"
+                              className="mypage-header-icon-btn"
+                              onClick={() => setShowCreatePlaylistInput(true)}
+                              aria-label="New playlist"
+                            >
+                              <Plus size={12} />
+                            </button>
+                          </Tooltip>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="workspace-rack-body">
+                    {loadingPlaylists ? (
+                      <div className="mypage-empty">
+                        <span className="mypage-empty-title">LOADING...</span>
+                      </div>
+                    ) : myPlaylists.length === 0 ? (
+                      <div className="mypage-empty">
+                        <span className="mypage-empty-title">NO PLAYLISTS YET</span>
+                        <span className="mypage-empty-desc">
+                          Curate private or public playlists from your catalog and Market tracks.
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="market-grid workspace-rack-grid">
+                        {myPlaylists.map((playlist) => {
+                          const resolvedSongs = (playlist.song_ids || [])
+                            .map((id) => allKnownSongsById.get(id))
+                            .filter((s): s is Song => Boolean(s));
+                          const cover =
+                            playlist.cover && playlist.cover.trim() !== ''
+                              ? playlist.cover
+                              : resolvedSongs[0]?.image || '';
+                          const isExpanded = expandedPlaylistId === playlist.id;
+                          const isPlayingPl =
+                            state.isPlaying && state.activePlaylistId === playlist.id;
+                          const isToggling = togglingPlaylistId === playlist.id;
+
+                          return (
+                            <div
+                              key={playlist.id}
+                              className="market-collection-card"
+                              onClick={() => setExpandedPlaylistId(isExpanded ? null : playlist.id)}
+                              role="button"
+                              tabIndex={0}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                  e.preventDefault();
+                                  setExpandedPlaylistId(isExpanded ? null : playlist.id);
+                                }
+                              }}
+                            >
+                              <div className={`market-collection-media ${!cover ? 'is-logo' : ''}`}>
+                                <img
+                                  src={cover || '/branding/mark.svg'}
+                                  alt={playlist.title}
+                                  loading="lazy"
+                                  decoding="async"
+                                />
+
+                                <button
+                                  type="button"
+                                  className={`market-collection-vis-btn ${playlist.public ? 'public' : 'private'}`}
+                                  disabled={isToggling}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    void handleTogglePlaylistPublic(playlist);
+                                  }}
+                                  title={
+                                    playlist.public
+                                      ? 'Public · Click to make Private'
+                                      : 'Private · Click to make Public'
+                                  }
+                                  aria-label={`Toggle visibility, currently ${playlist.public ? 'Public' : 'Private'}`}
+                                >
+                                  {playlist.public ? <Globe size={11} /> : <Lock size={11} />}
+                                </button>
+
+                                <button
+                                  type="button"
+                                  className="market-collection-delete-btn"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    void handleDeletePlaylist(playlist);
+                                  }}
+                                  title="Delete Playlist"
+                                  aria-label={`Delete playlist ${playlist.title}`}
+                                >
+                                  <Trash2 size={11} />
+                                </button>
+
+                                <button
+                                  type="button"
+                                  className={`market-collection-play-btn ${isPlayingPl ? 'playing' : ''}`}
+                                  disabled={resolvedSongs.length === 0}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handlePlayMyPlaylist(playlist);
+                                  }}
+                                  aria-label={
+                                    isPlayingPl
+                                      ? `Pause ${playlist.title}`
+                                      : `Play ${playlist.title}`
+                                  }
+                                >
+                                  {isPlayingPl ? <Pause size={14} /> : <Play size={14} />}
+                                </button>
+                              </div>
+
+                              <div className="market-collection-body">
+                                <div className="market-collection-title" title={playlist.title}>
+                                  {playlist.title}
+                                </div>
+
+                                <div className="market-collection-meta">
+                                  <Music size={10} />
+                                  <span>{(playlist.song_ids || []).length}</span>
+                                  <span>•</span>
+                                  <Headphones size={10} />
+                                  <span>{playlist.plays ?? 0}</span>
+                                  {resolvedSongs.length > 0 && (
+                                    <ChevronDown size={11} className="market-popover-chevron" />
+                                  )}
+                                </div>
+
+                                {isExpanded && resolvedSongs.length > 0 && (
+                                  <div
+                                    className="market-playlist-tracklist"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    {resolvedSongs.map((s, idx) => {
+                                      const isPlayingTrack =
+                                        state.isPlaying && state.activeSong?.id === s.id;
+                                      return (
+                                        <div
+                                          key={`${s.id}-${idx}`}
+                                          className="market-playlist-track-row-wrap"
+                                        >
+                                          <button
+                                            type="button"
+                                            className={`market-playlist-track-row ${isPlayingTrack ? 'active' : ''}`}
+                                            onClick={() =>
+                                              store.playSong(s, resolvedSongs, playlist.id)
+                                            }
+                                          >
+                                            <span className="market-playlist-track-idx">
+                                              {idx + 1}
+                                            </span>
+                                            <span className="market-playlist-track-name">
+                                              {s.title}
+                                            </span>
+                                          </button>
+                                          <button
+                                            type="button"
+                                            className="market-playlist-track-remove-btn"
+                                            onClick={() =>
+                                              void handleRemovePlaylistSong(playlist.id, s.id)
+                                            }
+                                            aria-label={`Remove ${s.title}`}
+                                          >
+                                            <X size={10} />
+                                          </button>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* COLUMN 3: MY VOICES */}
+                <div
+                  className={`workspace-rack-col ${catalogMobileTab === 'voices' ? 'mobile-active' : ''}`}
+                >
+                  <div className="workspace-rack-header" data-guide="workspace.voices-heading">
+                    <div className="workspace-rack-title">
+                      <Mic2 size={12} />
+                      <span>MY VOICES</span>
+                      <span className="board-section-badge">{voices.length}</span>
+                    </div>
+                  </div>
+
+                  <div className="workspace-rack-body">
+                    {voicesError && (
+                      <div className="mypage-empty" role="alert">
+                        <span className="mypage-empty-desc">{voicesError}</span>
+                        <Tooltip title="Retry Loading Voices">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              void refreshVoices();
+                            }}
+                          >
+                            <RotateCcw size={12} />
+                          </Button>
+                        </Tooltip>
+                      </div>
+                    )}
+                    {loadingVoices ? (
+                      <div className="mypage-empty">
+                        <span className="mypage-empty-title">LOADING VOICES...</span>
+                      </div>
+                    ) : !voicesError && voices.length === 0 ? (
+                      <div className="mypage-empty">
+                        <span className="mypage-empty-title">NO CUSTOM VOICES</span>
+                        <span className="mypage-empty-desc">
+                          Attach a vocal sample in the Studio or save a voice from one of your
+                          songs.
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="market-grid workspace-rack-grid">
+                        {voices.map((voice) => {
+                          const voiceUrl = resolveVoiceAudioUrl(voice);
+                          const voiceSongId = `voice:${voice.id}`;
+                          const isPlayingVoice =
+                            state.isPlaying && state.activeSong?.id === voiceSongId;
+                          const isLoadingVoice = loadingVoiceId === voice.id;
+                          const sourceSongId =
+                            typeof voice.metadata?.source_song_id === 'string'
+                              ? voice.metadata.source_song_id.trim()
+                              : '';
+                          const sourceSong = sourceSongId
+                            ? allKnownSongsById.get(sourceSongId)
+                            : undefined;
+                          const cover = sourceSong?.image || '';
+
+                          return (
+                            <div key={voice.id} className="market-collection-card">
+                              <div className={`market-collection-media ${!cover ? 'is-logo' : ''}`}>
+                                <img
+                                  src={cover || '/branding/mark.svg'}
+                                  alt={voice.name}
+                                  loading="lazy"
+                                  decoding="async"
+                                />
+
+                                {voice.status !== 'ready' && (
+                                  <div className="mypage-voice-status-badge">
+                                    <Badge
+                                      variant={voice.status === 'error' ? 'warning' : 'default'}
+                                    >
+                                      {voiceStatus(voice).toUpperCase()}
+                                    </Badge>
+                                  </div>
+                                )}
+
+                                <button
+                                  type="button"
+                                  className={`market-collection-play-btn ${isPlayingVoice ? 'playing' : ''}`}
+                                  disabled={!voiceUrl || isLoadingVoice}
+                                  onClick={() => void handlePlayVoice(voice)}
+                                  aria-label={
+                                    isPlayingVoice ? `Pause ${voice.name}` : `Play ${voice.name}`
+                                  }
+                                >
+                                  {isPlayingVoice ? <Pause size={14} /> : <Play size={14} />}
+                                </button>
+                              </div>
+
+                              <div className="market-collection-body">
+                                <div className="market-collection-title" title={voice.name}>
+                                  {voice.name}
+                                </div>
+
+                                {(['turbo', 'sft'] as const).map((mode) => {
+                                  const availability = voice.availability[mode];
+                                  return availability.step != null &&
+                                    ['queued', 'training'].includes(availability.status) ? (
+                                    <div key={mode} className="studio-voice-detail">
+                                      {mode === 'turbo' ? 'Fast' : 'Master'}: {availability.step}
+                                      {availability.total_steps != null
+                                        ? `/${availability.total_steps}`
+                                        : ''}
+                                    </div>
+                                  ) : null;
+                                })}
+
+                                {(voice.error ||
+                                  voice.availability.turbo.error ||
+                                  voice.availability.sft.error) && (
+                                    <div className="studio-voice-detail" role="alert">
+                                      {voice.error ||
+                                        voice.availability.turbo.error ||
+                                        voice.availability.sft.error}
+                                    </div>
+                                  )}
+
+                                <div className="market-collection-meta">
+                                  <Mic2 size={10} />
+                                  <span>{new Date(voice.created_at).toLocaleDateString()}</span>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
-            )}
-          </div>
-        </>
+
+              <button
+                type="button"
+                className="market-stage-peek-cue"
+                onClick={() => scrollToWorkspaceStage('songs')}
+              >
+                <span className="market-stage-peek-num">01 //</span>
+                <span className="market-stage-peek-label">
+                  RETURN TO MY SONGS ({filteredSortedFamilies.length})
+                </span>
+                <ChevronDown size={11} style={{ transform: 'rotate(180deg)' }} />
+              </button>
+            </div>
+          </section>
+        </div>
       ) : (
         /* EARN TAB: Published Catalog, Licenses & On-Chain x402 Streaming Analytics */
         <div className="earn-dashboard" data-guide="mypage-sections">
-          {/* Top Filter & View Bar (shown in LIST view; CHARTS view renders its own .cm-dashboard-control-rail) */}
-          {(earnView !== 'charts' || publishedSongsList.length === 0) && (
+          {/* Unified Top Filter & View Bar (persistent across LIST <> CHARTS transitions) */}
+          {publishedSongsList.length > 0 && (
             <div
               className={`earn-toolbar ${mobileSearchOpen || Boolean(songSearch) ? 'search-open' : ''}`}
             >
-              {/* Network Filter Dropdown (ALL | BASE | SOLANA | TEMPO) */}
+              {/* Network Filter Dropdown (ALL | BASE | SOLANA | TEMPO) - Pinned Far Left */}
               <div className="market-view-select-wrap">
                 <Tooltip
                   title="Network Filter"
@@ -2365,6 +3118,8 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
                     onClick={() => {
                       setEarnSortDropdownOpen(false);
                       setEarnViewDropdownOpen(false);
+                      setEarnSourceDropdownOpen(false);
+                      setEarnDateDropdownOpen(false);
                       setEarnNetDropdownOpen((prev) => !prev);
                     }}
                     aria-haspopup="listbox"
@@ -2431,6 +3186,133 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
                 )}
               </div>
 
+              {/* CHARTS Mode Filters: Revenue Source & Date Window (directly next to Network Filter) */}
+              {earnView === 'charts' && (
+                <>
+                  {/* Source Filter Dropdown (ALL SOURCES | STREAMS | LICENSES) */}
+                  <div className="market-view-select-wrap">
+                    <Tooltip
+                      title="Revenue Source"
+                      description={
+                        SOURCE_OPTIONS.find((o) => o.value === earnSourceFilter)?.label ??
+                        'ALL SOURCES'
+                      }
+                    >
+                      <button
+                        type="button"
+                        className={`mypage-header-trigger ${earnSourceDropdownOpen ? 'open' : ''}`}
+                        onClick={() => {
+                          setEarnNetDropdownOpen(false);
+                          setEarnDateDropdownOpen(false);
+                          setEarnViewDropdownOpen(false);
+                          setEarnSourceDropdownOpen((prev) => !prev);
+                        }}
+                        aria-haspopup="listbox"
+                        aria-expanded={earnSourceDropdownOpen}
+                        aria-label="Filter revenue source"
+                      >
+                        {earnSourceFilter === 'streams' ? (
+                          <Headphones size={11} />
+                        ) : earnSourceFilter === 'licenses' ? (
+                          <KeyRound size={11} />
+                        ) : (
+                          <Layers size={11} />
+                        )}
+                        <span className="mypage-dropdown-label">
+                          {SOURCE_OPTIONS.find((o) => o.value === earnSourceFilter)?.label ??
+                            'ALL SOURCES'}
+                        </span>
+                        <ChevronDown size={11} className="market-popover-chevron" />
+                      </button>
+                    </Tooltip>
+
+                    {earnSourceDropdownOpen && (
+                      <div className="market-popover-menu mypage-header-popover">
+                        <div className="market-popover-list" role="listbox">
+                          {SOURCE_OPTIONS.map((opt) => (
+                            <button
+                              key={opt.value}
+                              type="button"
+                              role="option"
+                              aria-selected={earnSourceFilter === opt.value}
+                              className={`market-popover-option ${earnSourceFilter === opt.value ? 'selected' : ''}`}
+                              onClick={() => {
+                                setEarnSourceFilter(opt.value);
+                                setEarnSourceDropdownOpen(false);
+                              }}
+                            >
+                              {opt.value === 'streams' ? (
+                                <Headphones size={12} />
+                              ) : opt.value === 'licenses' ? (
+                                <KeyRound size={12} />
+                              ) : (
+                                <Layers size={12} />
+                              )}
+                              <span>{opt.label}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Date Window Dropdown (LAST 24H | LAST 7D | LAST 30D | LAST 6M) */}
+                  <div className="market-view-select-wrap">
+                    <Tooltip
+                      title="Time Horizon"
+                      description={
+                        DATE_WINDOW_OPTIONS.find((o) => o.value === earnDateWindow)?.label ??
+                        'LAST 30D'
+                      }
+                    >
+                      <button
+                        type="button"
+                        className={`mypage-header-trigger ${earnDateDropdownOpen ? 'open' : ''}`}
+                        onClick={() => {
+                          setEarnNetDropdownOpen(false);
+                          setEarnSourceDropdownOpen(false);
+                          setEarnViewDropdownOpen(false);
+                          setEarnDateDropdownOpen((prev) => !prev);
+                        }}
+                        aria-haspopup="listbox"
+                        aria-expanded={earnDateDropdownOpen}
+                        aria-label="Select chart time window"
+                      >
+                        <Calendar size={11} />
+                        <span className="mypage-dropdown-label">
+                          {DATE_WINDOW_OPTIONS.find((o) => o.value === earnDateWindow)?.label ??
+                            'LAST 30D'}
+                        </span>
+                        <ChevronDown size={11} className="market-popover-chevron" />
+                      </button>
+                    </Tooltip>
+
+                    {earnDateDropdownOpen && (
+                      <div className="market-popover-menu mypage-header-popover">
+                        <div className="market-popover-list" role="listbox">
+                          {DATE_WINDOW_OPTIONS.map((opt) => (
+                            <button
+                              key={opt.value}
+                              type="button"
+                              role="option"
+                              aria-selected={earnDateWindow === opt.value}
+                              className={`market-popover-option ${earnDateWindow === opt.value ? 'selected' : ''}`}
+                              onClick={() => {
+                                setEarnDateWindow(opt.value);
+                                setEarnDateDropdownOpen(false);
+                              }}
+                            >
+                              <Calendar size={12} />
+                              <span>{opt.label}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+
               {/* Compact Aggregated Revenue Pill Strip */}
               <div className="earn-inline-summary" aria-label="Aggregated revenue summary">
                 <Tooltip
@@ -2476,160 +3358,164 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
               </div>
 
               <div className="earn-toolbar-right">
-                {/* Search inside Earn */}
-                <div
-                  className={`mypage-header-search ${mobileSearchOpen || Boolean(songSearch) ? 'expanded' : ''}`}
-                >
-                  <Tooltip title="Search Releases">
-                    <button
-                      type="button"
-                      className="mypage-header-search-toggle"
-                      onClick={() => {
-                        setMobileSearchOpen((prev) => {
-                          const next = !prev;
-                          if (next) {
-                            setTimeout(() => searchInputRef.current?.focus(), 0);
-                          }
-                          return next;
-                        });
-                      }}
-                      aria-label="Search published tracks"
+                {earnView === 'list' && (
+                  <>
+                    {/* Search inside Earn List */}
+                    <div
+                      className={`mypage-header-search ${mobileSearchOpen || Boolean(songSearch) ? 'expanded' : ''}`}
                     >
-                      <Search size={12} />
-                    </button>
-                  </Tooltip>
-                  <input
-                    ref={searchInputRef}
-                    type="text"
-                    className="mypage-header-search-input"
-                    placeholder="Search releases..."
-                    value={songSearch}
-                    onChange={(e) => setSongSearch(e.target.value)}
-                  />
-                  {(songSearch || mobileSearchOpen) && (
-                    <button
-                      type="button"
-                      className="mypage-header-search-clear"
-                      onClick={() => {
-                        setSongSearch('');
-                        setMobileSearchOpen(false);
-                      }}
-                      aria-label="Clear search"
-                    >
-                      <X size={11} />
-                    </button>
-                  )}
-                </div>
-
-                {/* Sort Dropdown (PROFIT | SOLD | PLAYS | RECENT) */}
-                <div className="market-view-select-wrap">
-                  <Tooltip
-                    title="Sort Releases"
-                    description={
-                      earnSort === 'profit'
-                        ? 'PROFIT'
-                        : earnSort === 'sold'
-                          ? 'LICENSES SOLD'
-                          : earnSort === 'plays'
-                            ? 'PLAYS'
-                            : 'RECENT'
-                    }
-                  >
-                    <button
-                      type="button"
-                      className={`mypage-header-trigger ${earnSortDropdownOpen ? 'open' : ''}`}
-                      onClick={() => {
-                        setEarnNetDropdownOpen(false);
-                        setEarnViewDropdownOpen(false);
-                        setEarnSortDropdownOpen((prev) => !prev);
-                      }}
-                      aria-haspopup="listbox"
-                      aria-expanded={earnSortDropdownOpen}
-                      aria-label="Sort published releases"
-                    >
-                      {earnSort === 'profit' ? (
-                        <DollarSign size={11} />
-                      ) : earnSort === 'sold' ? (
-                        <Disc3 size={11} />
-                      ) : earnSort === 'plays' ? (
-                        <Headphones size={11} />
-                      ) : (
-                        <Clock size={11} />
+                      <Tooltip title="Search Releases">
+                        <button
+                          type="button"
+                          className="mypage-header-search-toggle"
+                          onClick={() => {
+                            setMobileSearchOpen((prev) => {
+                              const next = !prev;
+                              if (next) {
+                                setTimeout(() => searchInputRef.current?.focus(), 0);
+                              }
+                              return next;
+                            });
+                          }}
+                          aria-label="Search published tracks"
+                        >
+                          <Search size={12} />
+                        </button>
+                      </Tooltip>
+                      <input
+                        ref={searchInputRef}
+                        type="text"
+                        className="mypage-header-search-input"
+                        placeholder="Search releases..."
+                        value={songSearch}
+                        onChange={(e) => setSongSearch(e.target.value)}
+                      />
+                      {(songSearch || mobileSearchOpen) && (
+                        <button
+                          type="button"
+                          className="mypage-header-search-clear"
+                          onClick={() => {
+                            setSongSearch('');
+                            setMobileSearchOpen(false);
+                          }}
+                          aria-label="Clear search"
+                        >
+                          <X size={11} />
+                        </button>
                       )}
-                      <span className="mypage-dropdown-label">
-                        {earnSort === 'profit'
-                          ? 'PROFIT'
-                          : earnSort === 'sold'
-                            ? 'SOLD'
-                            : earnSort === 'plays'
-                              ? 'PLAYS'
-                              : 'RECENT'}
-                      </span>
-                      <ChevronDown size={11} className="market-popover-chevron" />
-                    </button>
-                  </Tooltip>
-
-                  {earnSortDropdownOpen && (
-                    <div className="market-popover-menu mypage-header-popover">
-                      <div className="market-popover-list" role="listbox">
-                        <button
-                          type="button"
-                          role="option"
-                          aria-selected={earnSort === 'profit'}
-                          className={`market-popover-option ${earnSort === 'profit' ? 'selected' : ''}`}
-                          onClick={() => {
-                            setEarnSort('profit');
-                            setEarnSortDropdownOpen(false);
-                          }}
-                        >
-                          <DollarSign size={12} />
-                          <span>PROFIT</span>
-                        </button>
-                        <button
-                          type="button"
-                          role="option"
-                          aria-selected={earnSort === 'sold'}
-                          className={`market-popover-option ${earnSort === 'sold' ? 'selected' : ''}`}
-                          onClick={() => {
-                            setEarnSort('sold');
-                            setEarnSortDropdownOpen(false);
-                          }}
-                        >
-                          <Disc3 size={12} />
-                          <span>LICENSES SOLD</span>
-                        </button>
-                        <button
-                          type="button"
-                          role="option"
-                          aria-selected={earnSort === 'plays'}
-                          className={`market-popover-option ${earnSort === 'plays' ? 'selected' : ''}`}
-                          onClick={() => {
-                            setEarnSort('plays');
-                            setEarnSortDropdownOpen(false);
-                          }}
-                        >
-                          <Headphones size={12} />
-                          <span>PLAYS</span>
-                        </button>
-                        <button
-                          type="button"
-                          role="option"
-                          aria-selected={earnSort === 'recent'}
-                          className={`market-popover-option ${earnSort === 'recent' ? 'selected' : ''}`}
-                          onClick={() => {
-                            setEarnSort('recent');
-                            setEarnSortDropdownOpen(false);
-                          }}
-                        >
-                          <Clock size={12} />
-                          <span>RECENT</span>
-                        </button>
-                      </div>
                     </div>
-                  )}
-                </div>
 
-                {/* View Dropdown (LIST | CHARTS) */}
+                    {/* Sort Dropdown (PROFIT | SOLD | PLAYS | RECENT) */}
+                    <div className="market-view-select-wrap">
+                      <Tooltip
+                        title="Sort Releases"
+                        description={
+                          earnSort === 'profit'
+                            ? 'PROFIT'
+                            : earnSort === 'sold'
+                              ? 'LICENSES SOLD'
+                              : earnSort === 'plays'
+                                ? 'PLAYS'
+                                : 'RECENT'
+                        }
+                      >
+                        <button
+                          type="button"
+                          className={`mypage-header-trigger ${earnSortDropdownOpen ? 'open' : ''}`}
+                          onClick={() => {
+                            setEarnNetDropdownOpen(false);
+                            setEarnViewDropdownOpen(false);
+                            setEarnSortDropdownOpen((prev) => !prev);
+                          }}
+                          aria-haspopup="listbox"
+                          aria-expanded={earnSortDropdownOpen}
+                          aria-label="Sort published releases"
+                        >
+                          {earnSort === 'profit' ? (
+                            <DollarSign size={11} />
+                          ) : earnSort === 'sold' ? (
+                            <Disc3 size={11} />
+                          ) : earnSort === 'plays' ? (
+                            <Headphones size={11} />
+                          ) : (
+                            <Clock size={11} />
+                          )}
+                          <span className="mypage-dropdown-label">
+                            {earnSort === 'profit'
+                              ? 'PROFIT'
+                              : earnSort === 'sold'
+                                ? 'SOLD'
+                                : earnSort === 'plays'
+                                  ? 'PLAYS'
+                                  : 'RECENT'}
+                          </span>
+                          <ChevronDown size={11} className="market-popover-chevron" />
+                        </button>
+                      </Tooltip>
+
+                      {earnSortDropdownOpen && (
+                        <div className="market-popover-menu mypage-header-popover">
+                          <div className="market-popover-list" role="listbox">
+                            <button
+                              type="button"
+                              role="option"
+                              aria-selected={earnSort === 'profit'}
+                              className={`market-popover-option ${earnSort === 'profit' ? 'selected' : ''}`}
+                              onClick={() => {
+                                setEarnSort('profit');
+                                setEarnSortDropdownOpen(false);
+                              }}
+                            >
+                              <DollarSign size={12} />
+                              <span>PROFIT</span>
+                            </button>
+                            <button
+                              type="button"
+                              role="option"
+                              aria-selected={earnSort === 'sold'}
+                              className={`market-popover-option ${earnSort === 'sold' ? 'selected' : ''}`}
+                              onClick={() => {
+                                setEarnSort('sold');
+                                setEarnSortDropdownOpen(false);
+                              }}
+                            >
+                              <Disc3 size={12} />
+                              <span>LICENSES SOLD</span>
+                            </button>
+                            <button
+                              type="button"
+                              role="option"
+                              aria-selected={earnSort === 'plays'}
+                              className={`market-popover-option ${earnSort === 'plays' ? 'selected' : ''}`}
+                              onClick={() => {
+                                setEarnSort('plays');
+                                setEarnSortDropdownOpen(false);
+                              }}
+                            >
+                              <Headphones size={12} />
+                              <span>PLAYS</span>
+                            </button>
+                            <button
+                              type="button"
+                              role="option"
+                              aria-selected={earnSort === 'recent'}
+                              className={`market-popover-option ${earnSort === 'recent' ? 'selected' : ''}`}
+                              onClick={() => {
+                                setEarnSort('recent');
+                                setEarnSortDropdownOpen(false);
+                              }}
+                            >
+                              <Clock size={12} />
+                              <span>RECENT</span>
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+
+                {/* View Dropdown (LIST | CHARTS) - Permanently pinned at identical position */}
                 <div className="market-view-select-wrap">
                   <Tooltip
                     title="Earn View"
@@ -2641,6 +3527,8 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
                       onClick={() => {
                         setEarnNetDropdownOpen(false);
                         setEarnSortDropdownOpen(false);
+                        setEarnSourceDropdownOpen(false);
+                        setEarnDateDropdownOpen(false);
                         setEarnViewDropdownOpen((prev) => !prev);
                       }}
                       aria-haspopup="listbox"
@@ -2728,6 +3616,11 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
                   onNetworkFilterChange={setEarnNetworkFilter}
                   earnView={earnView}
                   onEarnViewChange={setEarnView}
+                  dateWindow={earnDateWindow}
+                  onDateWindowChange={setEarnDateWindow}
+                  sourceFilter={earnSourceFilter}
+                  onSourceFilterChange={setEarnSourceFilter}
+                  hideControlRail
                   onRefresh={() => void refetchEarnings()}
                   isRefreshing={loadingEarnings}
                   onSelectSong={(song) => {
@@ -2776,385 +3669,6 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
             </div>
           </div>
         </div>
-      )}
-
-      {activeTab === 'workspace' && (
-        <>
-          {/* SECTION (v): My Playlists (Private by Default, Toggleable Private <> Public) */}
-          <div className="mypage-section">
-            <div
-              className={`board-section-separator ${!playlistsOpen ? 'collapsed' : ''}`}
-              onClick={togglePlaylists}
-            >
-              <div
-                className="board-section-left"
-                role="button"
-                tabIndex={0}
-                aria-expanded={playlistsOpen}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault();
-                    togglePlaylists();
-                  }
-                }}
-              >
-                <ChevronDown className="board-section-chevron" size={14} />
-                <ListMusic size={13} />
-                <span>MY PLAYLISTS</span>
-                <span className="board-section-badge">{myPlaylists.length}</span>
-              </div>
-
-              {activeAddress && (
-                <div
-                  className="board-section-actions mypage-header-controls"
-                  onClick={(e) => e.stopPropagation()}
-                  onKeyDown={(e) => e.stopPropagation()}
-                >
-                  {showCreatePlaylistInput ? (
-                    <form className="mypage-header-inline-create" onSubmit={handleCreatePlaylist}>
-                      <input
-                        type="text"
-                        className="mypage-header-search-input"
-                        placeholder="Playlist title..."
-                        value={newPlaylistName}
-                        onChange={(e) => setNewPlaylistName(e.target.value)}
-                        maxLength={80}
-                        autoFocus
-                      />
-                      <button
-                        type="submit"
-                        className="mypage-header-icon-btn primary"
-                        disabled={creatingPlaylist || !newPlaylistName.trim()}
-                        aria-label="Create playlist"
-                      >
-                        <Check size={12} />
-                      </button>
-                      <button
-                        type="button"
-                        className="mypage-header-icon-btn"
-                        onClick={() => {
-                          setShowCreatePlaylistInput(false);
-                          setNewPlaylistName('');
-                        }}
-                        aria-label="Cancel"
-                      >
-                        <X size={12} />
-                      </button>
-                    </form>
-                  ) : (
-                    <Tooltip title="New Playlist">
-                      <button
-                        type="button"
-                        className="mypage-header-icon-btn"
-                        onClick={() => {
-                          if (!playlistsOpen) {
-                            userToggledPlaylists.current = true;
-                            setPlaylistsOpen(true);
-                          }
-                          setShowCreatePlaylistInput(true);
-                        }}
-                        aria-label="New playlist"
-                      >
-                        <Plus size={12} />
-                      </button>
-                    </Tooltip>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {playlistsOpen && (
-              <div className="mypage-section-body">
-                {loadingPlaylists ? (
-                  <div className="mypage-empty">
-                    <span className="mypage-empty-title">LOADING...</span>
-                  </div>
-                ) : myPlaylists.length === 0 ? (
-                  <div className="mypage-empty">
-                    <span className="mypage-empty-title">NO PLAYLISTS YET</span>
-                  </div>
-                ) : (
-                  <div className="market-grid">
-                    {myPlaylists.map((playlist) => {
-                      const resolvedSongs = (playlist.song_ids || [])
-                        .map((id) => allKnownSongsById.get(id))
-                        .filter((s): s is Song => Boolean(s));
-                      const cover =
-                        playlist.cover && playlist.cover.trim() !== ''
-                          ? playlist.cover
-                          : resolvedSongs[0]?.image || '';
-                      const isExpanded = expandedPlaylistId === playlist.id;
-                      const isPlayingPl = state.isPlaying && state.activePlaylistId === playlist.id;
-                      const isToggling = togglingPlaylistId === playlist.id;
-
-                      return (
-                        <div
-                          key={playlist.id}
-                          className="market-collection-card"
-                          onClick={() => setExpandedPlaylistId(isExpanded ? null : playlist.id)}
-                          role="button"
-                          tabIndex={0}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault();
-                              setExpandedPlaylistId(isExpanded ? null : playlist.id);
-                            }
-                          }}
-                        >
-                          <div className={`market-collection-media ${!cover ? 'is-logo' : ''}`}>
-                            <img
-                              src={cover || '/branding/mark.svg'}
-                              alt={playlist.title}
-                              loading="lazy"
-                              decoding="async"
-                            />
-
-                            <button
-                              type="button"
-                              className={`market-collection-vis-btn ${playlist.public ? 'public' : 'private'}`}
-                              disabled={isToggling}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                void handleTogglePlaylistPublic(playlist);
-                              }}
-                              title={
-                                playlist.public
-                                  ? 'Public · Click to make Private'
-                                  : 'Private · Click to make Public'
-                              }
-                              aria-label={`Toggle visibility, currently ${playlist.public ? 'Public' : 'Private'}`}
-                            >
-                              {playlist.public ? <Globe size={11} /> : <Lock size={11} />}
-                            </button>
-
-                            <button
-                              type="button"
-                              className="market-collection-delete-btn"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                void handleDeletePlaylist(playlist);
-                              }}
-                              title="Delete Playlist"
-                              aria-label={`Delete playlist ${playlist.title}`}
-                            >
-                              <Trash2 size={11} />
-                            </button>
-
-                            <button
-                              type="button"
-                              className={`market-collection-play-btn ${isPlayingPl ? 'playing' : ''}`}
-                              disabled={resolvedSongs.length === 0}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handlePlayMyPlaylist(playlist);
-                              }}
-                              aria-label={
-                                isPlayingPl ? `Pause ${playlist.title}` : `Play ${playlist.title}`
-                              }
-                            >
-                              {isPlayingPl ? <Pause size={14} /> : <Play size={14} />}
-                            </button>
-                          </div>
-
-                          <div className="market-collection-body">
-                            <div className="market-collection-title" title={playlist.title}>
-                              {playlist.title}
-                            </div>
-
-                            <div className="market-collection-meta">
-                              <Music size={10} />
-                              <span>{(playlist.song_ids || []).length}</span>
-                              <span>•</span>
-                              <Headphones size={10} />
-                              <span>{playlist.plays ?? 0}</span>
-                              {resolvedSongs.length > 0 && (
-                                <ChevronDown
-                                  size={11}
-                                  className="market-popover-chevron"
-                                />
-                              )}
-                            </div>
-
-                            {isExpanded && resolvedSongs.length > 0 && (
-                              <div
-                                className="market-playlist-tracklist"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                {resolvedSongs.map((s, idx) => {
-                                  const isPlayingTrack =
-                                    state.isPlaying && state.activeSong?.id === s.id;
-                                  return (
-                                    <div
-                                      key={`${s.id}-${idx}`}
-                                      className="market-playlist-track-row-wrap"
-                                    >
-                                      <button
-                                        type="button"
-                                        className={`market-playlist-track-row ${isPlayingTrack ? 'active' : ''}`}
-                                        onClick={() => store.playSong(s, resolvedSongs, playlist.id)}
-                                      >
-                                        <span className="market-playlist-track-idx">{idx + 1}</span>
-                                        <span className="market-playlist-track-name">{s.title}</span>
-                                      </button>
-                                      <button
-                                        type="button"
-                                        className="market-playlist-track-remove-btn"
-                                        onClick={() => void handleRemovePlaylistSong(playlist.id, s.id)}
-                                        aria-label={`Remove ${s.title}`}
-                                      >
-                                        <X size={10} />
-                                      </button>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* SECTION (vi): My Voices */}
-          <div className="mypage-section">
-            <div
-              className={`board-section-separator ${!voicesOpen ? 'collapsed' : ''}`}
-              data-guide="workspace.voices-heading" aria-expanded={voicesOpen} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggleVoices(); } }} onClick={toggleVoices}
-              role="button"
-              tabIndex={0}
-            >
-              <div className="board-section-left">
-                <ChevronDown className="board-section-chevron" size={14} />
-                <Mic2 size={13} />
-                <span>MY VOICES</span>
-                <span className="board-section-badge">{voices.length}</span>
-              </div>
-            </div>
-
-            {voicesOpen && (
-              <div className="mypage-section-body">
-                {voicesError && (
-                  <div className="mypage-empty" role="alert">
-                    <span className="mypage-empty-desc">{voicesError}</span>
-                    <Tooltip title="Retry Loading Voices">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          void refreshVoices();
-                        }}
-                      >
-                        <RotateCcw size={12} />
-                      </Button>
-                    </Tooltip>
-                  </div>
-                )}
-                {loadingVoices ? (
-                  <div className="mypage-empty">
-                    <span className="mypage-empty-title">LOADING VOICES...</span>
-                  </div>
-                ) : !voicesError && voices.length === 0 ? (
-                  <div className="mypage-empty">
-                    <span className="mypage-empty-title">NO CUSTOM VOICES</span>
-                    <span className="mypage-empty-desc">
-                      Attach a vocal sample in the Studio or save a voice from one of your songs.
-                    </span>
-                  </div>
-                ) : (
-                  <div className="market-grid">
-                    {voices.map((voice) => {
-                      const voiceUrl = resolveVoiceAudioUrl(voice);
-                      const voiceSongId = `voice:${voice.id}`;
-                      const isPlayingVoice =
-                        state.isPlaying && state.activeSong?.id === voiceSongId;
-                      const isLoadingVoice = loadingVoiceId === voice.id;
-                      const sourceSongId =
-                        typeof voice.metadata?.source_song_id === 'string'
-                          ? voice.metadata.source_song_id.trim()
-                          : '';
-                      const sourceSong = sourceSongId
-                        ? allKnownSongsById.get(sourceSongId)
-                        : undefined;
-                      const cover = sourceSong?.image || '';
-
-                      return (
-                        <div
-                          key={voice.id}
-                          className="market-collection-card"
-                        >
-                          <div className={`market-collection-media ${!cover ? 'is-logo' : ''}`}>
-                            <img
-                              src={cover || '/branding/mark.svg'}
-                              alt={voice.name}
-                              loading="lazy"
-                              decoding="async"
-                            />
-
-                            {voice.status !== 'ready' && (
-                              <div className="mypage-voice-status-badge">
-                                <Badge variant={voice.status === 'error' ? 'warning' : 'default'}>
-                                  {voiceStatus(voice).toUpperCase()}
-                                </Badge>
-                              </div>
-                            )}
-
-                            <button
-                              type="button"
-                              className={`market-collection-play-btn ${isPlayingVoice ? 'playing' : ''}`}
-                              disabled={!voiceUrl || isLoadingVoice}
-                              onClick={() => void handlePlayVoice(voice)}
-                              aria-label={isPlayingVoice ? `Pause ${voice.name}` : `Play ${voice.name}`}
-                            >
-                              {isPlayingVoice ? <Pause size={14} /> : <Play size={14} />}
-                            </button>
-                          </div>
-
-                          <div className="market-collection-body">
-                            <div className="market-collection-title" title={voice.name}>
-                              {voice.name}
-                            </div>
-
-                            {(['turbo', 'sft'] as const).map((mode) => {
-                              const availability = voice.availability[mode];
-                              return availability.step != null &&
-                                ['queued', 'training'].includes(availability.status) ? (
-                                <div key={mode} className="studio-voice-detail">
-                                  {mode === 'turbo' ? 'Fast' : 'Master'}: {availability.step}
-                                  {availability.total_steps != null
-                                    ? `/${availability.total_steps}`
-                                    : ''}
-                                </div>
-                              ) : null;
-                            })}
-
-                            {(voice.error ||
-                              voice.availability.turbo.error ||
-                              voice.availability.sft.error) && (
-                                <div className="studio-voice-detail" role="alert">
-                                  {voice.error ||
-                                    voice.availability.turbo.error ||
-                                    voice.availability.sft.error}
-                                </div>
-                              )}
-
-                            <div className="market-collection-meta">
-                              <Mic2 size={10} />
-                              <span>{new Date(voice.created_at).toLocaleDateString()}</span>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </>
       )}
 
       {/* Album Studio Modal */}
