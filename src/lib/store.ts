@@ -366,6 +366,10 @@ class Store {
   }
 
   private persistPlayback(lane: Playback) {
+    if (lane.exempt || lane.rejected || !lane.intent) {
+      try { localStorage.removeItem(`${STREAM_STORAGE}${lane.id}`); } catch {}
+      return;
+    }
     const { running, admitting, retry, ...stored } = lane;
     try { localStorage.setItem(`${STREAM_STORAGE}${lane.id}`, JSON.stringify({ ...stored, observedMs: Math.round(lane.observedMs) })); }
     catch { /* Keep the in-memory obligation and attempt page-exit delivery. */ }
@@ -373,12 +377,20 @@ class Store {
 
   private restorePlaybacks() {
     try {
-      const restored: Playback[] = [];
+      const keys: string[] = [];
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
-        if (!key?.startsWith(STREAM_STORAGE)) continue;
-        const lane = JSON.parse(localStorage.getItem(key)!);
-        if (!lane?.id || !lane.songId || !lane.billing || !Number.isFinite(lane.observedMs) || !Number.isFinite(lane.acceptedMs) || this.playbacks.has(lane.id)) continue;
+        if (key?.startsWith(STREAM_STORAGE)) keys.push(key);
+      }
+      const restored: Playback[] = [];
+      for (const key of keys) {
+        let lane: any = null;
+        try { lane = JSON.parse(localStorage.getItem(key)!); } catch {}
+        if (!lane?.id || !lane.songId || !lane.billing || !lane.intent || lane.exempt || lane.rejected || !Number.isFinite(lane.observedMs) || !Number.isFinite(lane.acceptedMs)) {
+          try { localStorage.removeItem(key); } catch {}
+          continue;
+        }
+        if (this.playbacks.has(lane.id)) continue;
         lane.terminal = true;
         lane.rejected = false;
         this.playbacks.set(lane.id, lane);
@@ -431,12 +443,19 @@ class Store {
       lane.rejected = true;
       if (this.playback === lane) {
         this.samplePlayback();
+        this.playback = null;
+        if (this.authorizedSongId === lane.songId) this.authorizedSongId = null;
         audio.pause();
         this.state = { ...this.state, isPlaying: false };
         this.notify();
         if (status === 402) this.resumeAfterGate({ steps: ['funding'], reason: 'Session budget exhausted', force: true });
         else toast.error(error.message || 'Playback payment rejected');
       }
+      this.removePlayback(lane);
+      return;
+    } else if (!lane.intent && lane.terminal) {
+      this.removePlayback(lane);
+      return;
     } else if (!lane.retry) {
       lane.retry = setTimeout(() => { lane.retry = undefined; void this.drainPlayback(lane); }, Math.min(30000, 1000 * 2 ** Math.min(lane.failures - 1, 5)));
     }
@@ -452,8 +471,11 @@ class Store {
           ...options, headers: { ...options.headers, Accept: 'application/json', 'x-idempotency-key': lane.id },
         });
         const data = await response.json().catch(() => null);
-        if (response.status === 402 && lane.alternatives.length) {
+        if ((response.status === 402 || response.status === 401) && lane.alternatives.length) {
+          this.playbacks.delete(lane.id);
           lane.billing = lane.alternatives.shift()!;
+          lane.id = crypto.randomUUID();
+          if (!lane.exempt) this.playbacks.set(lane.id, lane);
           this.persistPlayback(lane);
           continue;
         }
@@ -474,7 +496,10 @@ class Store {
 
   private drainPlayback(lane: Playback): Promise<void> {
     if (lane.running) return lane.running;
-    if (lane.rejected) return Promise.resolve();
+    if (lane.rejected || lane.exempt || (!lane.intent && lane.terminal && !lane.admitting)) {
+      this.removePlayback(lane);
+      return Promise.resolve();
+    }
     if (!lane.pending && lane.intent && !lane.exempt && (lane.terminal || lane.flush || Math.round(lane.observedMs) - lane.acceptedMs >= 20000)) {
       lane.pending = { paymentIntentId: lane.intent, listenedSeconds: Math.round(lane.observedMs) / 1000, terminal: lane.terminal };
       lane.flush = false;
@@ -492,7 +517,7 @@ class Store {
           const pending = lane.pending;
           const options = streamOptions(lane.billing)!;
           const activeContext = (this.state.activeContextId || '').toLowerCase();
-          const isMyPageRoute = typeof window !== 'undefined' && window.location.pathname.startsWith('/my-page');
+          const isMyPageRoute = typeof window !== 'undefined' && Boolean(window.location?.pathname?.startsWith('/my-page'));
           const playbackContext = activeContext || (isMyPageRoute ? 'mypage' : '');
           const response = await api.fetch(`/api/songs/${lane.songId}/stream/checkpoint`, {
             ...options,
@@ -1265,8 +1290,9 @@ class Store {
     }
 
     if (this.playback?.rejected) {
-      this.playback.rejected = false;
-      void this.drainPlayback(this.playback);
+      if (this.authorizedSongId === this.playback.songId) this.authorizedSongId = null;
+      this.removePlayback(this.playback);
+      this.playback = null;
     }
 
     // Resuming the already-loaded active song from its current playhead
@@ -1301,7 +1327,6 @@ class Store {
       bus.broadcastPlayback(song, startOffset, this.state.duration, true);
 
       if (!isCreator) {
-        this.persistPlayback(lane);
         void this.drainPlayback(lane);
       }
       return true;
