@@ -47,6 +47,7 @@ interface Observation {
   users: number;
   controllers: Map<string, AbortController>;
   errors: Map<string, string>;
+  notifiedError: string | null;
   listeners: Set<(message: string | null) => void>;
   unsubscribe: () => void;
 }
@@ -59,8 +60,17 @@ function observe(client: QueryClient, address: string, listener: (message: strin
   const owner = identity(address);
   let observation = accounts.get(owner);
   if (!observation) {
-    observation = { users: 0, controllers: new Map(), errors: new Map(), listeners: new Set(), unsubscribe: () => {} };
+    observation = { users: 0, controllers: new Map(), errors: new Map(), notifiedError: null, listeners: new Set(), unsubscribe: () => {} };
     const current = observation;
+    const notifyListeners = () => {
+      const nextError = current.errors.values().next().value ?? null;
+      if (nextError === current.notifiedError) return;
+      current.notifiedError = nextError;
+      queueMicrotask(() => {
+        const latestError = current.errors.values().next().value ?? null;
+        current.listeners.forEach(notify => notify(latestError));
+      });
+    };
     const sync = () => {
       const voices = client.getQueryData<Voice[]>(key(address)) ?? [];
       const active = new Set(voices.filter(pending).map(voice => voice.id));
@@ -79,20 +89,20 @@ function observe(client: QueryClient, address: string, listener: (message: strin
             writeVoices(next, address);
             return next;
           });
-          current.listeners.forEach(notify => notify(current.errors.values().next().value ?? null));
+          notifyListeners();
           return !pending(updated);
         }, { userAddress: address }).catch(error => {
           if (controller.signal.aborted) return;
           current.errors.set(id, error instanceof Error ? error.message : 'Could not follow voice preparation');
-          current.listeners.forEach(notify => notify(current.errors.values().next().value ?? null));
+          notifyListeners();
         }).finally(() => { if (current.controllers.get(id) === controller) current.controllers.delete(id); });
       }
     };
     current.unsubscribe = client.getQueryCache().subscribe(event => {
-      if (event.query.queryKey[0] === 'voices' && event.query.queryKey[1] === owner) {
-        if (event.type === 'updated' && event.action.type === 'success' && !event.action.manual) current.errors.clear();
+      if (event.type === 'updated' && event.query.queryKey[0] === 'voices' && event.query.queryKey[1] === owner) {
+        if (event.action.type === 'success' && !event.action.manual) current.errors.clear();
         sync();
-        current.listeners.forEach(notify => notify(current.errors.values().next().value ?? null));
+        notifyListeners();
       }
     });
     accounts.set(owner, current);
@@ -133,7 +143,13 @@ export function useVoices(address: string | null) {
 
   useEffect(() => {
     if (!address) return;
-    return observe(client, address, message => setStreamError(message ? { address, message } : null));
+    return observe(client, address, message => {
+      setStreamError(prev => {
+        const next = message ? { address, message } : null;
+        if (prev === next || (prev && next && prev.address === next.address && prev.message === next.message)) return prev;
+        return next;
+      });
+    });
   }, [client, address]);
 
   const remember = useCallback((voice: unknown): Voice => {
