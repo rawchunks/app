@@ -55,6 +55,31 @@ export function writePreferredFundingSource(owner: string | null | undefined, so
     } catch { }
 }
 
+export function readCachedWalletAuthToken(owner?: string | null): string | null {
+    if (typeof window === "undefined" || !owner) return null;
+    try {
+        const direct = localStorage.getItem(`rawchunks:wallet-token:${owner.toLowerCase()}`);
+        if (direct && direct.trim()) return direct.trim();
+        for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && k.startsWith("walletToken-")) {
+                const val = localStorage.getItem(k);
+                if (val && val.trim()) return val.trim();
+            }
+        }
+        return null;
+    } catch {
+        return null;
+    }
+}
+
+export function writeCachedWalletAuthToken(owner: string | null | undefined, token: string | null | undefined): void {
+    if (typeof window === "undefined" || !owner || !token || !token.trim()) return;
+    try {
+        localStorage.setItem(`rawchunks:wallet-token:${owner.toLowerCase()}`, token.trim());
+    } catch { }
+}
+
 export interface CachedPublicCreditsConfig {
     paypalClientId: string;
     environment: 'sandbox' | 'live';
@@ -127,6 +152,7 @@ export function purgeUserCaches(): void {
                 k.startsWith("voices:") ||
                 k.startsWith("credits:") ||
                 k.startsWith("rawchunks:funding-source:") ||
+                k.startsWith("rawchunks:wallet-token:") ||
                 k.startsWith("rawchunks:session:") ||
                 k.startsWith("rawchunks:compose-session:") ||
                 k.startsWith("rawchunks:credit-purchase:") ||

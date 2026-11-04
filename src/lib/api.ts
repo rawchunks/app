@@ -242,6 +242,7 @@ export function captureStreamBilling(account: string): StreamBilling[] {
 }
 
 export function streamOptions(billing: StreamBilling): Parameters<ComposeSDK['fetch']>[1] {
+  const walletToken = billing.walletToken || creditContext?.authToken || null;
   return {
     key: billing.source === 'card' ? null : billing.token,
     paymentMode: 'key',
@@ -250,7 +251,7 @@ export function streamOptions(billing: StreamBilling): Parameters<ComposeSDK['fe
     headers: {
       'x-session-user-address': billing.account,
       'x-network-id': billing.network,
-      ...(billing.walletToken ? { 'x-wallet-auth-token': billing.walletToken } : {}),
+      ...(walletToken ? { 'x-wallet-auth-token': walletToken } : {}),
       ...(billing.source === 'card' ? { 'x-credit-source': 'card' } : {}),
     },
   };

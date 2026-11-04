@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useActiveWallet, useAdminWallet } from 'thirdweb/react';
 import { useSelectedUserAddress } from './use-address';
-import { readCachedCredits, readCachedPayPalClientId, writeCachedCredits, writeCachedPayPalClientId } from '../lib/cache';
+import { readCachedCredits, readCachedPayPalClientId, readCachedWalletAuthToken, writeCachedCredits, writeCachedPayPalClientId, writeCachedWalletAuthToken } from '../lib/cache';
 import { creditsApi, DEFAULT_PAYPAL_CLIENT_ID, purchaseCacheKey, zeroCredits, type CreditBalance } from '../lib/credits';
 
 export function useCreditAccount() {
@@ -10,7 +10,11 @@ export function useCreditAccount() {
   const { userAddress, readAddress, accountId } = useSelectedUserAddress();
   const effectiveAddress = userAddress ?? readAddress ?? null;
   const owner = accountId ?? effectiveAddress?.toLowerCase() ?? null;
-  const authToken = wallet?.getAuthToken?.() ?? null;
+  const liveAuthToken = wallet?.getAuthToken?.() ?? null;
+  if (owner && liveAuthToken) {
+    writeCachedWalletAuthToken(owner, liveAuthToken);
+  }
+  const authToken = liveAuthToken ?? readCachedWalletAuthToken(owner);
   const identity = `${owner ?? 'anon'}:${effectiveAddress ?? ''}`;
   const latest = useRef({ identity, owner, effectiveAddress, authToken });
   latest.current = { identity, owner, effectiveAddress, authToken };
