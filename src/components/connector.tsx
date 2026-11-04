@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { usePayPalScriptReducer } from '@paypal/react-paypal-js';
 import { useSession } from '@/hooks/use-session';
+import { useSelectedUserAddress } from '@/hooks/use-address';
 import { creditLabel, creditsApi, purchaseCacheKey, type CheckoutIntent } from '@/lib/credits';
 import { Button } from '@/components/button';
 import type { Account, Wallet as ThirdwebWallet } from "thirdweb/wallets";
@@ -527,6 +528,7 @@ export function CardCheckout({
   onCancel: () => void;
 }) {
   const { session, credits, creditsLoading, creditOwner, completeCreditPurchase } = useSession();
+  const { paymentNetwork, userAddress, readAddress } = useSelectedUserAddress();
   const packs = credits.packs;
   const [packId, setPackId] = useState(packs[0]?.id ?? '');
   const pack = packs.find(value => value.id === packId) ?? packs[0];
@@ -534,19 +536,21 @@ export function CardCheckout({
   const operation = useRef<{ operationId: string; orderId: string } | null>(null);
   const requestKey = useRef(crypto.randomUUID());
 
+  const resolvedNetwork = session?.network || paymentNetwork || null;
+  const resolvedUserAddress = session?.userAddress || userAddress || readAddress || creditOwner || null;
   const orderParamsRef = useRef({
     packId: pack?.id ?? '',
     intent: effectiveIntent,
     creditOwner,
-    network: session?.network ?? null,
-    userAddress: session?.userAddress ?? null,
+    network: resolvedNetwork,
+    userAddress: resolvedUserAddress,
   });
   orderParamsRef.current = {
     packId: pack?.id ?? '',
     intent: effectiveIntent,
     creditOwner,
-    network: session?.network ?? null,
-    userAddress: session?.userAddress ?? null,
+    network: resolvedNetwork,
+    userAddress: resolvedUserAddress,
   };
 
   useEffect(() => {
