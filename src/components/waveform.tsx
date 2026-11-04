@@ -268,7 +268,10 @@ export const Waveform: React.FC<Props> = ({
     [activeLaneSculptsKey]
   );
   const sculptMode: WaveSculptMode = globalSculptMode ?? effectiveSculpt.mode ?? 'granular';
-  const hasSculpt = useMemo(() => !isIdentityWaveSculpt(composedMasterVisualSculpt), [composedMasterVisualSculpt]);
+  const hasSculpt = useMemo(
+    () => interactive && !isIdentityWaveSculpt(composedMasterVisualSculpt),
+    [interactive, composedMasterVisualSculpt]
+  );
   const [activeSculptNodeId, setActiveSculptNodeId] = useState<string | null>(null);
   const [activeAnchorId, setActiveAnchorId] = useState<string | null>(null);
   const hoverPeakRef = useRef<{ ratio: number; peakY: number } | null>(null);
@@ -465,6 +468,9 @@ export const Waveform: React.FC<Props> = ({
 
   const sourcePeaks = customPeaks && customPeaks.length > 0 ? customPeaks : loadedPeaks;
   const rawActivePeaks = useMemo(() => {
+    if (!interactive && (!segments || segments.length === 0)) {
+      return sourcePeaks;
+    }
     const baseDuration = savedDuration > 0 ? savedDuration : (duration > 0 ? duration : 60);
     if (segments && segments.length > 0 && baseDuration > 0 && duration > 0) {
       if (
@@ -491,9 +497,12 @@ export const Waveform: React.FC<Props> = ({
       const time = index / sourcePeaks.length * duration;
       return time < baseDuration ? sourcePeaks[Math.min(sourcePeaks.length - 1, Math.floor(time / baseDuration * sourcePeaks.length))] : 0;
     });
-  }, [sourcePeaks, segments, timelineDuration, duration, savedDuration]);
+  }, [interactive, sourcePeaks, segments, timelineDuration, duration, savedDuration]);
 
   const activePeaks = useMemo(() => {
+    if (!interactive) {
+      return rawActivePeaks;
+    }
     if (!hasAnyLaneSculpt) {
       return transformMagnitudeArray(rawActivePeaks, effectiveSculpt);
     }
@@ -515,7 +524,7 @@ export const Waveform: React.FC<Props> = ({
       });
     }
     return transformMagnitudeArray(rawActivePeaks, composedMasterVisualSculpt);
-  }, [rawActivePeaks, effectiveSculpt, hasAnyLaneSculpt, rawLayers, masterSculpt, layers, composedMasterVisualSculpt]);
+  }, [interactive, rawActivePeaks, effectiveSculpt, hasAnyLaneSculpt, rawLayers, masterSculpt, layers, composedMasterVisualSculpt]);
 
   const boundaries = useMemo(() => {
     if (!layers.length) return [];
@@ -536,7 +545,9 @@ export const Waveform: React.FC<Props> = ({
       : null;
 
   // Look for any active reworked take on this song to highlight on the waveform
-  const activeReworkedTake = takes.find(t => t.is_active && t.provenance?.target === 'master' && t.provenance.region && t.repainting_start != null && t.repainting_end != null);
+  const activeReworkedTake = interactive
+    ? takes.find(t => t.is_active && t.provenance?.target === 'master' && t.provenance.region && t.repainting_start != null && t.repainting_end != null)
+    : undefined;
 
   // =========================================================================
   // Canvas Rendering Pipeline (Offscreen Static Layer Cache + Fast Dynamic Blit)
@@ -564,7 +575,7 @@ export const Waveform: React.FC<Props> = ({
     const virtualW = w * zoomFactor;
     const barCount = activePeaks.length;
     const midY = h / 2;
-    const barWidth = barCount > 0 ? virtualW / barCount : 0;
+    const barWidth = barCount > 1 ? virtualW / (barCount - 1) : virtualW;
     const ampHeight = midY * 0.88;
     const highlightedKey = (highlighted ?? []).join(',');
     const reworkId = activeReworkedTake ? `${activeReworkedTake.id}:${activeReworkedTake.repainting_start}:${activeReworkedTake.repainting_end}` : undefined;
@@ -1197,7 +1208,17 @@ export const Waveform: React.FC<Props> = ({
   );
 
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!interactive) return;
+    if (!interactive) {
+      if (onSeek && canvasRef.current) {
+        e.stopPropagation();
+        const rect = canvasRef.current.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const w = Math.max(1, rect.width);
+        const ratio = localXToRatio(x, w);
+        onSeek(ratio);
+      }
+      return;
+    }
     const canvas = canvasRef.current;
     if (!canvas) return;
 
