@@ -7,7 +7,6 @@ import {
   Disc3,
   User,
   Tag,
-  MoreHorizontal,
   ListPlus,
   FolderPlus,
   Headphones,
@@ -18,8 +17,10 @@ import { Badge } from '../badge';
 import { Tooltip } from '../daw/Tooltip';
 import { Versions } from './versions';
 import { Licenses } from './licenses';
+import { LikeButton, PlaylistAdder } from './row';
 import { store } from '../../lib/store';
 import { useProfile } from '../../hooks/use-profile';
+import { navigateToCreator } from '../../lib/routes';
 import { NETWORK_LOGOS, networkLogo } from '../../contexts/Network';
 import { getExplorerUrl, getExplorerTxUrl } from '../../lib/chains';
 import type { Song } from '../../lib/schema';
@@ -173,16 +174,19 @@ export const CreatorSlot: React.FC<{
     <div className="market-card-row-creator">
       <Tooltip
         title={displayName}
-        description={onSelectCreator ? 'Filter by creator' : address}
+        description="Open creator studio"
         className="market-creator-info-wrap"
       >
         <button
           type="button"
-          className={`market-creator-info ${onSelectCreator ? 'clickable' : ''}`}
+          className="market-creator-info clickable"
           onClick={(e) => {
-            if (!onSelectCreator) return;
             e.stopPropagation();
-            onSelectCreator(address);
+            if (onSelectCreator) {
+              onSelectCreator(address);
+            } else {
+              navigateToCreator(address);
+            }
           }}
         >
           {avatar ? (
@@ -459,20 +463,9 @@ export const Card: React.FC<CardProps> = ({
         duration={song.duration}
         plays={song.plays}
         topRightActions={
-          <div className="mypage-menu-wrap">
-            <Tooltip title="Queue & Actions" description="Play next, add to queue, or save to playlist">
-              <button
-                type="button"
-                className="mypage-card-more-btn"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setMarketMenuOpen((prev) => !prev);
-                }}
-                aria-label="Song actions"
-              >
-                <MoreHorizontal size={13} />
-              </button>
-            </Tooltip>
+          <div className="market-card-social-actions" onClick={(e) => e.stopPropagation()}>
+            <LikeButton songId={song.id} likesCount={song.likes} showCount />
+            <PlaylistAdder song={song} onShare={onShare} />
           </div>
         }
       />

@@ -12,6 +12,8 @@ import { readCachedProfile } from '../lib/cache';
 import { createPlaylistApi } from '../hooks/use-playlists';
 import { useQueryClient } from '@tanstack/react-query';
 import { openGate } from '../lib/gate';
+import { navigateToCreator } from '../lib/routes';
+import { LikeButton, PlaylistAdder } from './songs/row';
 import {
   Play,
   Pause,
@@ -355,8 +357,25 @@ export const Player: React.FC<Props> = ({ className = '' }) => {
                 <div className="player-track-title">{titleText}</div>
               )}
             </div>
-            <div className="player-track-meta">{creatorText}</div>
+            {currentSong?.creator ? (
+              <button
+                type="button"
+                className="player-track-meta player-track-meta-link"
+                onClick={() => navigateToCreator(currentSong.creator)}
+                title={`Open ${creatorText}`}
+              >
+                {creatorText}
+              </button>
+            ) : (
+              <div className="player-track-meta">{creatorText}</div>
+            )}
           </div>
+          {currentSong && (
+            <div className="player-track-social">
+              <LikeButton songId={currentSong.id} likesCount={currentSong.likes} />
+              <PlaylistAdder song={currentSong} />
+            </div>
+          )}
         </div>
 
         {/* Transport Controls */}
