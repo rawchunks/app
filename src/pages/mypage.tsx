@@ -5,7 +5,8 @@ import { toast } from 'sonner';
 import {
   Pencil,
   ChevronDown,
-  Copy,
+  ChevronLeft,
+  ChevronRight,
   Check,
   Disc3,
   Mic2,
@@ -37,6 +38,8 @@ import {
   Image as ImageIcon,
   KeyRound,
   Layers,
+  Activity,
+  Heart,
 } from 'lucide-react';
 import { Tooltip } from '../components/daw/Tooltip';
 import { Glitch } from '../components/glitch';
@@ -45,11 +48,15 @@ import { Badge } from '../components/badge';
 import { Draft, type FinderViewMode } from '../components/songs/draft';
 import { Asset } from '../components/songs/asset';
 import { Earn } from '../components/ag';
+import { GenreBadges } from '../components/ag/genres';
+import { useLikes } from '../hooks/use-social';
 import {
   DATE_WINDOW_OPTIONS,
   SOURCE_OPTIONS,
+  formatMs,
   type DateWindow,
   type RevenueSourceFilter,
+  type StatId,
 } from '../components/ag/utils';
 import { AlbumModal } from '../components/songs/album';
 import {
@@ -83,7 +90,12 @@ import {
   deletePlaylistApi,
 } from '../hooks/use-playlists';
 import { useQueryClient } from '@tanstack/react-query';
-import { ProfileModal } from '../components/profile';
+import {
+  ProfileModal,
+  CreatorProfileCard,
+  sanitizeCreatorNickname,
+} from '../components/profile';
+import { navigateToCreator } from '../lib/routes';
 import { EditSongModal } from '../components/options';
 import { PublishModal } from '../components/songs/publish';
 import { ShareModal } from '../components/share';
@@ -244,7 +256,6 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
   const [albumTargetSong, setAlbumTargetSong] = useState<Song | null>(null);
   const [albumStudioOpen, setAlbumStudioOpen] = useState(false);
   const [editingAlbum, setEditingAlbum] = useState<Album | null>(null);
-  const [copied, setCopied] = useState(false);
 
   // Top-level Mode Switcher ('workspace' | 'earn') with sessionStorage memory & Finder View State
   const [activeTab, setActiveTab] = useState<'workspace' | 'earn'>(() => {
@@ -436,22 +447,14 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
     error: voicesError,
     refresh: refreshVoices,
   } = useVoices(activeAddress);
-  const { nickname, avatar, bio } = useProfile(activeAddress);
+  const { nickname, avatar, bio, banner, socials } = useProfile(activeAddress);
   const formattedAddress = activeAddress
     ? `${activeAddress.slice(0, 6)}...${activeAddress.slice(-4)}`
     : '';
-  const sanitizedNickname = useMemo(() => {
-    const n = (nickname || '').trim();
-    if (!n) return '';
-    if (activeAddress && n.toLowerCase() === activeAddress.toLowerCase()) {
-      return formattedAddress;
-    }
-    if (/^0x[a-fA-F0-9]{16,}$/.test(n) || /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(n)) {
-      return `${n.slice(0, 6)}...${n.slice(-4)}`;
-    }
-    return n;
-  }, [nickname, activeAddress, formattedAddress]);
-  const displayName = sanitizedNickname || formattedAddress || '0x...';
+  const sanitizedNickname = useMemo(
+    () => sanitizeCreatorNickname(nickname, activeAddress) || '',
+    [nickname, activeAddress]
+  );
   const { toggle: togglePublic, pending: publicPending } = usePublic();
   const {
     data: earningsData,
@@ -1213,14 +1216,6 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
     }
   };
 
-  const copyAddress = () => {
-    if (!activeAddress) return;
-    navigator.clipboard.writeText(activeAddress);
-    setCopied(true);
-    toast.success('Address copied to clipboard');
-    setTimeout(() => setCopied(false), 2000);
-  };
-
   const handleDownload = async (song: Song) => {
     if (downloading) return;
     setMenuOpenId(null);
@@ -1399,10 +1394,27 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
         <div className="mypage-header-left">
           <div className="mypage-title-cluster">
             <Glitch text="MY_PAGE" className="mypage-title-text" />
-            <span className={`mypage-vault-pill ${activeTab === 'workspace' ? 'private' : 'public'}`}>
-              {activeTab === 'workspace' ? <Lock size={10} /> : <Globe size={10} />}
-              <span>{activeTab === 'workspace' ? 'WORKSPACE' : 'DASHBOARD'}</span>
-            </span>
+            <Tooltip
+              title="Preview Public Creator Profile"
+              description="Open your public /creator studio page"
+            >
+              <button
+                type="button"
+                className="mypage-vault-pill public mypage-preview-btn"
+                onClick={() => {
+                  const handle = sanitizedNickname || activeAddress;
+                  if (handle) {
+                    navigateToCreator(handle);
+                  } else {
+                    void openGate({ steps: ['login'], force: true });
+                  }
+                }}
+                aria-label="Preview Public Profile"
+              >
+                <Globe size={11} />
+                <span className="mypage-preview-label">PREVIEW</span>
+              </button>
+            </Tooltip>
           </div>
           <div className="mypage-subtitle">
             {activeTab === 'workspace'
@@ -1448,56 +1460,18 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
 
       {/* SECTION (i): Profile Header */}
       {activeAddress ? (
-        <div className="mypage-profile-card" data-guide="mypage-profile">
-          <div className="mypage-profile-left">
-            {avatar ? (
-              <img src={avatar} alt="Profile Avatar" className="mypage-profile-avatar" />
-            ) : (
-              <div className="mypage-profile-avatar-placeholder">
-                <User size={20} />
-              </div>
-            )}
-            <div className="mypage-profile-details">
-              <div className="mypage-profile-nickname-row">
-                <span className="mypage-profile-nickname">{displayName}</span>
-                <Tooltip title="Edit Profile" description="Update creator nickname, bio, and avatar">
-                  <button
-                    type="button"
-                    className="mypage-profile-edit-btn"
-                    onClick={() => setProfileModalOpen(true)}
-                    aria-label="Edit Profile"
-                  >
-                    <Pencil size={11} />
-                  </button>
-                </Tooltip>
-              </div>
-              {formattedAddress && (
-                <div className="mypage-profile-meta">
-                  <Tooltip title="Copy Wallet Address" description={activeAddress}>
-                    <button
-                      type="button"
-                      className="mypage-copy-btn"
-                      onClick={copyAddress}
-                      aria-label="Copy wallet address"
-                    >
-                      <span>{formattedAddress}</span>
-                      {copied ? <Check size={9} /> : <Copy size={9} />}
-                    </button>
-                  </Tooltip>
-                </div>
-              )}
-              {bio ? (
-                <p className="mypage-profile-bio">{bio}</p>
-              ) : (
-                <p
-                  className="mypage-profile-bio empty"
-                  onClick={() => setProfileModalOpen(true)}
-                >
-                  Add a creator bio...
-                </p>
-              )}
-            </div>
-          </div>
+        <div className="mypage-profile-bar">
+          <CreatorProfileCard
+            variant="mypage"
+            address={activeAddress}
+            songs={publishedSongsList}
+            nickname={nickname}
+            avatar={avatar}
+            bio={bio}
+            banner={banner}
+            socials={socials}
+            onEdit={() => setProfileModalOpen(true)}
+          />
 
           <div className="mypage-profile-right">
             <div className="mypage-profile-mode-tabs" role="tablist" aria-label="Creator page mode">
@@ -1556,82 +1530,6 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
                   </button>
                 </Tooltip>
               )}
-            </div>
-
-            <div className="mypage-profile-stats">
-              <Tooltip title="Studio Drafts & Releases">
-                <button
-                  type="button"
-                  className={`mypage-profile-stat-box interactive ${activeTab === 'workspace' && workspaceStage === 'songs' ? 'active' : ''}`}
-                  onClick={() => {
-                    setActiveTab('workspace');
-                    setTimeout(() => scrollToWorkspaceStage('songs'), 20);
-                  }}
-                  aria-label="Tracks"
-                >
-                  <Music size={11} />
-                  <span className="mypage-profile-stat-val">{originalFamilies.length}</span>
-                </button>
-              </Tooltip>
-              <Tooltip title="Licensed Stems & Remixes">
-                <button
-                  type="button"
-                  className={`mypage-profile-stat-box interactive ${activeTab === 'workspace' && workspaceStage === 'licenses' ? 'active' : ''}`}
-                  onClick={() => {
-                    setActiveTab('workspace');
-                    setTimeout(() => scrollToWorkspaceStage('licenses'), 20);
-                  }}
-                  aria-label="Licenses"
-                >
-                  <KeyRound size={11} />
-                  <span className="mypage-profile-stat-val">{totalLicensesCount}</span>
-                </button>
-              </Tooltip>
-              <Tooltip title="Albums">
-                <button
-                  type="button"
-                  className={`mypage-profile-stat-box interactive ${activeTab === 'workspace' && workspaceStage === 'catalog' && catalogMobileTab === 'albums' ? 'active' : ''}`}
-                  onClick={() => {
-                    setActiveTab('workspace');
-                    setCatalogMobileTab('albums');
-                    setTimeout(() => scrollToWorkspaceStage('catalog'), 20);
-                  }}
-                  aria-label="Albums"
-                >
-                  <Disc3 size={11} />
-                  <span className="mypage-profile-stat-val">{albums.length}</span>
-                </button>
-              </Tooltip>
-              <Tooltip title="Playlists">
-                <button
-                  type="button"
-                  className={`mypage-profile-stat-box interactive ${activeTab === 'workspace' && workspaceStage === 'catalog' && catalogMobileTab === 'playlists' ? 'active' : ''}`}
-                  onClick={() => {
-                    setActiveTab('workspace');
-                    setCatalogMobileTab('playlists');
-                    setTimeout(() => scrollToWorkspaceStage('catalog'), 20);
-                  }}
-                  aria-label="Playlists"
-                >
-                  <ListMusic size={11} />
-                  <span className="mypage-profile-stat-val">{myPlaylists.length}</span>
-                </button>
-              </Tooltip>
-              <Tooltip title="AI Voices">
-                <button
-                  type="button"
-                  className={`mypage-profile-stat-box interactive ${activeTab === 'workspace' && workspaceStage === 'catalog' && catalogMobileTab === 'voices' ? 'active' : ''}`}
-                  onClick={() => {
-                    setActiveTab('workspace');
-                    setCatalogMobileTab('voices');
-                    setTimeout(() => scrollToWorkspaceStage('catalog'), 20);
-                  }}
-                  aria-label="Voices"
-                >
-                  <Mic2 size={11} />
-                  <span className="mypage-profile-stat-val">{voices.length}</span>
-                </button>
-              </Tooltip>
             </div>
           </div>
         </div>

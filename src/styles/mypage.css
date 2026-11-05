@@ -45,12 +45,12 @@
 .mypage-vault-pill {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  height: 18px;
-  padding: 0 7px;
+  gap: 5px;
+  height: 20px;
+  padding: 0 8px;
   border-radius: 2px;
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: var(--font-2xs);
   font-weight: 800;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -63,10 +63,23 @@
   border: 1px solid rgba(255, 170, 0, 0.35);
 }
 
-.mypage-vault-pill.earn {
+.mypage-vault-pill.earn,
+.mypage-vault-pill.public {
   color: var(--accent);
   background: rgba(0, 204, 255, 0.1);
-  border: 1px solid rgba(0, 204, 255, 0.35);
+  border: 1px solid rgba(0, 204, 255, 0.38);
+}
+
+.mypage-preview-btn {
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.mypage-preview-btn:hover {
+  color: var(--primary);
+  border-color: var(--primary);
+  background: rgba(0, 255, 65, 0.12);
+  box-shadow: 0 0 10px rgba(0, 255, 65, 0.22);
 }
 
 .workspace-stage-nav {
@@ -74,7 +87,7 @@
 }
 
 .workspace-stage-pill-count {
-  font-size: 9px;
+  font-size: var(--font-2xs);
   padding: 1px 5px;
   border-radius: 2px;
   background: rgba(255, 255, 255, 0.08);
@@ -235,7 +248,18 @@
 /* ==========================================================================
    MYPAGE PROFILE SECTION (i)
    ========================================================================== */
+.mypage-profile-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  flex-shrink: 0;
+  min-width: 0;
+}
+
 .mypage-profile-card {
+  position: relative;
+  overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -248,7 +272,22 @@
   flex-wrap: nowrap;
 }
 
+.mypage-profile-card.has-banner {
+  border-color: var(--border-bright);
+}
+
+.mypage-profile-banner-bg {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  pointer-events: none;
+  z-index: 0;
+}
+
 .mypage-profile-left {
+  position: relative;
+  z-index: 1;
   display: flex;
   align-items: center;
   gap: var(--space-sm);
@@ -283,7 +322,7 @@
 .mypage-profile-details {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2xs);
+  gap: 3px;
   min-width: 0;
 }
 
@@ -307,7 +346,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: transparent;
+  background: rgba(5, 5, 8, 0.55);
   border: 1px solid var(--border-bright);
   border-radius: var(--space-2xs);
   padding: var(--space-2xs) var(--space-xs);
@@ -328,19 +367,20 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 10px;
-  line-height: 1.2;
+  font-size: 11px;
+  line-height: 1.15;
   color: var(--text-dim);
   flex-wrap: wrap;
 }
 
 .mypage-profile-bio {
-  margin: 0;
+  margin: 2px 0 0;
   font-family: var(--font-sans);
-  font-size: var(--font-xs);
-  line-height: 1.4;
-  color: var(--text-secondary);
-  max-width: 52ch;
+  font-size: var(--font-sm);
+  font-weight: 500;
+  line-height: 1.45;
+  color: var(--text);
+  max-width: 62ch;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -358,6 +398,10 @@
   color: var(--text-secondary);
 }
 
+.mypage-profile-socials {
+  margin-top: 3px;
+}
+
 .mypage-copy-btn {
   display: inline-flex;
   align-items: center;
@@ -365,19 +409,23 @@
   background: transparent;
   border: none;
   color: var(--text-dim);
+  opacity: 0.78;
   cursor: pointer;
   padding: 0;
-  font-size: 10px;
-  line-height: 1.2;
+  font-size: 11px;
+  line-height: 1.15;
   font-family: var(--font-mono);
-  transition: color 0.15s ease;
+  transition: color 0.15s ease, opacity 0.15s ease;
 }
 
 .mypage-copy-btn:hover {
   color: var(--primary);
+  opacity: 1;
 }
 
 .mypage-profile-right {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
@@ -431,51 +479,6 @@
   background: rgba(0, 255, 65, 0.18);
   border-color: rgba(0, 255, 65, 0.45);
   color: var(--primary);
-}
-
-.mypage-profile-stats {
-  display: flex;
-  align-items: center;
-  gap: var(--space-xs);
-  flex-shrink: 0;
-}
-
-.mypage-profile-stat-box {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-2xs);
-  padding: var(--space-2xs) var(--space-xs);
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid var(--border-dim);
-  border-radius: var(--space-2xs);
-  color: var(--text-dim);
-  font-family: var(--font-family);
-  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
-}
-
-.mypage-profile-stat-box.interactive {
-  cursor: pointer;
-}
-
-.mypage-profile-stat-box:hover {
-  border-color: var(--border-bright);
-  color: var(--text-secondary);
-}
-
-.mypage-profile-stat-box.active {
-  border-color: rgba(0, 255, 65, 0.48);
-  background: rgba(0, 255, 65, 0.1);
-  color: var(--primary);
-}
-
-.mypage-profile-stat-val {
-  font-size: var(--font-xs);
-  font-weight: 800;
-  color: var(--primary);
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
 }
 
 /* ==========================================================================
