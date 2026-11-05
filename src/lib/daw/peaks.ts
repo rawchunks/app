@@ -260,8 +260,11 @@ export async function decodeAudioBuffer(arrayBuffer: ArrayBuffer): Promise<Audio
 export type AudioLoadPriority = 'high' | 'normal';
 
 const MAX_BACKGROUND_CONCURRENCY = 3;
-const MAX_PEAK_CACHE_ENTRIES = 64;
+const MAX_PEAK_CACHE_ENTRIES = 512;
 const MAX_DECODED_BUFFER_CACHE_ENTRIES = 5;
+const PEAKS_API_BASE_URL = String(
+  (import.meta as any).env?.VITE_API_URL || 'https://api.rawchunks.space'
+).replace(/\/+$/, '');
 let activeBackgroundFetches = 0;
 
 interface QueuedFetch {
@@ -284,7 +287,10 @@ const decodedBufferCache = new Map<string, Promise<AudioBuffer>>();
 
 export function clearMemoryAudioCaches() {
   decodedBufferCache.clear();
-  canonicalPeakCache.clear();
+}
+
+function roundPeakVal(v: number): number {
+  return Math.round(v * 1000) / 1000;
 }
 
 function canonicalCacheKey(url: string, offset = 0, duration?: number): string {
@@ -308,11 +314,11 @@ function persistPeakToLocalStorage(
   let payload: string;
   try {
     payload = JSON.stringify({
-      mins: Array.from(peaks.mins),
-      maxs: Array.from(peaks.maxs),
-      rms: Array.from(peaks.rms),
+      mins: Array.from(peaks.mins, roundPeakVal),
+      maxs: Array.from(peaks.maxs, roundPeakVal),
+      rms: Array.from(peaks.rms, roundPeakVal),
       bins: peaks.bins,
-      duration: peaks.duration,
+      duration: roundPeakVal(peaks.duration),
     });
   } catch {
     return;
@@ -326,7 +332,10 @@ function persistPeakToLocalStorage(
         const k = localStorage.key(i);
         if (k && k.startsWith('waveform:')) waveformKeys.push(k);
       }
-      for (const k of waveformKeys) localStorage.removeItem(k);
+      const evictCount = Math.max(1, Math.ceil(waveformKeys.length * 0.35));
+      for (let i = 0; i < evictCount && i < waveformKeys.length; i++) {
+        localStorage.removeItem(waveformKeys[i]);
+      }
       localStorage.setItem(key, payload);
     } catch {
       // Ignore storage quota errors
@@ -388,6 +397,36 @@ function storeResolvedPeak(key: string, peaks: BipolarPeaks) {
   }
   resolvedCanonicalPeaks.set(key, peaks);
 }
+
+function hydrateAllPersistedPeaksFromIdb(): void {
+  if (typeof indexedDB === 'undefined') return;
+  void openPeakDb().then((db) => {
+    if (!db) return;
+    try {
+      const tx = db.transaction(IDB_STORE, 'readonly');
+      const store = tx.objectStore(IDB_STORE);
+      const req = store.openCursor();
+      req.onsuccess = () => {
+        const cursor = req.result;
+        if (!cursor) return;
+        const key = String(cursor.key);
+        const val = cursor.value as PersistedPeakRecord | undefined;
+        if (val && !resolvedCanonicalPeaks.has(key)) {
+          const hydrated = hydratePeakRecord(val);
+          if (hydrated) {
+            storeResolvedPeak(key, hydrated);
+            canonicalPeakCache.set(key, Promise.resolve(hydrated));
+          }
+        }
+        cursor.continue();
+      };
+    } catch {
+      // Ignore IDB hydration errors
+    }
+  });
+}
+
+hydrateAllPersistedPeaksFromIdb();
 
 function pumpBackgroundQueue() {
   while (activeBackgroundFetches < MAX_BACKGROUND_CONCURRENCY && backgroundQueue.length > 0) {
@@ -727,10 +766,12 @@ export async function extractBipolarPeaksFromUrl(
         // In browser environment, query lightweight backend precomputed peaks (~3 KB) before downloading 40 MB WAV
         if (
           typeof window !== 'undefined' &&
-          (url.includes('.r2.dev') || url.includes('r2.cloudflarestorage.com'))
+          /^https?:\/\//i.test(url)
         ) {
           try {
-            const resp = await fetch(`/api/editing/peaks?url=${encodeURIComponent(url)}&bins=${canonicalBins}`);
+            const resp = await fetch(
+              `${PEAKS_API_BASE_URL}/api/editing/peaks?url=${encodeURIComponent(url)}&bins=${canonicalBins}`
+            );
             if (resp.ok) {
               const data = await resp.json();
               const remotePeaks = hydratePeakRecord(data);
@@ -738,9 +779,9 @@ export async function extractBipolarPeaksFromUrl(
                 storeResolvedPeak(key, remotePeaks);
                 persistPeakToLocalStorage(url, 512, 0, undefined, resampleBipolarPeaks(remotePeaks, 512));
                 void writePersistedPeaks(key, {
-                  mins: Array.from(remotePeaks.mins),
-                  maxs: Array.from(remotePeaks.maxs),
-                  duration: remotePeaks.duration,
+                  mins: Array.from(remotePeaks.mins, roundPeakVal),
+                  maxs: Array.from(remotePeaks.maxs, roundPeakVal),
+                  duration: roundPeakVal(remotePeaks.duration),
                   updatedAt: Date.now(),
                 });
                 return remotePeaks;

@@ -21,7 +21,7 @@ export const API_BASE_URL = RAWCHUNKS_API_URL;
 
 const retry = { maxRetries: 2, initialDelayMs: 400, maxDelayMs: 6_000, jitter: true };
 
-const EVICTABLE_PREFIXES = ["waveform:", "project:", "songs:", "rawchunks:wip:"];
+const EVICTABLE_PREFIXES = ["songs:", "project:", "rawchunks:wip:", "waveform:"];
 
 export function evictNonEssentialLocalStorage(storage: Storage): void {
   try {

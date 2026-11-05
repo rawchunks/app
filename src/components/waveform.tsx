@@ -292,7 +292,7 @@ export const Waveform: React.FC<Props> = ({
       let isMounted = true;
       let retryTimer: ReturnType<typeof setTimeout> | null = null;
       const loadPeaks = () => {
-        extractPeaksFromUrl(audioUrl, 256, 'high')
+        extractPeaksFromUrl(audioUrl, 256, interactive ? 'high' : 'normal')
           .then((p) => {
             if (isMounted && p.length > 0) {
               setLoadedPeaks(p);
