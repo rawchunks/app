@@ -11,7 +11,7 @@ import { useSession } from "@/hooks/use-session";
 import { useDisclaimerConsent } from "@/hooks/use-disclaimer";
 import { useGuide } from "@/components/guide/Tour";
 import { GUIDE_FLOWS } from "@/components/guide/Steps";
-import { ProfileModal } from "@/components/profile";
+import { ProfileModal, CreatorSocialBadges } from "@/components/profile";
 import { DisclaimerBody, DISCLAIMER_POLICY_VERSION } from "@/components/disclaimer";
 import { Modal } from "@/components/modal";
 import { Button } from "@/components/button";
@@ -75,7 +75,7 @@ export function AccountChip({ className }: AccountChipProps) {
   const { activePage, startFlow } = useGuide();
 
   const displayAddress = userAddress ?? readAddress;
-  const { nickname, avatar, bio } = useProfile(displayAddress);
+  const { nickname, avatar, bio, socials } = useProfile(displayAddress);
 
   const [copied, setCopied] = useState(false);
   const [userOpen, setUserOpen] = useState(false);
@@ -335,6 +335,7 @@ export function AccountChip({ className }: AccountChipProps) {
                     Add a creator bio...
                   </p>
                 )}
+                <CreatorSocialBadges socials={socials} compact />
               </div>
             </div>
 
