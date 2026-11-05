@@ -4,7 +4,6 @@ import { Tooltip } from '../daw/Tooltip';
 import { getNetworkLogo, type NetworkFilter } from '../../hooks/use-earnings';
 import { BlockDropdown } from './dropdown';
 import { ActivityFeed } from './feed';
-import { OverviewCards } from './overview';
 import { SongsBlock } from './songs';
 import { TimelineChart } from './timeline';
 import {
@@ -647,8 +646,6 @@ export function Earn({
           </div>
         </header>
       )}
-
-      <OverviewCards stats={overviewStats} />
 
       <TimelineChart
         timeSeriesData={timeSeriesData}

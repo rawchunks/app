@@ -1971,9 +1971,9 @@
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-sm);
-  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: var(--space-xs);
+  flex-wrap: nowrap;
   padding: var(--space-xs) var(--space-sm);
   background: var(--bg-panel);
   border: 1px solid var(--border);
@@ -1984,7 +1984,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-xs);
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   min-width: 0;
 }
 
@@ -2042,47 +2042,184 @@
   margin-left: auto;
 }
 
-.earn-inline-summary {
-  display: flex;
+.earn-kpi-inline-strip {
+  display: inline-flex;
   align-items: center;
-  gap: var(--space-xs);
-  flex-wrap: wrap;
+  gap: 2px;
+  padding: 2px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--space-2xs);
+  flex-shrink: 0;
 }
 
-.earn-inline-stat {
+.earn-kpi-inline-pill {
+  appearance: none;
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  height: var(--daw-ctrl-h);
-  padding: 0 var(--space-sm);
-  background: var(--bg);
-  border: 1px solid var(--border-dim);
-  border-radius: 3px;
+  height: calc(var(--daw-ctrl-h) - 4px);
+  padding: 0 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 2px;
   color: var(--text-secondary);
+  font-family: var(--font-family);
   font-size: var(--font-xs);
-  font-variant-numeric: tabular-nums;
+  font-weight: 700;
   white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.14s ease;
 }
 
-.earn-inline-stat.primary {
-  border-color: rgba(0, 255, 65, 0.4);
+.earn-kpi-inline-pill:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.earn-kpi-inline-pill.active {
+  background: rgba(0, 255, 65, 0.12);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.earn-kpi-overflow-wrap,
+.earn-kpi-select-wrap {
+  position: relative;
+  display: none;
+}
+
+/* Intermediate viewport (861px–1120px): Show 3 primary stats inline + secondary overflow dropdown */
+@media (max-width: 1120px) and (min-width: 861px) {
+  .earn-kpi-inline-pill.tier-secondary {
+    display: none;
+  }
+
+  .earn-kpi-overflow-wrap {
+    display: inline-flex;
+  }
+}
+
+/* Tablet & Mobile (<= 860px): Fold all stats into single active KPI + dropdown selector */
+@media (max-width: 860px) {
+  .earn-kpi-inline-strip,
+  .earn-kpi-overflow-wrap {
+    display: none;
+  }
+
+  .earn-kpi-select-wrap {
+    display: inline-flex;
+  }
+}
+
+.earn-kpi-trigger {
+  gap: 6px;
+  padding: 0 var(--space-sm);
+  border-color: rgba(0, 255, 65, 0.42);
   background: rgba(0, 255, 65, 0.07);
   color: var(--primary);
 }
 
-.earn-inline-val {
-  font-weight: 800;
-  color: var(--text);
-}
-
-.earn-inline-stat.primary .earn-inline-val {
+.earn-kpi-trigger:hover,
+.earn-kpi-trigger.open {
+  border-color: var(--primary);
+  background: rgba(0, 255, 65, 0.13);
   color: var(--primary);
 }
 
-.earn-inline-sub {
+.earn-kpi-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--primary);
+  flex-shrink: 0;
+}
+
+.earn-kpi-label {
   font-size: var(--font-xs);
-  font-weight: 600;
+  font-weight: 700;
+  color: var(--text-secondary);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.earn-kpi-value {
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  font-weight: 800;
+  color: var(--primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.earn-kpi-popover {
+  min-width: 210px;
+}
+
+.earn-kpi-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  width: 100%;
+}
+
+.earn-kpi-opt-left {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+}
+
+.earn-kpi-opt-val {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  font-weight: 800;
+  color: var(--primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.earn-view-bar {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px;
+  padding: 2px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--space-2xs);
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+.earn-view-bar-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 var(--space-sm);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 2px;
   color: var(--text-dim);
+  font-family: var(--font-family);
+  font-size: var(--font-xs);
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.14s ease;
+}
+
+.earn-view-bar-tab:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.earn-view-bar-tab.active {
+  background: rgba(0, 255, 65, 0.12);
+  border-color: var(--primary);
+  color: var(--primary);
 }
 
 .earn-list-header,
@@ -2225,10 +2362,9 @@
   display: grid;
   grid-template-areas:
     "header header header header"
-    "stats  stats  stats  stats"
     "chart  chart  chart  feed"
     "songs songs songs feed";
-  grid-template-rows: auto auto minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr);
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: clamp(0.4rem, 0.9cqi, 0.65rem);
   padding: 2px;
@@ -2251,60 +2387,53 @@
 .cm-dashboard[data-focus="chart"] {
   grid-template-areas:
     "header header header header"
-    "stats  stats  stats  stats"
     "chart  chart  chart  songs"
     "chart  chart  chart  feed";
-  grid-template-rows: auto auto repeat(2, minmax(0, 1fr));
+  grid-template-rows: auto repeat(2, minmax(0, 1fr));
 }
 
 .cm-dashboard[data-focus="songs"] {
   grid-template-areas:
     "header header header header"
-    "stats  stats  stats  stats"
     "songs songs songs chart"
     "songs songs songs feed";
-  grid-template-rows: auto auto repeat(2, minmax(0, 1fr));
+  grid-template-rows: auto repeat(2, minmax(0, 1fr));
 }
 
 .cm-dashboard[data-focus="feed"] {
   grid-template-areas:
     "header header header header"
-    "stats  stats  stats  stats"
     "feed   feed   feed   chart"
     "feed   feed   feed   songs";
-  grid-template-rows: auto auto repeat(2, minmax(0, 1fr));
+  grid-template-rows: auto repeat(2, minmax(0, 1fr));
 }
 
 .cm-dashboard[data-rail="hidden"] {
   grid-template-areas:
-    "stats  stats  stats  stats"
     "chart  chart  chart  feed"
     "songs  songs  songs  feed";
-  grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
 }
 
 .cm-dashboard[data-rail="hidden"][data-focus="chart"] {
   grid-template-areas:
-    "stats  stats  stats  stats"
     "chart  chart  chart  songs"
     "chart  chart  chart  feed";
-  grid-template-rows: auto repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
 }
 
 .cm-dashboard[data-rail="hidden"][data-focus="songs"] {
   grid-template-areas:
-    "stats  stats  stats  stats"
     "songs  songs  songs  chart"
     "songs  songs  songs  feed";
-  grid-template-rows: auto repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
 }
 
 .cm-dashboard[data-rail="hidden"][data-focus="feed"] {
   grid-template-areas:
-    "stats  stats  stats  stats"
     "feed   feed   feed   chart"
     "feed   feed   feed   songs";
-  grid-template-rows: auto repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -3699,23 +3828,21 @@ button.cm-stat-card--picker {
 
     grid-template-areas:
       "header"
-      "stats"
       "main"
       "sideA"
       "sideB";
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto auto minmax(175px, 1.35fr) minmax(105px, 0.55fr) minmax(105px, 0.55fr);
-    gap: 6px;
+    grid-template-rows: auto minmax(0, 1.25fr) minmax(0, 0.88fr) minmax(0, 0.88fr);
+    gap: 5px;
   }
 
   .cm-dashboard[data-rail="hidden"],
   .cm-dashboard[data-rail="hidden"][data-focus] {
     grid-template-areas:
-      "stats"
       "main"
       "sideA"
       "sideB";
-    grid-template-rows: auto minmax(175px, 1.35fr) minmax(105px, 0.55fr) minmax(105px, 0.55fr);
+    grid-template-rows: minmax(0, 1.25fr) minmax(0, 0.88fr) minmax(0, 0.88fr);
   }
 
   .cm-dashboard__updating {
@@ -3756,27 +3883,6 @@ button.cm-stat-card--picker {
 
   .cm-dashboard[data-focus="feed"] .cm-block[data-block="songs"] {
     grid-area: sideB;
-  }
-
-  .cm-overview-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .cm-stat-card[data-stat] {
-    display: none;
-  }
-
-  .cm-overview[data-selected-stat="profit"] .cm-stat-card[data-stat="profit"],
-  .cm-overview[data-selected-stat="plays"] .cm-stat-card[data-stat="plays"],
-  .cm-overview[data-selected-stat="streamed"] .cm-stat-card[data-stat="streamed"],
-  .cm-overview[data-selected-stat="ratio"] .cm-stat-card[data-stat="ratio"],
-  .cm-overview[data-selected-stat="licenses"] .cm-stat-card[data-stat="licenses"] {
-    display: flex;
-  }
-
-  .cm-stat-card--picker-wrap,
-  button.cm-stat-card--picker {
-    display: flex;
   }
 
   .cm-block__header-side .cm-sort-dropdown__trigger {
@@ -3870,23 +3976,21 @@ button.cm-stat-card--picker {
 
     grid-template-areas:
       "header"
-      "stats"
       "main"
       "sideA"
       "sideB";
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto auto minmax(175px, 1.35fr) minmax(105px, 0.55fr) minmax(105px, 0.55fr);
-    gap: 6px;
+    grid-template-rows: auto minmax(0, 1.25fr) minmax(0, 0.88fr) minmax(0, 0.88fr);
+    gap: 5px;
   }
 
   .cm-dashboard[data-rail="hidden"],
   .cm-dashboard[data-rail="hidden"][data-focus] {
     grid-template-areas:
-      "stats"
       "main"
       "sideA"
       "sideB";
-    grid-template-rows: auto minmax(175px, 1.35fr) minmax(105px, 0.55fr) minmax(105px, 0.55fr);
+    grid-template-rows: minmax(0, 1.25fr) minmax(0, 0.88fr) minmax(0, 0.88fr);
   }
 
   .cm-dashboard__updating {
@@ -3927,27 +4031,6 @@ button.cm-stat-card--picker {
 
   .cm-dashboard[data-focus="feed"] .cm-block[data-block="songs"] {
     grid-area: sideB;
-  }
-
-  .cm-overview-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .cm-stat-card[data-stat] {
-    display: none;
-  }
-
-  .cm-overview[data-selected-stat="profit"] .cm-stat-card[data-stat="profit"],
-  .cm-overview[data-selected-stat="plays"] .cm-stat-card[data-stat="plays"],
-  .cm-overview[data-selected-stat="streamed"] .cm-stat-card[data-stat="streamed"],
-  .cm-overview[data-selected-stat="ratio"] .cm-stat-card[data-stat="ratio"],
-  .cm-overview[data-selected-stat="licenses"] .cm-stat-card[data-stat="licenses"] {
-    display: flex;
-  }
-
-  .cm-stat-card--picker-wrap,
-  button.cm-stat-card--picker {
-    display: flex;
   }
 
   .cm-block__header-side .cm-sort-dropdown__trigger {
