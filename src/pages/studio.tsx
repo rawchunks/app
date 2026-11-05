@@ -13,11 +13,12 @@ import { useSession } from '../components/session';
 import { openGate } from '@/lib/gate';
 import { toast } from 'sonner';
 import { Modal } from '../components/modal';
+import { GenresModal, formatTagSummary } from '../components/options';
 import { Languages } from '../components/studio/languages';
 import { Tooltip } from '../components/daw/Tooltip';
 import { useDismiss } from '../hooks/use-dismiss';
 import { Mic2, UploadCloud, FileAudio, Play, Pause, Sliders, Globe, Lock, ListMusic, ArrowLeft, FolderOpen } from 'lucide-react';
-import { useOptions, type TagCategory } from '@/hooks/use-options';
+import { useOptions } from '@/hooks/use-options';
 import { useVoices, voiceReady, voiceStatus } from '@/hooks/use-voices';
 import {
   parseLyricsToBlocks,
@@ -49,7 +50,6 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
   const [activeMoods, setActiveMoods] = useState<string[]>([]);
   const [activeVocals, setActiveVocals] = useState<string[]>([]);
   const [tagDimension, setTagDimension] = useState<'genres' | 'production' | 'mood' | 'vocal'>('genres');
-  const [expandedTagCategory, setExpandedTagCategory] = useState<string | null>(null);
   const [model, setModel] = useState('turbo');
   const options = useOptions();
   const generation = options.data?.generation;
@@ -411,45 +411,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
 
   const openTagModal = (dim: 'genres' | 'production' | 'mood' | 'vocal') => {
     setTagDimension(dim);
-    setExpandedTagCategory(null);
     setActiveModal('tags');
-  };
-
-  const toggleMultiTag = (
-    tagId: string,
-    current: string[],
-    setter: React.Dispatch<React.SetStateAction<string[]>>,
-    maxTotal = 3
-  ) => {
-    if (current.includes(tagId)) {
-      setter(current.filter((t) => t !== tagId));
-    } else if (current.length < maxTotal) {
-      setter([...current, tagId]);
-    } else {
-      setter([...current.slice(1), tagId]);
-    }
-  };
-
-  const toggleSegmentedTag = (
-    tagId: string,
-    category: TagCategory,
-    current: string[],
-    setter: React.Dispatch<React.SetStateAction<string[]>>
-  ) => {
-    if (current.includes(tagId)) {
-      setter(current.filter((t) => t !== tagId));
-      return;
-    }
-    const categoryTagIds = new Set(category.tags.map((t) => t.id));
-    const withoutThisCategory = current.filter((t) => !categoryTagIds.has(t));
-    setter([...withoutThisCategory, tagId]);
-  };
-
-  const formatTagSummary = (tags: string[]) => {
-    if (tags.length === 0) return 'NONE';
-    const upper = tags.map((t) => t.toUpperCase());
-    if (upper.length <= 2) return upper.join(' · ');
-    return `${upper.slice(0, 2).join(' · ')} +${upper.length - 2}`;
   };
 
   const handleGenerateCover = async (retry = false) => {
@@ -3198,13 +3160,11 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
       </Modal>
 
       {/* Expanding UI Tags Modal (Genres / Production / Mood / Vocal) */}
-      <Modal
-        guideOwner="studio" guideAnchor="studio.tags-editor"
+      <GenresModal
+        guideOwner="studio"
+        guideAnchor="studio.tags-editor"
         isOpen={activeModal === 'tags'}
-        onClose={() => {
-          setActiveModal(null);
-          setExpandedTagCategory(null);
-        }}
+        onClose={() => setActiveModal(null)}
         title={
           tagDimension === 'genres'
             ? `GENRES (${activeGenres.length}/3)`
@@ -3214,154 +3174,36 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                 ? `MOOD (${activeMoods.length}/3)`
                 : `VOCAL (${activeVocals.length}/4)`
         }
-        size="md"
-      >
-        {(() => {
-          const categories: TagCategory[] =
-            tagDimension === 'genres'
-              ? generation?.genres ?? []
-              : tagDimension === 'production'
-                ? generation?.production ?? []
-                : tagDimension === 'mood'
-                  ? generation?.moods ?? []
-                  : generation?.vocals ?? [];
-
-          const currentSelection =
-            tagDimension === 'genres'
-              ? activeGenres
-              : tagDimension === 'production'
-                ? activeProduction
-                : tagDimension === 'mood'
-                  ? activeMoods
-                  : activeVocals;
-
-          const currentSetter =
-            tagDimension === 'genres'
-              ? setActiveGenres
-              : tagDimension === 'production'
-                ? setActiveProduction
-                : tagDimension === 'mood'
-                  ? setActiveMoods
-                  : setActiveVocals;
-
-          const isSegmented = tagDimension === 'production' || tagDimension === 'vocal';
-          const expandedCategory = categories.find((c) => c.id === expandedTagCategory) ?? null;
-
-          const findTagMeta = (tagId: string) => {
-            for (const cat of categories) {
-              const found = cat.tags.find((t) => t.id === tagId);
-              if (found) return found;
-            }
-            return { id: tagId, label: tagId, desc: '' };
-          };
-
-          return (
-            <div className="studio-param-modal-content studio-tags-expanding-modal">
-              {/* Step 1: Core Categories (Click a Core category to reveal Sub-Tags below) */}
-              <div
-                className={`studio-tags-core-tabs ${categories.length === 4
-                    ? 'cols-4'
-                    : categories.length === 6
-                      ? 'cols-3'
-                      : 'cols-wrap'
-                  }`}
-              >
-                {categories.map((cat) => {
-                  const isExpanded = expandedTagCategory === cat.id;
-                  const selectedInCat = cat.tags.filter((t) => currentSelection.includes(t.id));
-                  const hasSelection = selectedInCat.length > 0;
-                  return (
-                    <Tooltip key={cat.id} title={cat.desc}>
-                      <button
-                        type="button"
-                        aria-expanded={isExpanded}
-                        className={`studio-tags-core-pill ${isExpanded ? 'expanded' : ''} ${hasSelection ? 'has-selection' : ''}`}
-                        onClick={() => setExpandedTagCategory(isExpanded ? null : cat.id)}
-                      >
-                        <span className="studio-tags-core-title">{cat.label.toUpperCase()}</span>
-                        {hasSelection && (
-                          <span className="studio-tags-core-badge">{selectedInCat.length}</span>
-                        )}
-                        <span className="studio-tags-core-chevron">{isExpanded ? '▲' : '▼'}</span>
-                      </button>
-                    </Tooltip>
-                  );
-                })}
-              </div>
-
-              {/* Step 2: Sub-Tags (Directly revealed when a Core category is selected) */}
-              {expandedCategory && (
-                <div className="studio-tags-sub-grid">
-                  {expandedCategory.tags.map((tag) => {
-                    const isSelected = currentSelection.includes(tag.id);
-                    return (
-                      <Tooltip key={tag.id} title={tag.desc}>
-                        <button
-                          type="button"
-                          className={`studio-tags-sub-chip ${isSelected ? 'active' : ''}`}
-                          onClick={() => {
-                            if (isSegmented) {
-                              toggleSegmentedTag(tag.id, expandedCategory, currentSelection, currentSetter);
-                            } else {
-                              toggleMultiTag(tag.id, currentSelection, currentSetter, 3);
-                            }
-                          }}
-                        >
-                          <span className="studio-tags-sub-chip-label">{tag.label.toUpperCase()}</span>
-                          {isSelected && <span className="studio-tags-sub-chip-check">✓</span>}
-                        </button>
-                      </Tooltip>
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* Active Selection Pills (Only visible when tags are selected) */}
-              {currentSelection.length > 0 && (
-                <div className="studio-tags-selected-badges">
-                  {currentSelection.map((tagId) => {
-                    const meta = findTagMeta(tagId);
-                    return (
-                      <Tooltip key={tagId} title={meta.desc || 'Click to remove'}>
-                        <button
-                          type="button"
-                          className="studio-tags-active-pill"
-                          onClick={() => currentSetter(currentSelection.filter((t) => t !== tagId))}
-                        >
-                          <span>{meta.label.toUpperCase()}</span>
-                          <span className="studio-tags-active-pill-x">✕</span>
-                        </button>
-                      </Tooltip>
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* Footer Actions */}
-              <div className="studio-param-actions-row">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  disabled={currentSelection.length === 0}
-                  onClick={() => currentSetter([])}
-                >
-                  CLEAR
-                </Button>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={() => {
-                    setActiveModal(null);
-                    setExpandedTagCategory(null);
-                  }}
-                >
-                  DONE
-                </Button>
-              </div>
-            </div>
-          );
-        })()}
-      </Modal>
+        categories={
+          tagDimension === 'genres'
+            ? generation?.genres ?? []
+            : tagDimension === 'production'
+              ? generation?.production ?? []
+              : tagDimension === 'mood'
+                ? generation?.moods ?? []
+                : generation?.vocals ?? []
+        }
+        selected={
+          tagDimension === 'genres'
+            ? activeGenres
+            : tagDimension === 'production'
+              ? activeProduction
+              : tagDimension === 'mood'
+                ? activeMoods
+                : activeVocals
+        }
+        onChange={
+          tagDimension === 'genres'
+            ? setActiveGenres
+            : tagDimension === 'production'
+              ? setActiveProduction
+              : tagDimension === 'mood'
+                ? setActiveMoods
+                : setActiveVocals
+        }
+        maxTotal={tagDimension === 'production' || tagDimension === 'vocal' ? 4 : 3}
+        isSegmented={tagDimension === 'production' || tagDimension === 'vocal'}
+      />
 
       {/* Cover Art Expand Modal */}
       <Modal

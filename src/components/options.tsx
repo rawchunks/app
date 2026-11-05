@@ -244,35 +244,6 @@ export interface EditSongModalProps {
   onAlbumsChanged?: () => void;
 }
 
-const GENRES = [
-  'Acid Techno',
-  'Airy Lead Vocals',
-  'Ambient',
-  'Breakcore',
-  'Cinematic Strings',
-  'Crisp Acoustic Drums',
-  'Cyberpunk',
-  'DNB',
-  'Electro',
-  'Electronic',
-  'Funky Electric Guitar',
-  'Glitch',
-  'Hardcore',
-  'Hip Hop',
-  'House',
-  'Industrial',
-  'Lo-Fi',
-  'Lo-Fi Tape Saturation',
-  'Lush Backing Harmonies',
-  'Neural Glitch',
-  'Punchy 808 Bass',
-  'Rock',
-  'Synthwave',
-  'Techno',
-  'Trance',
-  'Warm Analog Synth',
-];
-
 export const EditSongModal: React.FC<EditSongModalProps> = ({
   isOpen,
   onClose,
@@ -281,8 +252,11 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
   albums = [],
   onAlbumsChanged,
 }) => {
+  const { data: optionsData } = useOptions();
+  const genreCategories = optionsData?.generation?.genres ?? [];
   const [title, setTitle] = useState('');
-  const [genre, setGenre] = useState('ELECTRONIC');
+  const [genres, setGenres] = useState<string[]>([]);
+  const [genresModalOpen, setGenresModalOpen] = useState(false);
   const [albumId, setAlbumId] = useState('');
   const [image, setImage] = useState<string | null>(null);
   const [streamPrice, setStreamPrice] = useState('0.05');
@@ -294,16 +268,43 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (isOpen && song) {
-      setTitle(song.title || '');
-      setGenre(song.tags?.[0] ? song.tags[0].toUpperCase() : 'ELECTRONIC');
-      setAlbumId(song.album_id || '');
-      setImage(song.image ? song.image : null);
-      setStreamPrice(String(song.stream_price ?? 0.05));
-      setLicenses(String(song.licenses ?? 50));
-      setLicensePrice(String(song.license_price ?? 20));
+    if (!isOpen || !song) {
+      setGenresModalOpen(false);
+      return;
     }
-  }, [isOpen, song]);
+    setTitle(song.title || '');
+    const initialRaw = [...(song.genres || []), ...(song.tags || [])];
+    setGenres(resolveCanonicalGenres(initialRaw, genreCategories).slice(0, 3));
+    setAlbumId(song.album_id || '');
+    setImage(song.image ? song.image : null);
+    setStreamPrice(String(song.stream_price ?? 0.05));
+    setLicenses(String(song.licenses ?? 50));
+    setLicensePrice(String(song.license_price ?? 20));
+
+    let cancelled = false;
+    api
+      .fetch(`/api/songs/${encodeURIComponent(song.id)}`, {
+        userAddress: activeAddress ?? undefined,
+      })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((project) => {
+        if (cancelled || !project?.song) return;
+        const remoteSong: Song = project.song;
+        const remoteRaw = [...(remoteSong.genres || []), ...(remoteSong.tags || [])];
+        setGenres(resolveCanonicalGenres(remoteRaw, genreCategories).slice(0, 3));
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, song?.id]);
+
+  useEffect(() => {
+    if (isOpen && genreCategories.length > 0) {
+      setGenres((prev) => resolveCanonicalGenres(prev, genreCategories).slice(0, 3));
+    }
+  }, [isOpen, genreCategories]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -334,13 +335,14 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
     if (!await openGate({ steps: ['login', 'funding'] })) return;
     setGeneratingCover(true);
     try {
+      const styleLabel = genres.join(', ');
       const res = await api.fetch('/api/generation/cover', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          prompt: `${title.trim() || 'futuristic soundscape'}, ${genre} music style, cyberpunk dark aesthetic artwork`,
+          prompt: `${title.trim() || 'futuristic soundscape'}${styleLabel ? `, ${styleLabel} music style` : ''}, cyberpunk dark aesthetic artwork`,
           title: title.trim() || undefined,
-          style: genre || undefined,
+          style: styleLabel || undefined,
         }),
       });
       if (res.status === 402) {
@@ -390,7 +392,8 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
     try {
       const patchPayload: Record<string, any> = {
         title: title.trim(),
-        tags: genre ? [genre.toUpperCase()] : song.tags,
+        genres,
+        tags: genres,
         image: image || null,
         stream_price: sPrice,
       };
@@ -425,7 +428,8 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
 
       store.updateSong(song.id, {
         title: title.trim(),
-        tags: patchPayload.tags,
+        genres,
+        tags: genres,
         image: patchPayload.image,
         stream_price: sPrice,
         album_id: albumId || null,
@@ -458,21 +462,32 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
           />
         </div>
 
-        {/* Genre & Album Dropdowns */}
+        {/* Genres Badges + Album Dropdown */}
         <div className="edit-song-2col-row">
           <div className="cyber-input-wrap">
             <label className="cyber-input-label">GENRE</label>
-            <select
-              className="cyber-input-field"
-              value={genre}
-              onChange={(e) => setGenre(e.target.value)}
-            >
-              {GENRES.map((g) => (
-                <option key={g} value={g.toUpperCase()}>
-                  {g.toUpperCase()}
-                </option>
+            <div className="studio-tags-selected-badges">
+              {genres.map((tagId) => (
+                <Tooltip key={tagId} title="Click to remove">
+                  <button
+                    type="button"
+                    className="studio-tags-active-pill"
+                    onClick={() => setGenres((prev) => prev.filter((t) => t !== tagId))}
+                  >
+                    <span>{tagId.toUpperCase()}</span>
+                    <span className="studio-tags-active-pill-x">✕</span>
+                  </button>
+                </Tooltip>
               ))}
-            </select>
+              <button
+                type="button"
+                className="studio-tags-active-pill"
+                onClick={() => setGenresModalOpen(true)}
+                aria-label="Open genres modal"
+              >
+                <span>{genres.length > 0 ? '+' : 'ADD'}</span>
+              </button>
+            </div>
           </div>
 
           <div className="cyber-input-wrap">
@@ -491,6 +506,15 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
             </select>
           </div>
         </div>
+
+        <GenresModal
+          isOpen={genresModalOpen}
+          onClose={() => setGenresModalOpen(false)}
+          selected={genres}
+          onChange={setGenres}
+          categories={genreCategories}
+          maxTotal={3}
+        />
 
         {/* Cover Art Box with Pick Image & Generate Button */}
         <div className="cyber-input-wrap">

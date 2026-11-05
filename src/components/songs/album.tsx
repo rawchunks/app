@@ -1,11 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Modal } from '../modal';
+import { GenresModal, resolveCanonicalGenres } from '../options';
 import { Button } from '../button';
 import { Badge } from '../badge';
 import { Tooltip } from '../daw/Tooltip';
 import { api } from '@/lib/api';
 import { store } from '@/lib/store';
 import { openGate } from '@/lib/gate';
+import { useOptions } from '@/hooks/use-options';
 import {
   createAlbumApi,
   updateAlbumApi,
@@ -30,22 +32,6 @@ export interface AlbumModalProps {
   onSaved: () => void;
 }
 
-const ALBUM_GENRES = [
-  'ELECTRONIC',
-  'ACID TECHNO',
-  'CYBERPUNK',
-  'SYNTHWAVE',
-  'AMBIENT',
-  'DNB',
-  'HOUSE',
-  'INDUSTRIAL',
-  'HIP HOP',
-  'LO-FI',
-  'ROCK',
-  'CINEMATIC STRINGS',
-  'NEURAL GLITCH',
-];
-
 export const AlbumModal: React.FC<AlbumModalProps> = ({
   isOpen,
   onClose,
@@ -54,8 +40,11 @@ export const AlbumModal: React.FC<AlbumModalProps> = ({
   songs,
   onSaved,
 }) => {
+  const { data: optionsData } = useOptions();
+  const genreCategories = optionsData?.generation?.genres ?? [];
   const [title, setTitle] = useState('');
-  const [genre, setGenre] = useState('ELECTRONIC');
+  const [genres, setGenres] = useState<string[]>([]);
+  const [genresModalOpen, setGenresModalOpen] = useState(false);
   const [description, setDescription] = useState('');
   const [concept, setConcept] = useState('');
   const [cover, setCover] = useState<string | null>(null);
@@ -75,11 +64,16 @@ export const AlbumModal: React.FC<AlbumModalProps> = ({
   const galleryInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      setGenresModalOpen(false);
+      return;
+    }
     setAlbumTab('details');
     if (album) {
       setTitle(album.title || '');
-      setGenre(album.genre ? album.genre.toUpperCase() : 'ELECTRONIC');
+      setGenres(
+        album.genre ? resolveCanonicalGenres([album.genre], genreCategories).slice(0, 3) : []
+      );
       setDescription(album.description || '');
       setConcept(album.concept || '');
       setCover(album.cover && album.cover.trim() !== '' ? album.cover : null);
@@ -98,14 +92,20 @@ export const AlbumModal: React.FC<AlbumModalProps> = ({
       setSelectedSongIds(assigned);
     } else {
       setTitle('');
-      setGenre('ELECTRONIC');
+      setGenres([]);
       setDescription('');
       setConcept('');
       setCover(null);
       setGallery([]);
       setSelectedSongIds(new Set());
     }
-  }, [isOpen, album, songs]);
+  }, [isOpen, album?.id]);
+
+  useEffect(() => {
+    if (isOpen && genreCategories.length > 0) {
+      setGenres((prev) => resolveCanonicalGenres(prev, genreCategories).slice(0, 3));
+    }
+  }, [isOpen, genreCategories]);
 
   const handleUploadImage = async (
     file: File,
@@ -137,9 +137,10 @@ export const AlbumModal: React.FC<AlbumModalProps> = ({
     if (!(await openGate({ steps: ['login', 'funding'] }))) return;
     setGeneratingCover(true);
     try {
+      const styleLabel = genres.join(', ');
       const promptParts = [
         title.trim() || 'futuristic album sleeve',
-        `${genre} music album cover`,
+        styleLabel ? `${styleLabel} music album cover` : 'music album cover',
         concept.trim() ? concept.trim().slice(0, 140) : description.trim().slice(0, 120),
         'iconic vinyl sleeve artwork, high contrast dark aesthetic',
       ].filter(Boolean);
@@ -149,7 +150,7 @@ export const AlbumModal: React.FC<AlbumModalProps> = ({
         body: JSON.stringify({
           prompt: promptParts.join(', '),
           title: title.trim() || undefined,
-          style: genre || undefined,
+          style: styleLabel || undefined,
         }),
       });
       if (res.status === 402) {
@@ -200,13 +201,14 @@ export const AlbumModal: React.FC<AlbumModalProps> = ({
         edition_size: Number.isFinite(parsedEdition) && parsedEdition > 0 ? parsedEdition : 100,
       };
 
+      const genreString = genres.join(', ');
       let targetAlbum: Album;
       if (album) {
         targetAlbum = await updateAlbumApi(
           album.id,
           {
             title: title.trim(),
-            genre: genre.trim(),
+            genre: genreString,
             description: description.trim(),
             concept: concept.trim(),
             cover: cover || '',
@@ -221,7 +223,7 @@ export const AlbumModal: React.FC<AlbumModalProps> = ({
           {
             title: title.trim(),
             creator: activeAddress,
-            genre: genre.trim(),
+            genre: genreString,
             description: description.trim(),
             concept: concept.trim(),
             cover: cover || '',
@@ -339,22 +341,40 @@ export const AlbumModal: React.FC<AlbumModalProps> = ({
               />
             </div>
 
-            <div className="edit-song-2col-row">
-              <div className="cyber-input-wrap">
-                <label className="cyber-input-label">PRIMARY GENRE</label>
-                <select
-                  className="cyber-input-field"
-                  value={genre}
-                  onChange={(e) => setGenre(e.target.value)}
+            <div className="cyber-input-wrap">
+              <label className="cyber-input-label">GENRE</label>
+              <div className="studio-tags-selected-badges">
+                {genres.map((tagId) => (
+                  <Tooltip key={tagId} title="Click to remove">
+                    <button
+                      type="button"
+                      className="studio-tags-active-pill"
+                      onClick={() => setGenres((prev) => prev.filter((t) => t !== tagId))}
+                    >
+                      <span>{tagId.toUpperCase()}</span>
+                      <span className="studio-tags-active-pill-x">✕</span>
+                    </button>
+                  </Tooltip>
+                ))}
+                <button
+                  type="button"
+                  className="studio-tags-active-pill"
+                  onClick={() => setGenresModalOpen(true)}
+                  aria-label="Open genres modal"
                 >
-                  {ALBUM_GENRES.map((g) => (
-                    <option key={g} value={g}>
-                      {g}
-                    </option>
-                  ))}
-                </select>
+                  <span>{genres.length > 0 ? '+' : 'ADD'}</span>
+                </button>
               </div>
             </div>
+
+            <GenresModal
+              isOpen={genresModalOpen}
+              onClose={() => setGenresModalOpen(false)}
+              selected={genres}
+              onChange={setGenres}
+              categories={genreCategories}
+              maxTotal={3}
+            />
 
             <div className="cyber-input-wrap">
               <label className="cyber-input-label">COVER ARTWORK</label>
