@@ -434,6 +434,8 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
   const [creatingPlaylist, setCreatingPlaylist] = useState(false);
   const [showCreatePlaylistInput, setShowCreatePlaylistInput] = useState(false);
   const [expandedPlaylistId, setExpandedPlaylistId] = useState<string | null>(null);
+  const [inspectedPlaylistSongId, setInspectedPlaylistSongId] = useState<string | null>(null);
+  const [myPlaylistPage, setMyPlaylistPage] = useState(0);
   const [togglingPlaylistId, setTogglingPlaylistId] = useState<string | null>(null);
   const [loadingVoiceId, setLoadingVoiceId] = useState<string | null>(null);
 
@@ -478,6 +480,40 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
     for (const s of state.songs) map.set(s.id, s);
     return map;
   }, [publicSongs, state.songs]);
+
+  const { likedSongIds, toggleLike } = useLikes(activeAddress);
+  const likedSongs = useMemo(
+    () =>
+      likedSongIds
+        .map((id) => allKnownSongsById.get(id))
+        .filter((s): s is Song => Boolean(s)),
+    [likedSongIds, allKnownSongsById]
+  );
+
+  // Playlists sorted in "last modified" order (updated_at descending, then created_at descending)
+  const sortedMyPlaylists = useMemo(
+    () =>
+      [...myPlaylists].sort((a, b) => {
+        const tB = Date.parse(b.updated_at || b.created_at || '') || 0;
+        const tA = Date.parse(a.updated_at || a.created_at || '') || 0;
+        return tB - tA;
+      }),
+    [myPlaylists]
+  );
+  const MY_PLAYLISTS_PER_PAGE = 4;
+  const myPlaylistTotalPages = Math.max(
+    1,
+    Math.ceil(sortedMyPlaylists.length / MY_PLAYLISTS_PER_PAGE)
+  );
+  const clampedMyPlaylistPage = Math.min(myPlaylistPage, myPlaylistTotalPages - 1);
+  const visibleMyPlaylists = useMemo(
+    () =>
+      sortedMyPlaylists.slice(
+        clampedMyPlaylistPage * MY_PLAYLISTS_PER_PAGE,
+        (clampedMyPlaylistPage + 1) * MY_PLAYLISTS_PER_PAGE
+      ),
+    [sortedMyPlaylists, clampedMyPlaylistPage]
+  );
 
   const originalSongs = useMemo(
     () => state.songs.filter((s) => !s.is_remix && !s.source),
@@ -1522,27 +1558,33 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
               type="button"
               className={`market-stage-pill ${workspaceStage === 'songs' ? 'active' : ''}`}
               onClick={() => scrollToWorkspaceStage('songs')}
+              aria-label={`01 My Songs (${workspaceFamilies.length})`}
             >
               <span className="market-stage-num">01</span>
-              <span>MY SONGS</span>
+              <Lock size={11} className="market-stage-icon" />
+              <span className="market-stage-label">SONGS</span>
               <span className="workspace-stage-pill-count">{workspaceFamilies.length}</span>
             </button>
             <button
               type="button"
               className={`market-stage-pill ${workspaceStage === 'licenses' ? 'active' : ''}`}
               onClick={() => scrollToWorkspaceStage('licenses')}
+              aria-label={`02 My Licenses (${totalLicensesCount})`}
             >
               <span className="market-stage-num">02</span>
-              <span>MY LICENSES</span>
+              <KeyRound size={11} className="market-stage-icon" />
+              <span className="market-stage-label">LICENSES</span>
               <span className="workspace-stage-pill-count">{totalLicensesCount}</span>
             </button>
             <button
               type="button"
               className={`market-stage-pill ${workspaceStage === 'catalog' ? 'active' : ''}`}
               onClick={() => scrollToWorkspaceStage('catalog')}
+              aria-label={`03 Catalog (${albums.length + myPlaylists.length + voices.length})`}
             >
               <span className="market-stage-num">03</span>
-              <span>CATALOG</span>
+              <Layers size={11} className="market-stage-icon" />
+              <span className="market-stage-label">CATALOG</span>
               <span className="workspace-stage-pill-count">
                 {albums.length + myPlaylists.length + voices.length}
               </span>
@@ -2443,31 +2485,34 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
                     type="button"
                     role="tab"
                     aria-selected={catalogMobileTab === 'albums'}
+                    aria-label={`Albums (${albums.length})`}
                     className={`market-pulse-mobile-tab ${catalogMobileTab === 'albums' ? 'active' : ''}`}
                     onClick={() => setCatalogMobileTab('albums')}
                   >
                     <Disc3 size={11} />
-                    <span>ALBUMS ({albums.length})</span>
+                    <span className="workspace-catalog-tab-label">ALBUMS ({albums.length})</span>
                   </button>
                   <button
                     type="button"
                     role="tab"
                     aria-selected={catalogMobileTab === 'playlists'}
+                    aria-label={`Playlists (${myPlaylists.length})`}
                     className={`market-pulse-mobile-tab ${catalogMobileTab === 'playlists' ? 'active' : ''}`}
                     onClick={() => setCatalogMobileTab('playlists')}
                   >
                     <ListMusic size={11} />
-                    <span>PLAYLISTS ({myPlaylists.length})</span>
+                    <span className="workspace-catalog-tab-label">PLAYLISTS ({myPlaylists.length})</span>
                   </button>
                   <button
                     type="button"
                     role="tab"
                     aria-selected={catalogMobileTab === 'voices'}
+                    aria-label={`Voices (${voices.length})`}
                     className={`market-pulse-mobile-tab ${catalogMobileTab === 'voices' ? 'active' : ''}`}
                     onClick={() => setCatalogMobileTab('voices')}
                   >
                     <Mic2 size={11} />
-                    <span>VOICES ({voices.length})</span>
+                    <span className="workspace-catalog-tab-label">VOICES ({voices.length})</span>
                   </button>
                 </div>
               </div>
@@ -2722,84 +2767,230 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
                       <span className="board-section-badge">{myPlaylists.length}</span>
                     </div>
 
-                    {activeAddress && (
-                      <div
-                        className="mypage-header-controls"
-                        onClick={(e) => e.stopPropagation()}
-                        onKeyDown={(e) => e.stopPropagation()}
-                      >
-                        {showCreatePlaylistInput ? (
-                          <form
-                            className="mypage-header-inline-create"
-                            onSubmit={handleCreatePlaylist}
-                          >
-                            <input
-                              type="text"
-                              className="mypage-header-search-input"
-                              placeholder="Playlist title..."
-                              value={newPlaylistName}
-                              onChange={(e) => setNewPlaylistName(e.target.value)}
-                              maxLength={80}
-                              autoFocus
-                            />
-                            <button
-                              type="submit"
-                              className="mypage-header-icon-btn primary"
-                              disabled={creatingPlaylist || !newPlaylistName.trim()}
-                              aria-label="Create playlist"
+                    <div
+                      className="mypage-header-controls"
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => e.stopPropagation()}
+                    >
+                      {activeAddress && (
+                        <>
+                          {showCreatePlaylistInput ? (
+                            <form
+                              className="mypage-header-inline-create"
+                              onSubmit={handleCreatePlaylist}
                             >
-                              <Check size={12} />
-                            </button>
-                            <button
-                              type="button"
-                              className="mypage-header-icon-btn"
-                              onClick={() => {
-                                setShowCreatePlaylistInput(false);
-                                setNewPlaylistName('');
-                              }}
-                              aria-label="Cancel"
-                            >
-                              <X size={12} />
-                            </button>
-                          </form>
-                        ) : (
-                          <Tooltip title="New Playlist">
-                            <button
-                              type="button"
-                              className="mypage-header-icon-btn"
-                              onClick={() => setShowCreatePlaylistInput(true)}
-                              aria-label="New playlist"
-                            >
-                              <Plus size={12} />
-                            </button>
-                          </Tooltip>
-                        )}
+                              <input
+                                type="text"
+                                className="mypage-header-search-input"
+                                placeholder="Playlist title..."
+                                value={newPlaylistName}
+                                onChange={(e) => setNewPlaylistName(e.target.value)}
+                                maxLength={80}
+                                autoFocus
+                              />
+                              <button
+                                type="submit"
+                                className="mypage-header-icon-btn primary"
+                                disabled={creatingPlaylist || !newPlaylistName.trim()}
+                                aria-label="Create playlist"
+                              >
+                                <Check size={12} />
+                              </button>
+                              <button
+                                type="button"
+                                className="mypage-header-icon-btn"
+                                onClick={() => {
+                                  setShowCreatePlaylistInput(false);
+                                  setNewPlaylistName('');
+                                }}
+                                aria-label="Cancel"
+                              >
+                                <X size={12} />
+                              </button>
+                            </form>
+                          ) : (
+                            <Tooltip title="New Playlist">
+                              <button
+                                type="button"
+                                className="mypage-header-icon-btn"
+                                onClick={() => setShowCreatePlaylistInput(true)}
+                                aria-label="New playlist"
+                              >
+                                <Plus size={12} />
+                              </button>
+                            </Tooltip>
+                          )}
+                        </>
+                      )}
+
+                      <div className="market-page-stepper">
+                        <button
+                          type="button"
+                          className="market-stepper-btn"
+                          disabled={clampedMyPlaylistPage <= 0}
+                          onClick={() => setMyPlaylistPage((p) => Math.max(0, p - 1))}
+                          aria-label="Previous playlists page"
+                        >
+                          <ChevronLeft size={12} />
+                        </button>
+                        <span className="market-stepper-label">
+                          {clampedMyPlaylistPage + 1}/{myPlaylistTotalPages}
+                        </span>
+                        <button
+                          type="button"
+                          className="market-stepper-btn"
+                          disabled={clampedMyPlaylistPage >= myPlaylistTotalPages - 1}
+                          onClick={() =>
+                            setMyPlaylistPage((p) => Math.min(myPlaylistTotalPages - 1, p + 1))
+                          }
+                          aria-label="Next playlists page"
+                        >
+                          <ChevronRight size={12} />
+                        </button>
                       </div>
-                    )}
+                    </div>
                   </div>
 
                   <div className="workspace-rack-body">
-                    {loadingPlaylists ? (
-                      <div className="mypage-empty">
-                        <span className="mypage-empty-title">LOADING...</span>
+                    <div className="market-playlists-crate-grid">
+                      {/* Pinned Top: LIKED TRACKS */}
+                      <div className="mypage-liked-crate-wrap">
+                        <div
+                          className={`market-liked-crate ${state.isPlaying && state.activeContextId === 'liked-crate' ? 'is-playing' : ''}`}
+                          onClick={() =>
+                            setExpandedPlaylistId(
+                              expandedPlaylistId === 'liked-tracks' ? null : 'liked-tracks'
+                            )
+                          }
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              setExpandedPlaylistId(
+                                expandedPlaylistId === 'liked-tracks' ? null : 'liked-tracks'
+                              );
+                            }
+                          }}
+                        >
+                          <div className="market-liked-crate-icon">
+                            <Heart size={18} fill="currentColor" />
+                          </div>
+                          <div className="market-liked-crate-info">
+                            <span className="market-liked-crate-title">LIKED TRACKS</span>
+                            <span className="market-liked-crate-meta">
+                              {likedSongs.length} SAVED
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            className={`market-collection-play-btn ${state.isPlaying && state.activeContextId === 'liked-crate' ? 'playing' : ''}`}
+                            disabled={likedSongs.length === 0}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (likedSongs.length > 0) {
+                                void store.playCollection(likedSongs, 'liked-crate');
+                              }
+                            }}
+                            aria-label="Play Liked Tracks"
+                          >
+                            {state.isPlaying && state.activeContextId === 'liked-crate' ? (
+                              <Pause size={13} />
+                            ) : (
+                              <Play size={13} />
+                            )}
+                          </button>
+                        </div>
+
+                        {expandedPlaylistId === 'liked-tracks' && likedSongs.length > 0 && (
+                          <div
+                            className="finder-col-pane playlist-columns-expansion"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {likedSongs.map((s, idx) => {
+                              const isPlayingTrack =
+                                state.isPlaying && state.activeSong?.id === s.id;
+                              const isInspected =
+                                inspectedPlaylistSongId === `liked:${s.id}`;
+                              const thumbSrc =
+                                s.image && s.image.trim() !== '' ? s.image : '/branding/mark.svg';
+                              const isFallbackThumb = thumbSrc === '/branding/mark.svg';
+                              return (
+                                <Fragment key={`${s.id}-${idx}`}>
+                                  <div
+                                    className={`finder-col-item ${isInspected ? 'selected' : ''} ${isPlayingTrack ? 'playing' : ''}`}
+                                    onClick={() => {
+                                      void store.playSong(s, likedSongs, null, 'liked-crate');
+                                      setInspectedPlaylistSongId(
+                                        isInspected ? null : `liked:${s.id}`
+                                      );
+                                    }}
+                                    role="button"
+                                    tabIndex={0}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter' || e.key === ' ') {
+                                        e.preventDefault();
+                                        void store.playSong(s, likedSongs, null, 'liked-crate');
+                                        setInspectedPlaylistSongId(
+                                          isInspected ? null : `liked:${s.id}`
+                                        );
+                                      }
+                                    }}
+                                  >
+                                    <img
+                                      src={thumbSrc}
+                                      alt={s.title}
+                                      className={`finder-col-thumb ${isFallbackThumb ? 'fallback' : ''}`}
+                                      loading="lazy"
+                                    />
+                                    <span className="finder-col-title" title={s.title}>
+                                      {s.title}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      className="market-playlist-track-remove-btn"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        void toggleLike(s.id, e);
+                                      }}
+                                      aria-label={`Unlike ${s.title}`}
+                                    >
+                                      <X size={10} />
+                                    </button>
+                                    <ChevronRight size={12} className="finder-col-chevron" />
+                                  </div>
+                                  {isInspected && (
+                                    <div className="playlist-columns-inspector">
+                                      {renderDraftItem([s], false, 'grid', false)}
+                                    </div>
+                                  )}
+                                </Fragment>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
-                    ) : myPlaylists.length === 0 ? (
-                      <div className="mypage-empty">
-                        <span className="mypage-empty-title">NO PLAYLISTS YET</span>
-                        <span className="mypage-empty-desc">
-                          Curate private or public playlists from your catalog and Market tracks.
-                        </span>
-                      </div>
-                    ) : (
-                      <div className="market-grid workspace-rack-grid">
-                        {myPlaylists.map((playlist) => {
+
+                      {loadingPlaylists ? (
+                        <div className="mypage-empty">
+                          <span className="mypage-empty-title">LOADING...</span>
+                        </div>
+                      ) : visibleMyPlaylists.length === 0 ? (
+                        <div className="mypage-empty">
+                          <span className="mypage-empty-title">NO PLAYLISTS YET</span>
+                          <span className="mypage-empty-desc">
+                            Curate private or public playlists from your catalog and Market tracks.
+                          </span>
+                        </div>
+                      ) : (
+                        visibleMyPlaylists.map((playlist) => {
                           const resolvedSongs = (playlist.song_ids || [])
                             .map((id) => allKnownSongsById.get(id))
                             .filter((s): s is Song => Boolean(s));
                           const cover =
                             playlist.cover && playlist.cover.trim() !== ''
                               ? playlist.cover
-                              : resolvedSongs[0]?.image || '';
+                              : resolvedSongs[0]?.image || '/branding/mark.svg';
                           const isExpanded = expandedPlaylistId === playlist.id;
                           const isPlayingPl =
                             state.isPlaying && state.activePlaylistId === playlist.id;
@@ -2808,7 +2999,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
                           return (
                             <div
                               key={playlist.id}
-                              className="market-collection-card"
+                              className={`market-crate-playlist-card ${isExpanded ? 'is-expanded' : ''}`}
                               onClick={() => setExpandedPlaylistId(isExpanded ? null : playlist.id)}
                               role="button"
                               tabIndex={0}
@@ -2819,127 +3010,147 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
                                 }
                               }}
                             >
-                              <div className={`market-collection-media ${!cover ? 'is-logo' : ''}`}>
+                              <div className="market-crate-playlist-top">
                                 <img
-                                  src={cover || '/branding/mark.svg'}
+                                  src={cover}
                                   alt={playlist.title}
+                                  className="market-crate-playlist-cover"
                                   loading="lazy"
                                   decoding="async"
                                 />
+                                <div className="market-crate-playlist-info">
+                                  <span className="market-crate-playlist-title" title={playlist.title}>
+                                    {playlist.title}
+                                  </span>
+                                  <span className="market-crate-playlist-meta">
+                                    {(playlist.song_ids || []).length} TRACKS • {playlist.plays ?? 0} PLAYS
+                                  </span>
+                                </div>
+                                <div className="market-crate-playlist-actions">
+                                  <button
+                                    type="button"
+                                    className={`market-crate-vis-btn ${playlist.public ? 'public' : 'private'}`}
+                                    disabled={isToggling}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      void handleTogglePlaylistPublic(playlist);
+                                    }}
+                                    title={
+                                      playlist.public
+                                        ? 'Public · Click to make Private'
+                                        : 'Private · Click to make Public'
+                                    }
+                                    aria-label={`Toggle visibility, currently ${playlist.public ? 'Public' : 'Private'}`}
+                                  >
+                                    {playlist.public ? <Globe size={11} /> : <Lock size={11} />}
+                                  </button>
 
-                                <button
-                                  type="button"
-                                  className={`market-collection-vis-btn ${playlist.public ? 'public' : 'private'}`}
-                                  disabled={isToggling}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    void handleTogglePlaylistPublic(playlist);
-                                  }}
-                                  title={
-                                    playlist.public
-                                      ? 'Public · Click to make Private'
-                                      : 'Private · Click to make Public'
-                                  }
-                                  aria-label={`Toggle visibility, currently ${playlist.public ? 'Public' : 'Private'}`}
-                                >
-                                  {playlist.public ? <Globe size={11} /> : <Lock size={11} />}
-                                </button>
+                                  <button
+                                    type="button"
+                                    className="market-crate-delete-btn"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      void handleDeletePlaylist(playlist);
+                                    }}
+                                    title="Delete Playlist"
+                                    aria-label={`Delete playlist ${playlist.title}`}
+                                  >
+                                    <Trash2 size={11} />
+                                  </button>
 
-                                <button
-                                  type="button"
-                                  className="market-collection-delete-btn"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    void handleDeletePlaylist(playlist);
-                                  }}
-                                  title="Delete Playlist"
-                                  aria-label={`Delete playlist ${playlist.title}`}
-                                >
-                                  <Trash2 size={11} />
-                                </button>
-
-                                <button
-                                  type="button"
-                                  className={`market-collection-play-btn ${isPlayingPl ? 'playing' : ''}`}
-                                  disabled={resolvedSongs.length === 0}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handlePlayMyPlaylist(playlist);
-                                  }}
-                                  aria-label={
-                                    isPlayingPl
-                                      ? `Pause ${playlist.title}`
-                                      : `Play ${playlist.title}`
-                                  }
-                                >
-                                  {isPlayingPl ? <Pause size={14} /> : <Play size={14} />}
-                                </button>
+                                  <button
+                                    type="button"
+                                    className={`market-collection-play-btn ${isPlayingPl ? 'playing' : ''}`}
+                                    disabled={resolvedSongs.length === 0}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handlePlayMyPlaylist(playlist);
+                                    }}
+                                    aria-label={
+                                      isPlayingPl
+                                        ? `Pause ${playlist.title}`
+                                        : `Play ${playlist.title}`
+                                    }
+                                  >
+                                    {isPlayingPl ? <Pause size={13} /> : <Play size={13} />}
+                                  </button>
+                                </div>
                               </div>
 
-                              <div className="market-collection-body">
-                                <div className="market-collection-title" title={playlist.title}>
-                                  {playlist.title}
-                                </div>
-
-                                <div className="market-collection-meta">
-                                  <Music size={10} />
-                                  <span>{(playlist.song_ids || []).length}</span>
-                                  <span>•</span>
-                                  <Headphones size={10} />
-                                  <span>{playlist.plays ?? 0}</span>
-                                  {resolvedSongs.length > 0 && (
-                                    <ChevronDown size={11} className="market-popover-chevron" />
-                                  )}
-                                </div>
-
-                                {isExpanded && resolvedSongs.length > 0 && (
-                                  <div
-                                    className="market-playlist-tracklist"
-                                    onClick={(e) => e.stopPropagation()}
-                                  >
-                                    {resolvedSongs.map((s, idx) => {
-                                      const isPlayingTrack =
-                                        state.isPlaying && state.activeSong?.id === s.id;
-                                      return (
+                              {isExpanded && resolvedSongs.length > 0 && (
+                                <div
+                                  className="finder-col-pane playlist-columns-expansion"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  {resolvedSongs.map((s, idx) => {
+                                    const isPlayingTrack =
+                                      state.isPlaying && state.activeSong?.id === s.id;
+                                    const inspectKey = `${playlist.id}:${s.id}`;
+                                    const isInspected = inspectedPlaylistSongId === inspectKey;
+                                    const thumbSrc =
+                                      s.image && s.image.trim() !== ''
+                                        ? s.image
+                                        : '/branding/mark.svg';
+                                    const isFallbackThumb = thumbSrc === '/branding/mark.svg';
+                                    return (
+                                      <Fragment key={`${s.id}-${idx}`}>
                                         <div
-                                          key={`${s.id}-${idx}`}
-                                          className="market-playlist-track-row-wrap"
-                                        >
-                                          <button
-                                            type="button"
-                                            className={`market-playlist-track-row ${isPlayingTrack ? 'active' : ''}`}
-                                            onClick={() =>
-                                              store.playSong(s, resolvedSongs, playlist.id)
+                                          className={`finder-col-item ${isInspected ? 'selected' : ''} ${isPlayingTrack ? 'playing' : ''}`}
+                                          onClick={() => {
+                                            store.playSong(s, resolvedSongs, playlist.id);
+                                            setInspectedPlaylistSongId(
+                                              isInspected ? null : inspectKey
+                                            );
+                                          }}
+                                          role="button"
+                                          tabIndex={0}
+                                          onKeyDown={(e) => {
+                                            if (e.key === 'Enter' || e.key === ' ') {
+                                              e.preventDefault();
+                                              store.playSong(s, resolvedSongs, playlist.id);
+                                              setInspectedPlaylistSongId(
+                                                isInspected ? null : inspectKey
+                                              );
                                             }
-                                          >
-                                            <span className="market-playlist-track-idx">
-                                              {idx + 1}
-                                            </span>
-                                            <span className="market-playlist-track-name">
-                                              {s.title}
-                                            </span>
-                                          </button>
+                                          }}
+                                        >
+                                          <img
+                                            src={thumbSrc}
+                                            alt={s.title}
+                                            className={`finder-col-thumb ${isFallbackThumb ? 'fallback' : ''}`}
+                                            loading="lazy"
+                                          />
+                                          <span className="finder-col-title" title={s.title}>
+                                            {s.title}
+                                          </span>
                                           <button
                                             type="button"
                                             className="market-playlist-track-remove-btn"
-                                            onClick={() =>
-                                              void handleRemovePlaylistSong(playlist.id, s.id)
-                                            }
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              void handleRemovePlaylistSong(playlist.id, s.id);
+                                            }}
                                             aria-label={`Remove ${s.title}`}
                                           >
                                             <X size={10} />
                                           </button>
+                                          <ChevronRight size={12} className="finder-col-chevron" />
                                         </div>
-                                      );
-                                    })}
-                                  </div>
-                                )}
-                              </div>
+                                        {isInspected && (
+                                          <div className="playlist-columns-inspector">
+                                            {renderDraftItem([s], false, 'grid', false)}
+                                          </div>
+                                        )}
+                                      </Fragment>
+                                    );
+                                  })}
+                                </div>
+                              )}
                             </div>
                           );
-                        })}
-                      </div>
-                    )}
+                        })
+                      )}
+                    </div>
                   </div>
                 </div>
 

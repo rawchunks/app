@@ -4263,3 +4263,24 @@ button.cm-stat-card--picker {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+.mypage-liked-crate-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.playlist-columns-expansion {
+  margin-top: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--space-2xs);
+  background: rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+
+.playlist-columns-inspector {
+  padding: var(--space-xs);
+  border-bottom: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.35);
+}
