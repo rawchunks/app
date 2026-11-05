@@ -598,7 +598,7 @@
   border-radius: 2px;
   color: var(--text-dim);
   font-family: var(--font-family);
-  font-size: 10px;
+  font-size: var(--font-xs);
   font-weight: 800;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -1717,6 +1717,8 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  flex: 0 1 auto;
+  min-width: 0;
   max-width: 100%;
 }
 
@@ -3900,28 +3902,51 @@ button.cm-stat-card--picker {
 }
 
 @media (max-width: 768px) {
-  .mypage-container:has(.cm-dashboard) {
+  .mypage-header {
+    flex-wrap: nowrap;
     gap: 6px;
-    padding: 6px 8px;
   }
 
-  .mypage-container:has(.cm-dashboard) .mypage-subtitle,
-  .mypage-container:has(.cm-dashboard) .mypage-profile-bio,
-  .mypage-container:has(.cm-dashboard) .mypage-profile-stats {
+  .mypage-subtitle,
+  .mypage-vault-pill span,
+  .mypage-preview-label {
     display: none;
   }
 
-  .mypage-container:has(.cm-dashboard) .mypage-profile-card {
-    padding: 6px 10px;
+  .mypage-profile-bio {
+    -webkit-line-clamp: 1;
+    font-size: var(--font-xs);
+  }
+
+  .mypage-container:has(.cm-dashboard) .mypage-profile-bio,
+  .mypage-container:has(.cm-dashboard) .mypage-profile-socials,
+  .mypage-container:has(.cm-dashboard) .creator-card-bio {
+    display: none;
+  }
+
+  .mypage-vault-pill {
+    padding: 0 5px;
+  }
+
+  .mypage-container:has(.cm-dashboard) {
+    gap: 5px;
+    padding: 6px 8px;
+  }
+
+  .mypage-container:has(.cm-dashboard) .mypage-profile-card,
+  .mypage-container:has(.cm-dashboard) .creator-card-group {
+    padding: 5px 8px;
   }
 
   .mypage-container:has(.cm-dashboard) .mypage-profile-top {
     gap: 8px;
   }
 
-  .mypage-container:has(.cm-dashboard) .mypage-avatar-wrap {
-    width: 34px;
-    height: 34px;
+  .mypage-container:has(.cm-dashboard) .mypage-avatar-wrap,
+  .mypage-container:has(.cm-dashboard) .creator-card-avatar-wrap {
+    width: 30px;
+    height: 30px;
+    flex: 0 0 30px;
   }
 
   .finder-segmented-bar:not(.licenses-subfilter) {
@@ -3938,6 +3963,30 @@ button.cm-stat-card--picker {
 
   .workspace-catalog-mobile-tabs {
     display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .workspace-catalog-mobile-tabs .market-pulse-mobile-tab {
+    flex: 0 0 34px;
+    padding: 0 8px;
+    justify-content: center;
+    transition: flex 0.18s ease, background 0.15s ease, border-color 0.15s ease;
+  }
+
+  .workspace-catalog-mobile-tabs .market-pulse-mobile-tab .workspace-catalog-tab-label {
+    display: none;
+  }
+
+  .workspace-catalog-mobile-tabs .market-pulse-mobile-tab.active {
+    flex: 1 1 auto;
+  }
+
+  .workspace-catalog-mobile-tabs .market-pulse-mobile-tab.active .workspace-catalog-tab-label {
+    display: inline;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .workspace-catalog-rack {

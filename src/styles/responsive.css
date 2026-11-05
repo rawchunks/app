@@ -204,28 +204,64 @@
 
   .market-filter-bar {
     padding: clamp(6px, 1.5vw, 10px);
-    gap: 6px;
+    gap: 5px;
     flex-wrap: nowrap;
     justify-content: flex-start;
   }
 
   .market-filter-search {
-    display: none !important;
+    display: flex !important;
+    transition: flex 0.18s ease, width 0.18s ease, padding 0.18s ease;
   }
 
-  .market-mobile-search-btn {
-    display: inline-flex !important;
+  .market-filter-search:not(.expanded) {
+    width: var(--btn-h-sm);
+    min-width: var(--btn-h-sm);
+    flex: 0 0 var(--btn-h-sm);
+    padding: 0;
+    justify-content: center;
+  }
+
+  .market-filter-search:not(.expanded) .market-search-input,
+  .market-filter-search:not(.expanded) .market-filter-clear-btn {
+    display: none;
+  }
+
+  .market-filter-search.expanded {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 0 8px;
+  }
+
+  .market-filter-search.expanded .market-search-input {
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .market-filter-bar.search-open .market-filter-selects {
+    flex: 0 0 auto;
   }
 
   .market-filter-selects {
     flex-wrap: nowrap;
-    gap: 6px;
+    gap: 5px;
     flex: 1 1 auto;
     justify-content: flex-start;
   }
 
-  .market-select-wrap {
+  .market-filter-bar .market-select-wrap {
+    position: static;
     flex: 0 0 auto;
+  }
+
+  .market-filter-bar .market-popover-menu {
+    left: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    box-sizing: border-box;
   }
 
   .market-popover-trigger {
@@ -236,7 +272,9 @@
   }
 
   .market-popover-trigger-label,
-  .market-popover-chevron {
+  .market-popover-chevron,
+  .market-clear-all-btn,
+  .market-active-pills {
     display: none !important;
   }
 
@@ -291,19 +329,13 @@
     gap: 0;
   }
 
-  .mypage-profile-stats {
-    display: grid;
-    grid-template-columns: repeat(2, auto);
-    gap: var(--space-2xs);
-  }
-
   .mypage-dropdown-label,
   .mypage-tab-label {
     display: none !important;
   }
 
   .mypage-section .board-section-separator.search-open .mypage-section-title,
-  .earn-toolbar.search-open .earn-inline-stat:not(.primary) {
+  .earn-toolbar.search-open .earn-kpi-label {
     display: none;
   }
 
@@ -336,16 +368,16 @@
   .board-btn-label,
   .daw-btn-label,
   .btn-text-label,
-  .earn-inline-sub,
+  .remix-btn-label,
   .earn-network-name,
   .earn-price-sub,
   .earn-chart-title,
-  .earn-toolbar .market-popover-chevron,
+  .earn-toolbar .mypage-header-trigger:not(.earn-kpi-trigger) .market-popover-chevron,
   .earn-chart-controls .market-popover-chevron {
     display: none !important;
   }
 
-  .earn-toolbar .mypage-header-trigger,
+  .earn-toolbar .mypage-header-trigger:not(.earn-kpi-trigger),
   .earn-chart-controls .mypage-header-trigger {
     width: 26px;
     min-width: 26px;
@@ -353,8 +385,13 @@
     justify-content: center;
   }
 
-  .earn-inline-stat {
-    padding: 0 6px;
+  .earn-toolbar .earn-kpi-trigger {
+    padding: 0 8px;
+    gap: 5px;
+  }
+
+  .earn-toolbar .earn-kpi-trigger .market-popover-chevron {
+    display: inline-flex !important;
   }
 
   .earn-visual-grid {
@@ -421,9 +458,38 @@
   }
 
   .earn-list-row {
-    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-columns: minmax(0, 1fr) minmax(0, auto) auto;
     gap: var(--space-xs);
     padding: var(--space-xs) var(--space-sm);
+  }
+
+  .earn-list-row .earn-album-sub {
+    display: none;
+  }
+
+  .earn-cell-track {
+    overflow: hidden;
+    min-width: 0;
+  }
+
+  .earn-cell-profit {
+    justify-content: flex-end;
+    text-align: right;
+    min-width: 0;
+    flex-shrink: 1;
+  }
+
+  .earn-profit-stack {
+    align-items: flex-end;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .earn-profit-sub {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
   }
 
   .earn-cell-network,
@@ -529,7 +595,7 @@
     height: var(--header-btn-h);
     min-height: var(--header-btn-h);
     padding: 0 7px;
-    font-size: 11px;
+    font-size: var(--font-xs);
   }
 
   .connect-avatar {
@@ -568,17 +634,17 @@
 
   .studio-tags-dim-tab {
     padding: 4px 5px;
-    font-size: 10px;
+    font-size: var(--font-xs);
     gap: 2px;
   }
 
   .studio-tags-dim-count {
-    font-size: 10px;
+    font-size: var(--font-xs);
   }
 
   .studio-tags-sub-chip {
     padding: 4px 5px;
-    font-size: 10px;
+    font-size: var(--font-xs);
   }
 }
 
@@ -611,7 +677,7 @@
 
   .session-trigger-btn {
     padding: 0 6px;
-    font-size: 11px;
+    font-size: var(--font-xs);
   }
 }
 

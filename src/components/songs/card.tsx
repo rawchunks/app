@@ -11,6 +11,7 @@ import {
   FolderPlus,
   Headphones,
   Share2,
+  GitFork,
 } from 'lucide-react';
 import { Button } from '../button';
 import { Badge } from '../badge';
@@ -582,14 +583,14 @@ export const Card: React.FC<CardProps> = ({
             </span>
           </div>
           <div className="market-price-item">
-            <Tooltip title="License">
+            <Tooltip title={song.source || song.is_remix ? 'Remix Track' : 'License'}>
               <span className="market-price-label" aria-label="License">
-                <Tag size={12} />
+                {song.source || song.is_remix ? <GitFork size={12} /> : <Tag size={12} />}
               </span>
             </Tooltip>
             <span className="market-price-val market-price-val-license">
               {song.source || song.is_remix ? (
-                <span className="market-price-remix">REMIX</span>
+                <span className="market-price-remix remix-btn-label">REMIX</span>
               ) : (
                 `$${song.license_price.toFixed(2)}`
               )}

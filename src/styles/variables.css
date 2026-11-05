@@ -39,7 +39,8 @@
   --letter-spacing-base: clamp(1px, 0.15vw, 2px);
   --letter-spacing-wide: clamp(1.5px, 0.25vw, 3px);
 
-  /* Fluid Font Sizes — Strict >= 11px Legibility Floor */
+  /* Fluid Font Sizes — Strict >= 12px Legibility Floor */
+  --font-2xs: var(--font-xs);
   --font-xs: clamp(12px, 0.65vw + 0.3vh, 12px);
   --font-sm: clamp(12px, 0.75vw + 0.35vh, 13px);
   --font-md: clamp(12px, 0.9vw + 0.4vh, 14px);

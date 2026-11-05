@@ -72,7 +72,7 @@ export function Licenses({
       <Tooltip title="Remix Track" description="This song is derived from another work">
         <Badge variant="secondary">
           <GitFork size={10} />
-          REMIX
+          <span className="remix-btn-label">REMIX</span>
         </Badge>
       </Tooltip>
     );
@@ -130,7 +130,7 @@ export function Licenses({
             className={compact ? 'market-btn-icon' : ''}
           >
             <GitFork size={13} />
-            {!compact && <span>{pending ? 'OPENING…' : 'REMIX'}</span>}
+            {!compact && <span className="remix-btn-label">{pending ? 'OPENING…' : 'REMIX'}</span>}
           </Button>
         </Tooltip>
       )}
