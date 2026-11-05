@@ -5,6 +5,7 @@ import { CheckCircle2, Disc3, ExternalLink, Headphones, Layers, Radio } from 'lu
 import { Tooltip } from '../daw/Tooltip';
 import { formatUsd, getNetworkLogo } from '../../hooks/use-earnings';
 import { BlockDropdown } from './dropdown';
+import { GenreBadges } from './genres';
 import {
   DEFAULT_AG_COL_DEF,
   FEED_VIEW_OPTIONS,
@@ -76,7 +77,6 @@ export function ActivityFeed({
           if (!ev) return null;
           const logo = getNetworkLogo(ev.network || ev.networkFamily);
           const genreListLabel = ev.genreLabel || ev.genre || 'Audio';
-          const genreCount = ev.allGenres?.length ?? 1;
 
           if (feedView === 'plays') {
             return (
@@ -107,16 +107,10 @@ export function ActivityFeed({
                 </div>
                 <div className="cm-receipt-item__bottom">
                   <span className="cm-receipt-item__meta">
-                    <Tooltip
-                      title={genreCount > 1 ? `Genres (${genreCount})` : 'Genre'}
-                      description={genreListLabel}
-                      position="top"
-                      style={{ display: 'inline-flex', minWidth: 0, maxWidth: '100%' }}
-                    >
-                      <span className="cm-usage-modality" title={genreListLabel}>
-                        {genreListLabel}
-                      </span>
-                    </Tooltip>
+                    <GenreBadges
+                      genres={ev.allGenres?.length ? ev.allGenres : [ev.genre || 'Audio']}
+                      isMobile={isMobile}
+                    />
                     <span>{ev.ratioPct.toFixed(1)}%</span>
                     {logo && <img src={logo} alt="" className="cm-network-filter__logo" />}
                     <span>{ev.networkLabel.split(' ')[0]}</span>

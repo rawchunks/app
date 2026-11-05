@@ -6,7 +6,7 @@ import { Tooltip } from '../daw/Tooltip';
 import { formatUsd } from '../../hooks/use-earnings';
 import type { Song } from '../../lib/schema';
 import { AgHeaderTooltip, BlockDropdown } from './dropdown';
-import { GenreBreakdown } from './genres';
+import { GenreBadges, GenreBreakdown } from './genres';
 import {
   DEFAULT_AG_COL_DEF,
   GENRE_METRIC_OPTIONS,
@@ -205,25 +205,16 @@ export function SongsBlock({
             align: 'right',
           },
           field: 'genreLabel',
-          width: 154,
+          width: 196,
           headerClass: 'cm-ag-right',
           cellClass: 'cm-ag-right',
           cellRenderer: (params: ICellRendererParams<NormalizedSongRow>) =>
             params.data ? (
-              <Tooltip
-                title={
-                  params.data.allGenres.length > 1
-                    ? `Genres (${params.data.allGenres.length})`
-                    : 'Genre'
-                }
-                description={params.data.genreLabel}
-                position="top"
-                style={{ display: 'inline-flex', minWidth: 0, maxWidth: '100%' }}
-              >
-                <span className="cm-usage-modality" title={params.data.genreLabel}>
-                  {params.data.genreLabel}
-                </span>
-              </Tooltip>
+              <GenreBadges
+                genres={params.data.allGenres}
+                isMobile={isMobile}
+                align="right"
+              />
             ) : null,
         },
       );

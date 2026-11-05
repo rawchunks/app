@@ -8,6 +8,7 @@ import {
   Headphones,
   Share2,
   MoreHorizontal,
+  Trash2,
 } from 'lucide-react';
 import { Tooltip } from '../daw/Tooltip';
 import { useLicense } from '../../hooks/use-license';
@@ -21,6 +22,7 @@ import {
   resolveNetworkName,
   resolveTxUrl,
 } from './card';
+import { GenreBadges } from '../ag/genres';
 import type { Song, SongEarningsItem } from '../../lib/schema';
 
 export interface AssetProps {
@@ -36,6 +38,7 @@ export interface AssetProps {
   onToggleMenu?: () => void;
   onDownload?: (song: Song) => void;
   onShare?: (song: Song) => void;
+  onDelete?: (id: string) => void;
 }
 
 /**
@@ -56,6 +59,7 @@ export const Asset: React.FC<AssetProps> = ({
   onToggleMenu,
   onDownload,
   onShare,
+  onDelete,
 }) => {
   const { data: liveLicense, sold: liveSold } = useLicense(song);
 
@@ -109,6 +113,11 @@ export const Asset: React.FC<AssetProps> = ({
   const isFallbackCover = coverSrc === '/branding/mark.svg';
   const soldRatio =
     licensesMinted > 0 ? Math.min(100, Math.round((licensesSold / licensesMinted) * 100)) : 0;
+  const songGenres = [
+    ...(Array.isArray(song.genres) ? song.genres : []),
+    ...(Array.isArray(song.tags) ? song.tags : []),
+    ...(Array.isArray(earning?.genres) ? earning.genres : []),
+  ];
 
   return (
     <div
@@ -148,10 +157,13 @@ export const Asset: React.FC<AssetProps> = ({
               </span>
             )}
           </div>
-          <span className="earn-album-sub">
-            <Disc3 size={10} />
-            <span>{albumTitle || 'SINGLE'}</span>
-          </span>
+          <div className="earn-track-subrow">
+            <span className="earn-album-sub">
+              <Disc3 size={10} />
+              <span>{albumTitle || 'SINGLE'}</span>
+            </span>
+            <GenreBadges genres={songGenres} />
+          </div>
         </div>
       </div>
 
@@ -261,6 +273,17 @@ export const Asset: React.FC<AssetProps> = ({
                   >
                     <Download size={12} />
                     <span>DOWNLOAD</span>
+                  </button>
+                )}
+                {onDelete && (
+                  <button
+                    type="button"
+                    className="mypage-menu-item mypage-item-delete"
+                    data-guide="mypage-delete"
+                    onClick={() => onDelete(song.id)}
+                  >
+                    <Trash2 size={12} />
+                    <span>DELETE</span>
                   </button>
                 )}
               </div>

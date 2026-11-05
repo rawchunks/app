@@ -13,6 +13,73 @@ import {
   type NormalizedSongRow,
 } from './utils';
 
+export interface GenreBadgesProps {
+  genres: string[];
+  isMobile?: boolean;
+  align?: 'left' | 'right';
+}
+
+export function GenreBadges({
+  genres,
+  isMobile = false,
+  align = 'left',
+}: GenreBadgesProps) {
+  const cleanGenres = useMemo(() => {
+    const raw = (Array.isArray(genres) ? genres : [])
+      .flatMap((g) => (typeof g === 'string' ? g.split(',') : []))
+      .map((g) => g.trim())
+      .filter(Boolean);
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const g of raw) {
+      const k = g.toLowerCase();
+      if (!seen.has(k)) {
+        seen.add(k);
+        out.push(g);
+      }
+    }
+    return out;
+  }, [genres]);
+
+  if (cleanGenres.length === 0) return null;
+
+  const firstGenre = cleanGenres[0];
+  const extraGenres = cleanGenres.slice(1);
+  const fullLabel = cleanGenres.join(' • ');
+
+  return (
+    <Tooltip
+      title={cleanGenres.length > 1 ? `Genres (${cleanGenres.length})` : 'Genre'}
+      description={fullLabel}
+      position="top"
+      style={{ display: 'inline-flex', minWidth: 0, maxWidth: '100%' }}
+    >
+      <span
+        className={`cm-genre-badges${isMobile ? ' is-mobile' : ''}`}
+        data-align={align}
+      >
+        <span className="cm-usage-modality" title={firstGenre}>
+          {firstGenre}
+        </span>
+        {!isMobile &&
+          extraGenres.map((g) => (
+            <span key={g} className="cm-usage-modality cm-genre-badge-extra" title={g}>
+              {g}
+            </span>
+          ))}
+        {extraGenres.length > 0 && (
+          <span
+            className={`cm-usage-modality cm-genre-badge-overflow${isMobile ? ' force-show' : ''}`}
+            title={fullLabel}
+          >
+            +{extraGenres.length}
+          </span>
+        )}
+      </span>
+    </Tooltip>
+  );
+}
+
 export interface GenreBreakdownProps {
   songs: NormalizedSongRow[];
   genreMetric: GenreMetric;

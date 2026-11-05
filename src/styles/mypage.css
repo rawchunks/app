@@ -3161,6 +3161,65 @@ button.cm-stat-card--picker {
   box-sizing: border-box;
 }
 
+.cm-genre-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+  flex-wrap: nowrap;
+}
+
+.cm-genre-badges > .cm-usage-modality {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.cm-genre-badges[data-align="right"] {
+  justify-content: flex-end;
+}
+
+.cm-genre-badge-overflow {
+  display: none;
+  flex: 0 0 auto !important;
+  flex-shrink: 0;
+  color: var(--primary);
+  border-color: rgba(0, 255, 65, 0.35);
+  background: rgba(0, 255, 65, 0.06);
+}
+
+.cm-genre-badge-overflow.force-show {
+  display: inline-block;
+}
+
+.earn-track-subrow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  flex-wrap: nowrap;
+}
+
+.earn-track-subrow > .daw-tooltip-wrapper {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+@media (max-width: 768px) {
+  .cm-genre-badge-extra {
+    display: none;
+  }
+
+  .cm-genre-badge-overflow {
+    display: inline-block;
+  }
+}
+
 /* By Genre Breakdown (.cm-modality-bar, .cm-modality-legend, .cm-modality-detail) */
 .cm-modality-bar {
   display: flex;

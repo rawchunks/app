@@ -25,6 +25,7 @@ import {
   normalizeTags,
   formatDuration,
 } from './card';
+import { GenreBadges } from '../ag/genres';
 import type { Song } from '../../lib/schema';
 
 export type FinderViewMode = 'grid' | 'list' | 'columns';
@@ -259,7 +260,7 @@ export const Draft: React.FC<DraftProps> = ({
             {(isRemixLicensed || song.is_remix || song.source) && (
               <Badge variant="secondary">
                 <GitFork size={10} />
-                <span>REMIX</span>
+                <span className="remix-btn-label">REMIX</span>
               </Badge>
             )}
           </div>
@@ -282,7 +283,7 @@ export const Draft: React.FC<DraftProps> = ({
         </div>
 
         <div className="finder-list-cell finder-cell-genre">
-          {tags[0] ? <Badge variant="secondary">{tags[0]}</Badge> : <span className="finder-dim">—</span>}
+          {tags.length > 0 ? <GenreBadges genres={tags} /> : <span className="finder-dim">—</span>}
         </div>
 
         <div
@@ -453,7 +454,7 @@ export const Draft: React.FC<DraftProps> = ({
               <span className="market-price-label" aria-label="Lineage">
                 <GitFork size={12} />
               </span>
-              <span className="market-price-val market-price-val-license">
+              <span className="market-price-val market-price-val-license remix-btn-label">
                 {isRemixLicensed ? 'LICENSED REMIX' : <span className="market-price-remix">REMIX</span>}
               </span>
             </div>
