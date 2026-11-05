@@ -5,10 +5,235 @@ import { api } from '@/lib/api';
 import { store } from '@/lib/store';
 import { Song, Album } from '@/lib/schema';
 import { addSongToAlbumApi, removeSongFromAlbumApi } from '@/hooks/use-albums';
+import { useOptions, type TagCategory } from '@/hooks/use-options';
 import { openGate } from '@/lib/gate';
 import { toast } from 'sonner';
 import { Upload, Sparkles } from 'lucide-react';
 import { Tooltip } from './daw/Tooltip';
+
+export function resolveCanonicalGenres(raw: string[], categories: TagCategory[]): string[] {
+  const canonicalByLower = new Map<string, string>();
+  for (const cat of categories) {
+    for (const tag of cat.tags) {
+      canonicalByLower.set(tag.id.toLowerCase(), tag.id);
+      canonicalByLower.set(tag.label.toLowerCase(), tag.id);
+    }
+  }
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of raw) {
+    for (const part of String(item || '').split(',')) {
+      const trimmed = part.trim();
+      if (!trimmed) continue;
+      const canonical = canonicalByLower.get(trimmed.toLowerCase()) ?? trimmed;
+      const key = canonical.toLowerCase();
+      if (!seen.has(key)) {
+        seen.add(key);
+        out.push(canonical);
+      }
+    }
+  }
+  return out;
+}
+
+export function formatTagSummary(tags: string[]): string {
+  if (tags.length === 0) return 'NONE';
+  const upper = tags.map((t) => t.toUpperCase());
+  if (upper.length <= 2) return upper.join(' · ');
+  return `${upper.slice(0, 2).join(' · ')} +${upper.length - 2}`;
+}
+
+export interface GenresModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  selected: string[];
+  onChange: React.Dispatch<React.SetStateAction<string[]>>;
+  categories?: TagCategory[];
+  title?: string;
+  maxTotal?: number;
+  isSegmented?: boolean;
+  guideOwner?: string;
+  guideAnchor?: string;
+}
+
+export const GenresModal: React.FC<GenresModalProps> = ({
+  isOpen,
+  onClose,
+  selected,
+  onChange,
+  categories: categoriesProp,
+  title,
+  maxTotal = 3,
+  isSegmented = false,
+  guideOwner = 'studio',
+  guideAnchor = 'studio.tags-editor',
+}) => {
+  const { data: optionsData } = useOptions();
+  const categories = categoriesProp ?? optionsData?.generation?.genres ?? [];
+  const [expandedTagCategory, setExpandedTagCategory] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setExpandedTagCategory(null);
+    }
+  }, [isOpen]);
+
+  const expandedCategory = categories.find((c) => c.id === expandedTagCategory) ?? null;
+
+  const findTagMeta = (tagId: string) => {
+    const lower = tagId.toLowerCase();
+    for (const cat of categories) {
+      const found = cat.tags.find((t) => t.id.toLowerCase() === lower || t.label.toLowerCase() === lower);
+      if (found) return found;
+    }
+    return { id: tagId, label: tagId, desc: '' };
+  };
+
+  const toggleMultiTag = (tagId: string) => {
+    onChange((current) => {
+      const lower = tagId.toLowerCase();
+      const exists = current.some((t) => t.toLowerCase() === lower);
+      if (exists) {
+        return current.filter((t) => t.toLowerCase() !== lower);
+      }
+      if (current.length < maxTotal) {
+        return [...current, tagId];
+      }
+      return [...current.slice(1), tagId];
+    });
+  };
+
+  const toggleSegmentedTag = (tagId: string, category: TagCategory) => {
+    onChange((current) => {
+      const lower = tagId.toLowerCase();
+      if (current.some((t) => t.toLowerCase() === lower)) {
+        return current.filter((t) => t.toLowerCase() !== lower);
+      }
+      const categoryTagIds = new Set(category.tags.map((t) => t.id.toLowerCase()));
+      const withoutThisCategory = current.filter((t) => !categoryTagIds.has(t.toLowerCase()));
+      return [...withoutThisCategory, tagId];
+    });
+  };
+
+  return (
+    <Modal
+      guideOwner={guideOwner}
+      guideAnchor={guideAnchor}
+      isOpen={isOpen}
+      onClose={() => {
+        onClose();
+        setExpandedTagCategory(null);
+      }}
+      title={title ?? `GENRES (${selected.length}/${maxTotal})`}
+      size="md"
+    >
+      <div className="studio-param-modal-content studio-tags-expanding-modal">
+        <div
+          className={`studio-tags-core-tabs ${
+            categories.length === 4
+              ? 'cols-4'
+              : categories.length === 6
+                ? 'cols-3'
+                : 'cols-wrap'
+          }`}
+        >
+          {categories.map((cat) => {
+            const isExpanded = expandedTagCategory === cat.id;
+            const selectedInCat = cat.tags.filter((t) =>
+              selected.some((s) => s.toLowerCase() === t.id.toLowerCase())
+            );
+            const hasSelection = selectedInCat.length > 0;
+            return (
+              <Tooltip key={cat.id} title={cat.desc}>
+                <button
+                  type="button"
+                  aria-expanded={isExpanded}
+                  className={`studio-tags-core-pill ${isExpanded ? 'expanded' : ''} ${hasSelection ? 'has-selection' : ''}`}
+                  onClick={() => setExpandedTagCategory(isExpanded ? null : cat.id)}
+                >
+                  <span className="studio-tags-core-title">{cat.label.toUpperCase()}</span>
+                  {hasSelection && (
+                    <span className="studio-tags-core-badge">{selectedInCat.length}</span>
+                  )}
+                  <span className="studio-tags-core-chevron">{isExpanded ? '▲' : '▼'}</span>
+                </button>
+              </Tooltip>
+            );
+          })}
+        </div>
+
+        {expandedCategory && (
+          <div className="studio-tags-sub-grid">
+            {expandedCategory.tags.map((tag) => {
+              const isSelected = selected.some((s) => s.toLowerCase() === tag.id.toLowerCase());
+              return (
+                <Tooltip key={tag.id} title={tag.desc}>
+                  <button
+                    type="button"
+                    className={`studio-tags-sub-chip ${isSelected ? 'active' : ''}`}
+                    onClick={() => {
+                      if (isSegmented) {
+                        toggleSegmentedTag(tag.id, expandedCategory);
+                      } else {
+                        toggleMultiTag(tag.id);
+                      }
+                    }}
+                  >
+                    <span className="studio-tags-sub-chip-label">{tag.label.toUpperCase()}</span>
+                    {isSelected && <span className="studio-tags-sub-chip-check">✓</span>}
+                  </button>
+                </Tooltip>
+              );
+            })}
+          </div>
+        )}
+
+        {selected.length > 0 && (
+          <div className="studio-tags-selected-badges">
+            {selected.map((tagId) => {
+              const meta = findTagMeta(tagId);
+              return (
+                <Tooltip key={tagId} title={meta.desc || 'Click to remove'}>
+                  <button
+                    type="button"
+                    className="studio-tags-active-pill"
+                    onClick={() =>
+                      onChange((prev) => prev.filter((t) => t.toLowerCase() !== tagId.toLowerCase()))
+                    }
+                  >
+                    <span>{meta.label.toUpperCase()}</span>
+                    <span className="studio-tags-active-pill-x">✕</span>
+                  </button>
+                </Tooltip>
+              );
+            })}
+          </div>
+        )}
+
+        <div className="studio-param-actions-row">
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={selected.length === 0}
+            onClick={() => onChange([])}
+          >
+            CLEAR
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={() => {
+              onClose();
+              setExpandedTagCategory(null);
+            }}
+          >
+            DONE
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+};
 
 export interface EditSongModalProps {
   isOpen: boolean;
