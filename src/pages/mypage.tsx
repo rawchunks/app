@@ -2635,7 +2635,12 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
                                   {album.genre && (
                                     <>
                                       <span>•</span>
-                                      <span className="album-meta-genre">{album.genre}</span>
+                                      <GenreBadges
+                                        genres={album.genre
+                                          .split(',')
+                                          .map((g) => g.trim())
+                                          .filter(Boolean)}
+                                      />
                                     </>
                                   )}
                                   {galleryCount > 0 && (
