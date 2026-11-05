@@ -5,11 +5,10 @@
   height: 100%;
   display: flex;
   flex-direction: column;
-  padding: var(--space-md);
-  gap: var(--space-sm);
+  padding: clamp(10px, 1.5vw, 18px);
+  gap: clamp(8px, 1.1vh, 12px);
   box-sizing: border-box;
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: hidden;
   position: relative;
 }
 
@@ -22,11 +21,70 @@
   flex-shrink: 0;
 }
 
+.mypage-header-left {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.mypage-title-cluster {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-wrap: wrap;
+}
+
 .mypage-title-text {
   font-size: var(--font-lg);
   font-weight: 900;
   color: var(--primary);
   letter-spacing: var(--letter-spacing-base);
+}
+
+.mypage-vault-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 18px;
+  padding: 0 7px;
+  border-radius: 2px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.mypage-vault-pill.workspace {
+  color: #ffaa00;
+  background: rgba(255, 170, 0, 0.1);
+  border: 1px solid rgba(255, 170, 0, 0.35);
+}
+
+.mypage-vault-pill.earn {
+  color: var(--accent);
+  background: rgba(0, 204, 255, 0.1);
+  border: 1px solid rgba(0, 204, 255, 0.35);
+}
+
+.workspace-stage-nav {
+  flex-shrink: 0;
+}
+
+.workspace-stage-pill-count {
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.market-stage-pill.active .workspace-stage-pill-count {
+  background: rgba(0, 255, 65, 0.2);
+  color: var(--primary);
 }
 
 .mypage-subtitle {
@@ -269,8 +327,9 @@
 .mypage-profile-meta {
   display: flex;
   align-items: center;
-  gap: var(--space-sm);
-  font-size: var(--font-xs);
+  gap: 4px;
+  font-size: 10px;
+  line-height: 1.2;
   color: var(--text-dim);
   flex-wrap: wrap;
 }
@@ -302,13 +361,14 @@
 .mypage-copy-btn {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-2xs);
+  gap: 4px;
   background: transparent;
   border: none;
-  color: var(--accent);
+  color: var(--text-dim);
   cursor: pointer;
   padding: 0;
-  font-size: var(--font-xs);
+  font-size: 10px;
+  line-height: 1.2;
   font-family: var(--font-mono);
   transition: color 0.15s ease;
 }
@@ -390,12 +450,23 @@
   border: 1px solid var(--border-dim);
   border-radius: var(--space-2xs);
   color: var(--text-dim);
-  transition: border-color 0.15s ease, color 0.15s ease;
+  font-family: var(--font-family);
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.mypage-profile-stat-box.interactive {
+  cursor: pointer;
 }
 
 .mypage-profile-stat-box:hover {
   border-color: var(--border-bright);
   color: var(--text-secondary);
+}
+
+.mypage-profile-stat-box.active {
+  border-color: rgba(0, 255, 65, 0.48);
+  background: rgba(0, 255, 65, 0.1);
+  color: var(--primary);
 }
 
 .mypage-profile-stat-val {
@@ -405,6 +476,254 @@
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   line-height: 1;
+}
+
+/* ==========================================================================
+   WORKSPACE VERTICAL SNAP-DECK & 3 STAGES
+   ========================================================================== */
+.workspace-snap-deck {
+  flex: 1 1 0;
+  min-height: 0;
+  width: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scroll-snap-type: y mandatory;
+  scroll-behavior: smooth;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  position: relative;
+}
+
+.workspace-snap-deck::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.workspace-snap-stage {
+  flex: 0 0 100%;
+  height: 100%;
+  min-height: 100%;
+  max-height: 100%;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+  position: relative;
+}
+
+.workspace-stage-panel {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: rgba(255, 255, 255, 0.012);
+  border: 1px solid var(--border);
+  border-radius: var(--space-2xs);
+  overflow: hidden;
+}
+
+.workspace-stage-header.board-section-separator {
+  cursor: default !important;
+  border: none !important;
+  border-bottom: 1px solid var(--border) !important;
+  border-radius: 0 !important;
+  flex-shrink: 0;
+}
+
+.workspace-stage-content.mypage-section-body {
+  flex: 1 1 0;
+  min-height: 0;
+  padding: var(--space-sm);
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  box-sizing: border-box;
+}
+
+.workspace-stage-content.mypage-section-body:has(.finder-columns-browser) {
+  padding: 0;
+  overflow: hidden;
+}
+
+.workspace-stage-content .finder-columns-browser {
+  flex: 1 1 0;
+  min-height: 0;
+  height: 100%;
+  border: none;
+  border-radius: 0;
+  overflow: hidden;
+}
+
+.workspace-stage-content .finder-col-pane,
+.workspace-stage-content .finder-inspector-pane {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* macOS Industrial Segmented View Switcher & Sub-Filter Bar */
+.finder-segmented-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  background: var(--bg);
+  border: 1px solid var(--border-bright);
+  border-radius: var(--space-2xs);
+  flex-shrink: 0;
+}
+
+.finder-segmented-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: calc(var(--daw-ctrl-h) - 4px);
+  padding: 0 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  color: var(--text-dim);
+  font-family: var(--font-family);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.14s ease;
+}
+
+.finder-segmented-btn:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.finder-segmented-btn.active {
+  background: rgba(0, 255, 65, 0.14);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.finder-mobile-view-select {
+  display: none !important;
+}
+
+/* Stage 02: Licenses & Remix Vault Split Layout */
+.workspace-licenses-split {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  width: 100%;
+}
+
+.workspace-license-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  width: 100%;
+}
+
+.workspace-license-group-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: 4px 8px;
+  background: rgba(255, 255, 255, 0.025);
+  border-left: 2px solid var(--primary);
+  border-radius: 2px;
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  font-weight: 800;
+  color: var(--text-secondary);
+  letter-spacing: 0.05em;
+}
+
+/* Stage 03: 3-Column Studio Rack (MY ALBUMS | MY PLAYLISTS | MY VOICES) */
+.workspace-catalog-mobile-tabs {
+  display: none;
+  gap: 4px;
+  margin-bottom: 4px;
+  flex-shrink: 0;
+}
+
+.workspace-catalog-rack {
+  flex: 1 1 0;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-sm);
+  overflow: hidden;
+}
+
+.workspace-rack-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: rgba(255, 255, 255, 0.015);
+  border: 1px solid var(--border);
+  border-radius: var(--space-2xs);
+  overflow: hidden;
+}
+
+.workspace-rack-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-xs);
+  padding: var(--space-2xs) var(--space-sm);
+  background: var(--surface-raised);
+  border-bottom: 1px solid var(--border);
+  min-height: var(--btn-h-md);
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+.workspace-rack-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-family);
+  font-size: var(--font-xs);
+  font-weight: 800;
+  color: var(--text);
+  letter-spacing: var(--letter-spacing-tight);
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.workspace-rack-body {
+  flex: 1 1 0;
+  min-height: 0;
+  padding: var(--space-sm);
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  box-sizing: border-box;
+}
+
+.workspace-rack-grid.market-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 154px), 1fr));
+  grid-auto-rows: max-content;
+  gap: var(--space-xs);
+  padding: 0;
+  align-content: start;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 /* ==========================================================================
@@ -1597,6 +1916,14 @@
   background: var(--bg-panel);
   border: 1px solid var(--border);
   border-radius: var(--space-2xs);
+}
+
+.earn-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
 .earn-catalog-section {
@@ -3368,6 +3695,35 @@ button.cm-stat-card--picker {
   .mypage-container:has(.cm-dashboard) .mypage-avatar-wrap {
     width: 34px;
     height: 34px;
+  }
+
+  .finder-segmented-bar:not(.licenses-subfilter) {
+    display: none;
+  }
+
+  .finder-segmented-bar.licenses-subfilter .mypage-dropdown-label {
+    display: none !important;
+  }
+
+  .finder-mobile-view-select {
+    display: inline-flex !important;
+  }
+
+  .workspace-catalog-mobile-tabs {
+    display: flex;
+  }
+
+  .workspace-catalog-rack {
+    grid-template-columns: 1fr;
+  }
+
+  .workspace-rack-col {
+    display: none;
+  }
+
+  .workspace-rack-col.mobile-active,
+  .workspace-rack-col.is-mobile-active {
+    display: flex;
   }
 
   .cm-control-switcher {
