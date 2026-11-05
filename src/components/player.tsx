@@ -3,7 +3,7 @@ import { toast } from 'sonner';
 import { Button } from './button';
 import { Slider } from './slider';
 import { Tooltip } from './daw/Tooltip';
-import { store, State, RepeatMode } from '../lib/store';
+import { store, State, RepeatMode, SleepTimerMode } from '../lib/store';
 import { audio } from '../lib/audio';
 import { useDismiss } from '../hooks/use-dismiss';
 import { useSelectedUserAddress } from '../hooks/use-address';
@@ -29,6 +29,8 @@ import {
   Trash2,
   Check,
   GripVertical,
+  Timer,
+  ArrowLeft,
 } from 'lucide-react';
 
 export interface Props {
@@ -131,6 +133,8 @@ export const Player: React.FC<Props> = ({ className = '' }) => {
   const [muted, setMuted] = useState(false);
   const [imgError, setImgError] = useState(false);
   const [queueOpen, setQueueOpen] = useState(false);
+  const [sleepOpen, setSleepOpen] = useState(false);
+  const [sleepNowMs, setSleepNowMs] = useState(() => Date.now());
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [savingPlaylist, setSavingPlaylist] = useState(false);
   const [playlistTitle, setPlaylistTitle] = useState('');
@@ -154,7 +158,19 @@ export const Player: React.FC<Props> = ({ className = '' }) => {
     }
   }, []);
 
-  useDismiss(queueOpen, () => setQueueOpen(false), queueRef);
+  useDismiss(queueOpen, () => {
+    setQueueOpen(false);
+    setSleepOpen(false);
+  }, queueRef);
+
+  useEffect(() => {
+    if (!sleepOpen || !state.sleepTimer) return;
+    setSleepNowMs(Date.now());
+    const id = window.setInterval(() => {
+      setSleepNowMs(Date.now());
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [sleepOpen, state.sleepTimer]);
 
   useEffect(() => {
     return store.subscribe((next) => {
@@ -169,7 +185,9 @@ export const Player: React.FC<Props> = ({ className = '' }) => {
           prev.shuffle === next.shuffle &&
           prev.autoplay === next.autoplay &&
           prev.activePlaylistId === next.activePlaylistId &&
-          prev.activeContextId === next.activeContextId
+          prev.activeContextId === next.activeContextId &&
+          prev.sleepTimer === next.sleepTimer &&
+          prev.sleepTimerPrompt === next.sleepTimerPrompt
         ) {
           return prev;
         }
@@ -318,8 +336,73 @@ export const Player: React.FC<Props> = ({ className = '' }) => {
     ? formatCreatorName(currentSong.creator, activeCreatorProfile.nickname)
     : 'No audio loaded';
 
+  const endOfQueueLabel = state.activePlaylistId ? 'End of playlist' : 'End of queue';
+  const sleepPresets: Array<{ mode: SleepTimerMode; label: string }> = [
+    { mode: '5', label: '5 minutes' },
+    { mode: '15', label: '15 minutes' },
+    { mode: '30', label: '30 minutes' },
+    { mode: 'track', label: 'End of track' },
+    { mode: 'queue', label: endOfQueueLabel },
+  ];
+
+  const sleepRemainingText = (() => {
+    const activeTimer = state.sleepTimer;
+    if (!activeTimer) return null;
+    if (activeTimer.endsAtMs) {
+      const remainingMs = Math.max(0, activeTimer.endsAtMs - sleepNowMs);
+      const remainingMin = Math.max(1, Math.ceil(remainingMs / 60000));
+      return `${remainingMin} ${remainingMin === 1 ? 'minute' : 'minutes'} left`;
+    }
+    if (activeTimer.mode === 'track') {
+      const liveState = store.getState();
+      if (liveState.duration > 0) {
+        const remSec = Math.max(0, liveState.duration - liveState.playhead);
+        const remMin = Math.max(1, Math.ceil(remSec / 60));
+        return `${remMin} ${remMin === 1 ? 'minute' : 'minutes'} left (End of track)`;
+      }
+      return 'End of track left';
+    }
+    return `${endOfQueueLabel} left`;
+  })();
+
   return (
     <div className={`app-player panel ${className}`.trim()}>
+      {/* Reactivate Sleep Timer Prompt (YouTube Music style on app reopen / resume after expiry) */}
+      {state.sleepTimerPrompt && !state.sleepTimer && (
+        <div
+          className="player-sleep-reactivate-prompt"
+          role="dialog"
+          aria-label="Reactivate Sleep timer?"
+        >
+          <div className="player-sleep-reactivate-info">
+            <Timer size={14} className="player-sleep-reactivate-icon" />
+            <div className="player-sleep-reactivate-text">
+              <span className="player-sleep-reactivate-title">Reactivate Sleep timer?</span>
+              <span className="player-sleep-reactivate-sub">
+                Resume {state.sleepTimerPrompt.label.toLowerCase()} timer
+              </span>
+            </div>
+          </div>
+          <div className="player-sleep-reactivate-actions">
+            <button
+              type="button"
+              className="player-sleep-reactivate-btn primary"
+              onClick={() => store.reactivateSleepTimer()}
+            >
+              REACTIVATE
+            </button>
+            <button
+              type="button"
+              className="player-sleep-reactivate-btn ghost"
+              onClick={() => store.dismissSleepTimerPrompt()}
+              aria-label="Dismiss sleep timer prompt"
+            >
+              <X size={12} />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Top Scrubber Bar (isolated from Player React state to eliminate layout/paint thrashing) */}
       <PlayerScrubber />
 
@@ -429,7 +512,13 @@ export const Player: React.FC<Props> = ({ className = '' }) => {
                 size="xs"
                 variant={queueOpen ? 'primary' : 'ghost'}
                 className={`player-queue-btn ${queueOpen ? 'active' : ''}`}
-                onClick={() => setQueueOpen((prev) => !prev)}
+                onClick={() => {
+                  setQueueOpen((prev) => {
+                    const next = !prev;
+                    if (!next) setSleepOpen(false);
+                    return next;
+                  });
+                }}
                 aria-label="Queue"
                 aria-expanded={queueOpen}
               >
@@ -438,225 +527,300 @@ export const Player: React.FC<Props> = ({ className = '' }) => {
             </Tooltip>
 
             {queueOpen && (
-              <div className="player-queue-drawer" role="dialog" aria-label="Queue">
-                <div className="player-queue-header">
-                  <span className="player-queue-title">
-                    QUEUE {state.queue.length > 0 ? `(${state.queue.length})` : ''}
-                  </span>
-                  <div className="player-queue-modes">
-                    <Tooltip title={state.isPlaying ? 'Pause' : 'Play'} position="top">
+              <div
+                className="player-queue-drawer"
+                role="dialog"
+                aria-label={sleepOpen ? 'Sleep Timer' : 'Queue'}
+              >
+                {sleepOpen ? (
+                  <>
+                    <div className="player-queue-header">
                       <button
                         type="button"
-                        className={`player-mode-btn player-queue-play-btn ${state.isPlaying ? 'active' : ''}`}
-                        disabled={state.queue.length === 0 && !currentSong}
-                        onClick={() => {
-                          if (currentSong) {
-                            void store.setPlaying(!state.isPlaying);
-                          } else if (state.queue.length > 0) {
-                            void store.playQueueIndex(0);
-                          }
-                        }}
-                        aria-label={state.isPlaying ? 'Pause Queue' : 'Play Queue'}
+                        className="player-sleep-back-btn"
+                        onClick={() => setSleepOpen(false)}
+                        aria-label="Back to Queue"
                       >
-                        {state.isPlaying ? <Pause size={12} /> : <Play size={12} />}
+                        <ArrowLeft size={12} />
+                        <span className="player-queue-title">SLEEP TIMER</span>
                       </button>
-                    </Tooltip>
-
-                    <Tooltip title="Shuffle" position="top">
-                      <button
-                        type="button"
-                        className={`player-mode-btn ${state.shuffle ? 'active' : ''}`}
-                        onClick={() => store.setShuffle(!state.shuffle)}
-                        aria-label="Shuffle"
-                      >
-                        <Shuffle size={12} />
-                      </button>
-                    </Tooltip>
-
-                    <Tooltip title="Repeat" position="top">
-                      <button
-                        type="button"
-                        className={`player-mode-btn ${state.repeatMode !== 'off' ? 'active' : ''}`}
-                        onClick={cycleRepeatMode}
-                        aria-label="Repeat"
-                      >
-                        {state.repeatMode === 'one' ? <Repeat1 size={12} /> : <Repeat size={12} />}
-                      </button>
-                    </Tooltip>
-
-                    <Tooltip
-                      title={state.autoplay ? 'Continuous Autoplay: ON' : 'Continuous Autoplay: OFF'}
-                      position="top"
-                    >
-                      <button
-                        type="button"
-                        className={`player-mode-btn ${state.autoplay ? 'active' : ''}`}
-                        onClick={() => store.toggleAutoplay()}
-                        aria-label="Continuous Autoplay"
-                      >
-                        <Sparkles size={12} />
-                      </button>
-                    </Tooltip>
-
-                    {state.queue.length > 0 && (
-                      <>
-                        <Tooltip title="Save as Playlist" position="top">
+                      {state.sleepTimer && sleepRemainingText && (
+                        <div className="player-queue-sleep-status">
+                          <span className="player-sleep-remaining-badge">{sleepRemainingText}</span>
                           <button
                             type="button"
-                            className={`player-mode-btn ${showSavePrompt ? 'active' : ''}`}
-                            onClick={() => setShowSavePrompt((prev) => !prev)}
-                            aria-label="Save as Playlist"
-                          >
-                            <FolderPlus size={12} />
-                          </button>
-                        </Tooltip>
-                        <Tooltip title="Clear" position="top">
-                          <button
-                            type="button"
-                            className="player-mode-btn"
-                            onClick={() => store.clearQueue()}
-                            aria-label="Clear"
-                          >
-                            <Trash2 size={12} />
-                          </button>
-                        </Tooltip>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                {/* Save Queue as Private Playlist Inline Form */}
-                {showSavePrompt && (
-                  <form className="player-save-playlist-form" onSubmit={handleSaveQueueAsPlaylist}>
-                    <input
-                      type="text"
-                      className="player-save-playlist-input"
-                      placeholder="Playlist name..."
-                      value={playlistTitle}
-                      onChange={(e) => setPlaylistTitle(e.target.value)}
-                      maxLength={80}
-                      autoFocus
-                    />
-                    <button
-                      type="submit"
-                      className="player-save-playlist-submit"
-                      disabled={savingPlaylist}
-                      aria-label="Save"
-                    >
-                      <Check size={12} />
-                    </button>
-                  </form>
-                )}
-
-                {/* Queue List */}
-                <div className="player-queue-list scrollable">
-                  {state.queue.length === 0 ? (
-                    <div className="player-queue-empty">EMPTY</div>
-                  ) : (
-                    state.queue.map((song, idx) => {
-                      const isCurrent =
-                        (idx === state.queueIndex || idx === 0) &&
-                        state.activeSong?.id === song.id;
-                      const isDragging = dragIdx === idx;
-                      return (
-                        <div
-                          key={song.id}
-                          data-queue-idx={idx}
-                          className={`player-queue-item ${isCurrent ? 'current' : ''} ${isDragging ? 'dragging' : ''}`}
-                          draggable={!isCurrent}
-                          onDragStart={(e) => {
-                            if (isCurrent) {
-                              e.preventDefault();
-                              return;
-                            }
-                            if (emptyDragImgRef.current) {
-                              e.dataTransfer.setDragImage(emptyDragImgRef.current, 0, 0);
-                            }
-                            e.dataTransfer.effectAllowed = 'move';
-                            setDragIdx(idx);
-                          }}
-                          onDragOver={(e) => {
-                            e.preventDefault();
-                            if (dragIdx !== null && dragIdx !== idx) {
-                              store.moveQueueItem(dragIdx, idx);
-                              setDragIdx(idx);
-                            }
-                          }}
-                          onDrop={(e) => {
-                            e.preventDefault();
-                            setDragIdx(null);
-                          }}
-                          onDragEnd={() => setDragIdx(null)}
-                        >
-                          <div
-                            className={`player-queue-grip ${isCurrent ? 'disabled' : ''}`}
-                            onPointerDown={(e) => {
-                              if (isCurrent) return;
-                              e.stopPropagation();
-                              e.currentTarget.setPointerCapture(e.pointerId);
-                              setDragIdx(idx);
+                            className="player-queue-sleep-off-btn"
+                            onClick={() => {
+                              store.setSleepTimer(null);
+                              setSleepOpen(false);
                             }}
-                            onPointerMove={(e) => {
-                              if (dragIdx === null) return;
-                              const el = document
-                                .elementFromPoint(e.clientX, e.clientY)
-                                ?.closest('[data-queue-idx]') as HTMLElement | null;
-                              if (!el) return;
-                              const targetIdx = Number(el.dataset.queueIdx);
-                              if (Number.isFinite(targetIdx) && targetIdx !== dragIdx) {
-                                store.moveQueueItem(dragIdx, targetIdx);
-                                setDragIdx(targetIdx);
-                              }
-                            }}
-                            onPointerUp={(e) => {
-                              if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-                                e.currentTarget.releasePointerCapture(e.pointerId);
-                              }
-                              setDragIdx(null);
-                            }}
-                            onPointerCancel={() => setDragIdx(null)}
                           >
-                            <GripVertical size={12} />
-                          </div>
-                          <button
-                            type="button"
-                            className="player-queue-item-main"
-                            onClick={() => void store.playQueueIndex(idx)}
-                          >
-                            <div className="player-queue-thumb">
-                              <img
-                                src={song.image && song.image.trim() !== '' ? song.image : '/branding/mark.svg'}
-                                alt=""
-                                width={28}
-                                height={28}
-                                decoding="async"
-                              />
-                              <span className="player-queue-thumb-play" aria-hidden="true">
-                                {isCurrent && state.isPlaying ? <Pause size={11} /> : <Play size={11} />}
-                              </span>
-                            </div>
-                            <div className="player-queue-item-text">
-                              <span className="player-queue-item-title">{song.title}</span>
-                              <span className="player-queue-item-meta">
-                                {formatCreatorName(song.creator)}
-                              </span>
-                            </div>
+                            OFF
                           </button>
-                          <div className="player-queue-item-actions">
-                            <button
-                              type="button"
-                              className="player-queue-remove-btn"
-                              onClick={() => store.removeFromQueue(idx)}
-                              aria-label="Remove"
-                            >
-                              <X size={11} />
-                            </button>
-                          </div>
                         </div>
-                      );
-                    })
-                  )}
-                </div>
+                      )}
+                    </div>
+
+                    <div className="player-sleep-step-body" role="region" aria-label="Sleep Timer Options">
+                      {sleepPresets.map((opt) => {
+                        const isSelected = state.sleepTimer?.mode === opt.mode;
+                        return (
+                          <button
+                            key={opt.mode}
+                            type="button"
+                            className={`player-queue-sleep-pill player-sleep-step-option ${isSelected ? 'active' : ''}`}
+                            onClick={() => {
+                              store.setSleepTimer(opt.mode);
+                              setSleepOpen(false);
+                            }}
+                          >
+                            <span>{opt.label}</span>
+                            {isSelected && <Check size={12} />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="player-queue-header">
+                      <span className="player-queue-title">
+                        QUEUE {state.queue.length > 0 ? `(${state.queue.length})` : ''}
+                      </span>
+                      <div className="player-queue-modes">
+                        <Tooltip title={state.isPlaying ? 'Pause' : 'Play'} position="top">
+                          <button
+                            type="button"
+                            className={`player-mode-btn player-queue-play-btn ${state.isPlaying ? 'active' : ''}`}
+                            disabled={state.queue.length === 0 && !currentSong}
+                            onClick={() => {
+                              if (currentSong) {
+                                void store.setPlaying(!state.isPlaying);
+                              } else if (state.queue.length > 0) {
+                                void store.playQueueIndex(0);
+                              }
+                            }}
+                            aria-label={state.isPlaying ? 'Pause Queue' : 'Play Queue'}
+                          >
+                            {state.isPlaying ? <Pause size={12} /> : <Play size={12} />}
+                          </button>
+                        </Tooltip>
+
+                        <Tooltip title="Shuffle" position="top">
+                          <button
+                            type="button"
+                            className={`player-mode-btn ${state.shuffle ? 'active' : ''}`}
+                            onClick={() => store.setShuffle(!state.shuffle)}
+                            aria-label="Shuffle"
+                          >
+                            <Shuffle size={12} />
+                          </button>
+                        </Tooltip>
+
+                        <Tooltip title="Repeat" position="top">
+                          <button
+                            type="button"
+                            className={`player-mode-btn ${state.repeatMode !== 'off' ? 'active' : ''}`}
+                            onClick={cycleRepeatMode}
+                            aria-label="Repeat"
+                          >
+                            {state.repeatMode === 'one' ? <Repeat1 size={12} /> : <Repeat size={12} />}
+                          </button>
+                        </Tooltip>
+
+                        <Tooltip
+                          title={state.autoplay ? 'Continuous Autoplay: ON' : 'Continuous Autoplay: OFF'}
+                          position="top"
+                        >
+                          <button
+                            type="button"
+                            className={`player-mode-btn ${state.autoplay ? 'active' : ''}`}
+                            onClick={() => store.toggleAutoplay()}
+                            aria-label="Continuous Autoplay"
+                          >
+                            <Sparkles size={12} />
+                          </button>
+                        </Tooltip>
+
+                        <Tooltip title="Sleep Timer" position="top">
+                          <button
+                            type="button"
+                            className={`player-mode-btn ${state.sleepTimer ? 'active' : ''}`}
+                            onClick={() => {
+                              setShowSavePrompt(false);
+                              setSleepOpen(true);
+                            }}
+                            aria-label="Sleep Timer"
+                            aria-expanded={sleepOpen}
+                          >
+                            <Timer size={12} />
+                          </button>
+                        </Tooltip>
+
+                        {state.queue.length > 0 && (
+                          <>
+                            <Tooltip title="Save as Playlist" position="top">
+                              <button
+                                type="button"
+                                className={`player-mode-btn ${showSavePrompt ? 'active' : ''}`}
+                                onClick={() => {
+                                  setSleepOpen(false);
+                                  setShowSavePrompt((prev) => !prev);
+                                }}
+                                aria-label="Save as Playlist"
+                              >
+                                <FolderPlus size={12} />
+                              </button>
+                            </Tooltip>
+                            <Tooltip title="Clear" position="top">
+                              <button
+                                type="button"
+                                className="player-mode-btn"
+                                onClick={() => store.clearQueue()}
+                                aria-label="Clear"
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            </Tooltip>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Save Queue as Private Playlist Inline Form */}
+                    {showSavePrompt && (
+                      <form className="player-save-playlist-form" onSubmit={handleSaveQueueAsPlaylist}>
+                        <input
+                          type="text"
+                          className="player-save-playlist-input"
+                          placeholder="Playlist name..."
+                          value={playlistTitle}
+                          onChange={(e) => setPlaylistTitle(e.target.value)}
+                          maxLength={80}
+                          autoFocus
+                        />
+                        <button
+                          type="submit"
+                          className="player-save-playlist-submit"
+                          disabled={savingPlaylist}
+                          aria-label="Save"
+                        >
+                          <Check size={12} />
+                        </button>
+                      </form>
+                    )}
+
+                    {/* Queue List */}
+                    <div className="player-queue-list scrollable">
+                      {state.queue.length === 0 ? (
+                        <div className="player-queue-empty">EMPTY</div>
+                      ) : (
+                        state.queue.map((song, idx) => {
+                          const isCurrent =
+                            (idx === state.queueIndex || idx === 0) &&
+                            state.activeSong?.id === song.id;
+                          const isDragging = dragIdx === idx;
+                          return (
+                            <div
+                              key={song.id}
+                              data-queue-idx={idx}
+                              className={`player-queue-item ${isCurrent ? 'current' : ''} ${isDragging ? 'dragging' : ''}`}
+                              draggable={!isCurrent}
+                              onDragStart={(e) => {
+                                if (isCurrent) {
+                                  e.preventDefault();
+                                  return;
+                                }
+                                if (emptyDragImgRef.current) {
+                                  e.dataTransfer.setDragImage(emptyDragImgRef.current, 0, 0);
+                                }
+                                e.dataTransfer.effectAllowed = 'move';
+                                setDragIdx(idx);
+                              }}
+                              onDragOver={(e) => {
+                                e.preventDefault();
+                                if (dragIdx !== null && dragIdx !== idx) {
+                                  store.moveQueueItem(dragIdx, idx);
+                                  setDragIdx(idx);
+                                }
+                              }}
+                              onDrop={(e) => {
+                                e.preventDefault();
+                                setDragIdx(null);
+                              }}
+                              onDragEnd={() => setDragIdx(null)}
+                            >
+                              <div
+                                className={`player-queue-grip ${isCurrent ? 'disabled' : ''}`}
+                                onPointerDown={(e) => {
+                                  if (isCurrent) return;
+                                  e.stopPropagation();
+                                  e.currentTarget.setPointerCapture(e.pointerId);
+                                  setDragIdx(idx);
+                                }}
+                                onPointerMove={(e) => {
+                                  if (dragIdx === null) return;
+                                  const el = document
+                                    .elementFromPoint(e.clientX, e.clientY)
+                                    ?.closest('[data-queue-idx]') as HTMLElement | null;
+                                  if (!el) return;
+                                  const targetIdx = Number(el.dataset.queueIdx);
+                                  if (Number.isFinite(targetIdx) && targetIdx !== dragIdx) {
+                                    store.moveQueueItem(dragIdx, targetIdx);
+                                    setDragIdx(targetIdx);
+                                  }
+                                }}
+                                onPointerUp={(e) => {
+                                  if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+                                    e.currentTarget.releasePointerCapture(e.pointerId);
+                                  }
+                                  setDragIdx(null);
+                                }}
+                                onPointerCancel={() => setDragIdx(null)}
+                              >
+                                <GripVertical size={12} />
+                              </div>
+                              <button
+                                type="button"
+                                className="player-queue-item-main"
+                                onClick={() => void store.playQueueIndex(idx)}
+                              >
+                                <div className="player-queue-thumb">
+                                  <img
+                                    src={song.image && song.image.trim() !== '' ? song.image : '/branding/mark.svg'}
+                                    alt=""
+                                    width={28}
+                                    height={28}
+                                    decoding="async"
+                                  />
+                                  <span className="player-queue-thumb-play" aria-hidden="true">
+                                    {isCurrent && state.isPlaying ? <Pause size={11} /> : <Play size={11} />}
+                                  </span>
+                                </div>
+                                <div className="player-queue-item-text">
+                                  <span className="player-queue-item-title">{song.title}</span>
+                                  <span className="player-queue-item-meta">
+                                    {formatCreatorName(song.creator)}
+                                  </span>
+                                </div>
+                              </button>
+                              <div className="player-queue-item-actions">
+                                <button
+                                  type="button"
+                                  className="player-queue-remove-btn"
+                                  onClick={() => store.removeFromQueue(idx)}
+                                  aria-label="Remove"
+                                >
+                                  <X size={11} />
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
             )}
           </div>

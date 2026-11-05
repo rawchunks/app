@@ -418,6 +418,221 @@
 }
 
 /* ==========================================================================
+   SLEEP TIMER INLINE PANEL (INSIDE QUEUE DRAWER) & REACTIVATION PROMPT
+   ========================================================================== */
+.player-queue-sleep-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(0, 255, 65, 0.03);
+}
+
+.player-sleep-back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: var(--primary);
+  font-family: var(--font-family);
+  cursor: pointer;
+  transition: opacity 0.12s ease;
+}
+
+.player-sleep-back-btn:hover {
+  opacity: 0.85;
+}
+
+.player-sleep-step-body {
+  display: flex;
+  flex-direction: column;
+  padding: 8px;
+  gap: 6px;
+}
+
+.player-sleep-step-option {
+  width: 100%;
+  justify-content: space-between;
+  padding: 8px 10px;
+}
+
+.player-queue-sleep-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.player-sleep-remaining-badge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 2px 6px;
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  font-weight: 700;
+  color: var(--primary);
+  background: rgba(0, 255, 65, 0.12);
+  border: 1px solid rgba(0, 255, 65, 0.35);
+  border-radius: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+.player-queue-sleep-off-btn {
+  padding: 2px 7px;
+  background: transparent;
+  border: 1px solid var(--border-bright);
+  border-radius: 2px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.player-queue-sleep-off-btn:hover {
+  color: var(--error);
+  border-color: var(--error);
+  background: rgba(255, 59, 48, 0.08);
+}
+
+.player-queue-sleep-pills {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.player-queue-sleep-pill {
+  flex: 1 1 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 7px;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.player-queue-sleep-pill:hover {
+  color: var(--text);
+  border-color: var(--border-bright);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.player-queue-sleep-pill.active {
+  color: var(--primary);
+  border-color: var(--primary);
+  background: rgba(0, 255, 65, 0.12);
+}
+
+.player-sleep-reactivate-prompt {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  right: clamp(8px, 2vw, 24px);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  background: rgba(10, 10, 12, 0.96);
+  border: 1px solid var(--primary);
+  border-radius: 2px;
+  box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.9), 0 0 16px rgba(0, 255, 65, 0.22);
+  z-index: 9998;
+  max-width: min(380px, calc(100vw - 16px));
+}
+
+.player-sleep-reactivate-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.player-sleep-reactivate-icon {
+  color: var(--primary);
+  flex-shrink: 0;
+}
+
+.player-sleep-reactivate-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.player-sleep-reactivate-title {
+  font-size: var(--font-xs);
+  font-weight: 800;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.player-sleep-reactivate-sub {
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.player-sleep-reactivate-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.player-sleep-reactivate-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-family);
+  font-size: var(--font-xs);
+  font-weight: 800;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: all 0.14s ease;
+}
+
+.player-sleep-reactivate-btn.primary {
+  padding: 4px 8px;
+  background: var(--primary);
+  color: var(--bg);
+  border: 1px solid var(--primary);
+}
+
+.player-sleep-reactivate-btn.primary:hover {
+  filter: brightness(1.08);
+  box-shadow: 0 0 10px rgba(0, 255, 65, 0.35);
+}
+
+.player-sleep-reactivate-btn.ghost {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+}
+
+.player-sleep-reactivate-btn.ghost:hover {
+  color: var(--text);
+  border-color: var(--border-bright);
+}
+
+/* ==========================================================================
    PLAYER QUEUE DRAWER
    ========================================================================== */
 .player-queue-drawer {
