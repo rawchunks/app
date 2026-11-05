@@ -71,9 +71,33 @@ export function buildFallbackSongEarning(song: Song): SongEarningsItem {
     plays > 0 && durationMs > 0
       ? Number(Math.min(100, (streamedMs / (plays * durationMs)) * 100).toFixed(1))
       : 0;
-  const genres = Array.isArray(song.genres) && song.genres.length > 0 ? song.genres : ['Audio'];
+  const rawSongGenres = [
+    ...(Array.isArray(song.genres) ? song.genres : []),
+    ...(Array.isArray(song.tags) ? song.tags : []),
+  ]
+    .flatMap((g) => (typeof g === 'string' ? g.split(',') : []))
+    .map((g) => g.trim())
+    .filter(Boolean);
+  const seenGenres = new Set<string>();
+  const dedupedGenres: string[] = [];
+  for (const g of rawSongGenres) {
+    const k = g.toLowerCase();
+    if (!seenGenres.has(k)) {
+      seenGenres.add(k);
+      dedupedGenres.push(g);
+    }
+  }
+  const genres = dedupedGenres.length > 0 ? dedupedGenres : ['Audio'];
   const primaryGenre = genres[0] || 'Audio';
   const lastPlayedAt = song.created_at ? Date.parse(song.created_at) || Date.now() : Date.now();
+  const licensePriceUsd = Math.max(0, Number(song.license_price || 0));
+  const streamPriceUsd = Math.max(0, Number(song.stream_price || 0));
+  const streamGrossUsd =
+    streamedMs > 0 && streamPriceUsd > 0
+      ? Number(((streamedMs / 60_000) * streamPriceUsd).toFixed(6))
+      : 0;
+  const streamProfitUsd = Number((streamGrossUsd * 0.8).toFixed(6));
+  const platformFeeUsd = Number((streamGrossUsd - streamProfitUsd).toFixed(6));
   return {
     songId: song.id,
     title: song.title || 'Untitled',
@@ -91,13 +115,13 @@ export function buildFallbackSongEarning(song: Song): SongEarningsItem {
     licensesMinted: minted,
     licensesRemaining: minted,
     licensesSold: 0,
-    licensePriceUsd: Math.max(0, Number(song.license_price || 0)),
-    streamPriceUsd: Math.max(0, Number(song.stream_price || 0)),
+    licensePriceUsd,
+    streamPriceUsd,
     licenseProfitUsd: 0,
-    streamProfitUsd: 0,
-    totalProfitUsd: 0,
-    platformFeeUsd: 0,
-    grossUsd: 0,
+    streamProfitUsd,
+    totalProfitUsd: streamProfitUsd,
+    platformFeeUsd,
+    grossUsd: streamGrossUsd,
     plays,
     streamSettlements: 0,
     streamedMs,
@@ -171,6 +195,15 @@ export function computeAggregatedEarnings(
       base.ratioPct = Number(
         Math.min(100, (base.streamedMs / (base.plays * base.durationMs)) * 100).toFixed(1),
       );
+    }
+    if (base.streamedMs > 0 && base.streamPriceUsd > 0) {
+      const estStreamProfit = Number((((base.streamedMs / 60_000) * base.streamPriceUsd) * 0.8).toFixed(6));
+      if (estStreamProfit > base.streamProfitUsd) {
+        base.streamProfitUsd = estStreamProfit;
+        base.totalProfitUsd = Number((base.licenseProfitUsd + base.streamProfitUsd).toFixed(6));
+        base.grossUsd = Number((base.totalProfitUsd / 0.8).toFixed(6));
+        base.platformFeeUsd = Number((base.grossUsd - base.totalProfitUsd).toFixed(6));
+      }
     }
     if (!base.txHash && song.tx_hash) base.txHash = song.tx_hash;
     if (!base.explorerUrl && song.tx_url) base.explorerUrl = song.tx_url;
@@ -280,13 +313,49 @@ export function computeAggregatedEarnings(
     activeNetworkFilter: normalizedFilter,
   };
 
+  const mergedEvents: EarningEventItem[] = [...(remoteData?.events ?? [])];
+  const eventSongIdsWithStreams = new Set(
+    mergedEvents.filter((e) => e.kind === 'stream').map((e) => e.songId),
+  );
+  for (const item of Object.values(allSongMetrics)) {
+    if (item.plays > 0 && !eventSongIdsWithStreams.has(item.songId)) {
+      const perPlayMs = Math.min(item.durationMs || 35_000, 35_000);
+      const perPlayRoyalties = Number((item.streamProfitUsd / item.plays).toFixed(6));
+      const perPlayTotal = Number((perPlayRoyalties / 0.8).toFixed(6));
+      const perPlayFee = Number((perPlayTotal - perPlayRoyalties).toFixed(6));
+      for (let idx = 0; idx < item.plays; idx++) {
+        mergedEvents.push({
+          id: `fallback:play:${item.songId}:${idx + 1}`,
+          songId: item.songId,
+          songTitle: item.title,
+          genre: item.primaryGenre,
+          network: item.network || 'eip155:84532',
+          networkFamily: item.networkFamily,
+          networkLabel: item.networkLabel,
+          kind: 'stream',
+          royaltiesUsd: perPlayRoyalties,
+          platformFeeUsd: perPlayFee,
+          totalUsd: perPlayTotal,
+          streamedMs: perPlayMs,
+          durationMs: item.durationMs,
+          ratioPct: item.ratioPct,
+          txHash: item.txHash,
+          explorerUrl: item.explorerUrl,
+          payer: null,
+          timestamp: item.lastPlayedAt,
+        });
+      }
+    }
+  }
+  mergedEvents.sort((a, b) => b.timestamp - a.timestamp);
+
   return {
     summary,
     networks: Array.from(networkBuckets.values()),
     songMetrics: displaySongMetrics,
     allSongMetrics,
     filteredSongs,
-    events: remoteData?.events ?? [],
+    events: mergedEvents,
   };
 }
 
