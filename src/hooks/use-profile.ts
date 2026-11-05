@@ -1,12 +1,16 @@
 import { useState, useEffect, useCallback } from 'react';
-import { readCachedProfile, writeCachedProfile } from '@/lib/cache';
+import { readCachedProfile, writeCachedProfile, SocialLinkRecord, SocialPlatform } from '@/lib/cache';
 import { api } from '@/lib/api';
 import { toast } from 'sonner';
+
+export type { SocialLinkRecord, SocialPlatform };
 
 export interface UserProfile {
   nickname: string | null;
   avatar: string | null;
   bio: string | null;
+  banner: string | null;
+  socials: SocialLinkRecord[];
 }
 
 export interface WalletPairProfile {
@@ -15,16 +19,18 @@ export interface WalletPairProfile {
   nickname?: string | null;
   avatar?: string | null;
   bio?: string | null;
+  banner?: string | null;
+  socials?: SocialLinkRecord[];
 }
 
 const inFlightUsers = new Map<string, Promise<WalletPairProfile | null>>();
 
-function fetchUserProfile(address: string): Promise<WalletPairProfile | null> {
-  const normalized = address.toLowerCase();
+export function fetchUserProfile(addressOrHandle: string): Promise<WalletPairProfile | null> {
+  const normalized = addressOrHandle.trim().toLowerCase();
   const existing = inFlightUsers.get(normalized);
   if (existing) return existing;
 
-  const promise = api.fetch(`/api/user/${encodeURIComponent(address)}`)
+  const promise = api.fetch(`/api/user/${encodeURIComponent(addressOrHandle.trim())}`)
     .then(async (res) => {
       if (!res.ok) return null;
       return res.json();
@@ -45,12 +51,18 @@ export async function fetchUserProfilesBatch(addresses: string[]): Promise<Walle
     const res = await api.fetch(`/api/users?addresses=${encodeURIComponent(unique.join(','))}`);
     if (!res.ok) return [];
     const data = await res.json();
-    const users: WalletPairProfile[] = Array.isArray(data?.users) ? data.users : [];
+    const users: WalletPairProfile[] = Array.isArray(data)
+      ? data
+      : Array.isArray(data?.users)
+        ? data.users
+        : [];
     for (const u of users) {
       const profile = {
         nickname: u.nickname ?? null,
         avatar: u.avatar ?? null,
         bio: u.bio ?? null,
+        banner: u.banner ?? null,
+        socials: Array.isArray(u.socials) ? u.socials : [],
       };
       if (u.evmAddress) {
         writeCachedProfile(u.evmAddress, profile);
@@ -70,7 +82,7 @@ export async function fetchUserProfilesBatch(addresses: string[]): Promise<Walle
 export function useProfile(address?: string | null) {
   const [profile, setProfile] = useState<UserProfile>(() => {
     if (!address) {
-      return { nickname: null, avatar: null, bio: null };
+      return { nickname: null, avatar: null, bio: null, banner: null, socials: [] };
     }
     const cached = readCachedProfile(address);
     if (cached) {
@@ -78,16 +90,18 @@ export function useProfile(address?: string | null) {
         nickname: cached.nickname ?? null,
         avatar: cached.avatar ?? null,
         bio: cached.bio ?? null,
+        banner: cached.banner ?? null,
+        socials: Array.isArray(cached.socials) ? cached.socials : [],
       };
     }
-    return { nickname: null, avatar: null, bio: null };
+    return { nickname: null, avatar: null, bio: null, banner: null, socials: [] };
   });
 
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (!address) {
-      setProfile({ nickname: null, avatar: null, bio: null });
+      setProfile({ nickname: null, avatar: null, bio: null, banner: null, socials: [] });
       setLoading(false);
       return;
     }
@@ -98,16 +112,27 @@ export function useProfile(address?: string | null) {
       nickname: cached?.nickname ?? null,
       avatar: cached?.avatar ?? null,
       bio: cached?.bio ?? null,
+      banner: cached?.banner ?? null,
+      socials: Array.isArray(cached?.socials) ? cached!.socials : [],
     });
 
     const handler = (e: Event) => {
-      const custom = e as CustomEvent<{ address: string; nickname?: string | null; avatar?: string | null; bio?: string | null }>;
+      const custom = e as CustomEvent<{
+        address: string;
+        nickname?: string | null;
+        avatar?: string | null;
+        bio?: string | null;
+        banner?: string | null;
+        socials?: SocialLinkRecord[];
+      }>;
       if (custom.detail?.address?.toLowerCase() === address.toLowerCase()) {
-        setProfile({
-          nickname: custom.detail.nickname ?? null,
-          avatar: custom.detail.avatar ?? null,
-          bio: custom.detail.bio ?? null,
-        });
+        setProfile((prev) => ({
+          nickname: custom.detail.nickname !== undefined ? (custom.detail.nickname ?? null) : prev.nickname,
+          avatar: custom.detail.avatar !== undefined ? (custom.detail.avatar ?? null) : prev.avatar,
+          bio: custom.detail.bio !== undefined ? (custom.detail.bio ?? null) : prev.bio,
+          banner: custom.detail.banner !== undefined ? (custom.detail.banner ?? null) : prev.banner,
+          socials: Array.isArray(custom.detail.socials) ? custom.detail.socials : prev.socials,
+        }));
       }
     };
     window.addEventListener('rawchunks:profile', handler);
@@ -118,10 +143,13 @@ export function useProfile(address?: string | null) {
     fetchUserProfile(address)
       .then((data) => {
         if (!active || !data) return;
-        const newNick = data.nickname ?? null;
-        const newAv = data.avatar ?? null;
-        const newBio = data.bio ?? null;
-        const nextProfile = { nickname: newNick, avatar: newAv, bio: newBio };
+        const nextProfile: UserProfile = {
+          nickname: data.nickname ?? null,
+          avatar: data.avatar ?? null,
+          bio: data.bio ?? null,
+          banner: data.banner ?? null,
+          socials: Array.isArray(data.socials) ? data.socials : [],
+        };
         setProfile(nextProfile);
         writeCachedProfile(address, nextProfile);
         if (data.evmAddress) writeCachedProfile(data.evmAddress, nextProfile);
@@ -138,20 +166,36 @@ export function useProfile(address?: string | null) {
   }, [address]);
 
   const updateProfile = useCallback(
-    async (next: { nickname?: string | null; avatar?: string | null; bio?: string | null }) => {
+    async (next: {
+      nickname?: string | null;
+      avatar?: string | null;
+      bio?: string | null;
+      banner?: string | null;
+      socials?: SocialLinkRecord[];
+    }) => {
       if (!address) throw new Error('No active address to update profile');
 
       const prev = { ...profile };
       const nextNick = next.nickname !== undefined ? next.nickname : prev.nickname;
       const nextAv = next.avatar !== undefined ? next.avatar : prev.avatar;
       const nextBio = next.bio !== undefined ? next.bio : prev.bio;
+      const nextBanner = next.banner !== undefined ? next.banner : prev.banner;
+      const nextSocials = next.socials !== undefined ? next.socials : prev.socials;
+
+      const optimistic: UserProfile = {
+        nickname: nextNick,
+        avatar: nextAv,
+        bio: nextBio,
+        banner: nextBanner,
+        socials: nextSocials,
+      };
 
       // Optimistic update
-      setProfile({ nickname: nextNick, avatar: nextAv, bio: nextBio });
-      writeCachedProfile(address, { nickname: nextNick, avatar: nextAv, bio: nextBio });
+      setProfile(optimistic);
+      writeCachedProfile(address, optimistic);
       window.dispatchEvent(
         new CustomEvent('rawchunks:profile', {
-          detail: { address, nickname: nextNick, avatar: nextAv, bio: nextBio },
+          detail: { address, ...optimistic },
         })
       );
 
@@ -167,6 +211,8 @@ export function useProfile(address?: string | null) {
             nickname: nextNick,
             avatar: nextAv,
             bio: nextBio,
+            banner: nextBanner,
+            socials: nextSocials,
           }),
         });
 
@@ -176,17 +222,31 @@ export function useProfile(address?: string | null) {
         }
 
         const data = await res.json();
-        const serverNick = data.nickname ?? nextNick;
-        const serverAv = data.avatar ?? nextAv;
-        const serverBio = data.bio ?? nextBio;
-        setProfile({ nickname: serverNick, avatar: serverAv, bio: serverBio });
-        writeCachedProfile(address, { nickname: serverNick, avatar: serverAv, bio: serverBio });
+        const confirmed: UserProfile = {
+          nickname: data.nickname ?? nextNick,
+          avatar: data.avatar ?? nextAv,
+          bio: data.bio ?? nextBio,
+          banner: data.banner !== undefined ? data.banner : nextBanner,
+          socials: Array.isArray(data.socials) ? data.socials : nextSocials,
+        };
+        setProfile(confirmed);
+        writeCachedProfile(address, confirmed);
+        window.dispatchEvent(
+          new CustomEvent('rawchunks:profile', {
+            detail: { address, ...confirmed },
+          })
+        );
         toast.success('Profile updated');
         return data;
       } catch (err: any) {
         // Rollback on failure
         setProfile(prev);
         writeCachedProfile(address, prev);
+        window.dispatchEvent(
+          new CustomEvent('rawchunks:profile', {
+            detail: { address, ...prev },
+          })
+        );
         toast.error(err.message || 'Failed to update profile');
         throw err;
       }
@@ -198,6 +258,8 @@ export function useProfile(address?: string | null) {
     nickname: profile.nickname,
     avatar: profile.avatar,
     bio: profile.bio,
+    banner: profile.banner,
+    socials: profile.socials,
     loading,
     updateProfile,
   };

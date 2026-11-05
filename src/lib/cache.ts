@@ -183,10 +183,35 @@ export interface CachedAccount {
     bio?: string | null;
 }
 
+export type SocialPlatform =
+    | 'x'
+    | 'instagram'
+    | 'tiktok'
+    | 'farcaster'
+    | 'spotify'
+    | 'soundcloud'
+    | 'youtube'
+    | 'discord'
+    | 'telegram'
+    | 'twitch'
+    | 'github'
+    | 'google'
+    | 'website';
+
+export interface SocialLinkRecord {
+    platform: SocialPlatform;
+    handle: string;
+    url: string;
+    verified?: boolean;
+    providerId?: string;
+}
+
 export interface CachedProfile {
     nickname?: string | null;
     avatar?: string | null;
     bio?: string | null;
+    banner?: string | null;
+    socials?: SocialLinkRecord[];
     updatedAt: number;
 }
 
@@ -201,13 +226,25 @@ export function readCachedProfile(address?: string | null): CachedProfile | null
     }
 }
 
-export function writeCachedProfile(address: string, profile: { nickname?: string | null; avatar?: string | null; bio?: string | null }): void {
+export function writeCachedProfile(
+    address: string,
+    profile: {
+        nickname?: string | null;
+        avatar?: string | null;
+        bio?: string | null;
+        banner?: string | null;
+        socials?: SocialLinkRecord[];
+    },
+): void {
     if (typeof window === "undefined" || !address) return;
     try {
+        const existing = readCachedProfile(address);
         localStorage.setItem(`profile:${address.toLowerCase()}`, JSON.stringify({
-            nickname: profile.nickname ?? null,
-            avatar: profile.avatar ?? null,
-            bio: profile.bio ?? null,
+            nickname: profile.nickname !== undefined ? profile.nickname : (existing?.nickname ?? null),
+            avatar: profile.avatar !== undefined ? profile.avatar : (existing?.avatar ?? null),
+            bio: profile.bio !== undefined ? profile.bio : (existing?.bio ?? null),
+            banner: profile.banner !== undefined ? profile.banner : (existing?.banner ?? null),
+            socials: profile.socials !== undefined ? profile.socials : (existing?.socials ?? []),
             updatedAt: Date.now(),
         }));
     } catch { }
