@@ -1406,8 +1406,8 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
           </div>
           <div className="mypage-subtitle">
             {activeTab === 'workspace'
-              ? `${workspaceFamilies.length} DRAFTS • ${totalLicensesCount} LICENSES • ${albums.length} ALBUMS • ${voices.length} VOICES`
-              : `${publishedSongsList.length} PUBLISHED RELEASES • ${earnAnalytics.summary.licensesSold} LICENSES SOLD`}
+              ? `YOUR WORKSPACE`
+              : `YOUR CREATOR DASHBOARD`}
           </div>
         </div>
 
