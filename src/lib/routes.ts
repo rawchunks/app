@@ -17,12 +17,17 @@ export function marketCreator(pathname: string): string | null {
   const clean = pathname.replace(/^\/+|\/+$/g, '');
   if (!clean) return null;
 
+  const normalizeHandle = (raw: string): string | null => {
+    const trimmed = raw.trim().replace(/^@+/, '').trim();
+    return trimmed || null;
+  };
+
   const legacyMatch = /^market\/([^/]+)$/i.exec(clean);
   if (legacyMatch) {
     try {
-      return decodeURIComponent(legacyMatch[1]).trim() || null;
+      return normalizeHandle(decodeURIComponent(legacyMatch[1]));
     } catch {
-      return legacyMatch[1].trim() || null;
+      return normalizeHandle(legacyMatch[1]);
     }
   }
 
@@ -30,9 +35,9 @@ export function marketCreator(pathname: string): string | null {
     const lower = clean.toLowerCase();
     if (RESERVED_ROOT_SEGMENTS.has(lower)) return null;
     try {
-      return decodeURIComponent(clean).trim() || null;
+      return normalizeHandle(decodeURIComponent(clean));
     } catch {
-      return clean.trim() || null;
+      return normalizeHandle(clean);
     }
   }
 

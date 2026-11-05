@@ -4,11 +4,13 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { toast } from 'sonner';
 import {
   User,
+  Users,
   UserPlus,
   UserCheck,
   Search,
   X,
   Music,
+  Headphones,
   ArrowDownWideNarrow,
   ArrowUpNarrowWide,
   RotateCcw,
@@ -51,13 +53,22 @@ import {
 } from '../hooks/use-playlists';
 import { useLikes, useFollows, useCreatorSocial } from '../hooks/use-social';
 import { useSelectedUserAddress } from '../hooks/use-address';
-import { fetchUserProfilesBatch, type WalletPairProfile } from '../hooks/use-profile';
+import {
+  fetchUserProfile,
+  fetchUserProfilesBatch,
+  type WalletPairProfile,
+  type SocialLinkRecord,
+} from '../hooks/use-profile';
+import {
+  CreatorProfileCard,
+  sanitizeCreatorNickname,
+} from '../components/profile';
 import { readCachedProfile } from '../lib/cache';
 import { groupSongs } from '../lib/versions';
 import { openGate } from '../lib/gate';
 import { marketCreator, marketPath } from '../lib/routes';
 import { songToShareData, type MintShareData } from '../lib/share';
-import { ShareModal } from '../components/share';
+import { ShareModal, ShareUrlModal } from '../components/share';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Song, Album, Playlist } from '../lib/schema';
 
@@ -71,6 +82,8 @@ interface CreatorGroup {
   nicknameKey: string | null;
   avatar: string | null;
   bio: string | null;
+  banner: string | null;
+  socials: SocialLinkRecord[];
   addresses: Set<string>;
 }
 
@@ -78,7 +91,7 @@ type SnapStageId = 'pulse' | 'discovery' | 'collections';
 
 function findCreatorGroup(groups: CreatorGroup[], rawCreator: string | null): CreatorGroup | null {
   if (!rawCreator) return null;
-  const lower = rawCreator.trim().toLowerCase();
+  const lower = rawCreator.trim().replace(/^@+/, '').trim().toLowerCase();
   if (!lower) return null;
   return (
     groups.find(
@@ -116,6 +129,7 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
   const [likedOnly, setLikedOnly] = useState(false);
   const [followingOnly, setFollowingOnly] = useState(false);
   const [order, setOrder] = useState<'latest' | 'oldest'>('latest');
+  const [creatorShareOpen, setCreatorShareOpen] = useState(false);
   const [search, setSearch] = useState<string>('');
   const [searchModalOpen, setSearchModalOpen] = useState(false);
   const [selected, setSelected] = useState<Record<string, string>>({});
@@ -295,9 +309,18 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
       const lower = raw.toLowerCase();
       const pair = pairByAddr.get(lower);
       const cached = readCachedProfile(raw);
-      const rawNickname = pair?.nickname?.trim() || cached?.nickname?.trim() || null;
+      const rawNickname = sanitizeCreatorNickname(
+        pair?.nickname?.trim() || cached?.nickname?.trim() || null,
+        raw
+      );
       const rawAvatar = pair?.avatar?.trim() || cached?.avatar?.trim() || null;
       const rawBio = pair?.bio?.trim() || cached?.bio?.trim() || null;
+      const rawBanner = pair?.banner?.trim() || cached?.banner?.trim() || null;
+      const rawSocials = Array.isArray(pair?.socials)
+        ? pair!.socials
+        : Array.isArray(cached?.socials)
+          ? cached!.socials
+          : [];
       const nicknameKey = rawNickname ? rawNickname.toLowerCase() : null;
 
       const candidateAddresses = new Set<string>([lower]);
@@ -326,6 +349,12 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
         if (rawBio && !existing.bio) {
           existing.bio = rawBio;
         }
+        if (rawBanner && !existing.banner) {
+          existing.banner = rawBanner;
+        }
+        if (rawSocials.length > 0 && existing.socials.length === 0) {
+          existing.socials = rawSocials;
+        }
       } else {
         const canonicalKey =
           pair?.evmAddress?.toLowerCase() || pair?.svmAddress?.toLowerCase() || lower;
@@ -335,6 +364,8 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
           nicknameKey,
           avatar: rawAvatar,
           bio: rawBio,
+          banner: rawBanner,
+          socials: rawSocials,
           addresses: candidateAddresses,
         });
       }
@@ -425,7 +456,7 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
     }
 
     if (selectedCreator) {
-      const lower = selectedCreator.trim().toLowerCase();
+      const lower = selectedCreator.trim().replace(/^@+/, '').trim().toLowerCase();
       const group = findCreatorGroup(creatorGroups, selectedCreator);
       const targetAddresses = group ? group.addresses : new Set([lower]);
       list = list.filter(
@@ -433,6 +464,14 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
           Boolean(s.creator && targetAddresses.has(s.creator.toLowerCase())) ||
           Boolean(group && s.creator && group.addresses.has(s.creator.toLowerCase()))
       );
+      list.sort((a, b) => {
+        const tsA = a.published_at || a.created_at;
+        const tsB = b.published_at || b.created_at;
+        const timeA = tsA ? new Date(tsA).getTime() : 0;
+        const timeB = tsB ? new Date(tsB).getTime() : 0;
+        return timeB - timeA;
+      });
+      return list;
     }
 
     if (likedOnly) {
@@ -592,10 +631,29 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
     [creatorGroups, selectedCreator]
   );
 
+  const [directCreatorProfile, setDirectCreatorProfile] = useState<WalletPairProfile | null>(null);
+
+  useEffect(() => {
+    const slug = selectedCreator?.trim().replace(/^@+/, '').trim();
+    if (!slug) {
+      setDirectCreatorProfile(null);
+      return;
+    }
+    let active = true;
+    fetchUserProfile(slug).then((prof) => {
+      if (active) setDirectCreatorProfile(prof);
+    });
+    return () => {
+      active = false;
+    };
+  }, [selectedCreator]);
+
   const selectedCreatorCanonicalAddr = useMemo(() => {
     if (selectedCreatorGroup) return selectedCreatorGroup.key;
+    if (directCreatorProfile?.evmAddress) return directCreatorProfile.evmAddress.toLowerCase();
+    if (directCreatorProfile?.svmAddress) return directCreatorProfile.svmAddress.toLowerCase();
     return selectedCreator?.trim() || null;
-  }, [selectedCreatorGroup, selectedCreator]);
+  }, [selectedCreatorGroup, directCreatorProfile, selectedCreator]);
 
   const {
     stats: selectedCreatorSocial,
@@ -606,12 +664,17 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
   const selectedCreatorLabel = useMemo(() => {
     if (!selectedCreator) return null;
     if (selectedCreatorGroup) return selectedCreatorGroup.label;
+    const cleanDirect = sanitizeCreatorNickname(
+      directCreatorProfile?.nickname,
+      selectedCreatorCanonicalAddr || selectedCreator
+    );
+    if (cleanDirect) return cleanDirect;
     const raw = selectedCreator.trim();
     if ((raw.startsWith('0x') && raw.length > 14) || raw.length >= 32) {
       return formatShortAddr(raw);
     }
     return raw;
-  }, [selectedCreator, selectedCreatorGroup]);
+  }, [selectedCreator, selectedCreatorGroup, directCreatorProfile, selectedCreatorCanonicalAddr]);
 
   useEffect(() => {
     const handlePopState = () => {
@@ -881,20 +944,32 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
     const isPlayingCreatorAll = playing.active && playing.contextId === creatorCtx;
     const isSelfCreator = Boolean(
       readAddress &&
-        ((selectedCreatorCanonicalAddr &&
-          selectedCreatorCanonicalAddr.toLowerCase() === readAddress.toLowerCase()) ||
-          selectedCreatorGroup?.addresses.has(readAddress.toLowerCase()))
+      ((selectedCreatorCanonicalAddr &&
+        selectedCreatorCanonicalAddr.toLowerCase() === readAddress.toLowerCase()) ||
+        selectedCreatorGroup?.addresses.has(readAddress.toLowerCase()))
     );
-    const creatorAvatar = selectedCreatorGroup?.avatar || null;
-    const creatorBio = selectedCreatorGroup?.bio || null;
-    const creatorShortWallet = selectedCreatorCanonicalAddr
-      ? formatShortAddr(selectedCreatorCanonicalAddr)
-      : null;
+    const creatorAvatar =
+      selectedCreatorGroup?.avatar || directCreatorProfile?.avatar?.trim() || null;
+    const creatorBio =
+      selectedCreatorGroup?.bio || directCreatorProfile?.bio?.trim() || null;
+    const creatorBanner =
+      selectedCreatorGroup?.banner || directCreatorProfile?.banner?.trim() || null;
+    const creatorSocials =
+      (selectedCreatorGroup?.socials && selectedCreatorGroup.socials.length > 0
+        ? selectedCreatorGroup.socials
+        : directCreatorProfile?.socials) || [];
+    const creatorCustomNickname =
+      sanitizeCreatorNickname(
+        selectedCreatorGroup?.nicknameKey
+          ? selectedCreatorGroup.label
+          : directCreatorProfile?.nickname,
+        selectedCreatorCanonicalAddr
+      ) || sanitizeCreatorNickname(selectedCreator, selectedCreatorCanonicalAddr);
 
     return (
       <div className={`market-container creator-studio-container ${className}`}>
         {/* Creator Studio Header */}
-        <header className="creator-studio-header panel">
+        <header className="creator-studio-header">
           <div className="creator-studio-top-row">
             <button
               type="button"
@@ -937,15 +1012,11 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
                 </button>
               )}
 
-              <Tooltip title="Share Creator Studio URL">
+              <Tooltip title="Share">
                 <button
                   type="button"
                   className="creator-share-btn"
-                  onClick={() => {
-                    const url = window.location.href;
-                    navigator.clipboard?.writeText(url);
-                    toast.success('Creator Studio link copied');
-                  }}
+                  onClick={() => setCreatorShareOpen(true)}
                   aria-label="Share creator link"
                 >
                   <Share2 size={13} />
@@ -954,58 +1025,41 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
             </div>
           </div>
 
-          <div className="creator-studio-identity">
-            <div className="creator-studio-avatar-wrap">
-              {creatorAvatar ? (
-                <img src={creatorAvatar} alt={selectedCreatorLabel || ''} className="creator-studio-avatar" />
-              ) : (
-                <div className="creator-studio-avatar creator-studio-avatar-fallback">
-                  <img src="/branding/mark.svg" alt="" className="creator-studio-mark" />
-                </div>
-              )}
-            </div>
-
-            <div className="creator-studio-meta">
-              <div className="creator-studio-name-row">
-                <h1 className="creator-studio-name">{selectedCreatorLabel}</h1>
-                {creatorShortWallet && selectedCreatorCanonicalAddr && (
-                  <button
-                    type="button"
-                    className="creator-wallet-pill"
-                    onClick={() => {
-                      navigator.clipboard?.writeText(selectedCreatorCanonicalAddr);
-                      toast.success('Address copied');
-                    }}
-                    title="Copy creator address"
-                  >
-                    <span>{creatorShortWallet}</span>
-                    <Copy size={10} />
-                  </button>
-                )}
-              </div>
-
-              {creatorBio && <p className="creator-studio-bio">{creatorBio}</p>}
-
+          <CreatorProfileCard
+            variant="creator"
+            address={selectedCreatorCanonicalAddr}
+            addresses={selectedCreatorGroup?.addresses}
+            songs={creatorPlayableSongs}
+            nickname={creatorCustomNickname}
+            avatar={creatorAvatar}
+            bio={creatorBio}
+            banner={creatorBanner}
+            socials={creatorSocials}
+            statsSlot={
               <div className="creator-studio-stats">
-                <div className="creator-stat-chip">
+                <div className="creator-stat-chip" title="Published tracks">
+                  <Music size={10} className="creator-stat-icon" />
                   <span className="creator-stat-value">{creatorPlayableSongs.length}</span>
                   <span className="creator-stat-label">TRACKS</span>
                 </div>
-                <div className="creator-stat-chip">
+                <div className="creator-stat-chip" title="Total streams">
+                  <Headphones size={10} className="creator-stat-icon" />
                   <span className="creator-stat-value">{totalCreatorStreams}</span>
                   <span className="creator-stat-label">STREAMS</span>
                 </div>
-                <div className="creator-stat-chip">
+                <div className="creator-stat-chip" title="Followers">
+                  <Users size={10} className="creator-stat-icon" />
                   <span className="creator-stat-value">{selectedCreatorSocial?.followers ?? 0}</span>
                   <span className="creator-stat-label">FOLLOWERS</span>
                 </div>
-                <div className="creator-stat-chip">
+                <div className="creator-stat-chip" title="Following">
+                  <UserCheck size={10} className="creator-stat-icon" />
                   <span className="creator-stat-value">{selectedCreatorSocial?.following ?? 0}</span>
                   <span className="creator-stat-label">FOLLOWING</span>
                 </div>
               </div>
-            </div>
-          </div>
+            }
+          />
         </header>
 
         {/* Published Songs Timeline List (Base Waveform + Timed Comments) */}
@@ -1054,6 +1108,12 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
           isOpen={Boolean(shareData)}
           onClose={() => setShareData(null)}
           data={shareData}
+        />
+
+        <ShareUrlModal
+          isOpen={creatorShareOpen}
+          onClose={() => setCreatorShareOpen(false)}
+          creator={creatorCustomNickname || selectedCreatorCanonicalAddr || selectedCreator || ''}
         />
       </div>
     );
