@@ -1796,8 +1796,13 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
                             setNewPage(0);
                           }}
                           title="Show new tracks from creators you follow"
+                          aria-label={
+                            pulseNewFollowingOnly
+                              ? 'Showing followed creators only'
+                              : 'Filter new tracks by followed creators'
+                          }
                         >
-                          <UserCheck size={11} />
+                          {pulseNewFollowingOnly ? <UserCheck size={12} /> : <UserPlus size={12} />}
                           <span>FOLLOWING</span>
                         </button>
                       </div>
@@ -1900,12 +1905,14 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
                             setPulseRightMode('liked');
                             setPopularPage(0);
                           }}
+                          aria-label={`Liked tracks (${likedPlayable.length})`}
                         >
                           <Heart
                             size={12}
                             fill={pulseRightMode === 'liked' ? 'currentColor' : 'none'}
                           />
-                          <span>LIKED ({likedPlayable.length})</span>
+                          <span className="market-col-mode-label">LIKED</span>
+                          <span className="market-quick-count">{likedPlayable.length}</span>
                         </button>
                       </div>
 
@@ -2090,8 +2097,12 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
                             <div className="market-genre-banner-content">
                               <div className="market-genre-banner-info">
                                 <span className="market-genre-banner-tag">#{genreFold.label}</span>
-                                <span className="market-genre-banner-count">
-                                  {genreFold.total} {genreFold.total === 1 ? 'TRACK' : 'TRACKS'}
+                                <span
+                                  className="market-genre-banner-count"
+                                  title={`${genreFold.total} ${genreFold.total === 1 ? 'track' : 'tracks'}`}
+                                >
+                                  <Music size={10} />
+                                  <span>{genreFold.total}</span>
                                 </span>
                               </div>
                               <button
@@ -2206,10 +2217,24 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
 
                             <div className="market-creator-card-info">
                               <span className="market-creator-card-name">{group.label}</span>
-                              <span className="market-creator-card-stats">
-                                {songs.length} {songs.length === 1 ? 'TRACK' : 'TRACKS'}
-                                {totalPlays > 0 ? ` • ${totalPlays} PLAYS` : ''}
-                              </span>
+                              <div className="market-creator-card-stats">
+                                <span
+                                  className="market-creator-stat-pill"
+                                  title={`${songs.length} ${songs.length === 1 ? 'track' : 'tracks'}`}
+                                >
+                                  <Music size={10} />
+                                  <span>{songs.length}</span>
+                                </span>
+                                {totalPlays > 0 && (
+                                  <span
+                                    className="market-creator-stat-pill"
+                                    title={`${totalPlays} streams`}
+                                  >
+                                    <Headphones size={10} />
+                                    <span>{totalPlays}</span>
+                                  </span>
+                                )}
+                              </div>
                             </div>
 
                             {!isSelf && (
@@ -2218,8 +2243,9 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
                                 className={`market-creator-follow-pill ${followed ? 'is-following' : ''}`}
                                 onClick={(e) => toggleFollow(group.key, e)}
                                 aria-label={followed ? `Unfollow ${group.label}` : `Follow ${group.label}`}
+                                title={followed ? `Following ${group.label}` : `Follow ${group.label}`}
                               >
-                                {followed ? <UserCheck size={11} /> : <UserPlus size={11} />}
+                                {followed ? <UserCheck size={12} /> : <UserPlus size={12} />}
                                 <span>{followed ? 'FOLLOWING' : 'FOLLOW'}</span>
                               </button>
                             )}
@@ -2444,23 +2470,22 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
                             {likedPlayable.length} SAVED
                           </span>
                         </div>
-                        {likedPlayable.length > 0 && (
-                          <button
-                            type="button"
-                            className={`market-collection-play-btn ${playing.active && playing.contextId === 'liked-crate' ? 'playing' : ''}`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handlePlayCollection(likedPlayable, 'liked-crate');
-                            }}
-                            aria-label="Play Liked Tracks"
-                          >
-                            {playing.active && playing.contextId === 'liked-crate' ? (
-                              <Pause size={13} />
-                            ) : (
-                              <Play size={13} />
-                            )}
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          className={`market-collection-play-btn ${playing.active && playing.contextId === 'liked-crate' ? 'playing' : ''}`}
+                          disabled={likedPlayable.length === 0}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handlePlayCollection(likedPlayable, 'liked-crate');
+                          }}
+                          aria-label="Play Liked Tracks"
+                        >
+                          {playing.active && playing.contextId === 'liked-crate' ? (
+                            <Pause size={13} />
+                          ) : (
+                            <Play size={13} />
+                          )}
+                        </button>
                       </div>
 
                       {visiblePlaylists.map((pl) => {
@@ -2476,8 +2501,8 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
                         const isExpanded = expandedPlaylistId === pl.id;
                         const isOwner = Boolean(
                           readAddress &&
-                            pl.creator &&
-                            pl.creator.toLowerCase() === readAddress.toLowerCase()
+                          pl.creator &&
+                          pl.creator.toLowerCase() === readAddress.toLowerCase()
                         );
 
                         return (
@@ -2541,11 +2566,10 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
                                   >
                                     <button
                                       type="button"
-                                      className={`market-playlist-track-row ${
-                                        playing.id === s.id && playing.playlistId === pl.id
+                                      className={`market-playlist-track-row ${playing.id === s.id && playing.playlistId === pl.id
                                           ? 'active'
                                           : ''
-                                      }`}
+                                        }`}
                                       onClick={() =>
                                         store.playSong(
                                           s,
