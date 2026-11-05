@@ -30,11 +30,11 @@ import {
   ArrowLeft,
   SlidersHorizontal,
   Trash2,
-  Copy,
+  Activity,
+  Compass,
 } from 'lucide-react';
 import { Glitch } from '../components/glitch';
 import { Button } from '../components/button';
-import { Modal } from '../components/modal';
 import { Tooltip } from '../components/daw/Tooltip';
 import { Card, normalizeTags, getGenreCoverImage, normalizeGenreSlug } from '../components/songs/card';
 import { Row } from '../components/songs/row';
@@ -124,14 +124,15 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
     marketCreator(window.location.pathname)
   );
   const [shareData, setShareData] = useState<MintShareData | null>(null);
+  const [creatorShareOpen, setCreatorShareOpen] = useState(false);
   const [selectedGenres, setSelectedGenres] = useState<string[]>([]);
   const [selectedAlbumId, setSelectedAlbumId] = useState<string | null>(null);
   const [likedOnly, setLikedOnly] = useState(false);
   const [followingOnly, setFollowingOnly] = useState(false);
   const [order, setOrder] = useState<'latest' | 'oldest'>('latest');
-  const [creatorShareOpen, setCreatorShareOpen] = useState(false);
   const [search, setSearch] = useState<string>('');
-  const [searchModalOpen, setSearchModalOpen] = useState(false);
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
+  const marketSearchInputRef = useRef<HTMLInputElement>(null);
   const [selected, setSelected] = useState<Record<string, string>>({});
 
   // Vertical Snap-Deck Stage & In-Stage Pagination
@@ -703,10 +704,10 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
 
   const hasFilterPills = Boolean(
     selectedGenres.length > 0 ||
-      selectedAlbumId ||
-      likedOnly ||
-      followingOnly ||
-      search.trim()
+    selectedAlbumId ||
+    likedOnly ||
+    followingOnly ||
+    search.trim()
   );
 
   const hasActiveFilters = Boolean(selectedCreator || hasFilterPills || order === 'oldest');
@@ -1193,36 +1194,63 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
               type="button"
               className={`market-stage-pill ${activeStage === 'pulse' ? 'active' : ''}`}
               onClick={() => scrollToStage('pulse')}
+              aria-label="01 Pulse"
             >
               <span className="market-stage-num">01</span>
-              <span>PULSE</span>
+              <Activity size={11} className="market-stage-icon" />
+              <span className="market-stage-label">PULSE</span>
             </button>
             <button
               type="button"
               className={`market-stage-pill ${activeStage === 'discovery' ? 'active' : ''}`}
               onClick={() => scrollToStage('discovery')}
+              aria-label="02 Discovery"
             >
               <span className="market-stage-num">02</span>
-              <span>DISCOVERY</span>
+              <Compass size={11} className="market-stage-icon" />
+              <span className="market-stage-label">DISCOVERY</span>
             </button>
             <button
               type="button"
               className={`market-stage-pill ${activeStage === 'collections' ? 'active' : ''}`}
               onClick={() => scrollToStage('collections')}
+              aria-label="03 Collections"
             >
               <span className="market-stage-num">03</span>
-              <span>COLLECTIONS</span>
+              <Disc3 size={11} className="market-stage-icon" />
+              <span className="market-stage-label">ALBUMS</span>
             </button>
           </nav>
         )}
       </div>
 
       {/* Filter & Command Bar */}
-      <div className="market-filter-bar" data-guide="market-toolbar">
-        {/* Desktop Search input */}
-        <div className="market-filter-search">
-          <Search size={13} className="market-search-icon" />
+      <div
+        className={`market-filter-bar ${mobileSearchOpen || Boolean(search) ? 'search-open' : ''}`}
+        data-guide="market-toolbar"
+      >
+        {/* In-Row Expandable Search (Desktop + Mobile) */}
+        <div
+          className={`market-filter-search ${mobileSearchOpen || Boolean(search) ? 'expanded' : ''}`}
+        >
+          <button
+            type="button"
+            className="mypage-header-search-toggle market-search-toggle-btn"
+            onClick={() => {
+              setMobileSearchOpen((prev) => {
+                const next = !prev;
+                if (next) {
+                  setTimeout(() => marketSearchInputRef.current?.focus(), 0);
+                }
+                return next;
+              });
+            }}
+            aria-label="Search"
+          >
+            <Search size={13} className="market-search-icon" />
+          </button>
           <input
+            ref={marketSearchInputRef}
             type="text"
             placeholder="SEARCH TRACKS, TAGS, CREATORS..."
             value={search}
@@ -1230,12 +1258,15 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
             data-guide="market.search"
             className="market-search-input"
           />
-          {search && (
+          {(search || mobileSearchOpen) && (
             <Tooltip title="Clear Search">
               <button
                 type="button"
                 className="market-filter-clear-btn"
-                onClick={() => setSearch('')}
+                onClick={() => {
+                  setSearch('');
+                  setMobileSearchOpen(false);
+                }}
                 aria-label="Clear search"
               >
                 <X size={12} />
@@ -1243,16 +1274,6 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
             </Tooltip>
           )}
         </div>
-
-        {/* Mobile Icon-Only Search Trigger */}
-        <button
-          type="button"
-          className={`market-mobile-search-btn ${search.trim() ? 'has-selection' : ''}`}
-          onClick={() => setSearchModalOpen(true)}
-          aria-label="Search"
-        >
-          <Search size={13} />
-        </button>
 
         {/* Filters cluster */}
         <div className="market-filter-selects">
@@ -1267,6 +1288,26 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
               <Heart size={12} fill={likedOnly ? 'currentColor' : 'none'} />
               <span>LIKED</span>
               {likedIds.length > 0 && <span className="market-quick-count">{likedIds.length}</span>}
+              {likedOnly && (
+                <span
+                  role="button"
+                  tabIndex={0}
+                  className="market-filter-clear-badge"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setLikedOnly(false);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.stopPropagation();
+                      setLikedOnly(false);
+                    }
+                  }}
+                  aria-label="Remove liked filter"
+                >
+                  <X size={8} />
+                </span>
+              )}
             </button>
           </Tooltip>
 
@@ -1278,9 +1319,29 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
               onClick={() => setFollowingOnly((prev) => !prev)}
               aria-pressed={followingOnly}
             >
-              <UserCheck size={12} />
+              {followingOnly ? <UserCheck size={12} /> : <UserPlus size={12} />}
               <span>FOLLOWING</span>
               {following.length > 0 && <span className="market-quick-count">{following.length}</span>}
+              {followingOnly && (
+                <span
+                  role="button"
+                  tabIndex={0}
+                  className="market-filter-clear-badge"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setFollowingOnly(false);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.stopPropagation();
+                      setFollowingOnly(false);
+                    }
+                  }}
+                  aria-label="Remove following filter"
+                >
+                  <X size={8} />
+                </span>
+              )}
             </button>
           </Tooltip>
 
@@ -1304,6 +1365,26 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
                   : `CREATORS (${creatorGroups.length})`}
               </span>
               <ChevronDown size={12} className="market-popover-chevron" />
+              {selectedCreator && (
+                <span
+                  role="button"
+                  tabIndex={0}
+                  className="market-filter-clear-badge"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedCreator(null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.stopPropagation();
+                      setSelectedCreator(null);
+                    }
+                  }}
+                  aria-label="Remove creator filter"
+                >
+                  <X size={8} />
+                </span>
+              )}
             </button>
 
             {creatorOpen && (
@@ -1385,6 +1466,26 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
                   : `GENRES (${uniqueGenres.length})`}
               </span>
               <ChevronDown size={12} className="market-popover-chevron" />
+              {selectedGenres.length > 0 && (
+                <span
+                  role="button"
+                  tabIndex={0}
+                  className="market-filter-clear-badge"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedGenres([]);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.stopPropagation();
+                      setSelectedGenres([]);
+                    }
+                  }}
+                  aria-label="Remove genre filter"
+                >
+                  <X size={8} />
+                </span>
+              )}
             </button>
 
             {genreOpen && (
@@ -1458,26 +1559,20 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
             )}
           </div>
 
-          {/* Order Toggle (Latest | Oldest) */}
+          {/* Single Order Toggle Icon (Click to revert order & icon) */}
           <div className="market-order-toggle">
-            <Tooltip title="Latest">
-              <button
-                type="button"
-                className={`market-order-btn ${order === 'latest' ? 'active' : ''}`}
-                onClick={() => setOrder('latest')}
-                aria-label="Sort by Latest"
-              >
-                <ArrowDownWideNarrow size={13} />
-              </button>
-            </Tooltip>
-            <Tooltip title="Oldest">
+            <Tooltip title={order === 'latest' ? 'Order: Latest' : 'Order: Oldest'}>
               <button
                 type="button"
                 className={`market-order-btn ${order === 'oldest' ? 'active' : ''}`}
-                onClick={() => setOrder('oldest')}
-                aria-label="Sort by Oldest"
+                onClick={() => setOrder((prev) => (prev === 'latest' ? 'oldest' : 'latest'))}
+                aria-label={order === 'latest' ? 'Sort by Oldest' : 'Sort by Latest'}
               >
-                <ArrowUpNarrowWide size={13} />
+                {order === 'latest' ? (
+                  <ArrowDownWideNarrow size={13} />
+                ) : (
+                  <ArrowUpNarrowWide size={13} />
+                )}
               </button>
             </Tooltip>
           </div>
@@ -1544,7 +1639,7 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
             <Tooltip title="Reset">
               <button
                 type="button"
-                className="market-reset-filters-btn"
+                className="market-reset-filters-btn market-clear-all-btn"
                 onClick={clearAllFilters}
                 aria-label="Reset filters"
               >
@@ -1634,6 +1729,7 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
       {/* Main Content Area: 3-Stage Vertical Snap-Deck OR Filtered Track View */}
       {isMatrixView ? (
         <div
+          key="snap-deck"
           className="market-snap-deck panel"
           ref={snapDeckRef}
           onScroll={handleSnapScroll}
@@ -2494,7 +2590,7 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
         </div>
       ) : (
         /* Filtered / Search View */
-        <div className="market-grid panel scrollable">
+        <div key="filtered-grid" className="market-grid panel scrollable">
           {error && publicSongs.length > 0 && <div role="alert">{error.message}</div>}
 
           {displayedSongs.length === 0 ? (
@@ -2535,44 +2631,6 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
           )}
         </div>
       )}
-
-      {/* Mobile Search Modal Popup */}
-      <Modal
-        isOpen={searchModalOpen}
-        onClose={() => setSearchModalOpen(false)}
-        title="SEARCH"
-        size="sm"
-      >
-        <form
-          className="market-search-modal-form"
-          onSubmit={(e) => {
-            e.preventDefault();
-            setSearchModalOpen(false);
-          }}
-        >
-          <div className="market-search-modal-input-wrap">
-            <Search size={13} className="market-search-icon" />
-            <input
-              type="text"
-              placeholder="TRACKS, TAGS, CREATORS..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="market-search-input"
-              autoFocus
-            />
-            {search && (
-              <button
-                type="button"
-                className="market-filter-clear-btn"
-                onClick={() => setSearch('')}
-                aria-label="Clear search"
-              >
-                <X size={12} />
-              </button>
-            )}
-          </div>
-        </form>
-      </Modal>
 
       <ShareModal
         isOpen={Boolean(shareData)}
