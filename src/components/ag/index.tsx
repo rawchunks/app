@@ -160,11 +160,22 @@ export function Earn({
         const rawGenres = [
           ...(Array.isArray(m.genres) ? m.genres : []),
           ...(Array.isArray(song.genres) ? song.genres : []),
+          ...(Array.isArray(song.tags) ? song.tags : []),
           m.primaryGenre || '',
         ]
-          .map((g) => (typeof g === 'string' ? g.trim() : ''))
+          .flatMap((g) => (typeof g === 'string' ? g.split(',') : []))
+          .map((g) => g.trim())
           .filter(Boolean);
-        const allGenres = rawGenres.length > 0 ? Array.from(new Set(rawGenres)) : ['Audio'];
+        const seenLower = new Set<string>();
+        const dedupedGenres: string[] = [];
+        for (const g of rawGenres) {
+          const k = g.toLowerCase();
+          if (!seenLower.has(k)) {
+            seenLower.add(k);
+            dedupedGenres.push(g);
+          }
+        }
+        const allGenres = dedupedGenres.length > 0 ? dedupedGenres : ['Audio'];
         const genre = allGenres[0];
         const genreLabel = allGenres.join(', ');
         const lastPlayedAt =
@@ -250,10 +261,16 @@ export function Earn({
           }
         }
 
+        const fallbackEvGenres = (ev.genre || 'Audio')
+          .split(',')
+          .map((g) => g.trim())
+          .filter(Boolean);
         const allGenres =
           songRow?.allGenres && songRow.allGenres.length > 0
             ? songRow.allGenres
-            : [ev.genre || 'Audio'];
+            : fallbackEvGenres.length > 0
+              ? fallbackEvGenres
+              : ['Audio'];
         const genreLabel = allGenres.join(', ');
 
         return {
