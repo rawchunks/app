@@ -1,4 +1,3 @@
-import { Upload } from 'lucide-react';
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Modal } from './modal';
 import { Button } from './button';
@@ -702,26 +701,62 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   onClose,
   address,
 }) => {
-  const { nickname: currentNickname, avatar: currentAvatar, bio: currentBio, updateProfile } = useProfile(address);
+  const {
+    nickname: currentNickname,
+    avatar: currentAvatar,
+    bio: currentBio,
+    banner: currentBanner,
+    socials: currentSocials,
+    updateProfile,
+  } = useProfile(address);
+
   const [nickname, setNickname] = useState('');
   const [avatar, setAvatar] = useState<string | null>(null);
+  const [banner, setBanner] = useState<string | null>(null);
   const [bio, setBio] = useState('');
-  const [uploading, setUploading] = useState(false);
+  const [socials, setSocials] = useState<SocialLinkRecord[]>([]);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [uploadingBanner, setUploadingBanner] = useState(false);
   const [saving, setSaving] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [linkingStrategy, setLinkingStrategy] = useState<string | null>(null);
+  const [linkedThirdwebProfiles, setLinkedThirdwebProfiles] = useState<ThirdwebLinkedProfile[]>([]);
+  const [linkErrorBanner, setLinkErrorBanner] = useState<string | null>(null);
+
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+  const bannerInputRef = useRef<HTMLInputElement>(null);
+
+  const refreshThirdwebProfiles = useCallback(async () => {
+    try {
+      const list = await getProfiles({ client: thirdwebClient });
+      if (Array.isArray(list)) {
+        setLinkedThirdwebProfiles(list);
+      }
+    } catch {
+      // External wallet or no embedded session
+    }
+  }, []);
 
   useEffect(() => {
     if (isOpen) {
-      setNickname(currentNickname || '');
+      setNickname(sanitizeCreatorNickname(currentNickname, address) || '');
       setAvatar(currentAvatar || null);
+      setBanner(currentBanner || null);
       setBio(currentBio || '');
+      setSocials(Array.isArray(currentSocials) ? currentSocials : []);
+      setLinkErrorBanner(null);
+      void refreshThirdwebProfiles();
     }
-  }, [isOpen, currentNickname, currentAvatar, currentBio]);
+  }, [isOpen, currentNickname, currentAvatar, currentBanner, currentBio, currentSocials, address, refreshThirdwebProfiles]);
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+    kind: 'avatar' | 'banner'
+  ) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setUploading(true);
+    if (kind === 'avatar') setUploadingAvatar(true);
+    else setUploadingBanner(true);
+
     try {
       const data = new FormData();
       data.append('file', file);
@@ -731,15 +766,104 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
       });
       const result = await res.json();
       if (!res.ok || !result.imageUrl) {
-        throw new Error(result.error || 'Failed to upload avatar');
+        throw new Error(result.error || `Failed to upload ${kind}`);
       }
-      setAvatar(result.imageUrl);
-      toast.success('Avatar uploaded');
+      if (kind === 'avatar') {
+        setAvatar(result.imageUrl);
+        toast.success('Avatar uploaded');
+      } else {
+        setBanner(result.imageUrl);
+        toast.success('Banner uploaded');
+      }
     } catch (err: any) {
-      toast.error(err.message || 'Avatar upload failed');
+      toast.error(err.message || `${kind === 'avatar' ? 'Avatar' : 'Banner'} upload failed`);
     } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      if (kind === 'avatar') {
+        setUploadingAvatar(false);
+        if (avatarInputRef.current) avatarInputRef.current.value = '';
+      } else {
+        setUploadingBanner(false);
+        if (bannerInputRef.current) bannerInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleRemoveSocial = (platform: SocialPlatform) => {
+    setSocials((prev) => prev.filter((s) => s.platform !== platform));
+  };
+
+  const handleThirdwebLink = async (
+    strategy: 'x' | 'tiktok' | 'farcaster' | 'discord' | 'telegram' | 'twitch' | 'github' | 'google',
+    platform: SocialPlatform,
+    label: string
+  ) => {
+    setLinkErrorBanner(null);
+    setLinkingStrategy(strategy);
+    try {
+      const updated = await linkProfile({
+        client: thirdwebClient,
+        strategy,
+      });
+      setLinkedThirdwebProfiles(updated);
+
+      const matched = updated.find((p) => p.type.toLowerCase() === strategy.toLowerCase());
+      const rawId =
+        matched?.details?.email ||
+        matched?.details?.id ||
+        matched?.details?.address ||
+        strategy;
+      const built = buildSocialUrl(platform, String(rawId));
+      if (built) {
+        setSocials((prev) => {
+          const existing = prev.find((s) => s.platform === platform);
+          const record: SocialLinkRecord = {
+            platform,
+            handle: existing?.handle || built.handle,
+            url: existing?.url || built.url,
+            verified: true,
+            providerId: `${strategy}:${String(rawId).toLowerCase()}`,
+          };
+          return [...prev.filter((s) => s.platform !== platform), record];
+        });
+      }
+      toast.success(`${label} profile linked`);
+    } catch (err: any) {
+      if (isAlreadyLinkedCollisionError(err)) {
+        const msg = 'Account already linked to a different Creator.';
+        setLinkErrorBanner(msg);
+        toast.error(msg);
+      } else {
+        const fallback = err instanceof Error ? err.message : `Could not link ${label}`;
+        setLinkErrorBanner(fallback);
+        toast.error(fallback);
+      }
+    } finally {
+      setLinkingStrategy(null);
+    }
+  };
+
+  const handleThirdwebUnlink = async (
+    profileToUnlink: ThirdwebLinkedProfile,
+    platform: SocialPlatform
+  ) => {
+    if (linkedThirdwebProfiles.length <= 1) {
+      toast.error('Cannot unlink your only authentication method');
+      return;
+    }
+    setLinkErrorBanner(null);
+    setLinkingStrategy(profileToUnlink.type);
+    try {
+      const updated = await unlinkProfile({
+        client: thirdwebClient,
+        profileToUnlink,
+      });
+      setLinkedThirdwebProfiles(updated);
+      setSocials((prev) => prev.filter((s) => s.platform !== platform));
+      toast.success(`Unlinked ${profileToUnlink.type.toUpperCase()}`);
+    } catch (err: any) {
+      toast.error(err instanceof Error ? err.message : 'Failed to unlink profile');
+    } finally {
+      setLinkingStrategy(null);
     }
   };
 
@@ -748,24 +872,72 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
       toast.error('Connect wallet first');
       return;
     }
+    setLinkErrorBanner(null);
     setSaving(true);
     try {
       await updateProfile({
         nickname: nickname.trim() || null,
         avatar: avatar || null,
         bio: bio.trim() || null,
+        banner: banner || null,
+        socials,
       });
       onClose();
-    } catch (err) {
-      // Handled by updateProfile toast
+    } catch (err: any) {
+      if (isAlreadyLinkedCollisionError(err)) {
+        setLinkErrorBanner('Account already linked to a different Creator.');
+      } else if (err instanceof Error) {
+        setLinkErrorBanner(err.message);
+      }
     } finally {
       setSaving(false);
     }
   };
 
+  const busy = saving || uploadingAvatar || uploadingBanner || linkingStrategy !== null;
+
   return (
-    <Modal guideOwner="profile" guideAnchor="account.profile-form" guideDraft isOpen={isOpen} onClose={onClose} title="EDIT PROFILE" size="sm">
+    <Modal
+      guideOwner="profile"
+      guideAnchor="account.profile-form"
+      guideDraft
+      isOpen={isOpen}
+      onClose={onClose}
+      title="EDIT CREATOR PROFILE"
+      size="md"
+    >
       <div className="profile-modal-body">
+        <input
+          type="file"
+          ref={bannerInputRef}
+          accept="image/*"
+          className="hidden-file-input"
+          onChange={(e) => handleImageUpload(e, 'banner')}
+        />
+        <input
+          type="file"
+          ref={avatarInputRef}
+          accept="image/*"
+          className="hidden-file-input"
+          onChange={(e) => handleImageUpload(e, 'avatar')}
+        />
+
+        {/* Live WYSIWYG Creator Identity Card Preview */}
+        <CreatorProfileCard
+          variant="editor-preview"
+          address={address}
+          nickname={nickname}
+          avatar={avatar}
+          bio={bio}
+          banner={banner}
+          socials={socials}
+          onUploadBanner={() => bannerInputRef.current?.click()}
+          onRemoveBanner={() => setBanner(null)}
+          onUploadAvatar={() => avatarInputRef.current?.click()}
+          onRemoveAvatar={() => setAvatar(null)}
+        />
+
+        {/* Nickname */}
         <div className="cyber-input-wrap">
           <label className="cyber-input-label">NICKNAME</label>
           <input
@@ -776,10 +948,10 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
             onChange={(e) => setNickname(e.target.value)}
             placeholder="ENTER NICKNAME..."
             maxLength={32}
-            autoFocus
           />
         </div>
 
+        {/* Bio */}
         <div className="cyber-input-wrap">
           <div className="profile-modal-label-row">
             <label className="cyber-input-label">BIO</label>
@@ -791,70 +963,66 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
             className="cyber-input-field profile-modal-bio-input"
             value={bio}
             onChange={(e) => setBio(e.target.value.slice(0, 280))}
-            placeholder="TELL LISTENERS ABOUT YOUR SOUND..."
+            placeholder="TELL LISTENERS ABOUT YOUR SOUND, GENRES & COLLABS..."
             maxLength={280}
-            rows={3}
+            rows={2}
           />
         </div>
 
+        {/* Connect Profiles (Logo-Only 1-Click Link / Unlink) */}
         <div className="cyber-input-wrap">
-          <label className="cyber-input-label">AVATAR IMAGE</label>
-          <div className="profile-modal-avatar-row">
-            <div className={`studio-avatar-box ${avatar ? 'has-image' : ''}`}>
-              <input
-                type="file"
-                ref={fileInputRef}
-                accept="image/*"
-                className="hidden-file-input"
-                onChange={handleFileUpload}
-              />
-              {avatar ? (
-                <>
-                  <img
-                    src={avatar}
-                    alt="Avatar preview"
-                    className="studio-avatar-preview"
-                    onClick={() => fileInputRef.current?.click()}
-                  />
-                  <Tooltip title="Remove avatar" className="studio-avatar-remove-wrap">
-                    <button
-                      type="button"
-                      className="studio-avatar-remove"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setAvatar(null);
-                      }}
-                    >
-                      ✕
-                    </button>
-                  </Tooltip>
-                </>
-              ) : (
-                <div
-                  className="studio-avatar-upload-trigger"
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  <span className="studio-avatar-upload-icon">
-                    <Upload size={22} strokeWidth={2} />
-                  </span>
-                  <span className="studio-avatar-label">
-                    {uploading ? 'UPLOADING...' : 'PICK IMAGE'}
-                  </span>
-                </div>
-              )}
-            </div>
+          <label className="cyber-input-label">LINK YOUR PROFILES</label>
 
-            <div className="profile-modal-avatar-hint">
-              Upload your custom artist picture or avatar. Supported formats: PNG, JPG, WebP.
+          {linkErrorBanner && (
+            <div className="profile-modal-collision-alert" role="alert">
+              <AlertTriangle size={14} className="profile-modal-collision-icon" />
+              <span>{linkErrorBanner}</span>
             </div>
+          )}
+
+          <div className="profile-modal-logo-grid">
+            {THIRDWEB_CONNECT_STRATEGIES.map((item) => {
+              const linkedAuth = linkedThirdwebProfiles.find(
+                (p) => p.type.toLowerCase() === item.strategy.toLowerCase()
+              );
+              const linkedSocial = socials.find((s) => s.platform === item.platform);
+              const isLinked = Boolean(linkedAuth || linkedSocial);
+              const isLinking = linkingStrategy === item.strategy;
+              return (
+                <Tooltip
+                  key={item.strategy}
+                  title={isLinked ? `Unlink ${item.label}` : `Link ${item.label}`}
+                  position="top"
+                >
+                  <button
+                    type="button"
+                    className={`profile-modal-logo-btn ${isLinked ? 'linked' : ''} ${isLinking ? 'linking' : ''}`.trim()}
+                    disabled={busy}
+                    onClick={() => {
+                      if (linkedAuth) {
+                        void handleThirdwebUnlink(linkedAuth, item.platform);
+                      } else if (linkedSocial) {
+                        handleRemoveSocial(item.platform);
+                      } else {
+                        void handleThirdwebLink(item.strategy, item.platform, item.label);
+                      }
+                    }}
+                    aria-label={isLinked ? `Unlink ${item.label}` : `Link ${item.label}`}
+                  >
+                    <SocialPlatformGlyph platform={item.platform} size={15} />
+                    {isLinked && <span className="profile-modal-logo-dot" aria-hidden="true" />}
+                  </button>
+                </Tooltip>
+              );
+            })}
           </div>
         </div>
 
         <div className="profile-modal-actions">
-          <Button variant="ghost" size="sm" onClick={onClose} disabled={saving || uploading}>
+          <Button variant="ghost" size="sm" onClick={onClose} disabled={busy}>
             CANCEL
           </Button>
-          <Button variant="primary" size="sm" onClick={handleSave} disabled={saving || uploading}>
+          <Button variant="primary" size="sm" onClick={handleSave} disabled={busy}>
             {saving ? 'SAVING...' : 'SAVE PROFILE'}
           </Button>
         </div>
