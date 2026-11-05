@@ -8,6 +8,19 @@ import { toast } from 'sonner';
 import { openGate, type GateOptions } from './gate';
 
 export type RepeatMode = 'off' | 'all' | 'one';
+export type SleepTimerMode = '5' | '15' | '30' | 'track' | 'queue';
+
+export interface SleepTimerState {
+  mode: SleepTimerMode;
+  endsAtMs: number | null;
+  label: string;
+}
+
+export interface SleepTimerPrompt {
+  mode: SleepTimerMode;
+  label: string;
+  expiredAt: number;
+}
 
 export interface State {
   songs: Song[];
@@ -29,6 +42,8 @@ export interface State {
   autoplay: boolean;
   activePlaylistId: string | null;
   activeContextId: string | null;
+  sleepTimer: SleepTimerState | null;
+  sleepTimerPrompt: SleepTimerPrompt | null;
 }
 
 type Listener = (state: State) => void;
@@ -39,6 +54,7 @@ const STORAGE_KEYS = {
   shuffle: 'rawchunks:shuffle',
   autoplay: 'rawchunks:autoplay',
   queue: 'rawchunks:queue',
+  sleepTimerExpired: 'rawchunks:sleep-timer-expired',
 };
 
 interface Playback {
@@ -78,6 +94,7 @@ class Store {
   private preloadedNextSongId: string | null = null;
   private playCountedSongId: string | null = null;
   private playedHistory: Song[] = [];
+  private sleepTimerTimeout: ReturnType<typeof setTimeout> | null = null;
 
   private pushPlayedHistory(song: Song | null | undefined) {
     if (!song || !song.id) return;
@@ -95,6 +112,7 @@ class Store {
     let initialAutoplay = true;
     let initialQueue: Song[] = [];
     let initialQueueIndex = -1;
+    let initialSleepTimerPrompt: SleepTimerPrompt | null = null;
 
     if (typeof window !== 'undefined') {
       try {
@@ -123,6 +141,22 @@ class Store {
           const parsedQueue = JSON.parse(savedQueue);
           if (Array.isArray(parsedQueue)) {
             initialQueue = parsedQueue.filter((item): item is Song => Boolean(item && typeof item.id === 'string'));
+          }
+        }
+        const rawSleepExpired = localStorage.getItem(STORAGE_KEYS.sleepTimerExpired);
+        if (rawSleepExpired) {
+          const parsedExpired = JSON.parse(rawSleepExpired) as SleepTimerPrompt;
+          const validModes: SleepTimerMode[] = ['5', '15', '30', 'track', 'queue'];
+          if (
+            parsedExpired &&
+            validModes.includes(parsedExpired.mode) &&
+            typeof parsedExpired.label === 'string' &&
+            typeof parsedExpired.expiredAt === 'number' &&
+            Date.now() - parsedExpired.expiredAt < 24 * 60 * 60 * 1000
+          ) {
+            initialSleepTimerPrompt = parsedExpired;
+          } else {
+            localStorage.removeItem(STORAGE_KEYS.sleepTimerExpired);
           }
         }
       } catch {}
@@ -162,6 +196,8 @@ class Store {
       autoplay: initialAutoplay,
       activePlaylistId: null,
       activeContextId: null,
+      sleepTimer: null,
+      sleepTimerPrompt: initialSleepTimerPrompt,
     };
 
     bus.registerPlayer(() => {
@@ -225,19 +261,25 @@ class Store {
         const dur = this.state.duration || this.state.activeSong.duration || 0;
         if (dur >= 4 && time > 0) {
           const remaining = dur - time;
-          if (remaining <= 4.5 && remaining > 0.2) {
-            this.preloadUpcomingTrack();
-          }
-          if (
-            remaining <= 0.38 &&
-            remaining > 0.02 &&
-            this.autoCrossfadedSongId !== this.state.activeSong.id
-          ) {
-            const nextCandidate = this.peekNextSong();
-            if (nextCandidate) {
-              this.autoCrossfadedSongId = this.state.activeSong.id;
-              this.pendingAutoAdvanceOverlap = true;
-              void this.playNextTrack(true);
+          const sleepMode = this.state.sleepTimer?.mode;
+          const isStoppingAtTrackEnd =
+            sleepMode === 'track' ||
+            (sleepMode === 'queue' && (this.state.queueIndex >= 0 ? this.state.queueIndex : 0) + 1 >= this.state.queue.length);
+          if (!isStoppingAtTrackEnd) {
+            if (remaining <= 4.5 && remaining > 0.2) {
+              this.preloadUpcomingTrack();
+            }
+            if (
+              remaining <= 0.38 &&
+              remaining > 0.02 &&
+              this.autoCrossfadedSongId !== this.state.activeSong.id
+            ) {
+              const nextCandidate = this.peekNextSong();
+              if (nextCandidate) {
+                this.autoCrossfadedSongId = this.state.activeSong.id;
+                this.pendingAutoAdvanceOverlap = true;
+                void this.playNextTrack(true);
+              }
             }
           }
         }
@@ -271,6 +313,23 @@ class Store {
       this.finishPlayback();
       this.authorizedSongId = null;
       this.lastPlayhead = 0;
+
+      if (this.state.sleepTimer?.mode === 'track') {
+        this.expireSleepTimer(false);
+        this.state = { ...this.state, isPlaying: false, playhead: 0 };
+        this.notify();
+        return;
+      }
+
+      if (this.state.sleepTimer?.mode === 'queue') {
+        const currentIdx = this.state.queueIndex >= 0 ? this.state.queueIndex : 0;
+        if (currentIdx + 1 >= this.state.queue.length) {
+          this.expireSleepTimer(false);
+          this.state = { ...this.state, isPlaying: false, playhead: 0 };
+          this.notify();
+          return;
+        }
+      }
 
       // Advance continuously through the queue
       void this.playNextTrack(true).then((advanced) => {
@@ -1170,6 +1229,102 @@ class Store {
     this.notify();
   }
 
+  private getSleepTimerLabel(mode: SleepTimerMode): string {
+    if (mode === '5') return '5 MIN';
+    if (mode === '15') return '15 MIN';
+    if (mode === '30') return '30 MIN';
+    if (mode === 'track') return 'END OF TRACK';
+    return this.state.activePlaylistId ? 'END OF PLAYLIST' : 'END OF QUEUE';
+  }
+
+  private expireSleepTimer(pauseAudio = true) {
+    if (this.sleepTimerTimeout) {
+      clearTimeout(this.sleepTimerTimeout);
+      this.sleepTimerTimeout = null;
+    }
+    const expired = this.state.sleepTimer;
+    this.state = {
+      ...this.state,
+      sleepTimer: null,
+    };
+    if (expired && typeof window !== 'undefined') {
+      try {
+        const promptData: SleepTimerPrompt = {
+          mode: expired.mode,
+          label: expired.label,
+          expiredAt: Date.now(),
+        };
+        localStorage.setItem(STORAGE_KEYS.sleepTimerExpired, JSON.stringify(promptData));
+      } catch {}
+    }
+    if (pauseAudio && this.state.isPlaying) {
+      void this.setPlaying(false);
+    } else {
+      this.notify();
+    }
+  }
+
+  public setSleepTimer(mode: SleepTimerMode | null) {
+    if (this.sleepTimerTimeout) {
+      clearTimeout(this.sleepTimerTimeout);
+      this.sleepTimerTimeout = null;
+    }
+    if (!mode) {
+      this.state = {
+        ...this.state,
+        sleepTimer: null,
+      };
+      this.notify();
+      return;
+    }
+
+    const label = this.getSleepTimerLabel(mode);
+    const isMinutes = mode === '5' || mode === '15' || mode === '30';
+    const durationMs = isMinutes ? Number(mode) * 60_000 : null;
+    const endsAtMs = durationMs ? Date.now() + durationMs : null;
+
+    if (durationMs) {
+      this.sleepTimerTimeout = setTimeout(() => {
+        this.expireSleepTimer(true);
+      }, durationMs);
+    }
+
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.removeItem(STORAGE_KEYS.sleepTimerExpired);
+      } catch {}
+    }
+
+    this.state = {
+      ...this.state,
+      sleepTimer: {
+        mode,
+        endsAtMs,
+        label,
+      },
+      sleepTimerPrompt: null,
+    };
+    this.notify();
+  }
+
+  public reactivateSleepTimer() {
+    const prompt = this.state.sleepTimerPrompt;
+    if (!prompt) return;
+    this.setSleepTimer(prompt.mode);
+  }
+
+  public dismissSleepTimerPrompt() {
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.removeItem(STORAGE_KEYS.sleepTimerExpired);
+      } catch {}
+    }
+    if (this.state.sleepTimerPrompt) {
+      this.state = { ...this.state, sleepTimerPrompt: null };
+      this.notify();
+    }
+  }
+
   public clearUserWorkspace(broadcast = false) {
     this.finishPlayback();
     this.playRequestId++;
@@ -1261,6 +1416,18 @@ class Store {
     if (!song) {
       console.warn('Playback prevented: No active song');
       return false;
+    }
+
+    if (!this.state.sleepTimer && !this.state.sleepTimerPrompt && typeof window !== 'undefined') {
+      try {
+        const rawSleepExpired = localStorage.getItem(STORAGE_KEYS.sleepTimerExpired);
+        if (rawSleepExpired) {
+          const parsedExpired = JSON.parse(rawSleepExpired) as SleepTimerPrompt;
+          if (parsedExpired?.mode && parsedExpired?.label) {
+            this.state = { ...this.state, sleepTimerPrompt: parsedExpired };
+          }
+        }
+      } catch {}
     }
 
     const allowOverlap = this.pendingAutoAdvanceOverlap;
