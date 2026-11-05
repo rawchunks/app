@@ -235,8 +235,13 @@ export const Timeline: React.FC<TimelineProps> = ({
 
       {/* Base Published Song Waveform + Timed Comment Marker Rail */}
       <div className="timeline-waveform-stage">
+        <span className="timeline-waveform-plays" title={`${song.plays ?? 0} streams`}>
+          <Headphones size={10} />
+          <span>{song.plays ?? 0}</span>
+        </span>
         <Waveform
           audioUrl={song.url}
+          timelineDuration={effectiveDuration}
           interactive={false}
           showSelection={false}
           height={54}
@@ -303,6 +308,16 @@ export const Timeline: React.FC<TimelineProps> = ({
 
       {/* Auto-Timestamped Comment Composer Bar */}
       <form className="timeline-composer" onSubmit={handleSubmitComment}>
+        <button
+          type="button"
+          className={`timeline-thread-toggle timeline-composer-comments ${threadOpen ? 'active' : ''}`}
+          onClick={() => setThreadOpen((prev) => !prev)}
+          title="Toggle timed comments list"
+        >
+          <MessageSquare size={12} />
+          <span>{totalComments}</span>
+        </button>
+
         <button
           type="button"
           className={`timeline-timestamp-lock ${lockedTimestampSec !== null ? 'locked' : ''}`}
