@@ -6,15 +6,18 @@ import { creditsApi, DEFAULT_PAYPAL_CLIENT_ID, purchaseCacheKey, zeroCredits, ty
 
 export function useCreditAccount() {
   const admin = useAdminWallet(), active = useActiveWallet();
-  const wallet = admin ?? active;
+  const isExternalBrowserWallet = Boolean(
+    active && active.id !== 'inApp' && active.id !== 'embedded' && active.id !== 'smart' && !active.getAdminAccount?.()
+  );
+  const wallet = active?.getAuthToken ? active : (admin ?? active);
   const { userAddress, readAddress, accountId } = useSelectedUserAddress();
   const effectiveAddress = userAddress ?? readAddress ?? null;
   const owner = accountId ?? effectiveAddress?.toLowerCase() ?? null;
-  const liveAuthToken = wallet?.getAuthToken?.() ?? null;
+  const liveAuthToken = isExternalBrowserWallet ? null : (wallet?.getAuthToken?.() ?? null);
   if (owner && liveAuthToken) {
     writeCachedWalletAuthToken(owner, liveAuthToken);
   }
-  const authToken = liveAuthToken ?? readCachedWalletAuthToken(owner);
+  const authToken = isExternalBrowserWallet ? null : (liveAuthToken ?? readCachedWalletAuthToken(owner));
   const identity = `${owner ?? 'anon'}:${effectiveAddress ?? ''}`;
   const latest = useRef({ identity, owner, effectiveAddress, authToken });
   latest.current = { identity, owner, effectiveAddress, authToken };

@@ -88,6 +88,14 @@ export function readCachedWalletAuthToken(owner?: string | null): string | null 
     try {
         const direct = localStorage.getItem(`rawchunks:wallet-token:${owner.toLowerCase()}`);
         if (direct && direct.trim()) return direct.trim();
+        const cached = readCachedAccount();
+        const matchesSmartAccount = Boolean(
+            cached?.adminAddress && (
+                (cached.address && cached.address.toLowerCase() === owner.toLowerCase()) ||
+                (cached.svmAddress && cached.svmAddress.toLowerCase() === owner.toLowerCase())
+            )
+        );
+        if (!matchesSmartAccount) return null;
         for (let i = 0; i < localStorage.length; i++) {
             const k = localStorage.key(i);
             if (k && k.startsWith("walletToken-")) {
