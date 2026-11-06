@@ -6,6 +6,11 @@ import { useProfile, SocialLinkRecord, SocialPlatform } from '@/hooks/use-profil
 import { thirdwebClient, getChains, getChainByNetwork, getExplorerUrl } from '@/lib/chains';
 import { getProfiles, linkProfile, unlinkProfile } from 'thirdweb/wallets/in-app';
 import type { Profile as ThirdwebLinkedProfile } from 'thirdweb/wallets';
+import {
+  clearStoredOAuthProfile,
+  getStoredOAuthProfile,
+  rawchunksOAuthBridge,
+} from '@/lib/oauth';
 import { toast } from 'sonner';
 import {
   Link2,
@@ -737,6 +742,10 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   }, []);
 
   useEffect(() => {
+    rawchunksOAuthBridge();
+  }, []);
+
+  useEffect(() => {
     if (isOpen) {
       setNickname(sanitizeCreatorNickname(currentNickname, address) || '');
       setAvatar(currentAvatar || null);
@@ -789,6 +798,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   };
 
   const handleRemoveSocial = (platform: SocialPlatform) => {
+    clearStoredOAuthProfile(platform);
     setSocials((prev) => prev.filter((s) => s.platform !== platform));
   };
 
@@ -806,25 +816,40 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
       });
       setLinkedThirdwebProfiles(updated);
 
-      const matched = updated.find((p) => p.type.toLowerCase() === strategy.toLowerCase());
-      const rawId =
-        matched?.details?.email ||
-        matched?.details?.id ||
-        matched?.details?.address ||
-        strategy;
-      const built = buildSocialUrl(platform, String(rawId));
-      if (built) {
+      const storedOAuth = getStoredOAuthProfile(strategy);
+      if (storedOAuth) {
         setSocials((prev) => {
           const existing = prev.find((s) => s.platform === platform);
           const record: SocialLinkRecord = {
             platform,
-            handle: existing?.handle || built.handle,
-            url: existing?.url || built.url,
+            handle: existing?.handle || storedOAuth.handle,
+            url: existing?.url || storedOAuth.url,
             verified: true,
-            providerId: `${strategy}:${String(rawId).toLowerCase()}`,
+            providerId: storedOAuth.providerId,
           };
           return [...prev.filter((s) => s.platform !== platform), record];
         });
+      } else {
+        const matched = updated.find((p) => p.type.toLowerCase() === strategy.toLowerCase());
+        const rawId =
+          matched?.details?.email ||
+          matched?.details?.id ||
+          matched?.details?.address ||
+          strategy;
+        const built = buildSocialUrl(platform, String(rawId));
+        if (built) {
+          setSocials((prev) => {
+            const existing = prev.find((s) => s.platform === platform);
+            const record: SocialLinkRecord = {
+              platform,
+              handle: existing?.handle || built.handle,
+              url: existing?.url || built.url,
+              verified: true,
+              providerId: `${strategy}:${String(rawId).toLowerCase()}`,
+            };
+            return [...prev.filter((s) => s.platform !== platform), record];
+          });
+        }
       }
       toast.success(`${label} profile linked`);
     } catch (err: any) {
@@ -851,15 +876,16 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
       return;
     }
     setLinkErrorBanner(null);
-    setLinkingStrategy(profileToUnlink.type);
+    setLinkingStrategy(platform);
     try {
       const updated = await unlinkProfile({
         client: thirdwebClient,
         profileToUnlink,
       });
       setLinkedThirdwebProfiles(updated);
+      clearStoredOAuthProfile(platform);
       setSocials((prev) => prev.filter((s) => s.platform !== platform));
-      toast.success(`Unlinked ${profileToUnlink.type.toUpperCase()}`);
+      toast.success(`Unlinked ${platform.toUpperCase()}`);
     } catch (err: any) {
       toast.error(err instanceof Error ? err.message : 'Failed to unlink profile');
     } finally {
@@ -982,8 +1008,11 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
 
           <div className="profile-modal-logo-grid">
             {THIRDWEB_CONNECT_STRATEGIES.map((item) => {
+              const storedOAuth = getStoredOAuthProfile(item.strategy);
               const linkedAuth = linkedThirdwebProfiles.find(
-                (p) => p.type.toLowerCase() === item.strategy.toLowerCase()
+                (p) =>
+                  p.type.toLowerCase() === item.strategy.toLowerCase() ||
+                  (storedOAuth?.authIdentifier && p.details?.id === storedOAuth.authIdentifier)
               );
               const linkedSocial = socials.find((s) => s.platform === item.platform);
               const isLinked = Boolean(linkedAuth || linkedSocial);
