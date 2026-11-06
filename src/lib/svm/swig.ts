@@ -28,6 +28,7 @@ import {
     getBase64EncodedWireTransaction,
     getBase64Encoder,
     getBase64Decoder,
+    getTransactionEncoder,
     getProgramDerivedAddress,
     getAddressEncoder,
     address as svmAddress,
@@ -678,6 +679,35 @@ export async function buildSwigInstructionTransaction(input: {
 
     const unsignedTransaction = compileTransaction(transactionMessage as any);
     return getBase64EncodedWireTransaction(unsignedTransaction);
+}
+
+export async function buildDirectSvmInstructionTransaction(input: {
+    feePayer: SvmAddress;
+    network: NetworkId;
+    rpcUrl: string;
+    instructions: readonly Instruction[];
+    memo?: string;
+    signTransaction: (wireTransactionBytes: Uint8Array) => Promise<Uint8Array>;
+}): Promise<string> {
+    const { feePayer, network, rpcUrl, instructions, memo, signTransaction } = input;
+    if (instructions.length === 0) {
+        throw new Error("At least one Solana instruction is required");
+    }
+    const rpc = createSolanaRpcFromNetwork(network, rpcUrl);
+    const { value: latestBlockhash } = await rpc.getLatestBlockhash().send();
+    const baseMessage = pipe(
+        createTransactionMessage({ version: 0 }),
+        (msg: any) => setTransactionMessageFeePayer(feePayer, msg),
+        (msg: any) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
+    );
+    const transactionMessage = instructions.reduce(
+        (msg: any, ix: any) => appendTransactionMessageInstruction(ix, msg),
+        memo ? appendTransactionMessageInstruction(encodeMemoInstruction(memo), baseMessage as any) as any : baseMessage,
+    );
+    const compiled = compileTransaction(transactionMessage as any);
+    const wireBytes = new Uint8Array(getTransactionEncoder().encode(compiled));
+    const signedBytes = await signTransaction(wireBytes);
+    return getBase64Decoder().decode(signedBytes);
 }
 
 async function loadSwigSigningContext(input: {
