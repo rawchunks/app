@@ -1,4 +1,5 @@
 import type { Song } from './schema';
+import { toUrlSlug } from './routes';
 
 export interface MintShareData {
   songId: string;
@@ -32,7 +33,8 @@ export function songToShareData(
   justPublished = false,
   fallbackCover?: string | null
 ): MintShareData {
-  const cleanCreator = creatorSlug?.trim() || song.creator;
+  const rawCreator = creatorSlug?.trim() || song.creator;
+  const cleanCreator = toUrlSlug(rawCreator) || rawCreator;
   const resolvedImage = song.image?.trim() || fallbackCover?.trim() || undefined;
   return {
     songId: song.id,
@@ -49,7 +51,13 @@ export function songToShareData(
 
 export function saveMintSuccessForShare(data: MintShareData): void {
   try {
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    sessionStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        ...data,
+        creator: toUrlSlug(data.creator) || data.creator,
+      })
+    );
   } catch (e) {
     console.warn('Failed to save mint share data:', e);
   }
@@ -59,7 +67,11 @@ export function getMintSuccessForShare(): MintShareData | null {
   try {
     const stored = sessionStorage.getItem(STORAGE_KEY);
     if (stored) {
-      return JSON.parse(stored) as MintShareData;
+      const parsed = JSON.parse(stored) as MintShareData;
+      return {
+        ...parsed,
+        creator: toUrlSlug(parsed.creator) || parsed.creator,
+      };
     }
   } catch (e) {
     console.warn('Failed to retrieve mint share data:', e);
@@ -76,8 +88,8 @@ export function clearMintSuccessShare(): void {
 }
 
 export function buildShareUrl(creator: string): string {
-  const clean = creator?.trim();
-  return clean ? `${resolveOrigin()}/${clean}` : `${resolveOrigin()}/`;
+  const creatorSlug = toUrlSlug(creator);
+  return creatorSlug ? `${resolveOrigin()}/${creatorSlug}` : `${resolveOrigin()}/`;
 }
 
 export function buildShareDisplayUrl(creator: string): string {

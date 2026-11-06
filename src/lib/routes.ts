@@ -13,32 +13,65 @@ const RESERVED_ROOT_SEGMENTS = new Set([
   'favicon.ico',
 ]);
 
+export function toUrlSlug(raw?: string | null): string {
+  if (!raw) return '';
+  let decoded = raw;
+  try {
+    decoded = decodeURIComponent(raw);
+  } catch {
+    decoded = raw;
+  }
+  const trimmed = decoded.trim().replace(/^@+/, '').trim();
+  if (!trimmed) return '';
+  const hyphenated = trimmed
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return hyphenated ? encodeURIComponent(hyphenated) : '';
+}
+
+export function normalizeSlugKey(raw?: string | null): string {
+  if (!raw) return '';
+  let decoded = raw;
+  try {
+    decoded = decodeURIComponent(raw);
+  } catch {
+    decoded = raw;
+  }
+  return decoded
+    .trim()
+    .replace(/^@+/, '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function decodeSegment(raw: string): string | null {
+  let decoded = raw;
+  try {
+    decoded = decodeURIComponent(raw);
+  } catch {
+    decoded = raw;
+  }
+  const trimmed = decoded.trim().replace(/^@+/, '').trim();
+  return trimmed || null;
+}
+
 export function marketCreator(pathname: string): string | null {
   const clean = pathname.replace(/^\/+|\/+$/g, '');
   if (!clean) return null;
 
-  const normalizeHandle = (raw: string): string | null => {
-    const trimmed = raw.trim().replace(/^@+/, '').trim();
-    return trimmed || null;
-  };
-
-  const legacyMatch = /^market\/([^/]+)$/i.exec(clean);
+  const legacyMatch = /^market\/([^/]+)(?:\/[^/]+)?$/i.exec(clean);
   if (legacyMatch) {
-    try {
-      return normalizeHandle(decodeURIComponent(legacyMatch[1]));
-    } catch {
-      return normalizeHandle(legacyMatch[1]);
-    }
+    return decodeSegment(legacyMatch[1]);
   }
 
-  if (!clean.includes('/')) {
-    const lower = clean.toLowerCase();
-    if (RESERVED_ROOT_SEGMENTS.has(lower)) return null;
-    try {
-      return normalizeHandle(decodeURIComponent(clean));
-    } catch {
-      return normalizeHandle(clean);
-    }
+  const segments = clean.split('/');
+  if (segments.length === 1 || segments.length === 2) {
+    const firstLower = segments[0].toLowerCase();
+    if (RESERVED_ROOT_SEGMENTS.has(firstLower)) return null;
+    return decodeSegment(segments[0]);
   }
 
   return null;
@@ -53,8 +86,8 @@ export function parseRoute(pathname: string): Route {
 }
 
 export function marketPath(creator?: string | null): string {
-  const clean = creator?.trim();
-  return clean ? `/${encodeURIComponent(clean)}` : '/market';
+  const creatorSlug = toUrlSlug(creator);
+  return creatorSlug ? `/${creatorSlug}` : '/market';
 }
 
 export function navigateToCreator(creator?: string | null): void {

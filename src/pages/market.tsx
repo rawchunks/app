@@ -66,7 +66,7 @@ import {
 import { readCachedProfile } from '../lib/cache';
 import { groupSongs } from '../lib/versions';
 import { openGate } from '../lib/gate';
-import { marketCreator, marketPath } from '../lib/routes';
+import { marketCreator, marketPath, normalizeSlugKey } from '../lib/routes';
 import { songToShareData, type MintShareData } from '../lib/share';
 import { ShareModal, ShareUrlModal } from '../components/share';
 import { useQueryClient } from '@tanstack/react-query';
@@ -93,12 +93,14 @@ function findCreatorGroup(groups: CreatorGroup[], rawCreator: string | null): Cr
   if (!rawCreator) return null;
   const lower = rawCreator.trim().replace(/^@+/, '').trim().toLowerCase();
   if (!lower) return null;
+  const slugKey = normalizeSlugKey(rawCreator);
   return (
     groups.find(
       (g) =>
         g.key === lower ||
         g.addresses.has(lower) ||
-        (g.nicknameKey !== null && g.nicknameKey === lower)
+        (g.nicknameKey !== null &&
+          (g.nicknameKey === lower || (slugKey !== '' && normalizeSlugKey(g.nicknameKey) === slugKey)))
     ) ?? null
   );
 }
@@ -410,9 +412,11 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
   const filteredCreatorGroups = useMemo(() => {
     const q = creatorQuery.trim().toLowerCase();
     if (!q) return creatorGroups;
+    const qSlug = normalizeSlugKey(q);
     return creatorGroups.filter(
       (g) =>
         g.label.toLowerCase().includes(q) ||
+        (qSlug !== '' && normalizeSlugKey(g.label).includes(qSlug)) ||
         Array.from(g.addresses).some((addr) => addr.includes(q))
     );
   }, [creatorGroups, creatorQuery]);
@@ -448,6 +452,23 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
     return set;
   }, [following, creatorGroups]);
 
+  const [directCreatorProfile, setDirectCreatorProfile] = useState<WalletPairProfile | null>(null);
+
+  useEffect(() => {
+    const slug = selectedCreator?.trim().replace(/^@+/, '').trim();
+    if (!slug) {
+      setDirectCreatorProfile(null);
+      return;
+    }
+    let active = true;
+    fetchUserProfile(slug).then((prof) => {
+      if (active) setDirectCreatorProfile(prof);
+    });
+    return () => {
+      active = false;
+    };
+  }, [selectedCreator]);
+
   // Apply filters and ordering
   const displayedSongs = useMemo(() => {
     let list = [...publicSongs];
@@ -459,7 +480,13 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
     if (selectedCreator) {
       const lower = selectedCreator.trim().replace(/^@+/, '').trim().toLowerCase();
       const group = findCreatorGroup(creatorGroups, selectedCreator);
-      const targetAddresses = group ? group.addresses : new Set([lower]);
+      const targetAddresses = new Set<string>(group ? group.addresses : [lower]);
+      if (directCreatorProfile?.evmAddress) {
+        targetAddresses.add(directCreatorProfile.evmAddress.toLowerCase());
+      }
+      if (directCreatorProfile?.svmAddress) {
+        targetAddresses.add(directCreatorProfile.svmAddress.toLowerCase());
+      }
       list = list.filter(
         (s) =>
           Boolean(s.creator && targetAddresses.has(s.creator.toLowerCase())) ||
@@ -492,13 +519,16 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
 
     if (search.trim()) {
       const q = search.trim().toLowerCase();
+      const qSlug = normalizeSlugKey(q);
       list = list.filter((s) => {
         const group = creatorGroups.find((g) => s.creator && g.addresses.has(s.creator.toLowerCase()));
         return (
           s.title.toLowerCase().includes(q) ||
+          (qSlug !== '' && normalizeSlugKey(s.title).includes(qSlug)) ||
           normalizeTags(s.tags).some((t) => t.toLowerCase().includes(q)) ||
           s.creator.toLowerCase().includes(q) ||
-          Boolean(group?.label.toLowerCase().includes(q))
+          Boolean(group?.label.toLowerCase().includes(q)) ||
+          Boolean(qSlug !== '' && group && normalizeSlugKey(group.label).includes(qSlug))
         );
       });
     }
@@ -516,6 +546,7 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
     publicSongs,
     selectedAlbumId,
     selectedCreator,
+    directCreatorProfile,
     likedOnly,
     followingOnly,
     followedAddressSet,
@@ -631,23 +662,6 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
     () => findCreatorGroup(creatorGroups, selectedCreator),
     [creatorGroups, selectedCreator]
   );
-
-  const [directCreatorProfile, setDirectCreatorProfile] = useState<WalletPairProfile | null>(null);
-
-  useEffect(() => {
-    const slug = selectedCreator?.trim().replace(/^@+/, '').trim();
-    if (!slug) {
-      setDirectCreatorProfile(null);
-      return;
-    }
-    let active = true;
-    fetchUserProfile(slug).then((prof) => {
-      if (active) setDirectCreatorProfile(prof);
-    });
-    return () => {
-      active = false;
-    };
-  }, [selectedCreator]);
 
   const selectedCreatorCanonicalAddr = useMemo(() => {
     if (selectedCreatorGroup) return selectedCreatorGroup.key;
