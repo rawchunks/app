@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { PayPalScriptProvider } from '@paypal/react-paypal-js';
+import * as thirdwebReact from "thirdweb/react";
 import { useActiveAccount, useAdminWallet } from "thirdweb/react";
 import { getContract, sendTransaction, waitForReceipt } from "thirdweb";
 import { allowance, approve, balanceOf } from "thirdweb/extensions/erc20";
@@ -53,7 +54,8 @@ import {
 import { compose } from "@/lib/compose";
 import { setCreditRequestContext } from "@/lib/api";
 import { store } from "@/lib/store";
-import { readPreferredFundingSource, writePreferredFundingSource } from "@/lib/cache";
+import { getSmartAccountAdminWallet, readPreferredFundingSource, writePreferredFundingSource } from "@/lib/cache";
+import { isSolanaBrowserAccount } from "@/lib/svm/wallet";
 import { approveTempoSession, CardCheckout } from "@/components/connector";
 import { useCreditAccount } from "@/hooks/use-credits";
 import { creditLabel, formatCredits, formatDollars, type CheckoutIntent } from "@/lib/credits";
@@ -142,7 +144,10 @@ export interface SessionProviderProps {
 
 export function SessionProvider({ children, userAddress: propUserAddress }: SessionProviderProps) {
   const account = useActiveAccount();
-  const adminWallet = useAdminWallet();
+  let activeWallet: ReturnType<typeof thirdwebReact.useActiveWallet> | undefined;
+  try { activeWallet = thirdwebReact.useActiveWallet(); } catch { /* Partial unit test mocks may omit useActiveWallet. */ }
+  const rawAdminWallet = useAdminWallet();
+  const adminWallet = getSmartAccountAdminWallet(activeWallet, account, rawAdminWallet);
   const currentAdminWallet = useRef(adminWallet);
   currentAdminWallet.current = adminWallet;
   const { chains, selectedNetwork } = useChain();
@@ -150,7 +155,7 @@ export function SessionProvider({ children, userAddress: propUserAddress }: Sess
   const liveAddress = propUserAddress ?? userAddress;
   const address = liveAddress && (isEvmNetwork(selectedNetwork)
     ? /^0x[0-9a-f]{40}$/i.test(liveAddress) && Boolean(account)
-    : /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(liveAddress) && Boolean(evmSignerAddress)) ? liveAddress : null;
+    : /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(liveAddress) && Boolean(evmSignerAddress || !isReconnecting)) ? liveAddress : null;
   const scope: SessionScope | null = address ? { address, network: selectedNetwork } : null;
   const displayAddress = address ?? (isReconnecting ? readAddress : null);
   const displayScope: SessionScope | null = displayAddress ? { address: displayAddress, network: selectedNetwork } : null;
@@ -385,7 +390,7 @@ export function SessionProvider({ children, userAddress: propUserAddress }: Sess
         ]);
         assertCurrent();
         if (funds < amount) throw new Error(`Insufficient ${config.asset} balance. Available: ${(Number(funds) / 1_000_000).toFixed(2)} ${config.asset}`);
-        if (network === "eip155:42431") {
+        if (network === "eip155:42431" && (adminWallet || evmSignerAddress)) {
           const admin = adminWallet?.getAccount();
           if (!adminWallet || !admin || admin.address !== evmSignerAddress) throw new Error("The admin signer is not ready");
           await approveTempoSession({
@@ -401,35 +406,63 @@ export function SessionProvider({ children, userAddress: propUserAddress }: Sess
           if (receipt.status !== "success") throw new Error("Session spending approval failed");
         }
       } else if (isSolanaNetwork(network)) {
-        const signer = adminWallet?.getAccount();
-        if (!signer || signer.address !== evmSignerAddress) throw new Error("EVM signer account not available");
         const spender = kind.extra?.feePayer;
         if (typeof spender !== "string" || !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(spender)) throw new Error(`Session approval is unavailable for ${network}`);
-        await activate();
-        assertCurrent();
-        const { createSolanaRpcFromNetwork, readSvmTokenBalance, buildSwigApproveTransaction } = await import("@/lib/svm/swig");
-        const { deriveSwigConfigAddress } = await import("@/lib/svm/account");
-        assertCurrent();
-        const rpc = createSolanaRpcFromNetwork(network, config.rpcUrl);
-        const balance = await readSvmTokenBalance({ owner: scope.address as any, mint: config.assetAddress, rpc });
-        assertCurrent();
-        if (balance < amount) throw new Error(`Insufficient ${config.asset} balance. Available: ${(Number(balance) / 1_000_000).toFixed(2)} ${config.asset}`);
-        const swigConfigAddress = await deriveSwigConfigAddress(signer.address);
-        assertCurrent();
-        const unsignedTransaction = await buildSwigApproveTransaction({
-          swigConfigAddress, expectedWalletAddress: scope.address, evmSignerAddress: signer.address,
-          usdcMint: config.assetAddress, amount, feePayer: spender as any, network, rpcUrl: config.rpcUrl,
-          signMessage: async bytes => {
-            assertCurrent();
-            const signed = await signer.signMessage({ message: { raw: bytes } });
-            assertCurrent();
-            return signed;
-          },
-        });
-        assertCurrent();
-        const approved = await compose.svm.relay({ unsignedTransaction, network });
-        assertCurrent();
-        if (!approved.confirmed) throw new Error("Session approval is awaiting confirmation");
+        if (isSolanaBrowserAccount(account) && account.address === scope.address) {
+          const browserAccount = account;
+          const { createSolanaRpcFromNetwork, readSvmTokenBalance, buildDirectSvmApproveTransaction } = await import("@/lib/svm/swig");
+          assertCurrent();
+          const rpc = createSolanaRpcFromNetwork(network, config.rpcUrl);
+          const balance = await readSvmTokenBalance({ owner: scope.address as any, mint: config.assetAddress, rpc });
+          assertCurrent();
+          if (balance < amount) throw new Error(`Insufficient ${config.asset} balance. Available: ${(Number(balance) / 1_000_000).toFixed(2)} ${config.asset}`);
+          const unsignedTransaction = await buildDirectSvmApproveTransaction({
+            owner: scope.address,
+            usdcMint: config.assetAddress,
+            amount,
+            feePayer: spender as any,
+            network,
+            rpcUrl: config.rpcUrl,
+            signTransaction: async bytes => {
+              assertCurrent();
+              const signed = await browserAccount.signSolanaTransaction(bytes);
+              assertCurrent();
+              return signed;
+            },
+          });
+          assertCurrent();
+          const approved = await compose.svm.relay({ unsignedTransaction, network });
+          assertCurrent();
+          if (!approved.confirmed) throw new Error("Session approval is awaiting confirmation");
+        } else {
+          const signer = adminWallet?.getAccount();
+          if (!signer || signer.address !== evmSignerAddress) throw new Error("EVM signer account not available");
+          await activate();
+          assertCurrent();
+          const { createSolanaRpcFromNetwork, readSvmTokenBalance, buildSwigApproveTransaction } = await import("@/lib/svm/swig");
+          const { deriveSwigConfigAddress } = await import("@/lib/svm/account");
+          assertCurrent();
+          const rpc = createSolanaRpcFromNetwork(network, config.rpcUrl);
+          const balance = await readSvmTokenBalance({ owner: scope.address as any, mint: config.assetAddress, rpc });
+          assertCurrent();
+          if (balance < amount) throw new Error(`Insufficient ${config.asset} balance. Available: ${(Number(balance) / 1_000_000).toFixed(2)} ${config.asset}`);
+          const swigConfigAddress = await deriveSwigConfigAddress(signer.address);
+          assertCurrent();
+          const unsignedTransaction = await buildSwigApproveTransaction({
+            swigConfigAddress, expectedWalletAddress: scope.address, evmSignerAddress: signer.address,
+            usdcMint: config.assetAddress, amount, feePayer: spender as any, network, rpcUrl: config.rpcUrl,
+            signMessage: async bytes => {
+              assertCurrent();
+              const signed = await signer.signMessage({ message: { raw: bytes } });
+              assertCurrent();
+              return signed;
+            },
+          });
+          assertCurrent();
+          const approved = await compose.svm.relay({ unsignedTransaction, network });
+          assertCurrent();
+          if (!approved.confirmed) throw new Error("Session approval is awaiting confirmation");
+        }
       } else throw new Error(`Unsupported network: ${network}`);
 
       assertCurrent();

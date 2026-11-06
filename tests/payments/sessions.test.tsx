@@ -6,9 +6,9 @@ import { act, cleanup, render, waitFor } from "@testing-library/react";
 const mock = vi.hoisted(() => ({
   network: "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1", svm: "J62vBhiY1skwoXLmh3VG7jpgu6nrwczXh7NAfZgZn2tz",
   admin: "0x1111111111111111111111111111111111111111", smart: "0x2222222222222222222222222222222222222222",
-  fetch: vi.fn(), activate: vi.fn(), sign: vi.fn(), visibleSign: vi.fn(), balance: vi.fn(), approve: vi.fn(), relay: vi.fn(), support: vi.fn(),
+  fetch: vi.fn(), activate: vi.fn(), sign: vi.fn(), visibleSign: vi.fn(), solanaSignTx: vi.fn(), balance: vi.fn(), approve: vi.fn(), directApprove: vi.fn(), relay: vi.fn(), support: vi.fn(),
   currentWallet: null as any, token: null as string | null, cleared: vi.fn(), listeners: new Map<string, Set<(event: any) => void>>(),
-  attached: vi.fn(), clearWallet: vi.fn(), select: vi.fn(), connected: true,
+  attached: vi.fn(), clearWallet: vi.fn(), select: vi.fn(), connected: true, eoaOnly: false, solanaEoa: false,
   evmBalance: vi.fn(), evmAllowance: vi.fn(), evmApprove: vi.fn(), evmSend: vi.fn(), receipt: vi.fn(), tempoApprove: vi.fn(),
   time: 0, update: (_: number) => {}, credit: null as any,
 }));
@@ -23,13 +23,24 @@ vi.mock("@/components/connector", () => ({ approveTempoSession: mock.tempoApprov
 vi.mock("@/lib/chains", () => ({ isEvmNetwork: (network: string) => network.startsWith("eip155:"),
   isSolanaNetwork: (network: string) => network.startsWith("solana:"), evmChainId: (network: string) => Number(network.slice(7)),
   getChainObject: (id: number) => ({ id, rpc: "https://rpc.test" }), thirdwebClient: {} }));
-vi.mock("thirdweb/react", () => ({ useActiveWallet: () => undefined, useActiveAccount: () => mock.connected ? { address: mock.smart, signMessage: mock.visibleSign } : undefined,
-  useAdminWallet: () => ({ getAccount: () => ({ address: mock.admin, signMessage: mock.sign }) }) }));
+vi.mock("thirdweb/react", () => ({
+  useActiveWallet: () => mock.solanaEoa
+    ? { id: "app.phantom", getAccount: () => ({ address: mock.svm, isSolanaBrowserAccount: true, signMessage: mock.visibleSign, signSolanaTransaction: mock.solanaSignTx }) }
+    : mock.eoaOnly
+      ? { id: "io.metamask", getAccount: () => ({ address: mock.admin, signMessage: mock.visibleSign }) }
+      : undefined,
+  useActiveAccount: () => mock.connected
+    ? mock.solanaEoa
+      ? { address: mock.svm, isSolanaBrowserAccount: true, signMessage: mock.visibleSign, signSolanaTransaction: mock.solanaSignTx }
+      : { address: mock.eoaOnly ? mock.admin : mock.smart, signMessage: mock.visibleSign }
+    : undefined,
+  useAdminWallet: () => mock.solanaEoa ? undefined : ({ getAccount: () => ({ address: mock.admin, signMessage: mock.sign }) }),
+}));
 vi.mock("@/contexts/Network", () => ({ NetworkGlyph: () => null, useChain: () => ({ selectedNetwork: mock.network,
   chains: [{ network: mock.network, rpcUrl: "https://rpc.test", assetAddress: "mint", asset: mock.network === "eip155:42431" ? "OUSD" : "USDC" }], setSelectedNetwork: mock.select }) }));
-vi.mock("@/hooks/use-address", () => ({ useSelectedUserAddress: () => ({ userAddress: mock.connected ? (mock.network.startsWith("eip155:") ? mock.smart : mock.svm) : null,
-  readAddress: mock.svm, evmSignerAddress: mock.connected ? mock.admin : null, activate: mock.activate }) }));
-vi.mock("@/lib/svm/swig", () => ({ createSolanaRpcFromNetwork: vi.fn(() => ({})), readSvmTokenBalance: mock.balance, buildSwigApproveTransaction: mock.approve }));
+vi.mock("@/hooks/use-address", () => ({ useSelectedUserAddress: () => ({ userAddress: mock.connected ? (mock.network.startsWith("eip155:") ? (mock.eoaOnly ? mock.admin : mock.smart) : mock.svm) : null,
+  readAddress: mock.svm, evmSignerAddress: mock.connected && !mock.eoaOnly && !mock.solanaEoa ? mock.admin : null, activate: mock.activate }) }));
+vi.mock("@/lib/svm/swig", () => ({ createSolanaRpcFromNetwork: vi.fn(() => ({})), readSvmTokenBalance: mock.balance, buildSwigApproveTransaction: mock.approve, buildDirectSvmApproveTransaction: mock.directApprove }));
 vi.mock("@/lib/api", () => ({
   api: { fetch: mock.fetch },
   setCreditRequestContext: vi.fn(value => { mock.credit = value; }),
@@ -64,11 +75,13 @@ const response = (body: unknown, status = 200) => new Response(JSON.stringify(bo
 function emit(name: string, value: unknown) { mock.listeners.get(name)?.forEach(callback => callback(value)); }
 beforeEach(() => {
   store.clearUserWorkspace(); closeGate(false); mock.time = 0;
-  vi.clearAllMocks(); localStorage.clear(); mock.listeners.clear(); mock.network = DEVNET; mock.connected = true; mock.currentWallet = null; mock.token = null;
+  vi.clearAllMocks(); localStorage.clear(); mock.listeners.clear(); mock.network = DEVNET; mock.connected = true; mock.eoaOnly = false; mock.solanaEoa = false; mock.currentWallet = null; mock.token = null;
   mock.fetch.mockImplementation(async path => response(path === "/api/keys" ? keyResponse() : { hasSession: false }));
   mock.support.mockImplementation(async () => ({ kinds: [{ x402Version: 2, scheme: "upto", network: mock.network, extra: { feePayer: mock.svm } }] }));
   mock.activate.mockResolvedValue(null); mock.balance.mockResolvedValue(30_000_000n); mock.sign.mockResolvedValue("0x01");
+  mock.solanaSignTx.mockImplementation(async (bytes: Uint8Array) => bytes);
   mock.approve.mockImplementation(async input => { await input.signMessage(new Uint8Array([1])); return "unsigned"; });
+  mock.directApprove.mockImplementation(async input => { await input.signTransaction(new Uint8Array([1, 2, 3])); return "unsigned-direct-solana"; });
   mock.relay.mockResolvedValue({ signature: "approval", confirmed: true });
   mock.evmBalance.mockResolvedValue(30_000_000n); mock.evmAllowance.mockResolvedValue(0n);
   mock.evmApprove.mockReturnValue({}); mock.evmSend.mockResolvedValue({ transactionHash: "0x01" }); mock.receipt.mockResolvedValue({ status: "success" });
@@ -193,6 +206,24 @@ test("first session activates before approval, derives from admin, signs with ad
   expect(mock.relay.mock.invocationCallOrder[0]).toBeLessThan(mock.fetch.mock.invocationCallOrder.find((_, i) => mock.fetch.mock.calls[i][0] === "/api/keys")!);
 });
 
+test("Solana browser wallet EOA (Phantom) creates a Solana session directly without Swig activation or EVM signer", async () => {
+  mock.solanaEoa = true;
+  await mount();
+  await act(async () => { await context.createSession("1000000", 1); });
+  expect(mock.activate).not.toHaveBeenCalled();
+  expect(mock.approve).not.toHaveBeenCalled();
+  expect(mock.directApprove).toHaveBeenCalledWith(expect.objectContaining({
+    owner: mock.svm,
+    usdcMint: "mint",
+    amount: 1_000_000n,
+    feePayer: mock.svm,
+    network: DEVNET,
+  }));
+  expect(mock.solanaSignTx).toHaveBeenCalledOnce();
+  expect(mock.relay).toHaveBeenCalledWith({ unsignedTransaction: "unsigned-direct-solana", network: DEVNET });
+  expect(context.session).toMatchObject({ active: true, userAddress: mock.svm, network: DEVNET, token: "token" });
+});
+
 test("EVM session approves from the smart account to the discovered facilitator and waits for success", async () => {
   mock.network = "eip155:84532";
   mock.support.mockResolvedValue({ kinds: [{ x402Version: 2, scheme: "upto", network: mock.network, extra: { facilitatorAddress: mock.admin } }] });
@@ -226,6 +257,20 @@ test("Tempo uses the same smart-account session and admin-authorized approval wi
   mock.tempoApprove.mockRejectedValueOnce(new Error("Fund the admin wallet with pathUSD"));
   await act(async () => { await expect(context.createSession("1000000", 1)).rejects.toThrow("pathUSD"); });
   expect(mock.fetch.mock.calls.filter(c => c[0] === "/api/keys")).toHaveLength(1);
+});
+
+test("browser-wallet EOA user on Tempo approves directly from the EOA without smart-account wrapping", async () => {
+  mock.network = "eip155:42431";
+  mock.eoaOnly = true;
+  mock.support.mockResolvedValue({ kinds: [{ x402Version: 2, scheme: "upto", network: mock.network, extra: { facilitatorAddress: mock.smart } }] });
+  render(<SessionProvider><Probe /></SessionProvider>);
+  await act(async () => {});
+  await act(async () => { await context.createSession("1000000", 1); });
+  expect(mock.tempoApprove).not.toHaveBeenCalled();
+  expect(mock.evmApprove).toHaveBeenCalledWith(expect.objectContaining({ spender: mock.smart, amountWei: 1_000_000n }));
+  expect(mock.evmSend).toHaveBeenCalledWith(expect.objectContaining({ account: expect.objectContaining({ address: mock.admin }) }));
+  expect(mock.fetch).toHaveBeenCalledWith("/api/keys", expect.objectContaining({ network: mock.network, userAddress: mock.admin }));
+  expect(context.session).toMatchObject({ active: true, network: mock.network, userAddress: mock.admin });
 });
 
 test("Tempo funding errors name the API-advertised stablecoin", async () => {

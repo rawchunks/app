@@ -710,6 +710,40 @@ export async function buildDirectSvmInstructionTransaction(input: {
     return getBase64Decoder().decode(signedBytes);
 }
 
+export async function buildDirectSvmApproveTransaction(input: {
+    owner: SvmAddress | string;
+    usdcMint: string;
+    amount: bigint;
+    feePayer: SvmAddress;
+    network: NetworkId;
+    rpcUrl: string;
+    signTransaction: (wireTransactionBytes: Uint8Array) => Promise<Uint8Array>;
+}): Promise<string> {
+    const { owner, usdcMint, amount, feePayer, network, rpcUrl, signTransaction } = input;
+    const rpc = createSolanaRpcFromNetwork(network, rpcUrl);
+    const ownerAddr = svmAddress(owner);
+    const mint = svmAddress(usdcMint);
+    const tokenProgram = await readMintOwner(rpc, mint);
+    const sourceAta = await findAta(ownerAddr, mint, tokenProgram);
+    const approveInstruction: Instruction = {
+        programAddress: tokenProgram,
+        accounts: [
+            { address: sourceAta, role: AccountRole.WRITABLE },
+            { address: feePayer, role: AccountRole.WRITABLE },
+            { address: ownerAddr, role: AccountRole.READONLY_SIGNER },
+        ],
+        data: encodeApproveInstructionData(amount),
+    };
+    return buildDirectSvmInstructionTransaction({
+        feePayer,
+        network,
+        rpcUrl,
+        instructions: [approveInstruction],
+        memo: SVM_SESSION_APPROVAL_MEMO,
+        signTransaction,
+    });
+}
+
 async function loadSwigSigningContext(input: {
     rpc: ReturnType<typeof createSolanaRpcFromNetwork>;
     swigConfigAddress: SvmAddress;
