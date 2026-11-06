@@ -1,11 +1,13 @@
 import { useRef, useState } from 'react';
 import { useQuery, useQueries, useQueryClient } from '@tanstack/react-query';
+import * as thirdwebReact from 'thirdweb/react';
 import { useActiveAccount, useAdminWallet } from 'thirdweb/react';
 import { Bridge, readContract, simulateTransaction, sendAndConfirmTransaction, type PreparedTransaction } from 'thirdweb';
 import { prepareTempoTransaction } from '../components/connector';
 import { toast } from 'sonner';
 import type { SolanaNetworkId } from '@compose-market/sdk/chains';
 import { useSelectedUserAddress } from './use-address';
+import { getSmartAccountAdminWallet } from '../lib/cache';
 import * as chainUtils from '../lib/chains';
 const { thirdwebClient, isEvmNetwork, getEvmChainObject, getNetworkRpcUrl } = chainUtils;
 import { buyLicense, getFactoryContract, getRoyaltiesContract, requireEvmDeployment } from '../lib/contracts';
@@ -132,7 +134,10 @@ export function useCatalogLicenseSales(songs: Song[]): Record<string, LiveSongLi
 
 export function useLicense(song: Song, onEditSong?: (song: Song) => void, includeSales = true, readOnMount = true) {
   const account = useActiveAccount();
-  const adminWallet = useAdminWallet();
+  let activeWallet: ReturnType<typeof thirdwebReact.useActiveWallet> | undefined;
+  try { activeWallet = thirdwebReact.useActiveWallet(); } catch { /* Partial unit test mocks may omit useActiveWallet. */ }
+  const rawAdminWallet = useAdminWallet();
+  const adminWallet = getSmartAccountAdminWallet(activeWallet, account, rawAdminWallet);
   const { userAddress, evmAddress, svmAddress, paymentNetwork, captureSolanaOperation, assertCurrent } = useSelectedUserAddress();
   const [pending, setPending] = useState(false);
   const queryClient = useQueryClient();
@@ -183,9 +188,9 @@ export function useLicense(song: Song, onEditSong?: (song: Song) => void, includ
       const execute = async (transaction: PreparedTransaction<any>) => {
         assertCurrent();
         let prepared = { account, transaction };
-        if (chain.id === 42431) {
-          const admin = adminWallet?.getAccount();
-          if (!adminWallet || !admin) throw new Error('The admin signer is not ready');
+        if (chain.id === 42431 && adminWallet) {
+          const admin = adminWallet.getAccount();
+          if (!admin) throw new Error('The admin signer is not ready');
           prepared = await prepareTempoTransaction({ chain, admin, adminWallet,
             accountAddress: account.address, assertCurrent }, transaction);
         }
@@ -216,6 +221,7 @@ export function useLicense(song: Song, onEditSong?: (song: Song) => void, includ
         evmSignerAddress: solana.signerAddress,
         songId: BigInt(song.chain_song_id),
         signMessage: solana.signMessage,
+        ...(solana.signTransaction ? { signTransaction: solana.signTransaction } : {}),
         assertCurrent: solana.assertCurrent,
       });
       solana.assertCurrent();

@@ -1,10 +1,12 @@
 import { useSyncExternalStore } from 'react';
+import * as thirdwebReact from 'thirdweb/react';
 import { useActiveAccount, useAdminWallet } from 'thirdweb/react';
 import type { Account } from 'thirdweb/wallets';
 import { prepareTempoTransaction } from '../components/connector';
 import { prepareContractCall, readContract, sendTransaction, simulateTransaction, waitForReceipt, type PreparedTransaction } from 'thirdweb';
 import { parseEventLogs } from 'viem';
 import { useSelectedUserAddress } from './use-address';
+import { getSmartAccountAdminWallet } from '../lib/cache';
 import { getEvmChainObject, isEvmNetwork, getNetworkRpcUrl, thirdwebClient, usdcToWei } from '../lib/chains';
 import { getFactoryContract, getRemixContract, requireEvmDeployment } from '../lib/contracts';
 import { fetchSolanaFactoryConfig, fetchSolanaSong, relaySolanaMintSong, relaySolanaRemixSong, requireSolanaDeployment } from '../lib/programs';
@@ -41,7 +43,10 @@ async function loadSong(id: string, userAddress: string): Promise<Song> {
 
 export function useMint() {
   const account = useActiveAccount();
-  const adminWallet = useAdminWallet();
+  let activeWallet: ReturnType<typeof thirdwebReact.useActiveWallet> | undefined;
+  try { activeWallet = thirdwebReact.useActiveWallet(); } catch { /* Partial unit test mocks may omit useActiveWallet. */ }
+  const rawAdminWallet = useAdminWallet();
+  const adminWallet = getSmartAccountAdminWallet(activeWallet, account, rawAdminWallet);
   const { userAddress, svmAddress, paymentNetwork, captureSolanaOperation, assertCurrent } = useSelectedUserAddress();
   const pending = useSyncExternalStore(listener => { listeners.add(listener); return () => { listeners.delete(listener); }; }, () => [...jobs.keys()].join(','));
 
@@ -150,9 +155,9 @@ export function useMint() {
           transaction = originalSongId
             ? prepareContractCall({ contract: getRemixContract(thirdwebClient, contract.chain), method: 'remixSong', params: [originalSongId, { licenseAmount: 0n, licensePrice: 0n, streamPrice: usdcToWei(song.stream_price) }, `ipfs://${mint.cid}`] })
             : prepareContractCall({ contract, method: 'mintSong', params: [BigInt(song.licenses), usdcToWei(song.license_price), usdcToWei(song.stream_price), true, `ipfs://${mint.cid}`] });
-          if (contract.chain.id === 42431) {
-            const admin = adminWallet?.getAccount();
-            if (!adminWallet || !admin) throw new Error('The admin signer is not ready');
+          if (contract.chain.id === 42431 && adminWallet) {
+            const admin = adminWallet.getAccount();
+            if (!admin) throw new Error('The admin signer is not ready');
             const prepared = await prepareTempoTransaction({ chain: contract.chain, admin, adminWallet,
               accountAddress: account.address, assertCurrent }, transaction);
             transaction = prepared.transaction;
@@ -182,7 +187,7 @@ export function useMint() {
           }
         }
         if (!solana) throw new Error('Solana account is not ready');
-        const args = { network: mint.network as SolanaNetworkId, rpcUrl: solana.chain.rpcUrl, selectedSvmAddress: solana.walletAddress, evmSignerAddress: solana.signerAddress, signMessage: solana.signMessage, assertCurrent: solana.assertCurrent, licenseAmount: originalSongId ? 0n : BigInt(song.licenses), licensePrice: originalSongId ? 0n : usdcToWei(song.license_price), streamPrice: usdcToWei(song.stream_price), metadataUri: `ipfs://${mint.cid}` };
+        const args = { network: mint.network as SolanaNetworkId, rpcUrl: solana.chain.rpcUrl, selectedSvmAddress: solana.walletAddress, evmSignerAddress: solana.signerAddress, signMessage: solana.signMessage, ...(solana.signTransaction ? { signTransaction: solana.signTransaction } : {}), assertCurrent: solana.assertCurrent, licenseAmount: originalSongId ? 0n : BigInt(song.licenses), licensePrice: originalSongId ? 0n : usdcToWei(song.license_price), streamPrice: usdcToWei(song.stream_price), metadataUri: `ipfs://${mint.cid}` };
         if (originalSongId) {
           const result = await relaySolanaRemixSong({ ...args, originalSongId });
           solana.assertCurrent();

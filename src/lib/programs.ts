@@ -13,6 +13,7 @@ import { compose } from "@/lib/compose";
 import { isEvmNetwork } from "@/lib/chains";
 import { deriveSwigConfigAddress } from "@/lib/svm/account";
 import {
+  buildDirectSvmInstructionTransaction,
   buildSwigInstructionTransaction,
   createSolanaRpcFromNetwork,
 } from "@/lib/svm/swig";
@@ -428,7 +429,9 @@ export function buildSolanaBuyLicenseInstruction(input: {
 
 export async function relaySolanaBuyLicense(input: {
   network: SolanaNetworkId; rpcUrl: string; selectedSvmAddress: string; evmSignerAddress: string;
-  signMessage: (message: Uint8Array) => Promise<string>; songId: bigint; assertCurrent?: () => void;
+  signMessage: (message: Uint8Array) => Promise<string>;
+  signTransaction?: (wireTransactionBytes: Uint8Array) => Promise<Uint8Array>;
+  songId: bigint; assertCurrent?: () => void;
 }): Promise<void> {
   if (await fetchSolanaHasLicense({ ...input, user: input.selectedSvmAddress })) return;
   const deployment = getRawchunksSolanaDeployment();
@@ -724,30 +727,48 @@ export async function relaySolanaInstructions(input: {
   evmSignerAddress: string;
   feePayer?: string;
   signMessage: (message: Uint8Array) => Promise<string>;
+  signTransaction?: (wireTransactionBytes: Uint8Array) => Promise<Uint8Array>;
   instructions: readonly Instruction[];
   memo?: string;
   assertCurrent?: () => void;
 }): Promise<{ signature: string; confirmed: boolean }> {
   input.assertCurrent?.();
   const feePayer = address(input.feePayer ?? (await compose.svm.feePayer()).feePayer);
-  const swigConfigAddress = await deriveSwigConfigAddress(input.evmSignerAddress);
   input.assertCurrent?.();
-  const unsignedTransaction = await buildSwigInstructionTransaction({
-    swigConfigAddress,
-    expectedWalletAddress: input.selectedSvmAddress,
-    evmSignerAddress: input.evmSignerAddress,
-    feePayer,
-    network: input.network,
-    rpcUrl: input.rpcUrl,
-    instructions: input.instructions,
-    memo: input.memo,
-    signMessage: async message => {
-      input.assertCurrent?.();
-      const signature = await input.signMessage(message);
-      input.assertCurrent?.();
-      return signature;
-    },
-  });
+  const unsignedTransaction = input.signTransaction
+    ? await buildDirectSvmInstructionTransaction({
+        feePayer,
+        network: input.network,
+        rpcUrl: input.rpcUrl,
+        instructions: input.instructions,
+        memo: input.memo,
+        signTransaction: async wireBytes => {
+          input.assertCurrent?.();
+          const signed = await input.signTransaction!(wireBytes);
+          input.assertCurrent?.();
+          return signed;
+        },
+      })
+    : await (async () => {
+        const swigConfigAddress = await deriveSwigConfigAddress(input.evmSignerAddress);
+        input.assertCurrent?.();
+        return buildSwigInstructionTransaction({
+          swigConfigAddress,
+          expectedWalletAddress: input.selectedSvmAddress,
+          evmSignerAddress: input.evmSignerAddress,
+          feePayer,
+          network: input.network,
+          rpcUrl: input.rpcUrl,
+          instructions: input.instructions,
+          memo: input.memo,
+          signMessage: async message => {
+            input.assertCurrent?.();
+            const signature = await input.signMessage(message);
+            input.assertCurrent?.();
+            return signature;
+          },
+        });
+      })();
 
   input.assertCurrent?.();
   return compose.svm.relay({
@@ -762,6 +783,7 @@ export async function relaySolanaMintSong(input: {
   selectedSvmAddress: string;
   evmSignerAddress: string;
   signMessage: (message: Uint8Array) => Promise<string>;
+  signTransaction?: (wireTransactionBytes: Uint8Array) => Promise<Uint8Array>;
   licenseAmount: bigint | number;
   licensePrice: bigint | number;
   streamPrice: bigint | number;
@@ -798,6 +820,7 @@ export async function relaySolanaMintSong(input: {
     selectedSvmAddress: input.selectedSvmAddress,
     evmSignerAddress: input.evmSignerAddress,
     signMessage: input.signMessage,
+    signTransaction: input.signTransaction,
     instructions: [mintIx],
     memo: `rawchunks: mint song ${songId}`,
   });
@@ -816,6 +839,7 @@ export async function relaySolanaRemixSong(input: {
   selectedSvmAddress: string;
   evmSignerAddress: string;
   signMessage: (message: Uint8Array) => Promise<string>;
+  signTransaction?: (wireTransactionBytes: Uint8Array) => Promise<Uint8Array>;
   originalSongId: bigint | number;
   licenseAmount: bigint | number;
   licensePrice: bigint | number;
@@ -873,6 +897,7 @@ export async function relaySolanaRemixSong(input: {
     selectedSvmAddress: input.selectedSvmAddress,
     evmSignerAddress: input.evmSignerAddress,
     signMessage: input.signMessage,
+    signTransaction: input.signTransaction,
     instructions: [remixIx],
     memo: `rawchunks: remix song ${input.originalSongId}`,
   });
