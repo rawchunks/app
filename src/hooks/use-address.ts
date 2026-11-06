@@ -3,7 +3,8 @@ import { useActiveAccount, useActiveWallet, useActiveWalletConnectionStatus, use
 import { useQueryClient } from '@tanstack/react-query';
 import { useChain } from "@/contexts/Network";
 import { isEvmNetwork } from "@/lib/chains";
-import { useSolanaSmartAccount } from "@/hooks/use-svm";
+import { getSmartAccountAdminWallet, useSolanaSmartAccount } from "@/hooks/use-svm";
+import { isSolanaBrowserAccount } from "@/lib/svm/wallet";
 import { cachedAddress, clearCachedAccount, purgeUserCaches, readCachedAccount, writeCachedAccount, writeCachedProfile } from '@/lib/cache';
 import { api } from '@/lib/api';
 import { bus } from '@/lib/bus';
@@ -23,7 +24,8 @@ function useOptionalQueryClient() {
 function useIdentityState(isRootProvider: boolean) {
     const account = useActiveAccount();
     const activeWallet = useActiveWallet();
-    const adminWallet = useAdminWallet();
+    const rawAdminWallet = useAdminWallet();
+    const adminWallet = getSmartAccountAdminWallet(activeWallet, account, rawAdminWallet);
     const connectionStatus = useActiveWalletConnectionStatus();
     const queryClient = useOptionalQueryClient();
     const [cached, setCached] = useState(readCachedAccount);
@@ -31,11 +33,18 @@ function useIdentityState(isRootProvider: boolean) {
         evmAddress: null,
         svmAddress: null,
     });
-    const { paymentNetwork, getChainByNetworkId } = useChain();
+    const {
+        paymentNetwork,
+        setSelectedNetwork,
+        solanaChains,
+        evmChains,
+        defaultNetwork,
+        getChainByNetworkId,
+    } = useChain();
     const {
         swigAddress,
         evmSignerAddress,
-        isActivated,
+        isActivated: swigActivated,
         isCreating,
         requiredFundingLamports,
         currentFundingLamports,
@@ -43,8 +52,11 @@ function useIdentityState(isRootProvider: boolean) {
         create,
     } = useSolanaSmartAccount();
 
-    const liveEvmAddress = account?.address ?? null;
-    const liveSvmAddress = swigAddress ?? null;
+    const rawAccountAddress = account?.address?.trim() || null;
+    const isAccountSvm = Boolean(rawAccountAddress && !rawAccountAddress.startsWith("0x"));
+    const liveEvmAddress = rawAccountAddress && !isAccountSvm ? rawAccountAddress : null;
+    const liveSvmAddress = isAccountSvm ? rawAccountAddress : (swigAddress ?? null);
+    const isActivated = isAccountSvm ? true : swigActivated;
 
     useEffect(() => {
         const nextCached = readCachedAccount();
@@ -54,6 +66,29 @@ function useIdentityState(isRootProvider: boolean) {
         }
     }, [liveEvmAddress, liveSvmAddress, connectionStatus]);
 
+    const autoSwitchedIdentityRef = useRef<string | null>(null);
+    useEffect(() => {
+        if (!liveEvmAddress && !liveSvmAddress) {
+            autoSwitchedIdentityRef.current = null;
+            return;
+        }
+        const identityKey = `${liveEvmAddress ?? ""}:${liveSvmAddress ?? ""}:${evmSignerAddress ?? ""}`;
+        if (autoSwitchedIdentityRef.current === identityKey) return;
+        if (liveSvmAddress && !liveEvmAddress && isEvmNetwork(paymentNetwork)) {
+            const targetSolana = (solanaChains?.[0]?.network ?? "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1") as any;
+            autoSwitchedIdentityRef.current = identityKey;
+            setSelectedNetwork?.(targetSolana);
+            return;
+        }
+        if (liveEvmAddress && !liveSvmAddress && !evmSignerAddress && !isEvmNetwork(paymentNetwork)) {
+            const targetEvm = (defaultNetwork && isEvmNetwork(defaultNetwork)
+                ? defaultNetwork
+                : evmChains?.[0]?.network ?? "eip155:8453") as any;
+            autoSwitchedIdentityRef.current = identityKey;
+            setSelectedNetwork?.(targetEvm);
+        }
+    }, [liveEvmAddress, liveSvmAddress, evmSignerAddress, paymentNetwork, solanaChains, evmChains, defaultNetwork, setSelectedNetwork]);
+
     const isEvm = isEvmNetwork(paymentNetwork);
     const isReconnecting = Boolean(cached) && !liveEvmAddress && !liveSvmAddress && (connectionStatus === 'unknown' || connectionStatus === 'connecting');
     const evmAddress =
@@ -61,7 +96,7 @@ function useIdentityState(isRootProvider: boolean) {
         (liveSvmAddress ? pairedAddresses.evmAddress : null) ||
         (isReconnecting && cached?.address ? cached.address : null);
     const cachedMatchingSvm =
-        liveEvmAddress && cached?.address && cached.address.toLowerCase() === liveEvmAddress.toLowerCase()
+        liveEvmAddress && evmSignerAddress && cached?.address && cached.address.toLowerCase() === liveEvmAddress.toLowerCase()
             ? cached.svmAddress ?? null
             : null;
     const svmAddress =
@@ -70,10 +105,10 @@ function useIdentityState(isRootProvider: boolean) {
         (isReconnecting && cached?.svmAddress ? cached.svmAddress : null);
     const userAddress = isEvm
         ? (liveEvmAddress ?? (liveSvmAddress ? (pairedAddresses.evmAddress ?? liveSvmAddress) : null))
-        : (liveSvmAddress ?? (liveEvmAddress ? (pairedAddresses.svmAddress ?? svmAddress ?? liveEvmAddress) : null));
-    const readAddress = userAddress ?? cachedAddress(cached, paymentNetwork, isEvm, connectionStatus);
+        : (liveSvmAddress ?? (liveEvmAddress ? (pairedAddresses.svmAddress ?? svmAddress) : null));
+    const readAddress = userAddress ?? liveEvmAddress ?? liveSvmAddress ?? cachedAddress(cached, paymentNetwork, isEvm, connectionStatus);
     const accountId = evmAddress ? evmAddress.toLowerCase() : (svmAddress ?? userAddress ?? readAddress ?? null);
-    const isResolving = isReconnecting || (Boolean(liveEvmAddress) && !isEvm && (!svmAddress || !isActivated || isCreating));
+    const isResolving = isReconnecting || (Boolean(evmSignerAddress) && !isEvm && (!svmAddress || !isActivated || isCreating));
 
     // Centralize store.setUserAddress in the root provider
     useEffect(() => {
@@ -169,7 +204,7 @@ function useIdentityState(isRootProvider: boolean) {
             setPairedAddresses({ evmAddress: null, svmAddress: null });
             setCached(readCachedAccount());
             try { void activeWallet?.disconnect(); } catch {}
-            try { void adminWallet?.disconnect(); } catch {}
+            try { void rawAdminWallet?.disconnect(); } catch {}
             useDawStore.getState().resetDaw();
             store.clearUserWorkspace(false);
             queryClient?.clear();
@@ -214,7 +249,7 @@ function useIdentityState(isRootProvider: boolean) {
             unsubSwitch();
             window.removeEventListener('storage', handleStorage);
         };
-    }, [isRootProvider, activeWallet, adminWallet, liveEvmAddress, liveSvmAddress, queryClient]);
+    }, [isRootProvider, activeWallet, rawAdminWallet, liveEvmAddress, liveSvmAddress, queryClient]);
 
     const disconnect = useCallback(() => {
         syncedWalletPairs.clear();
@@ -227,8 +262,8 @@ function useIdentityState(isRootProvider: boolean) {
         queryClient?.clear();
         try { sessionStorage.removeItem('rawchunks_editing_song'); } catch {}
         try { void activeWallet?.disconnect(); } catch {}
-        try { void adminWallet?.disconnect(); } catch {}
-    }, [activeWallet, adminWallet, queryClient]);
+        try { void rawAdminWallet?.disconnect(); } catch {}
+    }, [activeWallet, rawAdminWallet, queryClient]);
 
     const addresses = useMemo(() => {
         const list: string[] = [];
@@ -269,8 +304,33 @@ function useIdentityState(isRootProvider: boolean) {
 
     const captureSolanaOperation = () => {
         assertCurrent();
+        if (isEvm || !chain || !svmAddress) throw new Error("Solana signer or network is not ready");
+        if (isAccountSvm && isSolanaBrowserAccount(account) && account.address === svmAddress) {
+            const browserAccount = account;
+            return {
+                chain,
+                walletAddress: svmAddress,
+                signerAddress: "",
+                assertCurrent,
+                activate: async () => { assertCurrent(); },
+                signMessage: async (message: Uint8Array) => {
+                    assertCurrent();
+                    if (account?.address !== browserAccount.address) throw new Error("The Solana wallet changed; retry the operation");
+                    const signature = await browserAccount.signMessage({ message: { raw: message } });
+                    assertCurrent();
+                    return signature;
+                },
+                signTransaction: async (wireTransactionBytes: Uint8Array) => {
+                    assertCurrent();
+                    if (account?.address !== browserAccount.address) throw new Error("The Solana wallet changed; retry the operation");
+                    const signed = await browserAccount.signSolanaTransaction(wireTransactionBytes);
+                    assertCurrent();
+                    return signed;
+                },
+            };
+        }
         const signer = adminWallet?.getAccount();
-        if (isEvm || !chain || !svmAddress || !signer || signer.address !== evmSignerAddress) throw new Error("Solana signer or network is not ready");
+        if (!signer || signer.address !== evmSignerAddress) throw new Error("Solana signer or network is not ready");
         return {
             chain,
             walletAddress: svmAddress,
@@ -284,6 +344,7 @@ function useIdentityState(isRootProvider: boolean) {
                 assertCurrent();
                 return signature;
             },
+            signTransaction: undefined as ((wireTransactionBytes: Uint8Array) => Promise<Uint8Array>) | undefined,
         };
     };
 

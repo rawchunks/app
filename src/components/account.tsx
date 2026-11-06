@@ -2,7 +2,6 @@ import { useGuideOwner, prepareViews, draftCanLeave } from './guide/owners';
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useActiveAccount, useActiveWallet, useAutoConnect, useConnectModal } from "thirdweb/react";
 import { createWallet, inAppWallet } from "thirdweb/wallets";
-import type { SmartWalletOptions } from "thirdweb/wallets";
 import { BookOpen, Check, Copy, ExternalLink, LogOut, Pencil, ShieldAlert, ShieldCheck, Wallet } from "lucide-react";
 import { useChain } from "@/contexts/Network";
 import { useSelectedUserAddress } from "@/hooks/use-address";
@@ -16,26 +15,27 @@ import { DisclaimerBody, DISCLAIMER_POLICY_VERSION } from "@/components/disclaim
 import { Modal } from "@/components/modal";
 import { Button } from "@/components/button";
 import { Tooltip } from "@/components/daw/Tooltip";
-import { thirdwebClient, getChainObject, getChainConfig, getUsdcAddress, getExplorerUrl, isEvmNetwork, evmChainId } from "@/lib/chains";
+import { thirdwebClient, getChainObject, getChainConfig, getUsdcAddress, getExplorerUrl, isEvmNetwork, isSolanaNetwork, evmChainId } from "@/lib/chains";
 import { thirdwebCustomTheme } from "@/lib/connector";
+import { announceInstalledSolanaWallets, createSolanaBrowserWallet } from "@/lib/svm/wallet";
 import { cn } from "@/lib/utils";
 import { unsatisfiedStep, useGate } from "@/lib/gate";
 
-const wallets = [
-  inAppWallet({
-    auth: {
-      options: [
-        "google",
-        "github",
-        "discord",
-        "x",
-        "farcaster",
-        "email",
-        "passkey",
-        "guest",
-      ],
-    },
-  }),
+const IN_APP_AUTH_OPTIONS = [
+  "google",
+  "github",
+  "discord",
+  "x",
+  "farcaster",
+  "email",
+  "passkey",
+  "guest",
+] as const;
+
+const externalWallets = [
+  createSolanaBrowserWallet("app.phantom"),
+  createSolanaBrowserWallet("com.solflare"),
+  createSolanaBrowserWallet("app.backpack"),
   createWallet("io.metamask"),
   createWallet("com.coinbase.wallet"),
   createWallet("walletConnect"),
@@ -114,9 +114,26 @@ export function AccountChip({ className }: AccountChipProps) {
     if (thirdwebChainIdValue == null) return undefined;
     return getChainObject(thirdwebChainIdValue);
   }, [thirdwebChainIdValue, chains]);
-  const accountAbstraction = useMemo<SmartWalletOptions | undefined>(() => connectChain
-    ? { chain: connectChain, sponsorGas: true } : undefined, [connectChain]);
-  const autoConnect = useAutoConnect({ client: thirdwebClient, wallets, chain: connectChain, accountAbstraction, timeout: 30000 });
+  const wallets = useMemo(
+    () => [
+      inAppWallet({
+        auth: {
+          options: [...IN_APP_AUTH_OPTIONS],
+        },
+        ...(connectChain
+          ? {
+            executionMode: {
+              mode: "EIP4337",
+              smartAccount: { chain: connectChain, sponsorGas: true },
+            },
+          }
+          : {}),
+      }),
+      ...externalWallets,
+    ],
+    [connectChain],
+  );
+  const autoConnect = useAutoConnect({ client: thirdwebClient, wallets, chain: connectChain, timeout: 30000 });
   const isReconnecting = Boolean(reconnecting || (autoConnect?.isLoading && readAddress));
 
   const chainInfo = getChainByNetworkId(paymentNetwork);
@@ -151,11 +168,11 @@ export function AccountChip({ className }: AccountChipProps) {
     }
     if (loginGateFiredRef.current || !connectChain || isModalConnecting) return;
     loginGateFiredRef.current = true;
+    announceInstalledSolanaWallets();
     openConnectModal({
       client: thirdwebClient,
       wallets,
       chain: connectChain,
-      accountAbstraction,
       size: "compact",
       title: "RAWCHUNKS",
       titleIcon: "/branding/icon.svg",
@@ -164,24 +181,24 @@ export function AccountChip({ className }: AccountChipProps) {
     }).catch(() => {
       gate.cancel();
     });
-  }, [gateStep, connectChain, isModalConnecting, openConnectModal, accountAbstraction, gate]);
+  }, [gateStep, connectChain, isModalConnecting, openConnectModal, wallets, gate]);
 
   const sheetOpen = userOpen || gateStep === 'terms';
 
   const connect = useCallback(() => {
     if (!connectChain) return;
+    announceInstalledSolanaWallets();
     void openConnectModal({
       client: thirdwebClient,
       wallets,
       chain: connectChain,
-      accountAbstraction,
       size: "compact",
       title: "RAWCHUNKS",
       titleIcon: "/branding/icon.svg",
       showThirdwebBranding: false,
       theme: thirdwebCustomTheme,
     }).catch(() => { });
-  }, [openConnectModal, connectChain, accountAbstraction]);
+  }, [openConnectModal, connectChain, wallets]);
 
   const close = useCallback(() => {
     setUserOpen(false);
@@ -235,7 +252,13 @@ export function AccountChip({ className }: AccountChipProps) {
     && currentFundingLamports >= requiredFundingLamports;
   const selectedExplorerUrl = (() => {
     if (!displayAddress) return null;
-    const url = getExplorerUrl(paymentNetwork, "address", displayAddress);
+    const explorerNetwork =
+      displayAddress.startsWith("0x") && !isEvmNetwork(paymentNetwork)
+        ? (defaultNetwork || thirdwebNetwork || "eip155:8453")
+        : !displayAddress.startsWith("0x") && isEvmNetwork(paymentNetwork)
+          ? (chains.find(chain => isSolanaNetwork(chain.network))?.network || "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp")
+          : paymentNetwork;
+    const url = getExplorerUrl(explorerNetwork, "address", displayAddress);
     return url === "#" ? null : url;
   })();
 
@@ -311,10 +334,10 @@ export function AccountChip({ className }: AccountChipProps) {
               style={
                 banner
                   ? {
-                      backgroundImage: `linear-gradient(90deg, rgba(6, 6, 10, 0.9) 0%, rgba(6, 6, 10, 0.62) 52%, rgba(6, 6, 10, 0.86) 100%), url(${banner})`,
-                      backgroundSize: 'cover',
-                      backgroundPosition: 'center',
-                    }
+                    backgroundImage: `linear-gradient(90deg, rgba(6, 6, 10, 0.9) 0%, rgba(6, 6, 10, 0.62) 52%, rgba(6, 6, 10, 0.86) 100%), url(${banner})`,
+                    backgroundSize: 'cover',
+                    backgroundPosition: 'center',
+                  }
                   : undefined
               }
             >
