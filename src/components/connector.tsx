@@ -14,14 +14,17 @@ import { tempoModerato } from "viem/chains";
 import { withRelay } from "viem/tempo";
 import { ShieldCheck, CreditCard } from "lucide-react";
 import { thirdwebClient } from "@/lib/chains";
+import { getSmartAccountAdminWallet, type SmartAccountAdminWallet } from "@/lib/cache";
 import { openGate } from "@/lib/gate";
 import { cn } from "@/lib/utils";
+
+export { getSmartAccountAdminWallet, type SmartAccountAdminWallet };
 
 const TEMPO_ACCOUNT_FACTORY = "0x85e23b94e7F5E9cC1fF78BCe78cfb15B81f0DF00";
 const TEMPO_ENTRY_POINT = "0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789";
 
 type TempoAccountInput = {
-  chain: Chain; admin: Account; adminWallet: ThirdwebWallet; accountAddress: string;
+  chain: Chain; admin: Account; adminWallet: Pick<ThirdwebWallet, "getAccount">; accountAddress: string;
   assertCurrent: () => void;
 };
 

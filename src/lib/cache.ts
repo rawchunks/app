@@ -1,6 +1,34 @@
+import type { Account, Wallet } from 'thirdweb/wallets';
 import type { Song, Stem, Voice } from './schema';
 import type { Take, Commit, DAWState } from './daw/store';
 import type { CreditBalance } from './credits';
+
+export type SmartAccountAdminWallet = Pick<Wallet, "getAccount">;
+
+export function getSmartAccountAdminWallet(
+    activeWallet?: Wallet | null,
+    activeAccount?: Account | null,
+    adminWallet?: Wallet | null,
+): SmartAccountAdminWallet | undefined {
+    const directAdmin = activeWallet?.getAdminAccount?.();
+    if (
+        directAdmin &&
+        (!activeAccount || directAdmin.address.toLowerCase() !== activeAccount.address.toLowerCase())
+    ) {
+        return {
+            getAccount: () => activeWallet?.getAdminAccount?.(),
+        };
+    }
+    const fallbackAdmin =
+        adminWallet && adminWallet !== activeWallet ? adminWallet.getAccount?.() : undefined;
+    if (
+        fallbackAdmin &&
+        (!activeAccount || fallbackAdmin.address.toLowerCase() !== activeAccount.address.toLowerCase())
+    ) {
+        return adminWallet ?? undefined;
+    }
+    return undefined;
+}
 
 // Cached addresses support display and project reads. Signing requires the live account.
 

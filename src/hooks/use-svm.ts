@@ -11,25 +11,22 @@ import { compose } from "@/lib/compose";
  *
  * One Thirdweb admin signer ↔ one Solana smart account, forever.
  *
- * This hook mirrors the EVM pattern exactly:
+ * This hook mirrors the EVM pattern for in-app smart accounts:
  *   EVM:  useActiveAccount() → smart account address (instant, client-side)
  *   SVM:  this hook → wallet PDA address (instant, client-side)
  *
- * The admin wallet returned by Thirdweb's useAdminWallet() is the signer
- * behind the visible EVM smart account. It is the Swig authority and the
- * deterministic seed source. The visible EVM smart account remains the EVM
- * userAddress; the walletPda below is the SVM userAddress.
- *
- * The walletPda is what the user sees, funds, and what balance/settlement use.
- * The configPda is internal — only for fetchSwigAccount + instruction building.
+ * External browser wallets (EOAs) connect directly without a separate admin
+ * signer and therefore do not derive a Solana Swig smart account.
  */
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useAdminWallet } from "thirdweb/react";
+import { useActiveAccount, useActiveWallet, useAdminWallet } from "thirdweb/react";
 import { useChain } from "@/contexts/Network";
 import { isEvmNetwork } from "@/lib/chains";
-import { clearSwigCreated, readCachedAccount, readSwigCreated, writeSwigCreated } from "@/lib/cache";
+import { clearSwigCreated, getSmartAccountAdminWallet, readCachedAccount, readSwigCreated, writeSwigCreated, type SmartAccountAdminWallet } from "@/lib/cache";
+
+export { getSmartAccountAdminWallet, type SmartAccountAdminWallet };
 
 export const SOLANA_MAINNET = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";
 export interface SolanaActivationResult {
@@ -129,7 +126,10 @@ export const activateSolanaAccount = createActivationService();
 const ACTIVATION_POLL_MS = 5_000;
 
 export function useSolanaSmartAccount() {
-  const adminWallet = useAdminWallet();
+  const activeWallet = useActiveWallet();
+  const activeAccount = useActiveAccount();
+  const rawAdminWallet = useAdminWallet();
+  const adminWallet = getSmartAccountAdminWallet(activeWallet, activeAccount, rawAdminWallet);
   const signer = adminWallet?.getAccount();
   const adminAddress = signer?.address ?? null;
   const { paymentNetwork, solanaChains } = useChain();
