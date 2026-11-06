@@ -2595,7 +2595,7 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
                                         }
                                         aria-label={`Remove ${s.title}`}
                                       >
-                                        <X size={10} />
+                                        <Trash2 size={11} />
                                       </button>
                                     )}
                                   </div>

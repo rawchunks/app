@@ -434,7 +434,6 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
   const [creatingPlaylist, setCreatingPlaylist] = useState(false);
   const [showCreatePlaylistInput, setShowCreatePlaylistInput] = useState(false);
   const [expandedPlaylistId, setExpandedPlaylistId] = useState<string | null>(null);
-  const [inspectedPlaylistSongId, setInspectedPlaylistSongId] = useState<string | null>(null);
   const [myPlaylistPage, setMyPlaylistPage] = useState(0);
   const [togglingPlaylistId, setTogglingPlaylistId] = useState<string | null>(null);
   const [loadingVoiceId, setLoadingVoiceId] = useState<string | null>(null);
@@ -1180,11 +1179,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
       toast.error('Add tracks to play this album.');
       return;
     }
-    if (state.isPlaying && state.activePlaylistId === album.id) {
-      store.setPlaying(false);
-      return;
-    }
-    store.playSong(resolved[0], resolved, album.id);
+    void store.playCollection(resolved, `album:${album.id}`, album.id);
   };
 
   const handleCreatePlaylist = async (e: React.FormEvent) => {
@@ -1261,11 +1256,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
       toast.error('Add tracks from /market to play this playlist.');
       return;
     }
-    if (state.isPlaying && state.activePlaylistId === playlist.id) {
-      store.setPlaying(false);
-      return;
-    }
-    store.playSong(resolved[0], resolved, playlist.id);
+    void store.playCollection(resolved, `playlist:${playlist.id}`, playlist.id);
   };
 
   const resolveVoiceAudioUrl = (voice: Voice): string => {
@@ -2740,7 +2731,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
                                             }
                                             aria-label={`Remove ${s.title}`}
                                           >
-                                            <X size={10} />
+                                            <Trash2 size={11} />
                                           </button>
                                         </div>
                                       );
@@ -2856,7 +2847,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
                       {/* Pinned Top: LIKED TRACKS */}
                       <div className="mypage-liked-crate-wrap">
                         <div
-                          className={`market-liked-crate ${state.isPlaying && state.activeContextId === 'liked-crate' ? 'is-playing' : ''}`}
+                          className={`market-liked-crate ${state.isPlaying && state.activeContextId === 'liked-crate' && !state.activePlaylistId ? 'is-playing' : ''}`}
                           onClick={() =>
                             setExpandedPlaylistId(
                               expandedPlaylistId === 'liked-tracks' ? null : 'liked-tracks'
@@ -2884,17 +2875,17 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
                           </div>
                           <button
                             type="button"
-                            className={`market-collection-play-btn ${state.isPlaying && state.activeContextId === 'liked-crate' ? 'playing' : ''}`}
+                            className={`market-collection-play-btn ${state.isPlaying && state.activeContextId === 'liked-crate' && !state.activePlaylistId ? 'playing' : ''}`}
                             disabled={likedSongs.length === 0}
                             onClick={(e) => {
                               e.stopPropagation();
                               if (likedSongs.length > 0) {
-                                void store.playCollection(likedSongs, 'liked-crate');
+                                void store.playCollection(likedSongs, 'liked-crate', null);
                               }
                             }}
                             aria-label="Play Liked Tracks"
                           >
-                            {state.isPlaying && state.activeContextId === 'liked-crate' ? (
+                            {state.isPlaying && state.activeContextId === 'liked-crate' && !state.activePlaylistId ? (
                               <Pause size={13} />
                             ) : (
                               <Play size={13} />
@@ -2909,62 +2900,50 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
                           >
                             {likedSongs.map((s, idx) => {
                               const isPlayingTrack =
-                                state.isPlaying && state.activeSong?.id === s.id;
-                              const isInspected =
-                                inspectedPlaylistSongId === `liked:${s.id}`;
+                                state.isPlaying &&
+                                state.activeSong?.id === s.id &&
+                                state.activeContextId === 'liked-crate' &&
+                                !state.activePlaylistId;
                               const thumbSrc =
                                 s.image && s.image.trim() !== '' ? s.image : '/branding/mark.svg';
                               const isFallbackThumb = thumbSrc === '/branding/mark.svg';
                               return (
-                                <Fragment key={`${s.id}-${idx}`}>
-                                  <div
-                                    className={`finder-col-item ${isInspected ? 'selected' : ''} ${isPlayingTrack ? 'playing' : ''}`}
-                                    onClick={() => {
+                                <div
+                                  key={`${s.id}-${idx}`}
+                                  className={`finder-col-item ${isPlayingTrack ? 'playing' : ''}`}
+                                  onClick={() => {
+                                    void store.playSong(s, likedSongs, null, 'liked-crate');
+                                  }}
+                                  role="button"
+                                  tabIndex={0}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                      e.preventDefault();
                                       void store.playSong(s, likedSongs, null, 'liked-crate');
-                                      setInspectedPlaylistSongId(
-                                        isInspected ? null : `liked:${s.id}`
-                                      );
+                                    }
+                                  }}
+                                >
+                                  <img
+                                    src={thumbSrc}
+                                    alt={s.title}
+                                    className={`finder-col-thumb ${isFallbackThumb ? 'fallback' : ''}`}
+                                    loading="lazy"
+                                  />
+                                  <span className="finder-col-title" title={s.title}>
+                                    {s.title}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    className="market-playlist-track-remove-btn"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      void toggleLike(s.id, e);
                                     }}
-                                    role="button"
-                                    tabIndex={0}
-                                    onKeyDown={(e) => {
-                                      if (e.key === 'Enter' || e.key === ' ') {
-                                        e.preventDefault();
-                                        void store.playSong(s, likedSongs, null, 'liked-crate');
-                                        setInspectedPlaylistSongId(
-                                          isInspected ? null : `liked:${s.id}`
-                                        );
-                                      }
-                                    }}
+                                    aria-label={`Unlike ${s.title}`}
                                   >
-                                    <img
-                                      src={thumbSrc}
-                                      alt={s.title}
-                                      className={`finder-col-thumb ${isFallbackThumb ? 'fallback' : ''}`}
-                                      loading="lazy"
-                                    />
-                                    <span className="finder-col-title" title={s.title}>
-                                      {s.title}
-                                    </span>
-                                    <button
-                                      type="button"
-                                      className="market-playlist-track-remove-btn"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        void toggleLike(s.id, e);
-                                      }}
-                                      aria-label={`Unlike ${s.title}`}
-                                    >
-                                      <X size={10} />
-                                    </button>
-                                    <ChevronRight size={12} className="finder-col-chevron" />
-                                  </div>
-                                  {isInspected && (
-                                    <div className="playlist-columns-inspector">
-                                      {renderDraftItem([s], false, 'grid', false)}
-                                    </div>
-                                  )}
-                                </Fragment>
+                                    <Trash2 size={11} />
+                                  </button>
+                                </div>
                               );
                             })}
                           </div>
@@ -2993,7 +2972,9 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
                               : resolvedSongs[0]?.image || '/branding/mark.svg';
                           const isExpanded = expandedPlaylistId === playlist.id;
                           const isPlayingPl =
-                            state.isPlaying && state.activePlaylistId === playlist.id;
+                            state.isPlaying &&
+                            (state.activePlaylistId === playlist.id ||
+                              state.activeContextId === `playlist:${playlist.id}`);
                           const isToggling = togglingPlaylistId === playlist.id;
 
                           return (
@@ -3084,64 +3065,62 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
                                 >
                                   {resolvedSongs.map((s, idx) => {
                                     const isPlayingTrack =
-                                      state.isPlaying && state.activeSong?.id === s.id;
-                                    const inspectKey = `${playlist.id}:${s.id}`;
-                                    const isInspected = inspectedPlaylistSongId === inspectKey;
+                                      state.isPlaying &&
+                                      state.activeSong?.id === s.id &&
+                                      (state.activePlaylistId === playlist.id ||
+                                        state.activeContextId === `playlist:${playlist.id}`);
                                     const thumbSrc =
                                       s.image && s.image.trim() !== ''
                                         ? s.image
                                         : '/branding/mark.svg';
                                     const isFallbackThumb = thumbSrc === '/branding/mark.svg';
                                     return (
-                                      <Fragment key={`${s.id}-${idx}`}>
-                                        <div
-                                          className={`finder-col-item ${isInspected ? 'selected' : ''} ${isPlayingTrack ? 'playing' : ''}`}
-                                          onClick={() => {
-                                            store.playSong(s, resolvedSongs, playlist.id);
-                                            setInspectedPlaylistSongId(
-                                              isInspected ? null : inspectKey
+                                      <div
+                                        key={`${s.id}-${idx}`}
+                                        className={`finder-col-item ${isPlayingTrack ? 'playing' : ''}`}
+                                        onClick={() => {
+                                          void store.playSong(
+                                            s,
+                                            resolvedSongs,
+                                            playlist.id,
+                                            `playlist:${playlist.id}`
+                                          );
+                                        }}
+                                        role="button"
+                                        tabIndex={0}
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter' || e.key === ' ') {
+                                            e.preventDefault();
+                                            void store.playSong(
+                                              s,
+                                              resolvedSongs,
+                                              playlist.id,
+                                              `playlist:${playlist.id}`
                                             );
+                                          }
+                                        }}
+                                      >
+                                        <img
+                                          src={thumbSrc}
+                                          alt={s.title}
+                                          className={`finder-col-thumb ${isFallbackThumb ? 'fallback' : ''}`}
+                                          loading="lazy"
+                                        />
+                                        <span className="finder-col-title" title={s.title}>
+                                          {s.title}
+                                        </span>
+                                        <button
+                                          type="button"
+                                          className="market-playlist-track-remove-btn"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            void handleRemovePlaylistSong(playlist.id, s.id);
                                           }}
-                                          role="button"
-                                          tabIndex={0}
-                                          onKeyDown={(e) => {
-                                            if (e.key === 'Enter' || e.key === ' ') {
-                                              e.preventDefault();
-                                              store.playSong(s, resolvedSongs, playlist.id);
-                                              setInspectedPlaylistSongId(
-                                                isInspected ? null : inspectKey
-                                              );
-                                            }
-                                          }}
+                                          aria-label={`Remove ${s.title}`}
                                         >
-                                          <img
-                                            src={thumbSrc}
-                                            alt={s.title}
-                                            className={`finder-col-thumb ${isFallbackThumb ? 'fallback' : ''}`}
-                                            loading="lazy"
-                                          />
-                                          <span className="finder-col-title" title={s.title}>
-                                            {s.title}
-                                          </span>
-                                          <button
-                                            type="button"
-                                            className="market-playlist-track-remove-btn"
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              void handleRemovePlaylistSong(playlist.id, s.id);
-                                            }}
-                                            aria-label={`Remove ${s.title}`}
-                                          >
-                                            <X size={10} />
-                                          </button>
-                                          <ChevronRight size={12} className="finder-col-chevron" />
-                                        </div>
-                                        {isInspected && (
-                                          <div className="playlist-columns-inspector">
-                                            {renderDraftItem([s], false, 'grid', false)}
-                                          </div>
-                                        )}
-                                      </Fragment>
+                                          <Trash2 size={11} />
+                                        </button>
+                                      </div>
                                     );
                                   })}
                                 </div>

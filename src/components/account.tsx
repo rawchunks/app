@@ -75,7 +75,7 @@ export function AccountChip({ className }: AccountChipProps) {
   const { activePage, startFlow } = useGuide();
 
   const displayAddress = userAddress ?? readAddress;
-  const { nickname, avatar, bio, socials } = useProfile(displayAddress);
+  const { nickname, avatar, bio, banner, socials } = useProfile(displayAddress);
 
   const [copied, setCopied] = useState(false);
   const [userOpen, setUserOpen] = useState(false);
@@ -305,7 +305,19 @@ export function AccountChip({ className }: AccountChipProps) {
           /></div>
         ) : (
           <div className="session-modal-content" data-guide="account.panel" tabIndex={-1} aria-label="Account status">
-            <div className="account-sheet-account" data-guide="account.profile-guides">
+            <div
+              className="account-sheet-account"
+              data-guide="account.profile-guides"
+              style={
+                banner
+                  ? {
+                      backgroundImage: `linear-gradient(90deg, rgba(6, 6, 10, 0.9) 0%, rgba(6, 6, 10, 0.62) 52%, rgba(6, 6, 10, 0.86) 100%), url(${banner})`,
+                      backgroundSize: 'cover',
+                      backgroundPosition: 'center',
+                    }
+                  : undefined
+              }
+            >
               {avatar ? (
                 <img src={avatar} alt="" className="account-sheet-avatar" />
               ) : (

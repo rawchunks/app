@@ -2920,6 +2920,24 @@ textarea.cyber-input-field.profile-modal-bio-input {
   gap: 10px;
   min-width: 0;
   width: 100%;
+  pointer-events: none;
+}
+
+.creator-card-avatar-wrap,
+.creator-card-avatar-wrap *,
+.creator-card-edit-top-right,
+.creator-card-edit-top-right *,
+.creator-card-banner-edit-controls,
+.creator-card-banner-edit-controls *,
+.creator-card-body .daw-tooltip-wrapper,
+.creator-card-body button,
+.creator-card-body a,
+.creator-card-wallet-copy-pill,
+.creator-card-icon-action,
+.creator-social-badge-pill,
+.creator-card-stats-row,
+.creator-card-stats-row * {
+  pointer-events: auto;
 }
 
 .creator-card-avatar-wrap {
@@ -3007,15 +3025,18 @@ textarea.cyber-input-field.profile-modal-bio-input {
   min-width: 0;
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: 2px;
 }
 
 .creator-card-head-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 8px;
   min-width: 0;
+  width: fit-content;
+  max-width: 100%;
 }
 
 .creator-card-title-cluster {
@@ -3023,7 +3044,8 @@ textarea.cyber-input-field.profile-modal-bio-input {
   align-items: center;
   gap: 5px;
   min-width: 0;
-  flex: 1 1 auto;
+  width: fit-content;
+  max-width: 100%;
 }
 
 .creator-card-name {
@@ -3130,6 +3152,8 @@ textarea.cyber-input-field.profile-modal-bio-input {
   -webkit-box-orient: vertical;
   overflow: hidden;
   text-overflow: ellipsis;
+  width: fit-content;
+  max-width: 100%;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
 }
 
@@ -3163,6 +3187,11 @@ textarea.cyber-input-field.profile-modal-bio-input {
   gap: 8px;
   margin-top: 3px;
   min-width: 0;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.creator-card-bottom-row:has(.creator-card-stats-row) {
   width: 100%;
 }
 
