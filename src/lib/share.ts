@@ -87,13 +87,17 @@ export function clearMintSuccessShare(): void {
   }
 }
 
-export function buildShareUrl(creator: string): string {
+export function buildShareUrl(creator: string, songTitle?: string): string {
   const creatorSlug = toUrlSlug(creator);
-  return creatorSlug ? `${resolveOrigin()}/${creatorSlug}` : `${resolveOrigin()}/`;
+  if (!creatorSlug) return `${resolveOrigin()}/`;
+  const songSlug = toUrlSlug(songTitle);
+  return songSlug
+    ? `${resolveOrigin()}/${creatorSlug}/${songSlug}`
+    : `${resolveOrigin()}/${creatorSlug}`;
 }
 
-export function buildShareDisplayUrl(creator: string): string {
-  return buildShareUrl(creator).replace(/^https?:\/\//i, '');
+export function buildShareDisplayUrl(creator: string, songTitle?: string): string {
+  return buildShareUrl(creator, songTitle).replace(/^https?:\/\//i, '');
 }
 
 export function buildShareCopy(data: MintShareData): string {

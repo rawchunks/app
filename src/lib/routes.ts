@@ -77,6 +77,25 @@ export function marketCreator(pathname: string): string | null {
   return null;
 }
 
+export function marketSong(pathname: string): string | null {
+  const clean = pathname.replace(/^\/+|\/+$/g, '');
+  if (!clean) return null;
+
+  const legacyMatch = /^market\/[^/]+\/([^/]+)$/i.exec(clean);
+  if (legacyMatch) {
+    return decodeSegment(legacyMatch[1]);
+  }
+
+  const segments = clean.split('/');
+  if (segments.length === 2) {
+    const firstLower = segments[0].toLowerCase();
+    if (RESERVED_ROOT_SEGMENTS.has(firstLower)) return null;
+    return decodeSegment(segments[1]);
+  }
+
+  return null;
+}
+
 export function parseRoute(pathname: string): Route {
   const clean = pathname.replace(/^\/+|\/+$/g, '').toLowerCase();
   if (clean === 'my-page' || clean === 'mypage') return 'mypage';
@@ -85,9 +104,11 @@ export function parseRoute(pathname: string): Route {
   return 'studio';
 }
 
-export function marketPath(creator?: string | null): string {
+export function marketPath(creator?: string | null, songTitle?: string | null): string {
   const creatorSlug = toUrlSlug(creator);
-  return creatorSlug ? `/${creatorSlug}` : '/market';
+  if (!creatorSlug) return '/market';
+  const songSlug = toUrlSlug(songTitle);
+  return songSlug ? `/${creatorSlug}/${songSlug}` : `/${creatorSlug}`;
 }
 
 export function navigateToCreator(creator?: string | null): void {

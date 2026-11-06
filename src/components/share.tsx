@@ -194,7 +194,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, data })
     return () => {
       cancelled = true;
     };
-  }, [data, isOpen]);
+  }, [data, data?.creator, data?.title, isOpen]);
 
   if (!data) return null;
 
