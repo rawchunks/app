@@ -7,6 +7,8 @@ import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { Transaction } from "viem/tempo";
 
 const mock = vi.hoisted(() => ({ selected: "eip155:8453", button: vi.fn(), autoConnect: vi.fn(), chains: [] as any[],
+  inAppWallet: vi.fn((options?: any) => ({ id: "inApp", options })), createWallet: vi.fn((id: string) => ({ id })),
+  account: null as any, consent: { hasConsented: true, isLoading: false }, disconnect: vi.fn(), disclaimerProps: null as any,
   rpc: { getChainId: vi.fn(), getCode: vi.fn(), readContract: vi.fn(), waitForTransactionReceipt: vi.fn(), sendRawTransaction: vi.fn() },
   transport: vi.fn(), read: vi.fn(), allowance: vi.fn(), send: vi.fn() }));
 vi.mock("viem", async original => {
@@ -16,16 +18,16 @@ vi.mock("viem", async original => {
 });
 vi.mock("thirdweb", async original => ({ ...await original<typeof import("thirdweb")>(), readContract: mock.read, sendAndConfirmTransaction: mock.send }));
 vi.mock("thirdweb/extensions/erc20", async original => ({ ...await original<typeof import("thirdweb/extensions/erc20")>(), allowance: mock.allowance }));
-vi.mock("thirdweb/react", () => ({ ConnectButton: (props: any) => { mock.button(props); return null; }, useActiveAccount: () => null,
+vi.mock("thirdweb/react", () => ({ ConnectButton: (props: any) => { mock.button(props); return null; }, useActiveAccount: () => mock.account,
   useActiveWallet: () => null, useActiveWalletConnectionStatus: () => "disconnected", useConnectModal: () => ({ connect: mock.button, isConnecting: false }), useAutoConnect: mock.autoConnect }));
-vi.mock("thirdweb/wallets", () => ({ inAppWallet: () => ({}), createWallet: () => ({}) }));
+vi.mock("thirdweb/wallets", () => ({ inAppWallet: (options?: any) => mock.inAppWallet(options), createWallet: (id: string) => mock.createWallet(id) }));
 vi.mock("@/contexts/Network", () => ({ useChain: () => ({ chains: mock.chains, defaultNetwork: "eip155:8453",
   paymentNetwork: mock.selected, getChainByNetworkId: (id: string) => mock.chains.find(chain => chain.network === id) }) }));
 vi.mock("@/hooks/use-multichain", () => ({ useTotalBalance: () => ({ formatted: "0", isLoading: false }) }));
-vi.mock("@/hooks/use-address", () => ({ useSelectedUserAddress: () => ({}) }));
+vi.mock("@/hooks/use-address", () => ({ useSelectedUserAddress: () => ({ userAddress: mock.account?.address ?? null, disconnect: mock.disconnect }) }));
 vi.mock("@/hooks/use-profile", () => ({ useProfile: () => ({}) }));
-vi.mock("@/hooks/use-disclaimer", () => ({ useDisclaimerConsent: () => ({ hasConsented: true, isLoading: false }) }));
-vi.mock("@/components/disclaimer", () => ({ DisclaimerBody: () => null }));
+vi.mock("@/hooks/use-disclaimer", () => ({ useDisclaimerConsent: () => mock.consent }));
+vi.mock("@/components/disclaimer", () => ({ DISCLAIMER_POLICY_VERSION: "1.0.0", DisclaimerBody: (props: any) => { mock.disclaimerProps = props; return <button type="button" onClick={props.onCancel}>Cancel terms</button>; } }));
 vi.mock("@/components/profile-modal", () => ({ ProfileModal: () => null }));
 vi.mock("@/components/session", () => ({ FundingPanel: () => null }));
 vi.mock("@/components/network", () => ({ NetworkSelector: () => null }));
@@ -36,8 +38,10 @@ vi.mock("@/hooks/use-session", () => ({ useSession: () => ({ credits: { availabl
 vi.mock("@/lib/connector", () => ({ thirdwebCustomTheme: {} }));
 
 import { AccountChip } from "@/components/account";
-import { approveTempoSession, prepareTempoTransaction } from "@/components/connector";
+import { approveTempoSession, getSmartAccountAdminWallet, prepareTempoTransaction } from "@/components/connector";
 import { getChainObject, setChainRegistry } from "@/lib/chains";
+import { getStoredOAuthProfile, rawchunksOAuthBridge, rewriteThirdwebOAuthUrl } from "@/lib/oauth";
+import { createSolanaBrowserWallet, isSolanaBrowserAccount } from "@/lib/svm/wallet";
 
 const adminAddress = "0x1111111111111111111111111111111111111111";
 const smartAddress = "0x2222222222222222222222222222222222222222";
@@ -51,6 +55,9 @@ function approvalInput() {
 }
 beforeEach(() => {
   vi.clearAllMocks();
+  mock.account = null;
+  mock.consent = { hasConsented: true, isLoading: false };
+  mock.disclaimerProps = null;
   mock.button.mockResolvedValue(undefined);
   mock.rpc.getChainId.mockResolvedValue(42431); mock.rpc.getCode.mockReset().mockResolvedValue("0x01");
   mock.rpc.readContract.mockReset().mockResolvedValue(0n);
@@ -72,17 +79,154 @@ test("payment selection including Tempo does not change the account login chain;
   const initial = mock.button.mock.calls.at(-1)![0];
   expect(initial.chain.id).toBe(8453);
   expect(initial.chain.rpc).toBe("https://rpc.test/8453");
+  expect(initial.accountAbstraction).toBeUndefined();
+  expect(mock.autoConnect.mock.calls.at(-1)![0].accountAbstraction).toBeUndefined();
+  expect(mock.inAppWallet.mock.calls.at(-1)![0].executionMode).toEqual({
+    mode: "EIP4337",
+    smartAccount: { chain: initial.chain, sponsorGas: true },
+  });
   mock.selected = "eip155:42431";
   result.rerender(<AccountChip />);
   fireEvent.click(screen.getByRole("button", { name: "LOGIN" }));
   expect(mock.button.mock.calls.at(-1)![0].chain).toBe(initial.chain);
-  expect(mock.autoConnect.mock.calls.at(-1)![0].accountAbstraction.chain).toBe(initial.chain);
+  expect(mock.autoConnect.mock.calls.at(-1)![0].chain).toBe(initial.chain);
+  expect(mock.inAppWallet.mock.calls.at(-1)![0].executionMode.smartAccount.chain).toBe(initial.chain);
   expect(getChainObject(42431)).toMatchObject({ id: 42431, rpc: "https://rpc.test/42431", blockExplorers: [{ url: "https://explorer.test/42431" }] });
   mock.chains = mock.chains.map(c => c.network === "eip155:8453" ? { ...c, rpcUrl: "https://new.rpc" } : c);
   setChainRegistry(mock.chains, "eip155:8453");
   result.rerender(<AccountChip />);
   fireEvent.click(screen.getByRole("button", { name: "LOGIN" }));
   expect(mock.button.mock.calls.at(-1)![0].chain).toMatchObject({ id: 8453, rpc: "https://new.rpc" });
+  expect(mock.inAppWallet.mock.calls.at(-1)![0].executionMode.smartAccount.chain).toMatchObject({ id: 8453, rpc: "https://new.rpc" });
+});
+
+test("getSmartAccountAdminWallet keeps enclave admin for inApp smart accounts and returns undefined for browser EOA wallets", () => {
+  const adminAcc = { address: adminAddress } as any;
+  const smartAcc = { address: smartAddress } as any;
+  const inApp = { id: "inApp", getAccount: () => smartAcc, getAdminAccount: () => adminAcc } as any;
+  expect(getSmartAccountAdminWallet(inApp, smartAcc, undefined)?.getAccount()).toBe(adminAcc);
+
+  const metamaskEoa = { id: "io.metamask", getAccount: () => adminAcc, getAdminAccount: () => undefined } as any;
+  // Thirdweb's useAdminWallet() returns activeWallet itself when getAdminAccount() is undefined.
+  expect(getSmartAccountAdminWallet(metamaskEoa, adminAcc, metamaskEoa)).toBeUndefined();
+});
+
+test("Phantom, Solflare, and Backpack connect via their native Solana provider with Base58 addresses and never touch window.phantom.ethereum", async () => {
+  mock.chains = [{ network: "eip155:8453", namespace: "eip155", name: "Base", rpcUrl: "https://rpc.test/8453", explorer: "https://explorer.test/8453", assetAddress: "0x1111111111111111111111111111111111111111", asset: "USDC", decimals: 6, schemes: ["upto"] }];
+  setChainRegistry(mock.chains, "eip155:8453");
+  render(<AccountChip />);
+  fireEvent.click(screen.getByRole("button", { name: "LOGIN" }));
+  const modalArgs = mock.button.mock.calls.at(-1)![0];
+  const walletIds = modalArgs.wallets.map((w: any) => w.id);
+  expect(walletIds).toContain("app.phantom");
+  expect(walletIds).toContain("com.solflare");
+  expect(walletIds).toContain("app.backpack");
+  // Ensure Thirdweb's EVM createWallet was NOT called for Solana wallets
+  const evmCreatedIds = mock.createWallet.mock.calls.map(c => c[0]);
+  expect(evmCreatedIds).not.toContain("app.phantom");
+  expect(evmCreatedIds).not.toContain("com.solflare");
+  expect(evmCreatedIds).not.toContain("app.backpack");
+
+  const solanaAddress = "J62vBhiY1skwoXLmh3VG7jpgu6nrwczXh7NAfZgZn2tz";
+  const ethereumRequest = vi.fn(() => { throw new Error("window.phantom.ethereum must never be called"); });
+  const solanaConnect = vi.fn().mockResolvedValue({ publicKey: { toBase58: () => solanaAddress, toString: () => solanaAddress } });
+  const solanaSignMessage = vi.fn().mockResolvedValue({ signature: new Uint8Array(64).fill(0xab) });
+  (window as any).phantom = {
+    ethereum: { request: ethereumRequest },
+    solana: {
+      isPhantom: true,
+      connect: solanaConnect,
+      signMessage: solanaSignMessage,
+      disconnect: vi.fn(),
+    },
+  };
+
+  try {
+    const phantomWallet = createSolanaBrowserWallet("app.phantom");
+    const account = await phantomWallet.connect({ client: {} as any });
+    expect(ethereumRequest).not.toHaveBeenCalled();
+    expect(solanaConnect).toHaveBeenCalledOnce();
+    expect(account.address).toBe(solanaAddress);
+    expect(account.address.startsWith("0x")).toBe(false);
+    expect(isSolanaBrowserAccount(account)).toBe(true);
+
+    const sig = await account.signMessage({ message: "Sign RawChunks consent" });
+    expect(solanaSignMessage).toHaveBeenCalledOnce();
+    expect(sig).toBe(`0x${"ab".repeat(64)}`);
+  } finally {
+    delete (window as any).phantom;
+  }
+});
+
+test("new user without recorded consent automatically sees compulsory Generation Terms and must sign or disconnect", () => {
+  mock.chains = [{ network: "eip155:8453", namespace: "eip155", name: "Base", rpcUrl: "https://rpc.test/8453", explorer: "https://explorer.test/8453", assetAddress: "0x1111111111111111111111111111111111111111", asset: "USDC", decimals: 6, schemes: ["upto"] }];
+  setChainRegistry(mock.chains, "eip155:8453");
+  mock.account = { address: smartAddress };
+  mock.consent = { hasConsented: false, isLoading: false };
+
+  const view = render(<AccountChip />);
+  expect(screen.getByRole("dialog")).toBeDefined();
+  expect(screen.getByText("GENERATION TERMS")).toBeDefined();
+  expect(mock.disclaimerProps?.compulsory).toBe(true);
+  expect(mock.disclaimerProps?.readOnly).toBe(false);
+
+  // Attempting to dismiss the modal without signing keeps it open while unconsented
+  fireEvent.click(screen.getByRole("button", { name: "Close modal" }));
+  expect(screen.getByRole("dialog")).toBeDefined();
+  expect(screen.getByText("GENERATION TERMS")).toBeDefined();
+
+  // Clicking cancel/disconnect while compulsory disconnects the account
+  fireEvent.click(screen.getByRole("button", { name: "Cancel terms" }));
+  expect(mock.disconnect).toHaveBeenCalledOnce();
+
+  // Once consent is recorded, the forced modal closes automatically
+  mock.consent = { hasConsented: true, isLoading: false };
+  view.rerender(<AccountChip />);
+  expect(screen.queryByRole("dialog")).toBeNull();
+});
+
+test("OAuth bridge rewrites Thirdweb social login popups to RawChunks backend OAuth endpoints and forwards authResult", () => {
+  for (const provider of ["google", "github", "discord", "x", "telegram"] as const) {
+    const rewritten = String(
+      rewriteThirdwebOAuthUrl(`https://embedded-wallet.thirdweb.com/api/2024-05-05/login/${provider}?clientId=test_client`)
+    );
+    expect(rewritten).toContain(`/api/oauth/${provider}/start?clientId=test_client`);
+  }
+
+  rawchunksOAuthBridge();
+  const received: MessageEvent[] = [];
+  const handler = (e: MessageEvent) => {
+    if (e.origin === "https://embedded-wallet.thirdweb.com") received.push(e);
+  };
+  window.addEventListener("message", handler);
+  try {
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        data: {
+          source: "rawchunks-oauth",
+          eventType: "oauthSuccessResult",
+          authResult: { storedToken: { cookieString: "test_cookie" } },
+          socialProfile: {
+            platform: "discord",
+            providerId: "discord:12345",
+            providerUserId: "12345",
+            handle: "@rawchunks",
+            url: "https://discord.com/users/12345",
+            authIdentifier: "auth_id_123",
+          },
+        },
+      })
+    );
+    expect(received).toHaveLength(1);
+    expect(received[0].data).toEqual({
+      eventType: "oauthSuccessResult",
+      authResult: { storedToken: { cookieString: "test_cookie" } },
+      errorString: undefined,
+    });
+    expect(getStoredOAuthProfile("discord")?.handle).toBe("@rawchunks");
+  } finally {
+    window.removeEventListener("message", handler);
+  }
 });
 
 test("Tempo approval keeps the smart account as token owner and signs an EntryPoint operation", async () => {
