@@ -9,6 +9,7 @@ import {
   FileText,
   Lock,
   Check,
+  LogOut,
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/button";
@@ -52,18 +53,19 @@ export interface DisclaimerBodyProps {
   onSigned: () => void;
   onCancel: () => void;
   readOnly?: boolean;
+  compulsory?: boolean;
 }
 
-export function DisclaimerBody({ onSigned, onCancel, readOnly = false }: DisclaimerBodyProps) {
+export function DisclaimerBody({ onSigned, onCancel, readOnly = false, compulsory = false }: DisclaimerBodyProps) {
   const account = useActiveAccount();
-  const { userAddress, evmAddress, svmAddress } = useSelectedUserAddress();
+  const { userAddress, readAddress, evmAddress, svmAddress } = useSelectedUserAddress();
   const queryClient = useQueryClient();
 
   const [relayAgreed, setRelayAgreed] = useState(false);
   const [termsAgreed, setTermsAgreed] = useState(false);
   const [isSigning, setIsSigning] = useState(false);
 
-  const activeAddress = userAddress;
+  const activeAddress = userAddress ?? readAddress;
 
   const generateSignatureMessage = useCallback((address: string, timestamp: string) => {
     return [
@@ -213,7 +215,14 @@ export function DisclaimerBody({ onSigned, onCancel, readOnly = false }: Disclai
 
       <div className="actions dialog-actions">
         <Button variant="outline" size="sm" onClick={onCancel} disabled={isSigning}>
-          ← Back
+          {compulsory ? (
+            <>
+              <LogOut className="icon" />
+              Disconnect
+            </>
+          ) : (
+            "← Back"
+          )}
         </Button>
 
         {!readOnly ? (

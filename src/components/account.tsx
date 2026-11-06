@@ -183,7 +183,9 @@ export function AccountChip({ className }: AccountChipProps) {
     });
   }, [gateStep, connectChain, isModalConnecting, openConnectModal, wallets, gate]);
 
-  const sheetOpen = userOpen || gateStep === 'terms';
+  const forceTerms = Boolean(account && !hasConsented && !isConsentLoading);
+  const showTerms = forceTerms || gateStep === 'terms' || view === 'terms';
+  const sheetOpen = userOpen || gateStep === 'terms' || forceTerms;
 
   const connect = useCallback(() => {
     if (!connectChain) return;
@@ -281,7 +283,7 @@ export function AccountChip({ className }: AccountChipProps) {
   ].filter(Boolean).join(" • ");
 
 
-  const sheetTitle = gateStep === 'terms' || view === 'terms' ? GATE_TITLES.terms : 'ACCOUNT';
+  const sheetTitle = showTerms ? GATE_TITLES.terms : 'ACCOUNT';
 
   return (
     <>
@@ -300,7 +302,7 @@ export function AccountChip({ className }: AccountChipProps) {
             <Wallet className="icon" aria-hidden="true" />
           )}
           <span className="connect-address">{displayName}</span>
-          {account && !hasConsented && !isConsentLoading ? (
+          {forceTerms ? (
             <span className="account-chip-flag" />
           ) : null}
         </button>
@@ -320,11 +322,12 @@ export function AccountChip({ className }: AccountChipProps) {
         className="session-modal account-modal"
         guideOwner="account"
       >
-        {gateStep === 'terms' || view === 'terms' ? (
+        {showTerms ? (
           <div data-guide="account.terms" tabIndex={-1} aria-label="Generation terms"><DisclaimerBody
-            readOnly={hasConsented && gateStep !== 'terms'}
-            onSigned={gateStep === 'terms' ? () => { } : () => setView('status')}
-            onCancel={gateStep === 'terms' ? close : () => setView('status')}
+            readOnly={hasConsented && !forceTerms && gateStep !== 'terms'}
+            compulsory={forceTerms}
+            onSigned={gateStep === 'terms' ? () => { } : () => { setUserOpen(false); setView('status'); }}
+            onCancel={forceTerms ? handleDisconnect : gateStep === 'terms' ? close : () => setView('status')}
           /></div>
         ) : (
           <div className="session-modal-content" data-guide="account.panel" tabIndex={-1} aria-label="Account status">
