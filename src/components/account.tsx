@@ -17,6 +17,7 @@ import { Button } from "@/components/button";
 import { Tooltip } from "@/components/daw/Tooltip";
 import { thirdwebClient, getChainObject, getChainConfig, getUsdcAddress, getExplorerUrl, isEvmNetwork, isSolanaNetwork, evmChainId } from "@/lib/chains";
 import { thirdwebCustomTheme } from "@/lib/connector";
+import { rawchunksOAuthBridge } from "@/lib/oauth";
 import { announceInstalledSolanaWallets, createSolanaBrowserWallet } from "@/lib/svm/wallet";
 import { cn } from "@/lib/utils";
 import { unsatisfiedStep, useGate } from "@/lib/gate";
@@ -159,6 +160,10 @@ export function AccountChip({ className }: AccountChipProps) {
     ?? (gate.request.force ? 'funding' : null)
     : null;
 
+  useEffect(() => {
+    rawchunksOAuthBridge();
+  }, []);
+
   // 1-Click Direct Login when gate requires 'login' (no redundant wrapper modal)
   const loginGateFiredRef = useRef(false);
   useEffect(() => {
@@ -168,6 +173,7 @@ export function AccountChip({ className }: AccountChipProps) {
     }
     if (loginGateFiredRef.current || !connectChain || isModalConnecting) return;
     loginGateFiredRef.current = true;
+    rawchunksOAuthBridge();
     announceInstalledSolanaWallets();
     openConnectModal({
       client: thirdwebClient,
@@ -189,6 +195,7 @@ export function AccountChip({ className }: AccountChipProps) {
 
   const connect = useCallback(() => {
     if (!connectChain) return;
+    rawchunksOAuthBridge();
     announceInstalledSolanaWallets();
     void openConnectModal({
       client: thirdwebClient,
