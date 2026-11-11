@@ -117,3 +117,46 @@ test("cancels discovery at eight seconds and exposes retry", async () => {
   expect(screen.getByText("Retry")).toBeDefined();
   expect(screen.queryByTestId("selection")).toBeNull();
 });
+
+test("ignores unsupported facilitator namespaces such as NEAR and caches only visible Rawchunks networks", async () => {
+  const withNear = {
+    chains: [
+      ...full.chains,
+      {
+        network: "near:testnet",
+        namespace: "near",
+        name: "NEAR Testnet",
+        isTestnet: true,
+        rpcUrl: "https://near-testnet.rpc.test",
+        explorer: "https://testnet.nearblocks.io",
+        assetAddress: "3e2210e1184b45b64c8a434c0a7e7b23cc04ea7eb7a6c3c32520d03d4afcb8af",
+        asset: "USDC",
+        decimals: 6,
+        schemes: ["exact", "upto", "batch-settlement"],
+      },
+      {
+        network: "near:mainnet",
+        namespace: "near",
+        name: "NEAR",
+        isTestnet: false,
+        rpcUrl: "https://near-mainnet.rpc.test",
+        explorer: "https://nearblocks.io",
+        assetAddress: "17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+        asset: "USDC",
+        decimals: 6,
+        schemes: ["exact", "upto", "batch-settlement"],
+      },
+    ],
+    defaultNetwork: "near:mainnet",
+  } as unknown as FacilitatorChainsResponse;
+
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify(withNear))));
+  render(<ChainProvider><Probe /></ChainProvider>);
+  await screen.findByTestId("selection");
+  expect(screen.getByTestId("selection").textContent).toBe("eip155:8453");
+  expect(screen.getByTestId("networks").textContent).toBe(networks.join(","));
+
+  const cached = readRegistry(localStorage, "https://facilitator.test");
+  expect(cached?.chains.map(c => c.network)).toEqual(networks);
+  expect(cached?.defaultNetwork).toBe("eip155:8453");
+});

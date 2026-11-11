@@ -75,8 +75,10 @@ export function registryCacheKey(apiUrl: string): string {
 }
 
 export function validateRegistry(value: FacilitatorChainsResponse): FacilitatorChainsResponse {
+  const visibleSet = new Set<string>(VISIBLE_NETWORKS);
   if (!Array.isArray(value?.chains) || value.chains.length === 0
-    || value.chains.some(c => !c.name || !c.rpcUrl || !c.explorer || !c.assetAddress
+    || value.chains.some(c => typeof c?.network !== "string" || !c.network)
+    || value.chains.filter(c => visibleSet.has(c.network)).some(c => !c.name || !c.rpcUrl || !c.explorer || !c.assetAddress
       || !Array.isArray(c.schemes) || c.decimals !== 6
       || !c.network?.startsWith(`${c.namespace}:`)
       || (c.namespace !== "eip155" && c.namespace !== "solana"))
@@ -141,7 +143,7 @@ export function ChainProvider({ children }: { children: ReactNode }) {
         if (!current) return;
         const visible = visibleRegistry(result);
         setChainRegistry(visible.chains, visible.defaultNetwork);
-        writeRegistry(browserStorage(), COMPOSE_API_URL, result);
+        writeRegistry(browserStorage(), COMPOSE_API_URL, visible);
         setRegistry(visible);
       },
     ).catch((cause: unknown) => {
