@@ -27,7 +27,7 @@ vi.mock("@/lib/contracts", async original => ({ ...await original<typeof import(
 vi.mock("@/lib/programs", () => ({ requireSolanaDeployment: mock.deployment,
   relaySolanaMintSong: mock.mint, relaySolanaRemixSong: mock.remix, relaySolanaBuyLicense: mock.buy,
   fetchSolanaFactoryConfig: async () => ({ totalSongs: mock.minted ? 1n : 0n }),
-  fetchSolanaSong: async () => { const song = mock.songs.get("song"); return { creator: song.creator, metadataUri: "ipfs://cid",
+  fetchSolanaSong: async () => { const song = mock.songs.get("song"); return { creator: mock.wallet, metadataUri: "ipfs://cid",
     isRemix: Boolean(song.source || song.is_remix), parentSongId: (song.source || song.is_remix) ? 7n : 0n }; }, fetchSolanaHasLicense: vi.fn() }));
 vi.mock("@/lib/pinata", () => ({ uploadSongMetadata: async () => "cid", fetchFromIpfs: vi.fn() }));
 vi.mock("@/lib/store", () => ({ store: { updateSong: vi.fn(), addSong: vi.fn() } }));
@@ -44,6 +44,7 @@ vi.mock("sonner", () => ({ toast: { error: mock.error, success: mock.success } }
 
 import { useMint } from "@/hooks/use-mint";
 import { useLicense } from "@/hooks/use-license";
+import { usePublic } from "@/hooks/use-public";
 
 beforeEach(() => {
   vi.resetAllMocks(); localStorage.clear(); mock.songs.clear(); mock.minted = false;
@@ -208,4 +209,47 @@ test("Remix mint succeeds via Remix.remixSong using parent_chain_song_id even wh
   ]), data: await encode(transaction) });
   expect(decoded.functionName).toBe("remixSong");
   expect(decoded.args).toEqual([7n, { licenseAmount: 0n, licensePrice: 0n, streamPrice: 100_000n }, "ipfs://cid"]);
+});
+
+test("off-chain song generated under EVM creator mints on Solana using paired SVM identity and discards stale unsubmitted network cache", async () => {
+  mock.songs.set("song", { id: "song", title: "Offchain Track", creator: mock.smart, licenses: 10, license_price: 1, stream_price: 0.1 });
+  localStorage.setItem("mint:song", JSON.stringify({ network: "eip155:84532", cid: "stale-cid", after: "0", submitted: false }));
+  const hook = renderHook(useMint);
+  let result: any;
+  await act(async () => { result = await hook.result.current.ensure(mock.songs.get("song")); });
+  expect(result).toMatchObject({ chain_song_id: "1", network: mock.network, metadata_cid: "cid", tx_hash: "mint" });
+  expect(mock.mint).toHaveBeenCalledOnce();
+});
+
+test("transient RPC fetch failure retries automatically and reconciles without duplicate minting, while terminal failure shows exact authorized message", async () => {
+  const hash = `0x${"ef".repeat(32)}`;
+  mock.network = "eip155:42431";
+  mock.songs.set("song", { id: "song", title: "Retry Track", creator: mock.wallet, public: false, licenses: 10, license_price: 1, stream_price: 0.1 });
+  mock.contractRead.mockImplementation(async input => input.method === "totalSongs" ? 0n : {
+    creator: mock.smart, metadataUri: "ipfs://cid", isRemix: false, parentSongId: 0n,
+  });
+  mock.tempo.mockImplementation(async (input, transaction) => ({ account: { address: input.admin.address }, transaction }));
+  mock.sendTransaction.mockResolvedValue({ transactionHash: hash });
+  mock.receipt
+    .mockRejectedValueOnce(new Error("fetch failed"))
+    .mockResolvedValueOnce({ status: "success", logs: [{
+      address: "0x4Ac838b970D44AB9056b4201e9ED3c1Ce271545e",
+      topics: encodeEventTopics({ abi: parseAbi(["event SongMinted(uint256 indexed songId,address indexed creator,uint256 licenseAmount,uint256 licensePrice,uint256 streamPrice,bool remixable,string metadataUri)"]),
+        eventName: "SongMinted", args: { songId: 1n, creator: mock.smart as `0x${string}` } }),
+      data: encodeAbiParameters([{ type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "bool" }, { type: "string" }],
+        [10n, 1_000_000n, 100_000n, true, "ipfs://cid"]),
+    }] });
+
+  const pub = renderHook(usePublic);
+  let published: any;
+  await act(async () => { published = await pub.result.current.toggle(mock.songs.get("song")); });
+  expect(mock.sendTransaction).toHaveBeenCalledOnce();
+  expect(published).toMatchObject({ id: "song", public: true, chain_song_id: "1", network: "eip155:42431" });
+
+  mock.songs.set("fail-song", { id: "fail-song", title: "Fail Track", creator: mock.wallet, public: false, licenses: 10, license_price: 1, stream_price: 0.1 });
+  mock.simulate.mockRejectedValueOnce(new Error("Contract Factory is not deployed on chain 8453"));
+  let failed: any;
+  await act(async () => { failed = await pub.result.current.toggle(mock.songs.get("fail-song")); });
+  expect(failed).toBeNull();
+  expect(mock.error).toHaveBeenLastCalledWith("Publication failed. Changed your Network, or try again later.");
 });

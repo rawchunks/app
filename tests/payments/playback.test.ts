@@ -93,18 +93,16 @@ it('pauses audio when the creator has no payout on the payment network', async (
   expect(audio.pause).toHaveBeenCalled();
   expect(store.getState().isPlaying).toBe(false);
   expect(requests()).toHaveLength(0);
-  const key = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i)).find(k => k?.startsWith('rawchunks:stream:'))!;
-  expect(JSON.parse(localStorage.getItem(key)!)).toMatchObject({ observedMs: 2003, acceptedMs: 0, rejected: true });
+  expect(Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i)).filter(k => k?.startsWith('rawchunks:stream:'))).toHaveLength(0);
 });
 
-it('pauses on a rejected settlement and retains the unpaid checkpoint', async () => {
+it('pauses on a rejected settlement and clears the rejected checkpoint', async () => {
   await store.setPlaying(true); await settle();
   onceCheckpoint(async () => Response.json({ error: 'Recipient is invalid' }, { status: 422 }));
   advance(20); await settle();
   expect(audio.pause).toHaveBeenCalled();
   expect(store.getState().isPlaying).toBe(false);
-  const key = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i)).find(k => k?.startsWith('rawchunks:stream:'))!;
-  expect(JSON.parse(localStorage.getItem(key)!)).toMatchObject({ acceptedMs: 0, rejected: true, pending: { listenedSeconds: 20 } });
+  expect(Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i)).filter(k => k?.startsWith('rawchunks:stream:'))).toHaveLength(0);
 });
 
 it('drains an in-flight checkpoint and its fractional tail before session closure completes', async () => {

@@ -4056,7 +4056,9 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
             saveMintSuccessForShare(payload);
             setShareData(payload);
             setShowShareDialog(true);
+            return true;
           }
+          return false;
         }}
         pending={Boolean(publicPending)}
       />

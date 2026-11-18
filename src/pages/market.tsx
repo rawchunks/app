@@ -188,10 +188,7 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
     limit: Math.max(visibleCount * 2, 50),
     offset: 0,
     genre: selectedGenres.length === 1 ? selectedGenres[0] : undefined,
-    creator:
-      selectedCreator && (selectedCreator.startsWith('0x') || selectedCreator.length >= 32)
-        ? selectedCreator
-        : undefined,
+    creator: selectedCreator || undefined,
     search: search.trim() || undefined,
     enabled: Boolean(
       selectedCreator || selectedGenres.length > 0 || selectedAlbumId || search.trim() || order === 'oldest'

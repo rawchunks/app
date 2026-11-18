@@ -35,5 +35,5 @@ compose.fetch = async function composeFetch(
   const cleanHeaders = new Headers(init?.headers);
   cleanHeaders.delete("x-wallet-auth-token");
   cleanHeaders.delete("x-credit-source");
-  return baseFetch(target, { ...init, headers: cleanHeaders });
+  return baseFetch(target, { ...init, headers: Object.fromEntries(cleanHeaders.entries()) });
 };

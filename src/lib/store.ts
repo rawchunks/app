@@ -409,7 +409,6 @@ class Store {
       const res = await api.fetch(`/api/songs/${songId}/play`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
           ...(effectiveUserAddress ? { 'x-user-address': effectiveUserAddress } : {}),
           ...(pairedSvm ? { 'x-paired-svm-address': pairedSvm } : {}),
           ...(activeContext ? { 'x-playback-context': activeContext } : {}),

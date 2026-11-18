@@ -13,6 +13,7 @@ import { useSession } from '../components/session';
 import { openGate } from '@/lib/gate';
 import { toast } from 'sonner';
 import { Modal } from '../components/modal';
+import { PublishModal } from '../components/songs/publish';
 import { GenresModal, formatTagSummary } from '../components/options';
 import { Languages } from '../components/studio/languages';
 import { Tooltip } from '../components/daw/Tooltip';
@@ -115,6 +116,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
 
   // Selectable parameters modal state
   const [activeModal, setActiveModal] = useState<'collection' | 'duration' | 'bpm' | 'key' | 'voice' | 'language' | 'lyrics' | 'cover' | 'tags' | null>(null);
+  const [publishConfirmSong, setPublishConfirmSong] = useState<Song | null>(null);
   const [audioDurationSeconds, setAudioDurationSeconds] = useState<number | null>(null);
   const [bpm, setBpm] = useState<number | null>(null);
   const [timeSignature, setTimeSignature] = useState<'2' | '3' | '4' | '6' | null>(null);
@@ -2133,7 +2135,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                               size="xs"
                               data-guide="studio.feed-visibility" aria-label={t.song.public ? 'MAKE PRIVATE' : 'MAKE PUBLIC'}
                               disabled={Boolean(publicPending)}
-                              onClick={() => togglePublic(t.song)}
+                              onClick={() => (t.song.public ? togglePublic(t.song) : setPublishConfirmSong(t.song))}
                             >
                               {t.song.public ? <Globe size={12} /> : <Lock size={12} />}
                             </Button>
@@ -3221,6 +3223,20 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
           />
         )}
       </Modal>
+
+      <PublishModal
+        isOpen={Boolean(publishConfirmSong)}
+        onClose={() => setPublishConfirmSong(null)}
+        song={publishConfirmSong}
+        activeAddress={readAddress}
+        formattedAddress={readAddress ? `${readAddress.slice(0, 6)}...${readAddress.slice(-4)}` : undefined}
+        albums={albums}
+        onConfirm={async (song: Song) => {
+          const updated = await togglePublic(song);
+          return Boolean(updated && updated.public);
+        }}
+        pending={Boolean(publicPending)}
+      />
     </div>
   );
 };

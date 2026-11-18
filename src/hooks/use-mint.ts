@@ -33,6 +33,11 @@ const jobs = new Map<string, Promise<Song>>();
 const listeners = new Set<() => void>();
 function notify() { for (const listener of listeners) listener(); }
 function sameAddress(left: string, right: string) { return left.startsWith('0x') ? left.toLowerCase() === right.toLowerCase() : left === right; }
+function isTransientMintError(error: unknown) {
+  if ((error as { code?: number })?.code === 4001) return false;
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  return /fetch failed|failed to fetch|networkerror|econnreset|etimedout|timeout|rate.?limit|\b(429|502|503|504)\b|ipfs.*failed|blockhash not found/i.test(message);
+}
 
 async function loadSong(id: string, userAddress: string): Promise<Song> {
   const response = await api.fetch(`/api/songs/${encodeURIComponent(id)}`, { userAddress });
@@ -47,7 +52,7 @@ export function useMint() {
   try { activeWallet = thirdwebReact.useActiveWallet(); } catch { /* Partial unit test mocks may omit useActiveWallet. */ }
   const rawAdminWallet = useAdminWallet();
   const adminWallet = getSmartAccountAdminWallet(activeWallet, account, rawAdminWallet);
-  const { userAddress, svmAddress, paymentNetwork, captureSolanaOperation, assertCurrent } = useSelectedUserAddress();
+  const { userAddress, evmAddress, svmAddress, paymentNetwork, captureSolanaOperation, assertCurrent, matchesIdentity } = useSelectedUserAddress();
   const pending = useSyncExternalStore(listener => { listeners.add(listener); return () => { listeners.delete(listener); }; }, () => [...jobs.keys()].join(','));
 
   const ensure = (input: Song): Promise<Song> => {
@@ -85,10 +90,15 @@ export function useMint() {
     const read = async (network: string, id: string) => isEvmNetwork(network)
       ? readContract({ contract: factory(network), method: 'getSong', params: [BigInt(id)] })
       : fetchSolanaSong({ network: network as SolanaNetworkId, rpcUrl: getNetworkRpcUrl(network), songId: BigInt(id) });
+    const ownsSong = (song: Song) => matchesIdentity
+      ? matchesIdentity(song.creator)
+      : [evmAddress, svmAddress, userAddress, account?.address].some(addr => Boolean(addr && sameAddress(song.creator, addr)));
+    const targetCreator = (network: string, song: Song) =>
+      song.chain_song_id ? song.creator : ((isEvmNetwork(network) ? account?.address : svmAddress) || song.creator);
     const verify = async (song: Song, mint: Mint) => {
       if (!mint.id) throw new Error('The mint has not been confirmed');
       const data = await read(mint.network, mint.id);
-      const creator = song.creator;
+      const creator = targetCreator(mint.network, song);
       if (!creator || !sameAddress(data.creator, creator) || data.metadataUri !== `ipfs://${mint.cid}` || data.isRemix !== isRemix(song) || data.parentSongId !== await parent(song, mint.network)) {
         throw new Error('The saved mint does not match this song');
       }
@@ -96,7 +106,7 @@ export function useMint() {
     const total = async (network: string) => isEvmNetwork(network)
       ? readContract({ contract: factory(network), method: 'totalSongs' })
       : (await fetchSolanaFactoryConfig({ network: network as SolanaNetworkId, rpcUrl: getNetworkRpcUrl(network) })).totalSongs;
-    const job = navigator.locks.request(key, async () => mintSong({
+    const runMint = () => mintSong({
       load: () => loadSong(input.id, userAddress),
       save: async updates => {
         const response = await api.fetch(`/api/songs/${encodeURIComponent(input.id)}`, { userAddress, method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updates) });
@@ -110,21 +120,29 @@ export function useMint() {
         if (!raw) return null;
         const mint = JSON.parse(raw) as Mint;
         if (!mint.network || !mint.cid || !/^\d+$/.test(mint.after) || typeof mint.submitted !== 'boolean') throw new Error('The saved mint progress is invalid');
+        if (!mint.submitted && !mint.hash && !mint.id && mint.network !== paymentNetwork) {
+          localStorage.removeItem(key);
+          return null;
+        }
         return mint;
       },
       write,
       prepare: async song => {
         assertCurrent();
         if (!account) throw new Error('Connect your wallet');
-        const network = song.metadata_cid && song.network
-          ? song.network
-          : isRemix(song)
-            ? (song.network || (song.source ? (await loadSong(song.source, userAddress)).network : undefined))
-            : paymentNetwork;
+        const network = isRemix(song)
+          ? (song.network || (song.source ? (await loadSong(song.source, userAddress)).network : undefined))
+          : paymentNetwork;
         if (!network) throw new Error('The source song network is unavailable');
-        const cid = song.metadata_cid || await uploadSongMetadata(song, song.title);
+        if (isEvmNetwork(network)) {
+          await requireEvmDeployment(factory(network).chain, isRemix(song) ? ['Factory', 'Remix', 'Royalties'] : ['Factory']);
+          assertCurrent();
+        }
+        const after = (await total(network)).toString();
         assertCurrent();
-        return { network, cid, after: song.metadata_cid ? '0' : (await total(network)).toString(), submitted: false };
+        const cid = await uploadSongMetadata({ ...song, creator: targetCreator(network, song), network }, song.title);
+        assertCurrent();
+        return { network, cid, after, submitted: false };
       },
       verify,
       find: async (song, mint) => {
@@ -144,7 +162,9 @@ export function useMint() {
         if (!account) throw new Error('Connect your wallet');
         if (paymentNetwork !== mint.network) throw new Error('Select the song network in your wallet');
         const creator = isEvmNetwork(mint.network) ? account.address : svmAddress;
-        if (!creator || !sameAddress(song.creator, creator)) throw new Error('Select the wallet that created this song');
+        if (!creator || !ownsSong(song)) throw new Error('Select the wallet that created this song');
+        sender = account;
+        transaction = null;
         solana = !isEvmNetwork(mint.network) ? captureSolanaOperation() : null;
         originalSongId = await parent(song, mint.network);
         assertCurrent();
@@ -152,6 +172,10 @@ export function useMint() {
           const contract = factory(mint.network);
           await requireEvmDeployment(contract.chain, originalSongId ? ['Factory', 'Remix', 'Royalties'] : ['Factory']);
           assertCurrent();
+          if (!adminWallet && activeWallet && 'switchChain' in activeWallet && typeof activeWallet.switchChain === 'function') {
+            await activeWallet.switchChain(contract.chain);
+            assertCurrent();
+          }
           transaction = originalSongId
             ? prepareContractCall({ contract: getRemixContract(thirdwebClient, contract.chain), method: 'remixSong', params: [originalSongId, { licenseAmount: 0n, licensePrice: 0n, streamPrice: usdcToWei(song.stream_price) }, `ipfs://${mint.cid}`] })
             : prepareContractCall({ contract, method: 'mintSong', params: [BigInt(song.licenses), usdcToWei(song.license_price), usdcToWei(song.stream_price), true, `ipfs://${mint.cid}`] });
@@ -204,11 +228,22 @@ export function useMint() {
         const receipt = await waitForReceipt({ client: thirdwebClient, chain: contract.chain, transactionHash: mint.hash as `0x${string}` });
         if (receipt.status !== 'success') { write({ ...mint, hash: undefined, submitted: false }); throw new Error('The mint transaction reverted'); }
         const events = parseEventLogs({ abi: event, logs: receipt.logs.filter(log => log.address.toLowerCase() === contract.address.toLowerCase()), eventName: 'SongMinted' });
-        const matches = events.filter(log => sameAddress(log.args.creator, song.creator) && log.args.metadataUri === `ipfs://${mint.cid}`);
+        const expectedCreator = targetCreator(mint.network, song);
+        const matches = events.filter(log => sameAddress(log.args.creator, expectedCreator) && log.args.metadataUri === `ipfs://${mint.cid}`);
         if (matches.length !== 1) throw new Error('The mint receipt does not identify this song');
         return { ...mint, id: matches[0].args.songId.toString() };
       },
-    })).finally(() => { jobs.delete(key); notify(); });
+    });
+    const job = navigator.locks.request(key, async () => {
+      for (let attempt = 0; ; attempt++) {
+        try {
+          return await runMint();
+        } catch (error) {
+          if (attempt >= 2 || !isTransientMintError(error)) throw error;
+          await new Promise(resolve => setTimeout(resolve, 400 * (attempt + 1)));
+        }
+      }
+    }).finally(() => { jobs.delete(key); notify(); });
     jobs.set(key, job);
     notify();
     return job;

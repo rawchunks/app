@@ -3,6 +3,7 @@ import { Modal } from '../modal';
 import { Button } from '../button';
 import { Song, Album } from '@/lib/schema';
 import { Tooltip } from '../daw/Tooltip';
+import { NetworkSelector } from '../network';
 
 export interface PublishModalProps {
   isOpen: boolean;
@@ -11,7 +12,7 @@ export interface PublishModalProps {
   activeAddress?: string | null;
   formattedAddress?: string;
   albums?: Album[];
-  onConfirm: (song: Song) => Promise<void>;
+  onConfirm: (song: Song) => Promise<boolean>;
   pending?: boolean;
 }
 
@@ -30,7 +31,7 @@ export const PublishModal: React.FC<PublishModalProps> = ({
   const album = albums.find((a) => a.id === song.album_id);
 
   return (
-    <Modal guideOwner="publish" guideAnchor="publish.review" guideEntity={song.id} isOpen={isOpen} onClose={onClose} title="CONFIRM PUBLICATION" size="sm">
+    <Modal guideOwner="publish" guideAnchor="publish.review" guideEntity={song.id} isOpen={isOpen} onClose={onClose} title="CONFIRM PUBLICATION" size="sm" className="publish-modal">
       <div className="publish-content">
         <div className="publish-desc">
           Publishing will mint this track on-chain and list it on the public Market for streaming and licensing.
@@ -44,6 +45,11 @@ export const PublishModal: React.FC<PublishModalProps> = ({
                 {formattedAddress || activeAddress || '—'}
               </span>
             </Tooltip>
+          </div>
+
+          <div className="publish-spec-row">
+            <span className="publish-label">NETWORK</span>
+            <NetworkSelector className="publish-network-selector" guide={false} />
           </div>
 
           <div className="publish-spec-row">
@@ -87,8 +93,8 @@ export const PublishModal: React.FC<PublishModalProps> = ({
           <Button
             variant="primary"
             onClick={async () => {
-              await onConfirm(song);
-              onClose();
+              const ok = await onConfirm(song);
+              if (ok) onClose();
             }}
             disabled={pending}
           >

@@ -50,7 +50,6 @@ export async function mintSong(registry: Registry): Promise<Song> {
       await registry.verify(song, mint);
     } else {
       if (mint.submitted) throw new Error('The previous mint is awaiting confirmation. Try again after it confirms.');
-      await registry.save({ metadata_cid: mint.cid, network: mint.network });
       await registry.preflight(song, mint);
       mint = { ...mint, submitted: true };
       registry.write(mint);

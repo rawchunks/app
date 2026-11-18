@@ -23,6 +23,7 @@ export function usePublic() {
       const current = song.public ? song : await ensure(song);
       const updates: Partial<Song> = { public: !current.public };
       const response = await api.fetch(`/api/songs/${encodeURIComponent(song.id)}`, {
+        userAddress,
         method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updates),
       });
       const result = await response.json();
@@ -30,6 +31,7 @@ export function usePublic() {
       const updatedSong: Song = {
         ...current,
         ...updates,
+        ...(result?.creator ? { creator: result.creator } : {}),
         ...(result?.published_at ? { published_at: result.published_at } : {}),
       };
       store.updateSong(song.id, updatedSong);
@@ -39,7 +41,8 @@ export function usePublic() {
       toast.success(updates.public ? 'Song is public' : 'Song is private');
       return updatedSong;
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Could not update song visibility');
+      console.error(error);
+      toast.error(song.public ? (error instanceof Error ? error.message : 'Could not update song visibility') : 'Publication failed. Changed your Network, or try again later.');
       return null;
     } finally { setPending(null); }
   };

@@ -241,7 +241,11 @@ export function captureStreamBilling(account: string): StreamBilling[] {
   }));
 }
 
-export function streamOptions(billing: StreamBilling): Parameters<ComposeSDK['fetch']>[1] {
+export type StreamFetchOptions = Omit<NonNullable<Parameters<ComposeSDK['fetch']>[1]>, 'headers'> & {
+  headers: Record<string, string>;
+};
+
+export function streamOptions(billing: StreamBilling): StreamFetchOptions {
   const walletToken = billing.walletToken || creditContext?.authToken || null;
   return {
     key: billing.source === 'card' ? null : billing.token,
@@ -318,7 +322,7 @@ async function rawchunksFetch(
     }
     return rawchunksTransport.fetch(target, {
       ...init,
-      headers,
+      headers: Object.fromEntries(headers.entries()),
       userAddress: effectiveUserAddress || undefined,
       network: effectiveNetwork,
       key: null,
@@ -358,7 +362,7 @@ async function rawchunksFetch(
 
     const response = await rawchunksTransport.fetch(target, {
       ...init,
-      headers,
+      headers: Object.fromEntries(headers.entries()),
       userAddress: effectiveUserAddress || undefined,
       network: effectiveNetwork,
       ...(usePrepaidCredits
