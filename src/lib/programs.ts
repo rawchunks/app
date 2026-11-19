@@ -74,7 +74,7 @@ function requireEnvAddress(name: string, value: string | undefined): SvmAddress 
   return address(value);
 }
 
-export function getRawchunksSolanaDeployment(): RawchunksSolanaDeployment {
+export function SolanaPrograms(): RawchunksSolanaDeployment {
   return {
     factoryProgramId: requireEnvAddress(
       "VITE_FACTORY_PROGRAM_ID",
@@ -101,12 +101,12 @@ export function getRawchunksDeployment(network: NetworkId) {
   return {
     network,
     type: "solana" as const,
-    solana: getRawchunksSolanaDeployment(),
+    solana: SolanaPrograms(),
   };
 }
 
 export async function requireSolanaDeployment(input: { network: SolanaNetworkId; rpcUrl: string }, names: SolanaProgramName[]): Promise<void> {
-  const deployment = getRawchunksSolanaDeployment();
+  const deployment = SolanaPrograms();
   const ids = { Factory: deployment.factoryProgramId, Remix: deployment.remixProgramId, Royalties: deployment.royaltiesProgramId };
   const rpc = createSolanaRpcFromNetwork(input.network, input.rpcUrl);
   await Promise.all(names.map(async name => {
@@ -167,7 +167,7 @@ export async function findAssociatedTokenAddress(input: {
 // PDA Derivations
 export const rawchunksPdas = {
   async factoryConfig(programId?: SvmAddress | string): Promise<SvmAddress> {
-    const pid = address(programId ?? getRawchunksSolanaDeployment().factoryProgramId);
+    const pid = address(programId ?? SolanaPrograms().factoryProgramId);
     const [pda] = await getProgramDerivedAddress({
       programAddress: pid,
       seeds: [new TextEncoder().encode("factory")],
@@ -176,7 +176,7 @@ export const rawchunksPdas = {
   },
 
   async song(songId: bigint | number, programId?: SvmAddress | string): Promise<SvmAddress> {
-    const pid = address(programId ?? getRawchunksSolanaDeployment().factoryProgramId);
+    const pid = address(programId ?? SolanaPrograms().factoryProgramId);
     const [pda] = await getProgramDerivedAddress({
       programAddress: pid,
       seeds: [new TextEncoder().encode("song"), encodeU64(songId)],
@@ -185,7 +185,7 @@ export const rawchunksPdas = {
   },
 
   async authorizedConsumer(consumer: SvmAddress | string, programId?: SvmAddress | string): Promise<SvmAddress> {
-    const pid = address(programId ?? getRawchunksSolanaDeployment().factoryProgramId);
+    const pid = address(programId ?? SolanaPrograms().factoryProgramId);
     const encoder = getAddressEncoder();
     const [pda] = await getProgramDerivedAddress({
       programAddress: pid,
@@ -199,7 +199,7 @@ export const rawchunksPdas = {
     user: SvmAddress | string,
     programId?: SvmAddress | string,
   ): Promise<SvmAddress> {
-    const pid = address(programId ?? getRawchunksSolanaDeployment().factoryProgramId);
+    const pid = address(programId ?? SolanaPrograms().factoryProgramId);
     const encoder = getAddressEncoder();
     const [pda] = await getProgramDerivedAddress({
       programAddress: pid,
@@ -209,7 +209,7 @@ export const rawchunksPdas = {
   },
 
   async royaltiesConfig(programId?: SvmAddress | string): Promise<SvmAddress> {
-    const pid = address(programId ?? getRawchunksSolanaDeployment().royaltiesProgramId);
+    const pid = address(programId ?? SolanaPrograms().royaltiesProgramId);
     const [pda] = await getProgramDerivedAddress({
       programAddress: pid,
       seeds: [new TextEncoder().encode("royalties")],
@@ -218,7 +218,7 @@ export const rawchunksPdas = {
   },
 
   async remixConfig(programId?: SvmAddress | string): Promise<SvmAddress> {
-    const pid = address(programId ?? getRawchunksSolanaDeployment().remixProgramId);
+    const pid = address(programId ?? SolanaPrograms().remixProgramId);
     const [pda] = await getProgramDerivedAddress({
       programAddress: pid,
       seeds: [new TextEncoder().encode("remix")],
@@ -227,7 +227,7 @@ export const rawchunksPdas = {
   },
 
   async remixAuthority(programId?: SvmAddress | string): Promise<SvmAddress> {
-    const pid = address(programId ?? getRawchunksSolanaDeployment().remixProgramId);
+    const pid = address(programId ?? SolanaPrograms().remixProgramId);
     const [pda] = await getProgramDerivedAddress({
       programAddress: pid,
       seeds: [new TextEncoder().encode("remix_authority")],
@@ -236,7 +236,7 @@ export const rawchunksPdas = {
   },
 
   async songRemixCount(originalSongId: bigint | number, programId?: SvmAddress | string): Promise<SvmAddress> {
-    const pid = address(programId ?? getRawchunksSolanaDeployment().remixProgramId);
+    const pid = address(programId ?? SolanaPrograms().remixProgramId);
     const [pda] = await getProgramDerivedAddress({
       programAddress: pid,
       seeds: [new TextEncoder().encode("remix_count"), encodeU64(originalSongId)],
@@ -249,7 +249,7 @@ export const rawchunksPdas = {
     remixIndex: bigint | number,
     programId?: SvmAddress | string,
   ): Promise<SvmAddress> {
-    const pid = address(programId ?? getRawchunksSolanaDeployment().remixProgramId);
+    const pid = address(programId ?? SolanaPrograms().remixProgramId);
     const [pda] = await getProgramDerivedAddress({
       programAddress: pid,
       seeds: [new TextEncoder().encode("remix"), encodeU64(originalSongId), encodeU64(remixIndex)],
@@ -341,7 +341,7 @@ export async function fetchSolanaFactoryConfig(input: {
 }): Promise<SolanaFactoryConfig> {
   const rpc = createSolanaRpcFromNetwork(input.network, input.rpcUrl);
   const pda = await rawchunksPdas.factoryConfig(input.factoryProgramId);
-  const data = await readAccountData(rpc, pda, address(input.factoryProgramId ?? getRawchunksSolanaDeployment().factoryProgramId));
+  const data = await readAccountData(rpc, pda, address(input.factoryProgramId ?? SolanaPrograms().factoryProgramId));
   if (!data) throw new Error(`Solana factory config not found at: ${pda}`);
   return decodeFactoryConfigAccount(data);
 }
@@ -363,7 +363,7 @@ export async function fetchSolanaSong(input: {
 }): Promise<SolanaSong> {
   const rpc = createSolanaRpcFromNetwork(input.network, input.rpcUrl);
   const pda = await rawchunksPdas.song(input.songId, input.factoryProgramId);
-  const data = await readAccountData(rpc, pda, address(input.factoryProgramId ?? getRawchunksSolanaDeployment().factoryProgramId));
+  const data = await readAccountData(rpc, pda, address(input.factoryProgramId ?? SolanaPrograms().factoryProgramId));
   if (!data) throw new Error(`Song ${input.songId} not found on Solana: ${pda}`);
   const song = decodeSongAccount(data);
   if (song.songId !== BigInt(input.songId)) throw new Error("Song account ID mismatch");
@@ -379,7 +379,7 @@ export async function fetchSolanaHasLicense(input: {
 }): Promise<boolean> {
   const rpc = createSolanaRpcFromNetwork(input.network, input.rpcUrl);
   const pda = await rawchunksPdas.license(input.songId, input.user, input.factoryProgramId);
-  const data = await readAccountData(rpc, pda, address(input.factoryProgramId ?? getRawchunksSolanaDeployment().factoryProgramId));
+  const data = await readAccountData(rpc, pda, address(input.factoryProgramId ?? SolanaPrograms().factoryProgramId));
   if (!data) return false;
   const license = decodeLicenseRecordAccount(data);
   if (license.songId !== BigInt(input.songId) || license.user !== input.user) throw new Error("License account mismatch");
@@ -387,7 +387,7 @@ export async function fetchSolanaHasLicense(input: {
 }
 
 export async function fetchSolanaRoyaltiesConfig(input: { network: SolanaNetworkId; rpcUrl: string }): Promise<SolanaRoyaltiesConfig> {
-  const deployment = getRawchunksSolanaDeployment();
+  const deployment = SolanaPrograms();
   const rpc = createSolanaRpcFromNetwork(input.network, input.rpcUrl);
   const pda = await rawchunksPdas.royaltiesConfig(deployment.royaltiesProgramId);
   const data = await readAccountData(rpc, pda, deployment.royaltiesProgramId);
@@ -407,7 +407,7 @@ export function buildSolanaBuyLicenseInstruction(input: {
   data[0] = 4;
   data.set(encodeU64(input.songId), 1);
   return {
-    programAddress: address(input.programId ?? getRawchunksSolanaDeployment().remixProgramId), data, accounts: [
+    programAddress: address(input.programId ?? SolanaPrograms().remixProgramId), data, accounts: [
       { address: address(input.buyer), role: AccountRole.WRITABLE_SIGNER },
       { address: address(input.authority), role: AccountRole.WRITABLE },
       { address: address(input.config), role: AccountRole.READONLY },
@@ -434,7 +434,7 @@ export async function relaySolanaBuyLicense(input: {
   songId: bigint; assertCurrent?: () => void;
 }): Promise<void> {
   if (await fetchSolanaHasLicense({ ...input, user: input.selectedSvmAddress })) return;
-  const deployment = getRawchunksSolanaDeployment();
+  const deployment = SolanaPrograms();
   const song = await fetchSolanaSong(input);
   const royalties = await fetchSolanaRoyaltiesConfig(input);
   const authority = await rawchunksPdas.remixAuthority(deployment.remixProgramId);
@@ -527,7 +527,7 @@ export function buildSolanaMintSongInstruction(input: {
   remixable: boolean;
   metadataUri: string;
 }): Instruction {
-  const programAddress = address(input.programId ?? getRawchunksSolanaDeployment().factoryProgramId);
+  const programAddress = address(input.programId ?? SolanaPrograms().factoryProgramId);
   const uriBytes = new TextEncoder().encode(input.metadataUri);
   const data = new Uint8Array(28 + uriBytes.length);
   data[0] = 1; // process_mint_song discriminator
@@ -558,7 +558,7 @@ export function buildSolanaUpdatePricingInstruction(input: {
   newLicensePrice: bigint | number;
   newStreamPrice: bigint | number;
 }): Instruction {
-  const programAddress = address(input.programId ?? getRawchunksSolanaDeployment().factoryProgramId);
+  const programAddress = address(input.programId ?? SolanaPrograms().factoryProgramId);
   const data = new Uint8Array(25);
   data[0] = 4; // process_update_pricing discriminator
   data.set(encodeU64(input.songId), 1);
@@ -582,7 +582,7 @@ export function buildSolanaUpdateMetadataUriInstruction(input: {
   songId: bigint | number;
   newMetadataUri: string;
 }): Instruction {
-  const programAddress = address(input.programId ?? getRawchunksSolanaDeployment().factoryProgramId);
+  const programAddress = address(input.programId ?? SolanaPrograms().factoryProgramId);
   const uriBytes = new TextEncoder().encode(input.newMetadataUri);
   const data = new Uint8Array(11 + uriBytes.length);
   data[0] = 5; // process_update_metadata_uri discriminator
@@ -610,7 +610,7 @@ export function buildSolanaConsumeLicenseInstruction(input: {
   songId: bigint | number;
   licensee: SvmAddress | string;
 }): Instruction {
-  const programAddress = address(input.programId ?? getRawchunksSolanaDeployment().factoryProgramId);
+  const programAddress = address(input.programId ?? SolanaPrograms().factoryProgramId);
   const encoder = getAddressEncoder();
   const licenseeBytes = encoder.encode(address(input.licensee));
   const data = new Uint8Array(41);
@@ -648,7 +648,7 @@ export function buildSolanaDistributeLicensePaymentInstruction(input: {
   licensePrice?: bigint | number;
   tokenProgram?: SvmAddress | string;
 }): Instruction {
-  const programAddress = address(input.programId ?? getRawchunksSolanaDeployment().royaltiesProgramId);
+  const programAddress = address(input.programId ?? SolanaPrograms().royaltiesProgramId);
   const tokenProgram = address(input.tokenProgram ?? SPL_TOKEN_PROGRAM);
   const data = new Uint8Array(17);
   data[0] = 1; // process_distribute_license_payment discriminator
@@ -688,7 +688,7 @@ export function buildSolanaRemixSongInstruction(input: {
   streamPrice: bigint | number;
   metadataUri: string;
 }): Instruction {
-  const programAddress = address(input.programId ?? getRawchunksSolanaDeployment().remixProgramId);
+  const programAddress = address(input.programId ?? SolanaPrograms().remixProgramId);
   const uriBytes = new TextEncoder().encode(input.metadataUri);
   const data = new Uint8Array(35 + uriBytes.length);
   data[0] = 1; // process_remix_song discriminator
@@ -737,38 +737,38 @@ export async function relaySolanaInstructions(input: {
   input.assertCurrent?.();
   const unsignedTransaction = input.signTransaction
     ? await buildDirectSvmInstructionTransaction({
+      feePayer,
+      network: input.network,
+      rpcUrl: input.rpcUrl,
+      instructions: input.instructions,
+      memo: input.memo,
+      signTransaction: async wireBytes => {
+        input.assertCurrent?.();
+        const signed = await input.signTransaction!(wireBytes);
+        input.assertCurrent?.();
+        return signed;
+      },
+    })
+    : await (async () => {
+      const swigConfigAddress = await deriveSwigConfigAddress(input.evmSignerAddress);
+      input.assertCurrent?.();
+      return buildSwigInstructionTransaction({
+        swigConfigAddress,
+        expectedWalletAddress: input.selectedSvmAddress,
+        evmSignerAddress: input.evmSignerAddress,
         feePayer,
         network: input.network,
         rpcUrl: input.rpcUrl,
         instructions: input.instructions,
         memo: input.memo,
-        signTransaction: async wireBytes => {
+        signMessage: async message => {
           input.assertCurrent?.();
-          const signed = await input.signTransaction!(wireBytes);
+          const signature = await input.signMessage(message);
           input.assertCurrent?.();
-          return signed;
+          return signature;
         },
-      })
-    : await (async () => {
-        const swigConfigAddress = await deriveSwigConfigAddress(input.evmSignerAddress);
-        input.assertCurrent?.();
-        return buildSwigInstructionTransaction({
-          swigConfigAddress,
-          expectedWalletAddress: input.selectedSvmAddress,
-          evmSignerAddress: input.evmSignerAddress,
-          feePayer,
-          network: input.network,
-          rpcUrl: input.rpcUrl,
-          instructions: input.instructions,
-          memo: input.memo,
-          signMessage: async message => {
-            input.assertCurrent?.();
-            const signature = await input.signMessage(message);
-            input.assertCurrent?.();
-            return signature;
-          },
-        });
-      })();
+      });
+    })();
 
   input.assertCurrent?.();
   return compose.svm.relay({
@@ -791,7 +791,7 @@ export async function relaySolanaMintSong(input: {
   metadataUri: string;
   assertCurrent?: () => void;
 }): Promise<{ signature: string; songId: bigint; songAddress: SvmAddress }> {
-  const deployment = getRawchunksSolanaDeployment();
+  const deployment = SolanaPrograms();
   const factoryConfig = await fetchSolanaFactoryConfig({
     network: input.network,
     rpcUrl: input.rpcUrl,
@@ -847,7 +847,7 @@ export async function relaySolanaRemixSong(input: {
   metadataUri: string;
   assertCurrent?: () => void;
 }): Promise<{ signature: string; remixSongId: bigint; remixSongAddress: SvmAddress }> {
-  const deployment = getRawchunksSolanaDeployment();
+  const deployment = SolanaPrograms();
   const factoryConfig = await fetchSolanaFactoryConfig({
     network: input.network,
     rpcUrl: input.rpcUrl,
