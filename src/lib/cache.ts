@@ -33,7 +33,7 @@ export function getSmartAccountAdminWallet(
 // Cached addresses support display and project reads. Signing requires the live account.
 
 const LAST_ACCOUNT_KEY = "last_account";
-const PAYPAL_CONFIG_KEY = "rawchunks:paypal-config";
+const PAYPAL_CONFIG_KEY = "paypal-config";
 
 export type FundingSource = 'usdc' | 'card' | 'promo';
 
@@ -69,7 +69,7 @@ export function writeCachedCredits(address: string, balance: CreditBalance): voi
 export function readPreferredFundingSource(owner?: string | null): FundingSource | null {
     if (typeof window === "undefined" || !owner) return null;
     try {
-        const val = localStorage.getItem(`rawchunks:funding-source:${owner.toLowerCase()}`);
+        const val = localStorage.getItem(`funding-source:${owner.toLowerCase()}`);
         return val === 'usdc' || val === 'card' || val === 'promo' ? val : null;
     } catch {
         return null;
@@ -79,14 +79,14 @@ export function readPreferredFundingSource(owner?: string | null): FundingSource
 export function writePreferredFundingSource(owner: string | null | undefined, source: FundingSource): void {
     if (typeof window === "undefined" || !owner) return;
     try {
-        localStorage.setItem(`rawchunks:funding-source:${owner.toLowerCase()}`, source);
+        localStorage.setItem(`funding-source:${owner.toLowerCase()}`, source);
     } catch { }
 }
 
 export function readCachedWalletAuthToken(owner?: string | null): string | null {
     if (typeof window === "undefined" || !owner) return null;
     try {
-        const direct = localStorage.getItem(`rawchunks:wallet-token:${owner.toLowerCase()}`);
+        const direct = localStorage.getItem(`wallet-token:${owner.toLowerCase()}`);
         if (direct && direct.trim()) return direct.trim();
         const cached = readCachedAccount();
         const matchesSmartAccount = Boolean(
@@ -112,7 +112,7 @@ export function readCachedWalletAuthToken(owner?: string | null): string | null 
 export function writeCachedWalletAuthToken(owner: string | null | undefined, token: string | null | undefined): void {
     if (typeof window === "undefined" || !owner || !token || !token.trim()) return;
     try {
-        localStorage.setItem(`rawchunks:wallet-token:${owner.toLowerCase()}`, token.trim());
+        localStorage.setItem(`wallet-token:${owner.toLowerCase()}`, token.trim());
     } catch { }
 }
 
@@ -187,13 +187,13 @@ export function purgeUserCaches(): void {
                 k.startsWith("project:") ||
                 k.startsWith("voices:") ||
                 k.startsWith("credits:") ||
-                k.startsWith("rawchunks:funding-source:") ||
-                k.startsWith("rawchunks:wallet-token:") ||
-                k.startsWith("rawchunks:session:") ||
-                k.startsWith("rawchunks:compose-session:") ||
-                k.startsWith("rawchunks:credit-purchase:") ||
-                k === "rawchunks:session" ||
-                k === "rawchunks:playback"
+                k.startsWith("funding-source:") ||
+                k.startsWith("wallet-token:") ||
+                k.startsWith("session:") ||
+                k.startsWith("compose-session:") ||
+                k.startsWith("credit-purchase:") ||
+                k === "session" ||
+                k === "playback"
             ) {
                 keysToRemove.push(k);
             }

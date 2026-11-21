@@ -14,7 +14,7 @@ export interface VerifiedOAuthProfile {
   authIdentifier?: string | null;
 }
 
-const STORAGE_KEY = 'rawchunks:oauth-profiles';
+const STORAGE_KEY = 'oauth-profiles';
 const THIRDWEB_LOGIN_REGEX =
   /^https:\/\/embedded-wallet\.thirdweb\.com\/api\/[^/]+\/login\/(google|github|discord|x|telegram)(?:\?|$)/i;
 

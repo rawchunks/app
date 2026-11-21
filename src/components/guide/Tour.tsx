@@ -25,10 +25,10 @@ const GuideContext = createContext<GuideContextValue | null>(null);
 const saveQueues = new Map<string, Promise<unknown>>();
 const epochs = new Map<string, number>();
 const pendingWrites = new Set<string>();
-const CONNECT_KEY = 'rawchunks:has-connected';
-const CONNECT_DISMISSED = 'rawchunks:connect-guide-dismissed';
+const CONNECT_KEY = 'has-connected';
+const CONNECT_DISMISSED = 'connect-guide-dismissed';
 function browserFlag(key: string) { try { return !!localStorage.getItem(key); } catch { return false; } }
-function setBrowserFlag(key: string) { try { localStorage.setItem(key, '1'); } catch {} }
+function setBrowserFlag(key: string) { try { localStorage.setItem(key, '1'); } catch { } }
 function samePreparation(a: Preparation, b: Preparation) {
   return ['target', 'focus', 'entity', 'title', 'description', 'unavailable', 'rect'].every(key => a[key as keyof Preparation] === b[key as keyof Preparation]);
 }
@@ -81,9 +81,11 @@ export function GuideProvider({ activePage, children }: { activePage: GuidePageI
     queryClient.setQueryData(['user-guides', scope], canonical);
     if (!accountId) return Promise.resolve();
     pendingWrites.add(scope);
-    const save = (saveQueues.get(scope) ?? Promise.resolve()).catch(() => {}).then(async () => {
-      const response = await api.fetch('/api/user/guides', { method: 'POST', userAddress: accountId,
-        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ address: accountId, guides: canonical }) });
+    const save = (saveQueues.get(scope) ?? Promise.resolve()).catch(() => { }).then(async () => {
+      const response = await api.fetch('/api/user/guides', {
+        method: 'POST', userAddress: accountId,
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ address: accountId, guides: canonical })
+      });
       if (!response.ok) throw new Error('Could not save guide status');
       if (mutationEpoch === epochs.get(scope)) pendingWrites.delete(scope);
     });
@@ -91,7 +93,7 @@ export function GuideProvider({ activePage, children }: { activePage: GuidePageI
     return save;
   }, [scope, accountId, queryClient]);
   useEffect(() => {
-    const retry = () => { if (pendingWrites.has(scope)) void persist(readCachedGuides(scope) ?? []).catch(() => {}); };
+    const retry = () => { if (pendingWrites.has(scope)) void persist(readCachedGuides(scope) ?? []).catch(() => { }); };
     window.addEventListener('online', retry);
     return () => window.removeEventListener('online', retry);
   }, [scope, persist]);
@@ -110,7 +112,7 @@ export function GuideProvider({ activePage, children }: { activePage: GuidePageI
     if (!activeFlow || !stop()) return;
     dismissedPage.current = activePage;
     if (guestOnly) setBrowserFlag(CONNECT_DISMISSED);
-    else void persist(setGuideStatus(readCachedGuides(scope) ?? [], activeFlow, 'dismissed')).catch(() => {});
+    else void persist(setGuideStatus(readCachedGuides(scope) ?? [], activeFlow, 'dismissed')).catch(() => { });
   }, [activeFlow, activePage, guestOnly, persist, scope, stop]);
   const startFlow = useCallback((flow: GuideFlowId, options: StartOptions = {}) => {
     if (!GUIDE_FLOWS[flow].pages.includes(activePage) || !leave()) return;
@@ -130,7 +132,7 @@ export function GuideProvider({ activePage, children }: { activePage: GuidePageI
     if (accountId && (consentLoading || !hasConsented)) return;
     const timer = setTimeout(() => {
       if (document.querySelector('.modal-overlay:not([aria-hidden="true"]), [aria-busy="true"], [data-recording="true"]')) return;
-      const automaticallyStart = (id: GuideFlowId) => { startFlow(id); void persist(setGuideStatus(readCachedGuides(scope) ?? [], id, 'dismissed')).catch(() => {}); };
+      const automaticallyStart = (id: GuideFlowId) => { startFlow(id); void persist(setGuideStatus(readCachedGuides(scope) ?? [], id, 'dismissed')).catch(() => { }); };
       if (!accountId) {
         if (!browserFlag(CONNECT_KEY) && !browserFlag(CONNECT_DISMISSED) && !browserFlag('last_account')) {
           startFlow('welcome', { guestOnly: true }); setBrowserFlag(CONNECT_DISMISSED);
@@ -201,16 +203,18 @@ export function GuideProvider({ activePage, children }: { activePage: GuidePageI
     const release = registry.subscribe(schedule);
     const missingTimer = setTimeout(() => { setMissing(true); schedule(); }, 1500);
     schedule();
-    return () => { clearTimeout(missingTimer); cancelAnimationFrame(frame); observer.disconnect(); resize.disconnect(); release();
+    return () => {
+      clearTimeout(missingTimer); cancelAnimationFrame(frame); observer.disconnect(); resize.disconnect(); release();
       window.removeEventListener('scroll', schedule, true); window.removeEventListener('resize', schedule);
-      window.visualViewport?.removeEventListener('resize', schedule); window.visualViewport?.removeEventListener('scroll', schedule); };
+      window.visualViewport?.removeEventListener('resize', schedule); window.visualViewport?.removeEventListener('scroll', schedule);
+    };
   }, [step, prepared.target, prepared.focus, prepared.entity, prepared.rect, registry, runRevision]);
 
   const navigate = (direction: number) => {
     if (!leave(false, steps[stepIndex + direction])) return;
     if (direction > 0 && stepIndex === steps.length - 1) {
       if (guestOnly) setBrowserFlag(CONNECT_DISMISSED);
-      else if (activeFlow) void persist(setGuideStatus(readCachedGuides(scope) ?? [], activeFlow, 'completed')).catch(() => {});
+      else if (activeFlow) void persist(setGuideStatus(readCachedGuides(scope) ?? [], activeFlow, 'completed')).catch(() => { });
       dismissedPage.current = activePage; stop(true);
     } else { setPrepared({}); setRect(null); setStepIndex(index => Math.max(0, index + direction)); }
   };

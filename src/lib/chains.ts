@@ -43,7 +43,7 @@ export function isMainnet(network?: NetworkId | string | null): boolean {
 }
 
 export function getModeNetworks(mode: NetworkMode = getNetworkMode()): readonly NetworkId[] {
-  return mode === "mainnet" ? MAINNET_NETWORKS : TESTNET_NETWORKS;
+  return mode === "mainnet" ? ["eip155:8453"] : TESTNET_NETWORKS;
 }
 
 type AppChain = FacilitatorChain & {

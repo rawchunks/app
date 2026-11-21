@@ -318,7 +318,7 @@ export function computeAggregatedEarnings(
     mergedEvents.filter((e) => e.kind === 'stream').map((e) => e.songId),
   );
   for (const item of Object.values(allSongMetrics)) {
-    if (item.plays > 0 && !eventSongIdsWithStreams.has(item.songId)) {
+    if (item.plays > 0 && item.network && !eventSongIdsWithStreams.has(item.songId)) {
       const perPlayMs = Math.min(item.durationMs || 35_000, 35_000);
       const perPlayRoyalties = Number((item.streamProfitUsd / item.plays).toFixed(6));
       const perPlayTotal = Number((perPlayRoyalties / 0.8).toFixed(6));
@@ -329,7 +329,7 @@ export function computeAggregatedEarnings(
           songId: item.songId,
           songTitle: item.title,
           genre: item.primaryGenre,
-          network: item.network || 'eip155:84532',
+          network: item.network,
           networkFamily: item.networkFamily,
           networkLabel: item.networkLabel,
           kind: 'stream',

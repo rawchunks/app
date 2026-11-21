@@ -16,10 +16,12 @@ export const CONTRACT_ADDRESSES: Record<ContractName, `0x${string}` | undefined>
 
 export type SolanaProgramName = "Factory" | "Remix" | "Royalties";
 
+const mainnet = env.VITE_NETWORK_MODE === "mainnet";
+
 const SOLANA_PROGRAM_ENV: Record<SolanaProgramName, string | undefined> = {
-  Factory: env.VITE_FACTORY_PROGRAM_ID ?? env.VITE_FACTORY_PROGRAM_ID,
-  Remix: env.VITE_REMIX_PROGRAM_ID ?? env.VITE_REMIX_PROGRAM_ID,
-  Royalties: env.VITE_ROYALTIES_PROGRAM_ID ?? env.VITE_ROYALTIES_PROGRAM_ID,
+  Factory: mainnet ? env.VITE_FACTORY_PROGRAM_ID : env.VITE_DEVNET_FACTORY_PROGRAM_ID,
+  Remix: mainnet ? env.VITE_REMIX_PROGRAM_ID : env.VITE_DEVNET_REMIX_PROGRAM_ID,
+  Royalties: mainnet ? env.VITE_ROYALTIES_PROGRAM_ID : env.VITE_DEVNET_ROYALTIES_PROGRAM_ID,
 };
 
 export const SOLANA_PROGRAM_IDS: Record<SolanaProgramName, string | undefined> = {

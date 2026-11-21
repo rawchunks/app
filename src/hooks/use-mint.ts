@@ -32,7 +32,14 @@ const event = [{
 const jobs = new Map<string, Promise<Song>>();
 const listeners = new Set<() => void>();
 function notify() { for (const listener of listeners) listener(); }
+const STALE_SUBMISSION_MS = 60_000;
 function sameAddress(left: string, right: string) { return left.startsWith('0x') ? left.toLowerCase() === right.toLowerCase() : left === right; }
+function isDefiniteUnsentError(error: unknown) {
+  const code = (error as { code?: number })?.code;
+  if (code === 4001 || (typeof code === 'number' && code <= -32500 && code >= -32521)) return true;
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  return /user rejected|user denied|rejected the request|cancelled|canceled|eth_sendUserOperation error|reverted during simulation|paymaster.*rejected|insufficient funds|execution reverted|\bAA\d{2}\b/i.test(message);
+}
 function isTransientMintError(error: unknown) {
   if ((error as { code?: number })?.code === 4001) return false;
   const message = error instanceof Error ? error.message : String(error ?? '');
@@ -61,8 +68,11 @@ export function useMint() {
     const existing = jobs.get(key);
     if (existing) return existing;
     const write = (mint: Mint | null) => {
-      if (mint) localStorage.setItem(key, JSON.stringify(mint));
-      else localStorage.removeItem(key);
+      if (!mint) { localStorage.removeItem(key); return; }
+      const next: Mint = mint.submitted && !mint.hash && !mint.id
+        ? { ...mint, submittedAt: mint.submittedAt ?? Date.now() }
+        : { ...mint, submittedAt: undefined };
+      localStorage.setItem(key, JSON.stringify(next));
     };
     let solana: ReturnType<typeof captureSolanaOperation> | null = null;
     let originalSongId = 0n;
@@ -120,6 +130,11 @@ export function useMint() {
         if (!raw) return null;
         const mint = JSON.parse(raw) as Mint;
         if (!mint.network || !mint.cid || !/^\d+$/.test(mint.after) || typeof mint.submitted !== 'boolean') throw new Error('The saved mint progress is invalid');
+        if (mint.submitted && !mint.hash && !mint.id && (!mint.submittedAt || Date.now() - mint.submittedAt > STALE_SUBMISSION_MS)) {
+          mint.submitted = false;
+          delete mint.submittedAt;
+          write(mint);
+        }
         if (!mint.submitted && !mint.hash && !mint.id && mint.network !== paymentNetwork) {
           localStorage.removeItem(key);
           return null;
@@ -140,7 +155,7 @@ export function useMint() {
         }
         const after = (await total(network)).toString();
         assertCurrent();
-        const cid = await uploadSongMetadata({ ...song, creator: targetCreator(network, song), network }, song.title);
+        const cid = song.metadata_cid || await uploadSongMetadata({ ...song, creator: targetCreator(network, song), network }, song.title);
         assertCurrent();
         return { network, cid, after, submitted: false };
       },
@@ -206,7 +221,7 @@ export function useMint() {
             const result = await sendTransaction({ account: sender, transaction });
             return { ...mint, hash: result.transactionHash };
           } catch (error) {
-            if ((error as { code?: number }).code === 4001) write({ ...mint, submitted: false });
+            if (isDefiniteUnsentError(error)) write({ ...mint, submitted: false });
             throw error;
           }
         }
@@ -239,7 +254,15 @@ export function useMint() {
         try {
           return await runMint();
         } catch (error) {
-          if (attempt >= 2 || !isTransientMintError(error)) throw error;
+          let pendingSubmission = false;
+          try {
+            const raw = localStorage.getItem(key);
+            if (raw) {
+              const saved = JSON.parse(raw) as Partial<Mint>;
+              pendingSubmission = Boolean(saved.submitted && !saved.hash && !saved.id);
+            }
+          } catch { /* Ignore malformed cache; let error surface. */ }
+          if (attempt >= 2 || pendingSubmission || !isTransientMintError(error)) throw error;
           await new Promise(resolve => setTimeout(resolve, 400 * (attempt + 1)));
         }
       }

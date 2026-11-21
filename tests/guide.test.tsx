@@ -22,14 +22,16 @@ const service = vi.hoisted(() => ({ fetch: vi.fn(), accountId: 'guide-test' as s
 const measurements = vi.hoisted(() => ({ updates: [] as Array<(height: number) => number> }));
 vi.mock('react', async original => {
   const actual = await original<typeof import('react')>();
-  return { ...actual, useState(initial: unknown) {
-    const [value, setValue] = actual.useState(initial);
-    if (initial !== 190) return [value, setValue];
-    return [value, (next: unknown) => {
-      if (typeof next === 'function') measurements.updates.push(next as (height: number) => number);
-      setValue(next);
-    }];
-  } };
+  return {
+    ...actual, useState(initial: unknown) {
+      const [value, setValue] = actual.useState(initial);
+      if (initial !== 190) return [value, setValue];
+      return [value, (next: unknown) => {
+        if (typeof next === 'function') measurements.updates.push(next as (height: number) => number);
+        setValue(next);
+      }];
+    }
+  };
 });
 vi.mock('../src/lib/api', () => ({ api: service }));
 vi.mock('../src/hooks/use-address', () => ({ useSelectedUserAddress: () => ({ accountId: service.accountId, userAddress: service.accountId, isReconnecting: false }) }));
@@ -43,7 +45,7 @@ beforeEach(() => {
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(() => new DOMRect(100, 100, 180, 40));
   vi.spyOn(HTMLElement.prototype, 'getClientRects').mockImplementation(() => [{ width: 180, height: 40 }] as unknown as DOMRectList);
   HTMLElement.prototype.scrollIntoView = vi.fn();
-  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
+  vi.stubGlobal('ResizeObserver', class { observe() { } disconnect() { } });
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
@@ -193,7 +195,7 @@ describe('owner lifecycle', () => {
     fireEvent.click(screen.getByText('Next'));
     expect(document.querySelector('[data-guide-step]')?.getAttribute('data-guide-step')).toBe('V1');
     expect(screen.getByLabelText('Draft')).toHaveProperty('value', 'Keep this draft');
-    fireEvent.click(screen.getByText('Cancel draft')); fireEvent.click(await screen.findByText('Next')); 
+    fireEvent.click(screen.getByText('Cancel draft')); fireEvent.click(await screen.findByText('Next'));
     await waitFor(() => expect(document.querySelector('[data-guide-step]')?.getAttribute('data-guide-step')).toBe('V2'));
   });
   it('keeps guide navigation available when its control disappears inside its dialog', async () => {
@@ -237,7 +239,7 @@ describe('replay and refresh regressions', () => {
     service.accountId = null;
     const first = mount(<span>Page</span>);
     await screen.findByText('Your account');
-    expect(localStorage.getItem('rawchunks:connect-guide-dismissed')).toBe('1');
+    expect(localStorage.getItem('connect-guide-dismissed')).toBe('1');
     first.unmount(); mount(<span>Page</span>);
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 600)); });
     expect(document.querySelector('[data-guide-step]')).toBeNull();
@@ -262,9 +264,11 @@ describe('replay and refresh regressions', () => {
     const submit = vi.fn();
     function Owner() {
       const { startFlow } = useGuide(); const [open, setOpen] = useState(false);
-      useGuideOwner({ id: 'studio', scope: 'skip', handles: () => true, prepare: () => {
-        setOpen(true); return { target: 'test.skip-view', leave: () => setOpen(false) };
-      } });
+      useGuideOwner({
+        id: 'studio', scope: 'skip', handles: () => true, prepare: () => {
+          setOpen(true); return { target: 'test.skip-view', leave: () => setOpen(false) };
+        }
+      });
       return <><button onClick={() => startFlow('studio')}>Start guide</button>{open && <div data-guide="test.skip-view"><button onClick={submit}>Product action</button></div>}</>;
     }
     const first = mount(<Owner />);
@@ -297,19 +301,19 @@ describe('replay and refresh regressions', () => {
   });
   it('cancels an entry when its route changes and does not prepare a late owner', async () => {
     const leave = vi.fn(), prepare = vi.fn(() => ({ target: 'test.route', leave }));
-    function Owner() { const { startFlow } = useGuide(); useGuideOwner({ id:'studio', scope:'route', handles:()=>true, prepare }); return <><button onClick={()=>startFlow('studio-vibe')}>Start</button><textarea data-guide="test.route" /></>; }
-    const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
-    const tree=(page:'studio'|'market')=><QueryClientProvider client={client}><GuideProvider activePage={page}><Owner/></GuideProvider></QueryClientProvider>;
-    const view=render(tree('studio')); fireEvent.click(screen.getByText('Start')); await screen.findByText('Next');
-    view.rerender(tree('market')); await waitFor(()=>expect(document.querySelector('[data-guide-step]')).toBeNull());
+    function Owner() { const { startFlow } = useGuide(); useGuideOwner({ id: 'studio', scope: 'route', handles: () => true, prepare }); return <><button onClick={() => startFlow('studio-vibe')}>Start</button><textarea data-guide="test.route" /></>; }
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const tree = (page: 'studio' | 'market') => <QueryClientProvider client={client}><GuideProvider activePage={page}><Owner /></GuideProvider></QueryClientProvider>;
+    const view = render(tree('studio')); fireEvent.click(screen.getByText('Start')); await screen.findByText('Next');
+    view.rerender(tree('market')); await waitFor(() => expect(document.querySelector('[data-guide-step]')).toBeNull());
     expect(leave).toHaveBeenCalledTimes(1);
   });
   it('retains all cleanup leases across a prerequisite retry', () => {
-    const registry=new GuideRegistry(); let ready=false; const firstLeave=vi.fn(), secondLeave=vi.fn();
-    const prepare=vi.fn(()=>ready?{leave:secondLeave}:{retry:()=>ready,leave:firstLeave});
-    registry.register({id:'studio',scope:'retry',handles:()=>true,prepare});
-    const entry=registry.enter(GUIDE_STEPS.S4,new Map(),()=>{}); ready=true; registry.notify(); registry.notify();
-    expect(prepare).toHaveBeenCalledTimes(2); entry.leave(); expect(firstLeave).toHaveBeenCalledTimes(1);expect(secondLeave).toHaveBeenCalledTimes(1);
+    const registry = new GuideRegistry(); let ready = false; const firstLeave = vi.fn(), secondLeave = vi.fn();
+    const prepare = vi.fn(() => ready ? { leave: secondLeave } : { retry: () => ready, leave: firstLeave });
+    registry.register({ id: 'studio', scope: 'retry', handles: () => true, prepare });
+    const entry = registry.enter(GUIDE_STEPS.S4, new Map(), () => { }); ready = true; registry.notify(); registry.notify();
+    expect(prepare).toHaveBeenCalledTimes(2); entry.leave(); expect(firstLeave).toHaveBeenCalledTimes(1); expect(secondLeave).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -318,10 +322,12 @@ describe('real instrument owners', () => {
   const initial = useDawStore.getInitialState();
   afterEach(() => useDawStore.setState(initial, true));
   it.each([['keys', 'editor-keys', 'J1'], ['drums', 'editor-drums', 'D1']] as const)('opens %s without auditioning, creating a lane or changing its pattern', async (kind, flow, step) => {
-    const lane = { id: kind, name: kind, type: kind === 'keys' ? 'pianoroll' : 'sequencer', clips: [], muted: false, volume: .7, pan: 0,
-      pianoRollNotes: [], sequencerVoices: [{ name: 'KICK', steps: Array(16).fill(false), velocity: Array(16).fill(.8), muted: false }] } as DAWTrack;
+    const lane = {
+      id: kind, name: kind, type: kind === 'keys' ? 'pianoroll' : 'sequencer', clips: [], muted: false, volume: .7, pan: 0,
+      pianoRollNotes: [], sequencerVoices: [{ name: 'KICK', steps: Array(16).fill(false), velocity: Array(16).fill(.8), muted: false }]
+    } as DAWTrack;
     useDawStore.setState({ ...initial, songId: 'guide-test', tracks: [lane], selectedTrackId: lane.id });
-    const audition = vi.spyOn(dawEngine, kind === 'keys' ? 'playNote' : 'triggerDrum').mockImplementation(() => {});
+    const audition = vi.spyOn(dawEngine, kind === 'keys' ? 'playNote' : 'triggerDrum').mockImplementation(() => { });
     const original = JSON.stringify(useDawStore.getState().tracks);
     function Fixture() { const { startFlow } = useGuide(); return <><button onClick={() => startFlow(flow)}>Open instrument guide</button>{kind === 'keys' ? <Keys track={lane} /> : <Drums track={lane} />}</>; }
     mount(<Fixture />, 'editor'); fireEvent.click(screen.getByText('Open instrument guide'));
@@ -332,10 +338,12 @@ describe('real instrument owners', () => {
     expect(JSON.stringify(useDawStore.getState().tracks)).toBe(original); expect(audition).not.toHaveBeenCalled();
   });
   it('keeps the real drum matrix open and focuses PAD REC on its recording step', async () => {
-    const lane = { id: 'drum-pad-test', name: 'Drums', type: 'sequencer', clips: [], muted: false, volume: .7, pan: 0,
-      sequencerVoices: [{ name: 'KICK', steps: Array(16).fill(false), velocity: Array(16).fill(.8), muted: false }] } as DAWTrack;
+    const lane = {
+      id: 'drum-pad-test', name: 'Drums', type: 'sequencer', clips: [], muted: false, volume: .7, pan: 0,
+      sequencerVoices: [{ name: 'KICK', steps: Array(16).fill(false), velocity: Array(16).fill(.8), muted: false }]
+    } as DAWTrack;
     useDawStore.setState({ ...initial, songId: 'guide-test', tracks: [lane], selectedTrackId: lane.id });
-    const audition = vi.spyOn(dawEngine, 'triggerDrum').mockImplementation(() => {});
+    const audition = vi.spyOn(dawEngine, 'triggerDrum').mockImplementation(() => { });
     const original = JSON.stringify(useDawStore.getState().tracks);
     function Fixture() { const { startFlow } = useGuide(); return <><button onClick={() => startFlow('editor-drums')}>Open pads guide</button><Drums track={lane} /></>; }
     mount(<Fixture />, 'editor'); fireEvent.click(screen.getByText('Open pads guide'));
@@ -347,9 +355,9 @@ describe('real instrument owners', () => {
   });
   it('retries the sample guide after local decoding without previewing or importing', async () => {
     useDawStore.setState({ ...initial, songId: 'guide-test' });
-    vi.spyOn(dawEngine, 'stopAuditionTake').mockImplementation(() => {});
-    const audition = vi.spyOn(dawEngine, 'auditionTake').mockImplementation(() => {});
-    vi.stubGlobal('URL', class extends URL { static createObjectURL() { return 'blob:guide-sample'; } static revokeObjectURL() {} });
+    vi.spyOn(dawEngine, 'stopAuditionTake').mockImplementation(() => { });
+    const audition = vi.spyOn(dawEngine, 'auditionTake').mockImplementation(() => { });
+    vi.stubGlobal('URL', class extends URL { static createObjectURL() { return 'blob:guide-sample'; } static revokeObjectURL() { } });
     vi.spyOn(audioPeaks, 'decodeAudioFile').mockResolvedValue({ duration: 4, numberOfChannels: 1, length: 32, sampleRate: 8, getChannelData: () => new Float32Array(32) } as AudioBuffer);
     function Fixture() { const { startFlow } = useGuide(); return <><button onClick={() => startFlow('editor-samples', { initialStep: 1 })}>Open sample guide</button><Sampler /></>; }
     mount(<Fixture />, 'editor'); fireEvent.click(screen.getByText('Open sample guide'));

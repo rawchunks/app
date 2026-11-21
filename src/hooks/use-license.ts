@@ -2,15 +2,15 @@ import { useRef, useState } from 'react';
 import { useQuery, useQueries, useQueryClient } from '@tanstack/react-query';
 import * as thirdwebReact from 'thirdweb/react';
 import { useActiveAccount, useAdminWallet } from 'thirdweb/react';
-import { Bridge, readContract, simulateTransaction, sendAndConfirmTransaction, type PreparedTransaction } from 'thirdweb';
-import { prepareTempoTransaction } from '../components/connector';
+import { readContract, simulateTransaction, sendAndConfirmTransaction, type PreparedTransaction } from 'thirdweb';
+import { prepareTempoTransaction, type Confirmation, type Order } from '../components/connector';
 import { toast } from 'sonner';
 import type { SolanaNetworkId } from '@compose-market/sdk/chains';
 import { useSelectedUserAddress } from './use-address';
 import { getSmartAccountAdminWallet } from '../lib/cache';
 import * as chainUtils from '../lib/chains';
 const { thirdwebClient, isEvmNetwork, getEvmChainObject, getNetworkRpcUrl } = chainUtils;
-import { buyLicense, getFactoryContract, getRoyaltiesContract, requireEvmDeployment } from '../lib/contracts';
+import { buyLicense, getFactoryContract, requireEvmDeployment } from '../lib/contracts';
 import { fetchSolanaHasLicense, fetchSolanaSong, relaySolanaBuyLicense, requireSolanaDeployment } from '../lib/programs';
 import { creditsApi } from '../lib/credits';
 import { api } from '../lib/api';
@@ -285,7 +285,9 @@ export function useLicense(song: Song, onEditSong?: (song: Song) => void, includ
     if (!state.data) throw new Error('The license is unavailable');
     if (state.data.owned) throw new Error('You already own a license for this song');
     if (!state.data.available || state.data.remaining === 0n) throw new Error('No licenses are available');
-    const result = await creditsApi<{ operationId: string; orderId: string; status: string }>(
+    const result = await creditsApi<
+      ({ operationId: string; orderId: string; status: string } & Partial<Order>)
+    >(
       'license/create-order',
       {
         songId: song.id,
@@ -299,15 +301,15 @@ export function useLicense(song: Song, onEditSong?: (song: Song) => void, includ
     return { ...result, price: state.data.price };
   };
 
-  const completeFiatOrder = async ({ operationId, orderId, price }: { operationId: string; orderId: string; price?: bigint }) => {
+  const finalizeCardLicense = async (
+    confirm: () => Promise<{ status: string }>,
+    price?: bigint,
+  ) => {
     if (pending) return;
     setPending(true);
     try {
       const solana = !isEvmNetwork(paymentNetwork) ? captureSolanaOperation() : null;
-      const capture = await creditsApi<{ status: string; coinflowPaymentId?: string | null }>('license/capture-order', {
-        operationId,
-        orderId,
-      });
+      const capture = await confirm();
       if (capture.status !== 'completed' && capture.status !== 'credited') throw new Error('Card payment could not be confirmed');
       const state = await query.refetch({ throwOnError: true });
       assertCurrent();
@@ -327,72 +329,25 @@ export function useLicense(song: Song, onEditSong?: (song: Song) => void, includ
     }
   };
 
-  const buyWithStripeBridge = async () => {
-    if (pending) return;
-    if (song.source || song.is_remix) { toast.error('Remixes cannot be licensed'); return; }
-    if (!account || !userAddress) { toast.error('Connect your wallet'); return; }
-    if (paymentNetwork !== song.network) { toast.error('Select the song network in your wallet'); return; }
-    setPending(true);
-    try {
-      const solana = !isEvmNetwork(paymentNetwork) ? captureSolanaOperation() : null;
-      const state = await query.refetch({ throwOnError: true });
-      assertCurrent();
-      if (!state.data || !song.chain_song_id || !song.network) throw new Error('The license is unavailable');
-      if (!state.data.owned) {
-        if (!state.data.available || state.data.remaining === 0n) throw new Error('No licenses are available');
-        let chainId = 8453;
-        let tokenAddress = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913' as `0x${string}`;
-        if (isEvmNetwork(song.network)) {
-          const chain = getEvmChainObject(song.network);
-          if (!chain) throw new Error('The song network is unavailable');
-          chainId = chain.id;
-          const royalties = getRoyaltiesContract(thirdwebClient, chain);
-          tokenAddress = (await readContract({ contract: royalties, method: 'usdc' })) as `0x${string}`;
-          assertCurrent();
-        }
-        const preparedOnramp = await Bridge.Onramp.prepare({
-          client: thirdwebClient,
-          onramp: 'stripe',
-          chainId,
-          tokenAddress,
-          receiver: account.address as `0x${string}`,
-          amount: state.data.price,
-          currency: 'USD',
-          purchaseData: { songId: song.id, chainSongId: song.chain_song_id, network: song.network },
-        });
-        assertCurrent();
-        const popup = typeof window !== 'undefined'
-          ? window.open(preparedOnramp.link, 'rawchunks_stripe_onramp', 'width=500,height=720')
-          : null;
-        const deadline = Date.now() + 10 * 60 * 1000;
-        while (Date.now() < deadline) {
-          await new Promise(resolve => setTimeout(resolve, 2500));
-          assertCurrent();
-          const onrampStatus = await Bridge.Onramp.status({
-            id: preparedOnramp.id,
-            client: thirdwebClient,
-          });
-          if (onrampStatus.status === 'COMPLETED') {
-            popup?.close();
-            break;
-          }
-          if (onrampStatus.status === 'FAILED') {
-            popup?.close();
-            throw new Error('Stripe onramp payment failed');
-          }
-          if (popup && popup.closed && onrampStatus.status === 'CREATED') {
-            throw new Error('Stripe checkout window was closed before completion');
-          }
-        }
-        await executeOnChainPurchase(state.data.price, solana);
-      } else {
-        await queryClient.invalidateQueries({ queryKey: ['license', song.id] });
-        assertCurrent();
-        toast.success('License purchased. You can remix this song from My-Page.');
-      }
-    } catch (error) { toast.error(error instanceof Error ? error.message : 'Could not buy the license with Stripe'); }
-    finally { setPending(false); }
-  };
+  const completeFiatOrder = ({ operationId, orderId, price }: { operationId: string; orderId: string; price?: bigint }) =>
+    finalizeCardLicense(
+      () => creditsApi<{ status: string; coinflowPaymentId?: string | null }>('license/capture-order', {
+        operationId,
+        orderId,
+      }),
+      price,
+    );
+
+  const completeThirdwebOrder = (confirmation: Confirmation & { price?: bigint }) =>
+    finalizeCardLicense(
+      () => creditsApi<{ status: string }>('thirdweb/confirm-order', {
+        operationId: confirmation.operationId,
+        onrampId: confirmation.onrampId,
+        transactionHash: confirmation.transactionHash,
+        chainId: confirmation.chainId,
+      }),
+      confirmation.price,
+    );
 
   const remix = async () => {
     if (pending || !onEditSong) return;
@@ -410,6 +365,6 @@ export function useLicense(song: Song, onEditSong?: (song: Song) => void, includ
     } catch (error) { toast.error(error instanceof Error ? error.message : 'Could not open a remix'); }
     finally { setPending(false); }
   };
-  return { ...query, buy, createFiatOrder, completeFiatOrder, buyWithStripeBridge, testnetMode, remix, pending, sold, salesError };
+  return { ...query, buy, createFiatOrder, completeFiatOrder, completeThirdwebOrder, testnetMode, remix, pending, sold, salesError };
 }
 

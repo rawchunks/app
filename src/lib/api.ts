@@ -21,7 +21,7 @@ export const API_BASE_URL = RAWCHUNKS_API_URL;
 
 const retry = { maxRetries: 2, initialDelayMs: 400, maxDelayMs: 6_000, jitter: true };
 
-const EVICTABLE_PREFIXES = ["songs:", "project:", "rawchunks:wip:", "waveform:"];
+const EVICTABLE_PREFIXES = ["songs:", "project:", "wip:", "waveform:"];
 
 export function evictNonEssentialLocalStorage(storage: Storage): void {
   try {
@@ -288,7 +288,7 @@ async function rawchunksFetch(
       key: init.key ?? undefined,
       userAddress: init.userAddress,
       network: init.network,
-      storage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
+      storage: { getItem: () => null, setItem: () => { }, removeItem: () => { } },
     });
     const disposers = [
       playback.events.on('budget', event => compose.events.emit('budget', event)),

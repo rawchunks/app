@@ -25,7 +25,7 @@ function writeLocalList(key: string, items: string[]): void {
 
 export function useLikes(userAddress?: string | null) {
   const addr = userAddress?.trim() || '';
-  const cacheKey = addr ? `rawchunks:likes:${addr.toLowerCase()}` : '';
+  const cacheKey = addr ? `likes:${addr.toLowerCase()}` : '';
   const queryClient = useQueryClient();
 
   const query = useQuery({
@@ -145,7 +145,7 @@ export function useLikes(userAddress?: string | null) {
 
 export function useFollows(userAddress?: string | null) {
   const addr = userAddress?.trim() || '';
-  const cacheKey = addr ? `rawchunks:follows:${addr.toLowerCase()}` : '';
+  const cacheKey = addr ? `follows:${addr.toLowerCase()}` : '';
   const queryClient = useQueryClient();
 
   const query = useQuery({
@@ -255,17 +255,17 @@ export function useFollows(userAddress?: string | null) {
       queryClient.setQueryData<Social>(['social', 'creator', targetLower], (old) =>
         old
           ? {
-              ...old,
-              followers: data.followers,
-              following: data.following,
-              isFollowed: data.followed,
-            }
+            ...old,
+            followers: data.followers,
+            following: data.following,
+            isFollowed: data.followed,
+          }
           : {
-              creator: creatorAddress,
-              followers: data.followers,
-              following: data.following,
-              isFollowed: data.followed,
-            }
+            creator: creatorAddress,
+            followers: data.followers,
+            following: data.following,
+            isFollowed: data.followed,
+          }
       );
     },
   });

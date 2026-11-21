@@ -20,8 +20,9 @@ export function usePublic() {
     if (!account || !userAddress) { toast.error('Connect your wallet'); return null; }
     setPending(song.id);
     try {
+      const nextPublic = !song.public;
       const current = song.public ? song : await ensure(song);
-      const updates: Partial<Song> = { public: !current.public };
+      const updates: Partial<Song> = { public: nextPublic };
       const response = await api.fetch(`/api/songs/${encodeURIComponent(song.id)}`, {
         userAddress,
         method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updates),

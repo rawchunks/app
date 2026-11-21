@@ -51,6 +51,7 @@ import {
   evmChainId,
   getChainObject,
 } from "@/lib/chains";
+import { MAINNET_MODE } from "@/lib/credits";
 import { compose } from "@/lib/compose";
 import { setCreditRequestContext } from "@/lib/api";
 import { store } from "@/lib/store";
@@ -82,8 +83,8 @@ export function sameScope(value: { userAddress?: string | null; network?: string
 export function scopedAddress(network: NetworkId, evm: string | null, svm: string | null): string | null {
   return network.startsWith("eip155:") ? evm : svm;
 }
-const LEGACY_SESSION_KEY = "rawchunks:session";
-export function sessionCacheKey(scope: SessionScope): string { return `rawchunks:session:${scopeKey(scope)}`; }
+const LEGACY_SESSION_KEY = "session";
+export function sessionCacheKey(scope: SessionScope): string { return `session:${scopeKey(scope)}`; }
 export function readSession(storage: Storage, scope: SessionScope): SessionState | null {
   try {
     for (const key of [sessionCacheKey(scope), LEGACY_SESSION_KEY]) {
@@ -109,7 +110,7 @@ export function writeSession(storage: Storage, scope: SessionScope, value: Sessi
       try {
         storage.setItem(k, raw);
       } catch {
-        for (const prefix of ["waveform:", "project:", "songs:", "rawchunks:wip:"]) {
+        for (const prefix of ["waveform:", "project:", "songs:", "wip:"]) {
           const keys: string[] = [];
           for (let i = 0; i < storage.length; i++) {
             const key = storage.key(i);
@@ -537,7 +538,8 @@ export function SessionProvider({ children, userAddress: propUserAddress }: Sess
     setActiveSource('card');
   }, [credits.completePurchase, setActiveSource]);
 
-  const paypalClientId = import.meta.env.VITE_PAYPAL_CLIENT_ID || credits.balance.paypalClientId || "";
+  const mainnet = MAINNET_MODE;
+  const paypalClientId = mainnet ? "" : (import.meta.env.VITE_PAYPAL_CLIENT_ID || credits.balance.paypalClientId || "");
   const paypalOptions = useMemo(
     () => ({
       clientId: paypalClientId || "test",
@@ -556,7 +558,9 @@ export function SessionProvider({ children, userAddress: propUserAddress }: Sess
     credits: credits.balance, creditsLoading: credits.loading, creditsError: credits.error, creditsEnabled: credits.enabled, creditOwner: credits.owner,
     refreshCredits: credits.refresh, claimPromoCredits: handleClaimPromoCredits, completeCreditPurchase: handleCompleteCreditPurchase,
   }}>
-    <PayPalScriptProvider key={paypalClientId || "pending"} options={paypalOptions} deferLoading={!paypalClientId}>{children}</PayPalScriptProvider>
+    {mainnet
+      ? children
+      : <PayPalScriptProvider key={paypalClientId || "pending"} options={paypalOptions} deferLoading={!paypalClientId}>{children}</PayPalScriptProvider>}
   </SessionContext.Provider>;
 }
 
@@ -1277,8 +1281,8 @@ export function Session() {
         version: (current?.version ?? 0) + 1,
       }));
     };
-    window.addEventListener('rawchunks:card-checkout', handler);
-    return () => window.removeEventListener('rawchunks:card-checkout', handler);
+    window.addEventListener('card-checkout', handler);
+    return () => window.removeEventListener('card-checkout', handler);
   }, []);
 
   const [guideFunding, setGuideFunding] = useState<'campaign' | 'usdc' | 'card' | null>(null);

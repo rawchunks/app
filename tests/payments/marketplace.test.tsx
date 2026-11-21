@@ -253,3 +253,61 @@ test("transient RPC fetch failure retries automatically and reconciles without d
   expect(failed).toBeNull();
   expect(mock.error).toHaveBeenLastCalledWith("Publication failed. Changed your Network, or try again later.");
 });
+
+test("bundler simulation rejection clears submitted flag immediately and stale unhashed submitted cache recovers on retry", async () => {
+  const hash = `0x${"cd".repeat(32)}`;
+  mock.network = "eip155:42431";
+  mock.songs.set("song", { id: "song", title: "Recoverable Track", creator: mock.smart, licenses: 10, license_price: 1, stream_price: 0.1 });
+  mock.contractRead.mockImplementation(async input => input.method === "totalSongs" ? 0n : {
+    creator: mock.smart, metadataUri: "ipfs://cid", isRemix: false, parentSongId: 0n,
+  });
+  mock.tempo.mockImplementation(async (input, transaction) => ({ account: { address: input.admin.address }, transaction }));
+  mock.sendTransaction
+    .mockRejectedValueOnce(Object.assign(new Error("eth_sendUserOperation error: UserOperation reverted during simulation with reason: AA21 didn't pay prefund"), { code: -32500 }))
+    .mockResolvedValueOnce({ transactionHash: hash });
+  mock.receipt.mockResolvedValue({ status: "success", logs: [{
+    address: "0x4Ac838b970D44AB9056b4201e9ED3c1Ce271545e",
+    topics: encodeEventTopics({ abi: parseAbi(["event SongMinted(uint256 indexed songId,address indexed creator,uint256 licenseAmount,uint256 licensePrice,uint256 streamPrice,bool remixable,string metadataUri)"]),
+      eventName: "SongMinted", args: { songId: 1n, creator: mock.smart as `0x${string}` } }),
+    data: encodeAbiParameters([{ type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "bool" }, { type: "string" }],
+      [10n, 1_000_000n, 100_000n, true, "ipfs://cid"]),
+  }] });
+
+  const hook = renderHook(useMint);
+  await act(async () => { await expect(hook.result.current.ensure(mock.songs.get("song"))).rejects.toThrow("AA21"); });
+  expect(JSON.parse(localStorage.getItem("mint:song")!).submitted).toBe(false);
+
+  // Also verify a legacy stuck submitted entry without submittedAt recovers instead of locking permanently.
+  localStorage.setItem("mint:song", JSON.stringify({ network: mock.network, cid: "cid", after: "0", submitted: true }));
+  let result: any;
+  await act(async () => { result = await hook.result.current.ensure(mock.songs.get("song")); });
+  expect(result).toMatchObject({ chain_song_id: "1", network: mock.network, tx_hash: hash });
+  expect(localStorage.getItem("mint:song")).toBeNull();
+});
+
+test("publishing a track already public in the other mode stays public after minting in the active mode", async () => {
+  const hash = `0x${"ab".repeat(32)}`;
+  mock.network = "eip155:42431";
+  const song = { id: "cross-mode", title: "Cross Mode Track", creator: mock.smart, public: false, metadata_cid: "cid", licenses: 10, license_price: 1, stream_price: 0.1 };
+  mock.songs.set("cross-mode", song);
+  mock.contractRead.mockImplementation(async input => input.method === "totalSongs" ? 0n : {
+    creator: mock.smart, metadataUri: "ipfs://cid", isRemix: false, parentSongId: 0n,
+  });
+  mock.tempo.mockImplementation(async (input, transaction) => ({ account: { address: input.admin.address }, transaction }));
+  mock.sendTransaction.mockResolvedValue({ transactionHash: hash });
+  mock.receipt.mockResolvedValue({ status: "success", logs: [{
+    address: "0x4Ac838b970D44AB9056b4201e9ED3c1Ce271545e",
+    topics: encodeEventTopics({ abi: parseAbi(["event SongMinted(uint256 indexed songId,address indexed creator,uint256 licenseAmount,uint256 licensePrice,uint256 streamPrice,bool remixable,string metadataUri)"]),
+      eventName: "SongMinted", args: { songId: 1n, creator: mock.smart as `0x${string}` } }),
+    data: encodeAbiParameters([{ type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "bool" }, { type: "string" }],
+      [10n, 1_000_000n, 100_000n, true, "ipfs://cid"]),
+  }] });
+  // Simulate backend projecting public: true immediately when the second-mode mint is saved.
+  const origSet = mock.songs.set.bind(mock.songs);
+  vi.spyOn(mock.songs, "set").mockImplementation((id, val) => origSet(id, id === "cross-mode" && val.chain_song_id && !("public" in val) ? { ...val, public: true } : val));
+
+  const pub = renderHook(usePublic);
+  let published: any;
+  await act(async () => { published = await pub.result.current.toggle(song as any); });
+  expect(published).toMatchObject({ id: "cross-mode", public: true, chain_song_id: "1" });
+});

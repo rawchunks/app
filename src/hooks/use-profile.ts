@@ -66,11 +66,11 @@ export async function fetchUserProfilesBatch(addresses: string[]): Promise<Walle
       };
       if (u.evmAddress) {
         writeCachedProfile(u.evmAddress, profile);
-        window.dispatchEvent(new CustomEvent('rawchunks:profile', { detail: { address: u.evmAddress, ...profile } }));
+        window.dispatchEvent(new CustomEvent('profile', { detail: { address: u.evmAddress, ...profile } }));
       }
       if (u.svmAddress && !u.svmAddress.startsWith('svm_pending_')) {
         writeCachedProfile(u.svmAddress, profile);
-        window.dispatchEvent(new CustomEvent('rawchunks:profile', { detail: { address: u.svmAddress, ...profile } }));
+        window.dispatchEvent(new CustomEvent('profile', { detail: { address: u.svmAddress, ...profile } }));
       }
     }
     return users;
@@ -135,7 +135,7 @@ export function useProfile(address?: string | null) {
         }));
       }
     };
-    window.addEventListener('rawchunks:profile', handler);
+    window.addEventListener('profile', handler);
 
     let active = true;
     setLoading(true);
@@ -161,7 +161,7 @@ export function useProfile(address?: string | null) {
 
     return () => {
       active = false;
-      window.removeEventListener('rawchunks:profile', handler);
+      window.removeEventListener('profile', handler);
     };
   }, [address]);
 
@@ -194,7 +194,7 @@ export function useProfile(address?: string | null) {
       setProfile(optimistic);
       writeCachedProfile(address, optimistic);
       window.dispatchEvent(
-        new CustomEvent('rawchunks:profile', {
+        new CustomEvent('profile', {
           detail: { address, ...optimistic },
         })
       );
@@ -232,7 +232,7 @@ export function useProfile(address?: string | null) {
         setProfile(confirmed);
         writeCachedProfile(address, confirmed);
         window.dispatchEvent(
-          new CustomEvent('rawchunks:profile', {
+          new CustomEvent('profile', {
             detail: { address, ...confirmed },
           })
         );
@@ -243,7 +243,7 @@ export function useProfile(address?: string | null) {
         setProfile(prev);
         writeCachedProfile(address, prev);
         window.dispatchEvent(
-          new CustomEvent('rawchunks:profile', {
+          new CustomEvent('profile', {
             detail: { address, ...prev },
           })
         );

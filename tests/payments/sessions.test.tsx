@@ -10,19 +10,23 @@ const mock = vi.hoisted(() => ({
   currentWallet: null as any, token: null as string | null, cleared: vi.fn(), listeners: new Map<string, Set<(event: any) => void>>(),
   attached: vi.fn(), clearWallet: vi.fn(), select: vi.fn(), connected: true, eoaOnly: false, solanaEoa: false,
   evmBalance: vi.fn(), evmAllowance: vi.fn(), evmApprove: vi.fn(), evmSend: vi.fn(), receipt: vi.fn(), tempoApprove: vi.fn(),
-  time: 0, update: (_: number) => {}, credit: null as any,
+  time: 0, update: (_: number) => { }, credit: null as any,
 }));
-vi.mock("@/lib/audio", () => ({ audio: {
-  load: vi.fn(() => { mock.time = 0; }), play: vi.fn(), pause: vi.fn(), reset: vi.fn(), stopImmediate: vi.fn(),
-  preloadNext: vi.fn(), hasSource: () => true, position: () => mock.time,
-  setOnTimeUpdate: (callback: any) => { mock.update = callback; }, setOnDuration: vi.fn(), setOnEnd: vi.fn(),
-} }));
+vi.mock("@/lib/audio", () => ({
+  audio: {
+    load: vi.fn(() => { mock.time = 0; }), play: vi.fn(), pause: vi.fn(), reset: vi.fn(), stopImmediate: vi.fn(),
+    preloadNext: vi.fn(), hasSource: () => true, position: () => mock.time,
+    setOnTimeUpdate: (callback: any) => { mock.update = callback; }, setOnDuration: vi.fn(), setOnEnd: vi.fn(),
+  }
+}));
 vi.mock("thirdweb", () => ({ getContract: vi.fn(input => input), sendTransaction: mock.evmSend, waitForReceipt: mock.receipt }));
 vi.mock("thirdweb/extensions/erc20", () => ({ balanceOf: mock.evmBalance, allowance: mock.evmAllowance, approve: mock.evmApprove }));
 vi.mock("@/components/connector", () => ({ approveTempoSession: mock.tempoApprove }));
-vi.mock("@/lib/chains", () => ({ isEvmNetwork: (network: string) => network.startsWith("eip155:"),
+vi.mock("@/lib/chains", () => ({
+  isEvmNetwork: (network: string) => network.startsWith("eip155:"),
   isSolanaNetwork: (network: string) => network.startsWith("solana:"), evmChainId: (network: string) => Number(network.slice(7)),
-  getChainObject: (id: number) => ({ id, rpc: "https://rpc.test" }), thirdwebClient: {} }));
+  getChainObject: (id: number) => ({ id, rpc: "https://rpc.test" }), thirdwebClient: {}
+}));
 vi.mock("thirdweb/react", () => ({
   useActiveWallet: () => mock.solanaEoa
     ? { id: "app.phantom", getAccount: () => ({ address: mock.svm, isSolanaBrowserAccount: true, signMessage: mock.visibleSign, signSolanaTransaction: mock.solanaSignTx }) }
@@ -36,10 +40,18 @@ vi.mock("thirdweb/react", () => ({
     : undefined,
   useAdminWallet: () => mock.solanaEoa ? undefined : ({ getAccount: () => ({ address: mock.admin, signMessage: mock.sign }) }),
 }));
-vi.mock("@/contexts/Network", () => ({ NetworkGlyph: () => null, useChain: () => ({ selectedNetwork: mock.network,
-  chains: [{ network: mock.network, rpcUrl: "https://rpc.test", assetAddress: "mint", asset: mock.network === "eip155:42431" ? "OUSD" : "USDC" }], setSelectedNetwork: mock.select }) }));
-vi.mock("@/hooks/use-address", () => ({ useSelectedUserAddress: () => ({ userAddress: mock.connected ? (mock.network.startsWith("eip155:") ? (mock.eoaOnly ? mock.admin : mock.smart) : mock.svm) : null,
-  readAddress: mock.svm, evmSignerAddress: mock.connected && !mock.eoaOnly && !mock.solanaEoa ? mock.admin : null, activate: mock.activate }) }));
+vi.mock("@/contexts/Network", () => ({
+  NetworkGlyph: () => null, useChain: () => ({
+    selectedNetwork: mock.network,
+    chains: [{ network: mock.network, rpcUrl: "https://rpc.test", assetAddress: "mint", asset: mock.network === "eip155:42431" ? "OUSD" : "USDC" }], setSelectedNetwork: mock.select
+  })
+}));
+vi.mock("@/hooks/use-address", () => ({
+  useSelectedUserAddress: () => ({
+    userAddress: mock.connected ? (mock.network.startsWith("eip155:") ? (mock.eoaOnly ? mock.admin : mock.smart) : mock.svm) : null,
+    readAddress: mock.svm, evmSignerAddress: mock.connected && !mock.eoaOnly && !mock.solanaEoa ? mock.admin : null, activate: mock.activate
+  })
+}));
 vi.mock("@/lib/svm/swig", () => ({ createSolanaRpcFromNetwork: vi.fn(() => ({})), readSvmTokenBalance: mock.balance, buildSwigApproveTransaction: mock.approve, buildDirectSvmApproveTransaction: mock.directApprove }));
 vi.mock("@/lib/api", () => ({
   api: { fetch: mock.fetch },
@@ -51,11 +63,13 @@ vi.mock("@/lib/api", () => ({
 vi.mock("@/lib/compose", () => ({
   compose: {
     fetch: mock.fetch, x402: { facilitator: { supported: mock.support } }, svm: { relay: mock.relay },
-    wallets: { attach: (input: any) => { mock.currentWallet = input; mock.token = null; mock.attached(input); }, current: () => mock.currentWallet ?? { address: null, network: null },
-      clear: () => { mock.currentWallet = null; mock.token = null; mock.clearWallet(); } },
+    wallets: {
+      attach: (input: any) => { mock.currentWallet = input; mock.token = null; mock.attached(input); }, current: () => mock.currentWallet ?? { address: null, network: null },
+      clear: () => { mock.currentWallet = null; mock.token = null; mock.clearWallet(); }
+    },
     keys: { use: (value: any) => { mock.token = value; }, currentToken: () => mock.token, clearToken: () => { mock.token = null; mock.cleared(); }, revoke: vi.fn() },
     events: { on: (name: string, callback: any) => { const set = mock.listeners.get(name) ?? new Set(); set.add(callback); mock.listeners.set(name, set); return () => set.delete(callback); } },
-    session: { subscribe: () => ({ async *[Symbol.asyncIterator]() {} }) },
+    session: { subscribe: () => ({ async *[Symbol.asyncIterator]() { } }) },
   },
 }));
 
@@ -91,7 +105,7 @@ afterEach(() => { cleanup(); store.clearUserWorkspace(); closeGate(false); });
 async function mount() {
   const result = render(<SessionProvider><Probe /></SessionProvider>);
   await waitFor(() => expect(mock.fetch).toHaveBeenCalledWith("/api/session", expect.objectContaining({ network: DEVNET, userAddress: mock.svm, key: null })));
-  await act(async () => {});
+  await act(async () => { });
   return result;
 }
 
@@ -158,7 +172,7 @@ test('failed final settlement retains usage and prevents session deletion', asyn
   await act(async () => { await expect(context.endSession()).rejects.toThrow(/settlement.*pending/i); });
   expect(store.getState().isPlaying).toBe(false);
   expect(mock.fetch.mock.calls.some(c => c[1]?.method === 'DELETE')).toBe(false);
-  const key = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i)).find(k => k?.startsWith('rawchunks:stream:'))!;
+  const key = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i)).find(k => k?.startsWith('stream:'))!;
   expect(JSON.parse(localStorage.getItem(key)!)).toMatchObject({ observedMs: 2003, acceptedMs: 0, terminal: true, billing: { token: 'token' } });
 });
 
@@ -228,7 +242,7 @@ test("EVM session approves from the smart account to the discovered facilitator 
   mock.network = "eip155:84532";
   mock.support.mockResolvedValue({ kinds: [{ x402Version: 2, scheme: "upto", network: mock.network, extra: { facilitatorAddress: mock.admin } }] });
   render(<SessionProvider><Probe /></SessionProvider>);
-  await act(async () => {});
+  await act(async () => { });
   await act(async () => { await context.createSession("1000000", 1); });
   expect(mock.activate).not.toHaveBeenCalled();
   expect(mock.evmAllowance).toHaveBeenCalledWith(expect.objectContaining({ owner: mock.smart, spender: mock.admin }));
@@ -245,7 +259,7 @@ test("Tempo uses the same smart-account session and admin-authorized approval wi
   mock.network = "eip155:42431";
   mock.support.mockResolvedValue({ kinds: [{ x402Version: 2, scheme: "upto", network: mock.network, extra: { facilitatorAddress: mock.admin } }] });
   render(<SessionProvider><Probe /></SessionProvider>);
-  await act(async () => {});
+  await act(async () => { });
   await act(async () => { await context.createSession("1000000", 1); });
   expect(mock.tempoApprove).toHaveBeenCalledWith(expect.objectContaining({
     accountAddress: mock.smart, admin: expect.objectContaining({ address: mock.admin }),
@@ -264,7 +278,7 @@ test("browser-wallet EOA user on Tempo approves directly from the EOA without sm
   mock.eoaOnly = true;
   mock.support.mockResolvedValue({ kinds: [{ x402Version: 2, scheme: "upto", network: mock.network, extra: { facilitatorAddress: mock.smart } }] });
   render(<SessionProvider><Probe /></SessionProvider>);
-  await act(async () => {});
+  await act(async () => { });
   await act(async () => { await context.createSession("1000000", 1); });
   expect(mock.tempoApprove).not.toHaveBeenCalled();
   expect(mock.evmApprove).toHaveBeenCalledWith(expect.objectContaining({ spender: mock.smart, amountWei: 1_000_000n }));
@@ -278,14 +292,14 @@ test("Tempo funding errors name the API-advertised stablecoin", async () => {
   mock.support.mockResolvedValue({ kinds: [{ x402Version: 2, scheme: "upto", network: mock.network, extra: { facilitatorAddress: mock.admin } }] });
   mock.evmBalance.mockResolvedValue(0n);
   render(<SessionProvider><Probe /></SessionProvider>);
-  await act(async () => {});
+  await act(async () => { });
   await act(async () => { await expect(context.createSession("1000000", 1)).rejects.toThrow("OUSD"); });
   expect(mock.tempoApprove).not.toHaveBeenCalled();
 });
 
 test("StrictMode restores and refreshes the current scope without installing a stale response", async () => {
   render(<React.StrictMode><SessionProvider><Probe /></SessionProvider></React.StrictMode>);
-  await act(async () => {});
+  await act(async () => { });
   await act(async () => { await context.createSession("1000000", 1); });
   expect(context.session).toMatchObject({ active: true, network: DEVNET, token: "token" });
 });
@@ -312,7 +326,7 @@ test("switching scope cancels refresh and ignores delayed responses and old sess
   const request = mock.fetch.mock.calls.at(-1)![1];
   mock.network = MAINNET;
   result.rerender(<SessionProvider><Probe /></SessionProvider>);
-  await act(async () => {});
+  await act(async () => { });
   expect(request.signal.aborted).toBe(true);
   await act(async () => { resolve(response({ hasSession: true, network: DEVNET, token: "old", ...keyResponse() })); await refresh; });
   await act(async () => { emit("sessionActive", { userAddress: mock.svm, network: DEVNET, budgetRemaining: "999" }); });
@@ -387,21 +401,21 @@ test("restores each network's token when switching back without erasing the othe
   expect(mock.token).toBe("dev-token");
   mock.network = MAINNET;
   result.rerender(<SessionProvider><Probe /></SessionProvider>);
-  await act(async () => {});
+  await act(async () => { });
   expect(mock.token).toBe("main-token");
   mock.network = DEVNET;
   result.rerender(<SessionProvider><Probe /></SessionProvider>);
-  await act(async () => {});
+  await act(async () => { });
   expect(mock.token).toBe("dev-token");
   expect(readSession(localStorage, { address: mock.svm, network: MAINNET })?.token).toBe("main-token");
 });
 
 test("cached sessions are scoped by address/network and migrate only a matching legacy cache", () => {
   const devnet = { ...emptySession, ...keyResponse(), active: true, userAddress: mock.svm, network: DEVNET } as any;
-  localStorage.setItem("rawchunks:session", JSON.stringify(devnet));
+  localStorage.setItem("session", JSON.stringify(devnet));
   expect(readSession(localStorage, { address: mock.svm, network: MAINNET })).toBeNull();
   expect(readSession(localStorage, scope())).toMatchObject({ token: "token", network: DEVNET });
-  expect(localStorage.getItem("rawchunks:session")).toBeNull();
+  expect(localStorage.getItem("session")).toBeNull();
   writeSession(localStorage, { address: mock.svm, network: MAINNET }, { ...devnet, network: MAINNET, token: "main" });
   writeSession(localStorage, scope(), emptySession);
   expect(readSession(localStorage, { address: mock.svm, network: MAINNET })?.token).toBe("main");
@@ -413,7 +427,7 @@ test("disconnect clears live session and cached addresses cannot sign", async ()
   await act(async () => { await context.createSession("1000000", 1); });
   mock.connected = false;
   result.rerender(<SessionProvider><Probe /></SessionProvider>);
-  await act(async () => {});
+  await act(async () => { });
   expect(context.session.active).toBe(false);
   expect(mock.currentWallet).toBeNull();
   await expect(context.createSession("1000000", 1)).rejects.toThrow("Connect");

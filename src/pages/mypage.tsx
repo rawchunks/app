@@ -260,7 +260,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
   // Top-level Mode Switcher ('workspace' | 'earn') with sessionStorage memory & Finder View State
   const [activeTab, setActiveTab] = useState<'workspace' | 'earn'>(() => {
     try {
-      const saved = sessionStorage.getItem('rawchunks:mypage:tab');
+      const saved = sessionStorage.getItem('mypage:tab');
       return saved === 'earn' ? 'earn' : 'workspace';
     } catch {
       return 'workspace';
@@ -268,7 +268,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
   });
   useEffect(() => {
     try {
-      sessionStorage.setItem('rawchunks:mypage:tab', activeTab);
+      sessionStorage.setItem('mypage:tab', activeTab);
     } catch {
       // Ignore storage write errors
     }
@@ -286,7 +286,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
   const [earnSortDropdownOpen, setEarnSortDropdownOpen] = useState(false);
   const [earnView, setEarnView] = useState<'list' | 'charts'>(() => {
     try {
-      const saved = sessionStorage.getItem('rawchunks:mypage:earnView');
+      const saved = sessionStorage.getItem('mypage:earnView');
       return saved === 'charts' ? 'charts' : 'list';
     } catch {
       return 'list';
@@ -294,7 +294,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
   });
   useEffect(() => {
     try {
-      sessionStorage.setItem('rawchunks:mypage:earnView', earnView);
+      sessionStorage.setItem('mypage:earnView', earnView);
     } catch {
       // Ignore storage write errors
     }
@@ -525,7 +525,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
     () =>
       originalFamilies
         .map((versions) =>
-          versions.filter((s) => !s.public && !s.chain_song_id && !s.metadata_cid)
+          versions.filter((s) => !s.public && !s.chain_song_id)
         )
         .filter((versions) => versions.length > 0),
     [originalFamilies]
@@ -533,7 +533,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
 
   const publishedSongsList = useMemo(
     () =>
-      state.songs.filter((s) => Boolean(s.public || s.chain_song_id || s.metadata_cid)),
+      state.songs.filter((s) => Boolean(s.public || s.chain_song_id)),
     [state.songs]
   );
 
@@ -802,7 +802,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
   );
   const remixSongs = useMemo(
     () =>
-      allUserRemixSongs.filter((s) => !s.public && !s.chain_song_id && !s.metadata_cid),
+      allUserRemixSongs.filter((s) => !s.public && !s.chain_song_id),
     [allUserRemixSongs]
   );
   const unforkedLicensedSongs = useMemo(() => {
@@ -869,10 +869,10 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
     id: 'workspace', scope: activeAddress ?? 'guest', handles: step => ['W1', 'W2', 'W3', 'W4', 'K1', 'K2', 'K3', 'K4', 'K5', 'K6', 'K7'].includes(step.id),
     prepare: ({ step, bind }) => {
       const displayed = groupSongs(state.songs).map(versions => versions.find(song => song.id === selected[versions[0].family ?? versions[0].id]) ?? versions[0]);
-      const candidate = displayed.find(song => !song.public && !song.tx_hash && !song.metadata_cid) ?? displayed[0];
+      const candidate = displayed.find(song => !song.public && !song.tx_hash) ?? displayed[0];
       const songId = bind('song', candidate?.id);
       const song = displayed.find(song => song.id === songId);
-      const isPublishedCandidate = Boolean(song && (song.public || song.chain_song_id || song.metadata_cid));
+      const isPublishedCandidate = Boolean(song && (song.public || song.chain_song_id));
       const patch: Partial<typeof guideView> = {
         activeTab: isPublishedCandidate && ['W3', 'K5', 'K7'].includes(step.id) ? 'earn' : 'workspace',
         finderView: 'grid',
@@ -900,7 +900,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
       }
       if (step.id === 'K6') patch.profileModalOpen = true;
       if (step.id === 'W3' && song) patch.menuOpenId = song.id;
-      const privateSong = song && !song.public && !song.tx_hash && !song.metadata_cid;
+      const privateSong = song && !song.public && !song.tx_hash;
       if (step.id === 'W2' && privateSong) patch.editingDetailsSong = song;
       if (step.id === 'W4' && song && !song.public) patch.publishConfirmSong = song;
       const view = prepareViews(guideView, () => guideViewRef.current, {
@@ -1467,6 +1467,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
       <Asset
         key={song.id}
         song={song}
+        creatorHandle={nickname?.trim() || activeAddress || song.creator}
         versionNumber={versionNumber}
         earning={earning}
         networkFilter={earnNetworkFilter}

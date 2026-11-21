@@ -10,7 +10,7 @@ import {
 import type { NetworkId, SolanaNetworkId } from "@compose-market/sdk/chains";
 
 import { compose } from "@/lib/compose";
-import { isEvmNetwork } from "@/lib/chains";
+import { isEvmNetwork, isMainnet } from "@/lib/chains";
 import { deriveSwigConfigAddress } from "@/lib/svm/account";
 import {
   buildDirectSvmInstructionTransaction,
@@ -75,18 +75,19 @@ function requireEnvAddress(name: string, value: string | undefined): SvmAddress 
 }
 
 export function SolanaPrograms(): RawchunksSolanaDeployment {
+  const mainnet = isMainnet();
   return {
     factoryProgramId: requireEnvAddress(
-      "VITE_FACTORY_PROGRAM_ID",
-      env.VITE_FACTORY_PROGRAM_ID,
+      mainnet ? "VITE_FACTORY_PROGRAM_ID" : "VITE_DEVNET_FACTORY_PROGRAM_ID",
+      mainnet ? env.VITE_FACTORY_PROGRAM_ID : env.VITE_DEVNET_FACTORY_PROGRAM_ID,
     ),
     royaltiesProgramId: requireEnvAddress(
-      "VITE_ROYALTIES_PROGRAM_ID",
-      env.VITE_ROYALTIES_PROGRAM_ID,
+      mainnet ? "VITE_ROYALTIES_PROGRAM_ID" : "VITE_DEVNET_ROYALTIES_PROGRAM_ID",
+      mainnet ? env.VITE_ROYALTIES_PROGRAM_ID : env.VITE_DEVNET_ROYALTIES_PROGRAM_ID,
     ),
     remixProgramId: requireEnvAddress(
-      "VITE_REMIX_PROGRAM_ID",
-      env.VITE_REMIX_PROGRAM_ID,
+      mainnet ? "VITE_REMIX_PROGRAM_ID" : "VITE_DEVNET_REMIX_PROGRAM_ID",
+      mainnet ? env.VITE_REMIX_PROGRAM_ID : env.VITE_DEVNET_REMIX_PROGRAM_ID,
     ),
   };
 }
@@ -822,7 +823,7 @@ export async function relaySolanaMintSong(input: {
     signMessage: input.signMessage,
     signTransaction: input.signTransaction,
     instructions: [mintIx],
-    memo: `rawchunks: mint song ${songId}`,
+    memo: ` mint song ${songId}`,
   });
 
   if (!res.confirmed) throw new Error("The transaction is awaiting confirmation");
@@ -899,7 +900,7 @@ export async function relaySolanaRemixSong(input: {
     signMessage: input.signMessage,
     signTransaction: input.signTransaction,
     instructions: [remixIx],
-    memo: `rawchunks: remix song ${input.originalSongId}`,
+    memo: ` remix song ${input.originalSongId}`,
   });
 
   if (!res.confirmed) throw new Error("The transaction is awaiting confirmation");

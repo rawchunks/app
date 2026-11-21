@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { useGuideOwner, prepareViews } from './guide/owners';
 import { cn } from "@/lib/utils";
 import { useChain, NetworkGlyph } from "@/contexts/Network";
+import { getModeNetworks } from "@/lib/chains";
 import type { NetworkId } from "@compose-market/sdk/chains";
 import { useMultiChainBalance } from "@/hooks/use-multichain";
 import { useSelectedUserAddress } from "@/hooks/use-address";
@@ -25,6 +26,8 @@ export function NetworkSelector({ className, guide = true }: NetworkSelectorProp
   const [open, setOpen] = useState(false);
   const openRef = useRef(open); openRef.current = open;
   useGuideOwner({ id: 'network', scope: guide ? selectedNetwork : `modal:${selectedNetwork}`, handles: step => guide && step.id === 'F5', prepare: () => ({ ...prepareViews({ open }, () => ({ open: openRef.current }), { open: setOpen }, { open: true }), target: 'funding.network-menu', focus: '[aria-selected="true"]' }) });
+  const allowed = getModeNetworks();
+  const visibleChains = chains.filter((network) => allowed.includes(network.network));
   const current = getChainByNetworkId(selectedNetwork);
 
   return (
@@ -34,7 +37,7 @@ export function NetworkSelector({ className, guide = true }: NetworkSelectorProp
         {current?.name ? <span className="account-network-name">{current.name}</span> : null}
       </SelectTrigger>
       <SelectContent data-guide={guide ? "funding.network-menu" : undefined} className="account-network-content">
-        {chains.map((network) => {
+        {visibleChains.map((network) => {
           const balance = balances?.find((b) => b.network === network.network);
           return (
             <SelectItem key={network.network} value={network.network}>

@@ -5,6 +5,7 @@ export interface Mint {
   cid: string;
   after: string;
   submitted: boolean;
+  submittedAt?: number;
   hash?: string;
   id?: string;
 }

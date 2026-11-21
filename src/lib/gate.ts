@@ -5,7 +5,7 @@ export type GateStep = 'login' | 'terms' | 'funding';
 
 export const GATE_STEPS: readonly GateStep[] = ['login', 'terms', 'funding'];
 
-export const GATE_EVENT = 'rawchunks:open-gate';
+export const GATE_EVENT = 'open-gate';
 
 export interface GateRequest {
   steps: GateStep[];

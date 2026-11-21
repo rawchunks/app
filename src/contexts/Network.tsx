@@ -71,7 +71,7 @@ export function visibleRegistry(registry: FacilitatorChainsResponse): Facilitato
 }
 
 export function registryCacheKey(apiUrl: string): string {
-  return `rawchunks:chain-registry:v${REGISTRY_VERSION}:${apiUrl.replace(/\/+$/, "")}`;
+  return `chain-registry:v${REGISTRY_VERSION}:${apiUrl.replace(/\/+$/, "")}`;
 }
 
 export function validateRegistry(value: FacilitatorChainsResponse): FacilitatorChainsResponse {

@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { usePayPalScriptReducer } from '@paypal/react-paypal-js';
+import { useActiveAccount } from "thirdweb/react";
 import { useSession } from '@/hooks/use-session';
 import { useSelectedUserAddress } from '@/hooks/use-address';
 import { creditLabel, creditsApi, purchaseCacheKey, type CheckoutIntent } from '@/lib/credits';
 import { Button } from '@/components/button';
 import type { Account, Wallet as ThirdwebWallet } from "thirdweb/wallets";
-import { getContract, readContract, prepareContractCall, prepareTransaction, encode, sendAndConfirmTransaction, type Chain, type PreparedTransaction } from "thirdweb";
+import { Bridge, getContract, readContract, prepareContractCall, prepareTransaction, encode, sendAndConfirmTransaction, type Chain, type PreparedTransaction } from "thirdweb";
 import { allowance, approve } from "thirdweb/extensions/erc20";
 import { createPublicClient, createWalletClient, encodeFunctionData, hexToBytes, http, parseEventLogs, type Transport } from "viem";
 import { entryPoint06Abi, getUserOperationHash } from "viem/account-abstraction";
@@ -13,7 +14,9 @@ import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { tempoModerato } from "viem/chains";
 import { withRelay } from "viem/tempo";
 import { ShieldCheck, CreditCard } from "lucide-react";
-import { thirdwebClient } from "@/lib/chains";
+import type { NetworkId } from "@compose-market/sdk/chains";
+import { compose } from "@/lib/compose";
+import { getEvmChainObject, getModeNetworks, isEvmNetwork, isMainnet, thirdwebClient } from "@/lib/chains";
 import { getSmartAccountAdminWallet, type SmartAccountAdminWallet } from "@/lib/cache";
 import { openGate } from "@/lib/gate";
 import { cn } from "@/lib/utils";
@@ -515,6 +518,335 @@ export function PayPalCardFields({
   );
 }
 
+type Provider = 'stripe' | 'coinbase' | 'transak' | 'rampnow';
+
+const PROVIDERS: readonly { id: Provider; label: string }[] = [
+  { id: 'stripe', label: 'STRIPE' },
+  { id: 'coinbase', label: 'COINBASE' },
+  { id: 'transak', label: 'TRANSAK' },
+  { id: 'rampnow', label: 'RAMPNOW' },
+];
+
+const BASE_MAINNET_USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913' as `0x${string}`;
+
+export type Order = {
+  operationId: string;
+  chainId: number;
+  tokenAddress: string;
+  receiverAddress: string;
+  amountAtomics: string;
+  network: string;
+};
+
+export type Confirmation = {
+  operationId: string;
+  onrampId: string;
+  transactionHash?: string;
+  chainId?: number;
+};
+
+type Quote = { provider: Provider; label: string; currencyAmount: number };
+
+async function pollOnramp(id: string, popup: Window | null, active: () => boolean) {
+  const deadline = Date.now() + 10 * 60 * 1000;
+  while (Date.now() < deadline) {
+    await new Promise(resolve => setTimeout(resolve, 2500));
+    if (!active()) throw new Error('Checkout cancelled');
+    const status = await Bridge.Onramp.status({ id, client: thirdwebClient });
+    if (status.status === 'COMPLETED') {
+      popup?.close();
+      const last = status.transactions.at(-1);
+      return { transactionHash: last?.transactionHash, chainId: last?.chainId };
+    }
+    if (status.status === 'FAILED') {
+      popup?.close();
+      throw new Error('Card payment failed. Please try another card or provider.');
+    }
+    if (popup && popup.closed && status.status === 'CREATED') {
+      throw new Error('Card checkout window was closed before completion.');
+    }
+  }
+  popup?.close();
+  throw new Error('Card checkout timed out. Refresh to check status.');
+}
+
+async function executeBridgeSteps(
+  steps: Array<{ transactions: PreparedTransaction[] }>,
+  account: Account | undefined,
+  active: () => boolean,
+) {
+  let finalTx: { transactionHash?: string; chainId?: number } = {};
+  if (!steps.length) return finalTx;
+  if (!account) throw new Error('Connect your smart account to finalize cross-chain settlement.');
+  for (const step of steps) {
+    for (const transaction of step.transactions) {
+      if (!active()) throw new Error('Checkout cancelled');
+      const receipt = await sendAndConfirmTransaction({ transaction, account });
+      const chainId = transaction.chain.id;
+      finalTx = { transactionHash: receipt.transactionHash, chainId };
+      const deadline = Date.now() + 5 * 60 * 1000;
+      while (Date.now() < deadline) {
+        if (!active()) throw new Error('Checkout cancelled');
+        const bridgeStatus = await Bridge.status({
+          chainId,
+          transactionHash: receipt.transactionHash,
+          client: thirdwebClient,
+        });
+        if (bridgeStatus.status === 'COMPLETED') {
+          const destTx = bridgeStatus.transactions.at(-1);
+          if (destTx) finalTx = { transactionHash: destTx.transactionHash, chainId: destTx.chainId };
+          break;
+        }
+        if (bridgeStatus.status === 'FAILED') {
+          throw new Error('Cross-chain card settlement failed.');
+        }
+        await new Promise(resolve => setTimeout(resolve, 2500));
+      }
+    }
+  }
+  return finalTx;
+}
+
+async function ensureComposeApproval(
+  account: Account | undefined,
+  network: NetworkId,
+  tokenAddress: `0x${string}`,
+  amountAtomics: bigint,
+) {
+  if (!account || !isEvmNetwork(network)) return;
+  const chain = getEvmChainObject(network);
+  if (!chain) return;
+  const support = await compose.x402.facilitator.supported();
+  const kind = support.kinds.find(k => k.x402Version === 2 && k.network === network && k.scheme === 'upto');
+  const spender = kind?.extra?.facilitatorAddress;
+  if (typeof spender !== 'string' || !/^0x[a-fA-F0-9]{40}$/.test(spender)) return;
+  const contract = getContract({ client: thirdwebClient, chain, address: tokenAddress });
+  const approved = await allowance({ contract, owner: account.address, spender: spender as `0x${string}` });
+  if (approved < amountAtomics) {
+    await sendAndConfirmTransaction({
+      account,
+      transaction: approve({ contract, spender: spender as `0x${string}`, amountWei: amountAtomics }),
+    });
+  }
+}
+
+/** Mainnet card checkout inside Rawchunks' existing card modal using Thirdweb Merchant-of-Record onramp. */
+export function ThirdwebCard({
+  amountAtomics,
+  receiverAddress,
+  chainId = 8453,
+  tokenAddress = BASE_MAINNET_USDC,
+  createOrder,
+  onComplete,
+  onError,
+  onCancel,
+  cancelLabel = 'CANCEL',
+  submitLabel,
+  submitVariant = 'primary',
+  disabled = false,
+  error,
+  notice = '1 Credit = $0.01 USD. Encrypted card checkout settles directly to your account.',
+  showBrand = true,
+}: {
+  amountAtomics: bigint;
+  receiverAddress: string | null;
+  chainId?: number;
+  tokenAddress?: `0x${string}`;
+  createOrder: () => Promise<Order>;
+  onComplete: (confirmation: Confirmation) => Promise<void>;
+  onError: (message: string | null) => void;
+  onCancel: () => void;
+  cancelLabel?: string;
+  submitLabel: string;
+  submitVariant?: 'primary' | 'accent';
+  disabled?: boolean;
+  error: string | null;
+  notice?: string;
+  showBrand?: boolean;
+}) {
+  const account = useActiveAccount();
+  const [quotes, setQuotes] = useState<Quote[]>([]);
+  const [loadingQuotes, setLoadingQuotes] = useState(true);
+  const [selectedProvider, setSelectedProvider] = useState<Provider>('stripe');
+  const [submitting, setSubmitting] = useState(false);
+  const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
+  const mountedRef = useRef(true);
+  const submittingRef = useRef(false);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!receiverAddress || !/^0x[a-fA-F0-9]{40}$/.test(receiverAddress) || amountAtomics <= 0n) {
+      setLoadingQuotes(false);
+      return;
+    }
+    let cancelled = false;
+    setLoadingQuotes(true);
+    void Promise.allSettled(
+      PROVIDERS.map(async ({ id, label }) => {
+        const prepared = await Bridge.Onramp.prepare({
+          client: thirdwebClient,
+          onramp: id,
+          chainId,
+          tokenAddress,
+          receiver: receiverAddress as `0x${string}`,
+          amount: amountAtomics,
+          currency: 'USD',
+        });
+        const amount = Number(prepared.currencyAmount);
+        return { provider: id, label, currencyAmount: Number.isFinite(amount) ? amount : 0 };
+      }),
+    ).then(results => {
+      if (cancelled) return;
+      const available = results
+        .filter((r): r is PromiseFulfilledResult<Quote> => r.status === 'fulfilled')
+        .map(r => r.value);
+      setQuotes(available);
+      if (available.length > 0 && !available.some(q => q.provider === selectedProvider)) {
+        setSelectedProvider(available[0].provider);
+      }
+      setLoadingQuotes(false);
+    });
+    return () => { cancelled = true; };
+  }, [amountAtomics, chainId, receiverAddress, tokenAddress]);
+
+  const handleSubmit = async () => {
+    if (submittingRef.current || disabled) return;
+    submittingRef.current = true;
+    setSubmitting(true);
+    setCheckoutUrl(null);
+    onError(null);
+    const popup = typeof window !== 'undefined'
+      ? window.open('about:blank', 'rawchunks_card_checkout', 'width=480,height=720')
+      : null;
+    try {
+      const order = await createOrder();
+      const prepared = await Bridge.Onramp.prepare({
+        client: thirdwebClient,
+        onramp: selectedProvider,
+        chainId: order.chainId,
+        tokenAddress: order.tokenAddress as `0x${string}`,
+        receiver: order.receiverAddress as `0x${string}`,
+        amount: BigInt(order.amountAtomics),
+        currency: 'USD',
+        purchaseData: { operationId: order.operationId },
+      });
+      if (popup && !popup.closed) {
+        popup.location.href = prepared.link;
+      } else {
+        setCheckoutUrl(prepared.link);
+      }
+      const onrampResult = await pollOnramp(prepared.id, popup, () => mountedRef.current);
+      const bridgeResult = await executeBridgeSteps(
+        prepared.steps ?? [],
+        account,
+        () => mountedRef.current,
+      );
+      await onComplete({
+        operationId: order.operationId,
+        onrampId: prepared.id,
+        transactionHash: bridgeResult.transactionHash ?? onrampResult.transactionHash,
+        chainId: bridgeResult.chainId ?? onrampResult.chainId ?? order.chainId,
+      });
+    } catch (cause) {
+      popup?.close();
+      onError(cause instanceof Error ? cause.message : 'Card checkout failed. Please try again.');
+    } finally {
+      setCheckoutUrl(null);
+      submittingRef.current = false;
+      setSubmitting(false);
+    }
+  };
+
+  const activeQuote = quotes.find(q => q.provider === selectedProvider);
+
+  return (
+    <>
+      <div className="connector-card-form" data-ready={!loadingQuotes || undefined}>
+        {loadingQuotes ? (
+          <div className="connector-card-status" role="status">
+            INITIALIZING SECURE CARD TERMINAL...
+          </div>
+        ) : submitting ? (
+          <div className="connector-card-status" role="status">
+            {checkoutUrl ? (
+              <a href={checkoutUrl} target="_blank" rel="noreferrer" className="underline">
+                OPEN SECURE CARD CHECKOUT
+              </a>
+            ) : (
+              'WAITING FOR CARD PAYMENT CONFIRMATION...'
+            )}
+          </div>
+        ) : (
+          <div className="session-section">
+            <div className="session-section-head">
+              <span className="session-section-label">CARD PROCESSOR</span>
+              {activeQuote && activeQuote.currencyAmount > 0 && (
+                <span className="session-section-val">
+                  ~${activeQuote.currencyAmount.toFixed(2)} USD
+                </span>
+              )}
+            </div>
+            <div className="session-pills-row">
+              {(quotes.length > 0 ? quotes : PROVIDERS.map(p => ({ provider: p.id, label: p.label, currencyAmount: 0 }))).map(item => (
+                <button
+                  key={item.provider}
+                  type="button"
+                  className={cn('session-pill-btn session-pack-pill', selectedProvider === item.provider && 'active')}
+                  disabled={submitting || disabled}
+                  onClick={() => {
+                    setSelectedProvider(item.provider);
+                    onError(null);
+                  }}
+                >
+                  <span className="session-pack-pill-top">{item.label}</span>
+                  {item.currencyAmount > 0 && (
+                    <span className="session-pack-pill-sub">${item.currencyAmount.toFixed(2)}</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+      {notice && (
+        <div className="session-notice-strip">
+          <ShieldCheck className="session-notice-icon" size={14} />
+          <span>{notice}</span>
+        </div>
+      )}
+      {error && (
+        <div className="session-error-strip" role="alert">
+          {error}
+        </div>
+      )}
+      <div className="session-actions-footer">
+        {showBrand && (
+          <div className="connector-paypal-brand">
+            <span>Secured by Thirdweb</span>
+          </div>
+        )}
+        <div className="session-actions-btns">
+          <Button variant="ghost" size="sm" onClick={onCancel} disabled={submitting || disabled}>
+            {cancelLabel}
+          </Button>
+          <Button
+            variant={submitVariant}
+            size="sm"
+            disabled={submitting || disabled || loadingQuotes}
+            onClick={() => void handleSubmit()}
+          >
+            {submitting ? 'PROCESSING...' : submitLabel}
+          </Button>
+        </div>
+      </div>
+    </>
+  );
+}
+
 export function CardCheckout({
   intent: effectiveIntent = { kind: 'balance' },
   version = 0,
@@ -531,7 +863,9 @@ export function CardCheckout({
   onCancel: () => void;
 }) {
   const { session, credits, creditsLoading, creditOwner, completeCreditPurchase } = useSession();
-  const { paymentNetwork, userAddress, readAddress } = useSelectedUserAddress();
+  const { paymentNetwork, userAddress, readAddress, evmAddress } = useSelectedUserAddress();
+  const account = useActiveAccount();
+  const mainnet = isMainnet();
   const packs = credits.packs;
   const [packId, setPackId] = useState(packs[0]?.id ?? '');
   const pack = packs.find(value => value.id === packId) ?? packs[0];
@@ -539,7 +873,7 @@ export function CardCheckout({
   const operation = useRef<{ operationId: string; orderId: string } | null>(null);
   const requestKey = useRef(crypto.randomUUID());
 
-  const resolvedNetwork = session?.network || paymentNetwork || null;
+  const resolvedNetwork = session?.network || paymentNetwork || getModeNetworks()[0];
   const resolvedUserAddress = session?.userAddress || userAddress || readAddress || creditOwner || null;
   const orderParamsRef = useRef({
     packId: pack?.id ?? '',
@@ -547,6 +881,7 @@ export function CardCheckout({
     creditOwner,
     network: resolvedNetwork,
     userAddress: resolvedUserAddress,
+    evmAddress,
   });
   orderParamsRef.current = {
     packId: pack?.id ?? '',
@@ -554,6 +889,7 @@ export function CardCheckout({
     creditOwner,
     network: resolvedNetwork,
     userAddress: resolvedUserAddress,
+    evmAddress,
   };
 
   useEffect(() => {
@@ -617,65 +953,126 @@ export function CardCheckout({
         </div>
       </div>
       {pack && creditOwner ? (
-        <PayPalCardFields
-          createOrder={async () => {
-            setError(null);
-            const current = orderParamsRef.current;
-            if (!current.creditOwner) throw new Error('Connect your account first');
-            try {
-              const result = await creditsApi<{ operationId: string; orderId: string }>(
-                'paypal/create-order',
-                {
-                  packId: current.packId,
-                  checkout: current.intent,
-                  ...(current.network ? { network: current.network } : {}),
-                  ...(current.userAddress || current.creditOwner ? { walletAddress: current.userAddress || current.creditOwner } : {}),
-                },
-                requestKey.current,
-              );
-              operation.current = { operationId: result.operationId, orderId: result.orderId };
-              localStorage.setItem(purchaseCacheKey(current.creditOwner), result.operationId);
-              return result.orderId;
-            } catch (err) {
-              operation.current = null;
-              requestKey.current = crypto.randomUUID();
-              throw err;
-            }
-          }}
-          onApprove={async data => {
-            if (!operation.current || data.orderID !== operation.current.orderId) {
-              operation.current = null;
-              requestKey.current = crypto.randomUUID();
-              throw new Error('Checkout order mismatch');
-            }
-            const currentOp = operation.current;
-            try {
-              await creditsApi('paypal/capture-order', {
-                operationId: currentOp.operationId,
-                orderId: currentOp.orderId,
-              });
-              await completeCreditPurchase(currentOp.operationId);
-              operation.current = null;
-              requestKey.current = crypto.randomUUID();
-              onComplete();
-            } catch (err) {
-              operation.current = null;
-              requestKey.current = crypto.randomUUID();
-              throw err;
-            }
-          }}
-          onError={(msg) => {
-            if (msg && operation.current) {
-              operation.current = null;
-              requestKey.current = crypto.randomUUID();
-            }
-            setError(msg);
-          }}
-          onCancel={onCancel}
-          cancelLabel={cancelLabel}
-          submitLabel={`BUY $${Number(pack.usd)} CREDITS`}
-          error={error}
-        />
+        mainnet ? (
+          <ThirdwebCard
+            amountAtomics={BigInt(pack.amountAtomics)}
+            receiverAddress={evmAddress || creditOwner}
+            createOrder={async () => {
+              setError(null);
+              const current = orderParamsRef.current;
+              if (!current.creditOwner) throw new Error('Connect your account first');
+              try {
+                const result = await creditsApi<Order>(
+                  'thirdweb/create-order',
+                  {
+                    packId: current.packId,
+                    checkout: current.intent,
+                    network: current.network,
+                    walletAddress: current.evmAddress || current.userAddress || current.creditOwner,
+                  },
+                  requestKey.current,
+                );
+                operation.current = { operationId: result.operationId, orderId: result.operationId };
+                localStorage.setItem(purchaseCacheKey(current.creditOwner), result.operationId);
+                return result;
+              } catch (err) {
+                operation.current = null;
+                requestKey.current = crypto.randomUUID();
+                throw err;
+              }
+            }}
+            onComplete={async confirmation => {
+              try {
+                await creditsApi('thirdweb/confirm-order', confirmation);
+                await ensureComposeApproval(
+                  account,
+                  orderParamsRef.current.network as NetworkId,
+                  BASE_MAINNET_USDC,
+                  BigInt(pack.amountAtomics),
+                ).catch(() => {});
+                await completeCreditPurchase(confirmation.operationId);
+                operation.current = null;
+                requestKey.current = crypto.randomUUID();
+                onComplete();
+              } catch (err) {
+                operation.current = null;
+                requestKey.current = crypto.randomUUID();
+                throw err;
+              }
+            }}
+            onError={(msg) => {
+              if (msg && operation.current) {
+                operation.current = null;
+                requestKey.current = crypto.randomUUID();
+              }
+              setError(msg);
+            }}
+            onCancel={onCancel}
+            cancelLabel={cancelLabel}
+            submitLabel={`BUY $${Number(pack.usd)} CREDITS`}
+            error={error}
+          />
+        ) : (
+          <PayPalCardFields
+            createOrder={async () => {
+              setError(null);
+              const current = orderParamsRef.current;
+              if (!current.creditOwner) throw new Error('Connect your account first');
+              try {
+                const result = await creditsApi<{ operationId: string; orderId: string }>(
+                  'paypal/create-order',
+                  {
+                    packId: current.packId,
+                    checkout: current.intent,
+                    ...(current.network ? { network: current.network } : {}),
+                    ...(current.userAddress || current.creditOwner ? { walletAddress: current.userAddress || current.creditOwner } : {}),
+                  },
+                  requestKey.current,
+                );
+                operation.current = { operationId: result.operationId, orderId: result.orderId };
+                localStorage.setItem(purchaseCacheKey(current.creditOwner), result.operationId);
+                return result.orderId;
+              } catch (err) {
+                operation.current = null;
+                requestKey.current = crypto.randomUUID();
+                throw err;
+              }
+            }}
+            onApprove={async data => {
+              if (!operation.current || data.orderID !== operation.current.orderId) {
+                operation.current = null;
+                requestKey.current = crypto.randomUUID();
+                throw new Error('Checkout order mismatch');
+              }
+              const currentOp = operation.current;
+              try {
+                await creditsApi('paypal/capture-order', {
+                  operationId: currentOp.operationId,
+                  orderId: currentOp.orderId,
+                });
+                await completeCreditPurchase(currentOp.operationId);
+                operation.current = null;
+                requestKey.current = crypto.randomUUID();
+                onComplete();
+              } catch (err) {
+                operation.current = null;
+                requestKey.current = crypto.randomUUID();
+                throw err;
+              }
+            }}
+            onError={(msg) => {
+              if (msg && operation.current) {
+                operation.current = null;
+                requestKey.current = crypto.randomUUID();
+              }
+              setError(msg);
+            }}
+            onCancel={onCancel}
+            cancelLabel={cancelLabel}
+            submitLabel={`BUY $${Number(pack.usd)} CREDITS`}
+            error={error}
+          />
+        )
       ) : (
         <>
           {error ? (
@@ -683,13 +1080,23 @@ export function CardCheckout({
           ) : (
             <div className="session-notice-strip">
               <ShieldCheck className="session-notice-icon" size={14} />
-              <span>Sign in with Google, Email, Passkey, or Wallet to purchase Credits with Card or PayPal.</span>
+              <span>
+                {mainnet
+                  ? 'Sign in with Google, Email, Passkey, or Wallet to purchase Credits with Card.'
+                  : 'Sign in with Google, Email, Passkey, or Wallet to purchase Credits with Card or PayPal.'}
+              </span>
             </div>
           )}
           <div className="session-actions-footer">
             <div className="connector-paypal-brand">
-              <span>Powered by</span>
-              <img src="https://www.paypalobjects.com/digitalassets/c/website/logo/full-text/pp_fc_hl.svg" alt="PayPal" />
+              {mainnet ? (
+                <span>Secured by Thirdweb</span>
+              ) : (
+                <>
+                  <span>Powered by</span>
+                  <img src="https://www.paypalobjects.com/digitalassets/c/website/logo/full-text/pp_fc_hl.svg" alt="PayPal" />
+                </>
+              )}
             </div>
             <div className="session-actions-btns">
               <Button variant="ghost" size="sm" onClick={onCancel}>{cancelLabel}</Button>

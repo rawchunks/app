@@ -4,10 +4,11 @@ import { Tag, GitFork, CreditCard, ShieldCheck } from 'lucide-react';
 import { Button } from '../button';
 import { Badge } from '../badge';
 import { Tooltip } from '../daw/Tooltip';
-import { weiToUsdc } from '../../lib/chains';
+import { isMainnet, weiToUsdc } from '../../lib/chains';
 import { Modal } from '../modal';
-import { PayPalCardFields } from '../connector';
+import { PayPalCardFields, ThirdwebCard, type Order } from '../connector';
 import { useLicense } from '../../hooks/use-license';
+import { useSelectedUserAddress } from '../../hooks/use-address';
 import type { Song } from '../../lib/schema';
 
 export function Licenses({
@@ -26,14 +27,15 @@ export function Licenses({
     buy,
     createFiatOrder,
     completeFiatOrder,
-    buyWithStripeBridge,
-    testnetMode,
+    completeThirdwebOrder,
     remix,
     pending,
     error,
     sold,
     salesError,
   } = useLicense(song, onEditSong, placement === 'mypage', placement === 'mypage');
+  const { evmAddress } = useSelectedUserAddress();
+  const mainnet = isMainnet();
   const [confirm, setConfirm] = useState(false);
   const [cardMode, setCardMode] = useState(false);
   const [cardError, setCardError] = useState<string | null>(null);
@@ -152,54 +154,104 @@ export function Licenses({
               ${priceDisplay} USDC
             </span>
           </div>
-          {cardMode && testnetMode ? (
-            <PayPalCardFields
-              createOrder={async () => {
-                setCardError(null);
-                try {
-                  const created = await createFiatOrder(requestKeyRef.current);
-                  operationRef.current = { operationId: created.operationId, orderId: created.orderId, price: created.price };
-                  return created.orderId;
-                } catch (err) {
-                  operationRef.current = null;
-                  requestKeyRef.current = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}`;
-                  throw err;
-                }
-              }}
-              onApprove={async approved => {
-                if (!operationRef.current || approved.orderID !== operationRef.current.orderId) {
-                  operationRef.current = null;
-                  requestKeyRef.current = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}`;
-                  throw new Error('Checkout order mismatch');
-                }
-                const currentOp = operationRef.current;
-                try {
-                  await completeFiatOrder(currentOp);
-                  operationRef.current = null;
-                  requestKeyRef.current = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}`;
-                  closeModal();
-                } catch (err) {
-                  operationRef.current = null;
-                  requestKeyRef.current = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}`;
-                  throw err;
-                }
-              }}
-              onError={msg => {
-                if (msg && operationRef.current) {
-                  operationRef.current = null;
-                  requestKeyRef.current = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}`;
-                }
-                setCardError(msg);
-              }}
-              onCancel={() => setCardMode(false)}
-              cancelLabel="BACK"
-              submitLabel={`PAY $${priceDisplay}`}
-              submitVariant="accent"
-              disabled={pending}
-              error={cardError}
-              notice="80% to the creator and 20% to Rawchunks."
-              showBrand={false}
-            />
+          {cardMode ? (
+            mainnet ? (
+              <ThirdwebCard
+                amountAtomics={data?.price ?? 0n}
+                receiverAddress={evmAddress}
+                createOrder={async () => {
+                  setCardError(null);
+                  try {
+                    const created = await createFiatOrder(requestKeyRef.current);
+                    if (!created.chainId || !created.tokenAddress || !created.receiverAddress || !created.amountAtomics || !created.network) {
+                      throw new Error('Mainnet license checkout parameters unavailable');
+                    }
+                    operationRef.current = { operationId: created.operationId, orderId: created.operationId, price: created.price };
+                    return created as Order;
+                  } catch (err) {
+                    operationRef.current = null;
+                    requestKeyRef.current = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}`;
+                    throw err;
+                  }
+                }}
+                onComplete={async confirmation => {
+                  const currentOp = operationRef.current;
+                  try {
+                    await completeThirdwebOrder({ ...confirmation, price: currentOp?.price ?? data?.price });
+                    operationRef.current = null;
+                    requestKeyRef.current = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}`;
+                    closeModal();
+                  } catch (err) {
+                    operationRef.current = null;
+                    requestKeyRef.current = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}`;
+                    throw err;
+                  }
+                }}
+                onError={msg => {
+                  if (msg && operationRef.current) {
+                    operationRef.current = null;
+                    requestKeyRef.current = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}`;
+                  }
+                  setCardError(msg);
+                }}
+                onCancel={() => setCardMode(false)}
+                cancelLabel="BACK"
+                submitLabel={`PAY $${priceDisplay}`}
+                submitVariant="accent"
+                disabled={pending}
+                error={cardError}
+                notice="80% to the creator and 20% to Rawchunks."
+                showBrand={false}
+              />
+            ) : (
+              <PayPalCardFields
+                createOrder={async () => {
+                  setCardError(null);
+                  try {
+                    const created = await createFiatOrder(requestKeyRef.current);
+                    operationRef.current = { operationId: created.operationId, orderId: created.orderId, price: created.price };
+                    return created.orderId;
+                  } catch (err) {
+                    operationRef.current = null;
+                    requestKeyRef.current = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}`;
+                    throw err;
+                  }
+                }}
+                onApprove={async approved => {
+                  if (!operationRef.current || approved.orderID !== operationRef.current.orderId) {
+                    operationRef.current = null;
+                    requestKeyRef.current = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}`;
+                    throw new Error('Checkout order mismatch');
+                  }
+                  const currentOp = operationRef.current;
+                  try {
+                    await completeFiatOrder(currentOp);
+                    operationRef.current = null;
+                    requestKeyRef.current = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}`;
+                    closeModal();
+                  } catch (err) {
+                    operationRef.current = null;
+                    requestKeyRef.current = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}`;
+                    throw err;
+                  }
+                }}
+                onError={msg => {
+                  if (msg && operationRef.current) {
+                    operationRef.current = null;
+                    requestKeyRef.current = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}`;
+                  }
+                  setCardError(msg);
+                }}
+                onCancel={() => setCardMode(false)}
+                cancelLabel="BACK"
+                submitLabel={`PAY $${priceDisplay}`}
+                submitVariant="accent"
+                disabled={pending}
+                error={cardError}
+                notice="80% to the creator and 20% to Rawchunks."
+                showBrand={false}
+              />
+            )
           ) : (
             <>
               <div className="session-notice-strip">
@@ -220,15 +272,10 @@ export function Licenses({
                   size="sm"
                   disabled={pending}
                   onClick={() => {
-                    if (testnetMode) {
-                      setCardError(null);
-                      operationRef.current = null;
-                      requestKeyRef.current = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}`;
-                      setCardMode(true);
-                    } else {
-                      closeModal();
-                      void buyWithStripeBridge();
-                    }
+                    setCardError(null);
+                    operationRef.current = null;
+                    requestKeyRef.current = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}`;
+                    setCardMode(true);
                   }}
                 >
                   <CreditCard size={13} />

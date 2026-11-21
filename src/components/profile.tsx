@@ -3,7 +3,7 @@ import { Modal } from './modal';
 import { Button } from './button';
 import { api } from '@/lib/api';
 import { useProfile, SocialLinkRecord, SocialPlatform } from '@/hooks/use-profile';
-import { thirdwebClient, getChains, getChainByNetwork, getExplorerUrl } from '@/lib/chains';
+import { thirdwebClient, getChains, getChainByNetwork, getExplorerUrl, isMainnet } from '@/lib/chains';
 import { getProfiles, linkProfile, unlinkProfile } from 'thirdweb/wallets/in-app';
 import type { Profile as ThirdwebLinkedProfile } from 'thirdweb/wallets';
 import {
@@ -361,10 +361,13 @@ export function resolveCreatorWallets(params: {
 }): CreatorWalletEntry[] {
   const { primaryAddress, addresses, songs, explicitExplorerUrl } = params;
   const chains = getChains();
-  const defaultEvmChain = chains.find(
+  const mainnet = isMainnet();
+  const modeChains = chains.filter((c) => Boolean(c.isTestnet) !== mainnet);
+  const pool = modeChains.length > 0 ? modeChains : chains;
+  const defaultEvmChain = pool.find(
     (c) => c.namespace === 'eip155' || (c.network ?? '').startsWith('eip155:')
   );
-  const defaultSolChain = chains.find(
+  const defaultSolChain = pool.find(
     (c) => c.namespace === 'solana' || (c.network ?? '').startsWith('solana:')
   );
 
@@ -420,8 +423,8 @@ export function resolveCreatorWallets(params: {
     }
     if (!explorerUrl) {
       explorerUrl = isEvm
-        ? `https://sepolia.basescan.org/address/${addr}`
-        : `https://explorer.solana.com/address/${addr}?cluster=devnet`;
+        ? (mainnet ? `https://basescan.org/address/${addr}` : `https://sepolia.basescan.org/address/${addr}`)
+        : (mainnet ? `https://explorer.solana.com/address/${addr}` : `https://explorer.solana.com/address/${addr}?cluster=devnet`);
     }
     return { address: addr, networkName, explorerUrl };
   };

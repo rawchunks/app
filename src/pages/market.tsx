@@ -1093,6 +1093,7 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
                 <Timeline
                   key={family}
                   song={song}
+                  creatorSlug={creatorCustomNickname || selectedCreatorCanonicalAddr || selectedCreator}
                   versions={versions}
                   isPlayingThis={isPlayingThis}
                   onPlayToggle={() => handlePlaySong(song, creatorPlayableSongs, creatorCtx)}

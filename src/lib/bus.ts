@@ -1,7 +1,7 @@
 /**
  * Unified Audio Session Arbiter & Cross-Tab Synchronizer
  * Enforces mutual exclusion across playback domains (global player, DAW transport, cue preview)
- * and across browser tabs via BroadcastChannel('rawchunks:sync').
+ * and across browser tabs via BroadcastChannel('sync').
  */
 
 import type { Song } from './schema';
@@ -30,7 +30,7 @@ class AudioBus {
   constructor() {
     if (typeof window !== 'undefined' && typeof BroadcastChannel !== 'undefined') {
       try {
-        this.channel = new BroadcastChannel('rawchunks:sync');
+        this.channel = new BroadcastChannel('sync');
         this.channel.onmessage = (event: MessageEvent<CrossTabEvent>) => {
           const msg = event.data;
           if (!msg || msg.tabId === this.tabId) return;
@@ -104,11 +104,11 @@ class AudioBus {
       if (typeof window !== 'undefined') {
         if (song) {
           localStorage.setItem(
-            'rawchunks:playback',
+            'playback',
             JSON.stringify({ song, playhead, duration, updatedAt: Date.now() }),
           );
         } else {
-          localStorage.removeItem('rawchunks:playback');
+          localStorage.removeItem('playback');
         }
       }
     } catch { }

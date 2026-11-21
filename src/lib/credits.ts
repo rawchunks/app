@@ -2,7 +2,7 @@ import { api } from './api';
 
 export type CheckoutIntent = { kind: 'balance' };
 export function promptCardCheckout(intent: CheckoutIntent = { kind: 'balance' }): void {
-  window.dispatchEvent(new CustomEvent('rawchunks:card-checkout', { detail: { intent } }));
+  window.dispatchEvent(new CustomEvent('card-checkout', { detail: { intent } }));
 }
 export interface CreditPack { id: string; amountAtomics: string; usd: string }
 export interface CreditPromoStatus {
@@ -28,8 +28,11 @@ export interface CreditBalance {
   environment: 'sandbox' | 'live';
   promo?: CreditPromoStatus;
 }
+export const MAINNET_MODE =
+  typeof import.meta !== 'undefined' &&
+  String(import.meta.env?.VITE_NETWORK_MODE).trim().toLowerCase() === 'mainnet';
 export const DEFAULT_PAYPAL_CLIENT_ID: string =
-  (typeof import.meta !== 'undefined' && import.meta.env?.VITE_PAYPAL_CLIENT_ID) || '';
+  MAINNET_MODE ? '' : ((typeof import.meta !== 'undefined' && import.meta.env?.VITE_PAYPAL_CLIENT_ID) || '');
 export const zeroCredits: CreditBalance = {
   availableAtomics: '0',
   allocatedAtomics: '0',
@@ -38,7 +41,7 @@ export const zeroCredits: CreditBalance = {
   suspendedAtomics: '0',
   packs: [],
   paypalClientId: DEFAULT_PAYPAL_CLIENT_ID,
-  environment: 'sandbox',
+  environment: MAINNET_MODE ? 'live' : 'sandbox',
 };
 export interface CreditsRequestOptions {
   userAddress?: string | null;
@@ -86,4 +89,4 @@ export function formatCredits(atomics: string): string {
 }
 export function formatDollars(atomics: string): string { return compact(BigInt(atomics || '0'), 1000000n, 2); }
 export function creditLabel(atomics: string): string { return `${formatCredits(atomics)} ($${formatDollars(atomics)})`; }
-export const purchaseCacheKey = (owner: string) => `rawchunks:credit-purchase:${owner.toLowerCase()}`;
+export const purchaseCacheKey = (owner: string) => `credit-purchase:${owner.toLowerCase()}`;

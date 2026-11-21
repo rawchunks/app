@@ -49,12 +49,12 @@ export interface State {
 type Listener = (state: State) => void;
 
 const STORAGE_KEYS = {
-  playback: 'rawchunks:playback',
-  repeat: 'rawchunks:repeatMode',
-  shuffle: 'rawchunks:shuffle',
-  autoplay: 'rawchunks:autoplay',
-  queue: 'rawchunks:queue',
-  sleepTimerExpired: 'rawchunks:sleep-timer-expired',
+  playback: 'playback',
+  repeat: 'repeatMode',
+  shuffle: 'shuffle',
+  autoplay: 'autoplay',
+  queue: 'queue',
+  sleepTimerExpired: 'sleep-timer-expired',
 };
 
 interface Playback {
@@ -76,7 +76,7 @@ interface Playback {
   failures?: number;
   rejected?: boolean;
 }
-const STREAM_STORAGE = 'rawchunks:stream:';
+const STREAM_STORAGE = 'stream:';
 
 class Store {
   private state: State;
@@ -159,7 +159,7 @@ class Store {
             localStorage.removeItem(STORAGE_KEYS.sleepTimerExpired);
           }
         }
-      } catch {}
+      } catch { }
     }
 
     if (initialSong && initialQueue.length === 0) {
@@ -356,7 +356,7 @@ class Store {
               ...options, method: 'POST', keepalive: true,
               headers: { ...options.headers, 'Content-Type': 'application/json' },
               body: JSON.stringify({ paymentIntentId: lane.intent, listenedSeconds: Math.round(lane.observedMs) / 1000, terminal: true }),
-            }).catch(() => {});
+            }).catch(() => { });
           }
         }
       });
@@ -369,7 +369,7 @@ class Store {
     if (typeof window === 'undefined') return;
     try {
       localStorage.setItem(STORAGE_KEYS.queue, JSON.stringify(queue.slice(0, 100)));
-    } catch {}
+    } catch { }
   }
 
   private getViewerAddresses(): string[] {
@@ -389,7 +389,7 @@ class Store {
           if (parsed?.evmAddress) candidates.add(parsed.evmAddress.trim());
           if (parsed?.svmAddress) candidates.add(parsed.svmAddress.trim());
         }
-      } catch {}
+      } catch { }
     }
     return Array.from(candidates).filter(Boolean);
   }
@@ -420,12 +420,12 @@ class Store {
           this.updateSong(songId, { plays: data.plays, last_played_at: data.last_played_at });
         }
       }
-    } catch {}
+    } catch { }
   }
 
   private persistPlayback(lane: Playback) {
     if (lane.exempt || lane.rejected || !lane.intent) {
-      try { localStorage.removeItem(`${STREAM_STORAGE}${lane.id}`); } catch {}
+      try { localStorage.removeItem(`${STREAM_STORAGE}${lane.id}`); } catch { }
       return;
     }
     const { running, admitting, retry, ...stored } = lane;
@@ -443,9 +443,9 @@ class Store {
       const restored: Playback[] = [];
       for (const key of keys) {
         let lane: any = null;
-        try { lane = JSON.parse(localStorage.getItem(key)!); } catch {}
+        try { lane = JSON.parse(localStorage.getItem(key)!); } catch { }
         if (!lane?.id || !lane.songId || !lane.billing || !lane.intent || lane.exempt || lane.rejected || !Number.isFinite(lane.observedMs) || !Number.isFinite(lane.acceptedMs)) {
-          try { localStorage.removeItem(key); } catch {}
+          try { localStorage.removeItem(key); } catch { }
           continue;
         }
         if (this.playbacks.has(lane.id)) continue;
@@ -455,7 +455,7 @@ class Store {
         restored.push(lane);
       }
       for (const lane of restored) void this.drainPlayback(lane);
-    } catch {}
+    } catch { }
   }
 
   private observePlayback(time: number) {
@@ -523,7 +523,7 @@ class Store {
   private admitPlayback(lane: Playback): Promise<any> {
     if (lane.admitting) return lane.admitting;
     lane.admitting = (async () => {
-      for (;;) {
+      for (; ;) {
         const options = streamOptions(lane.billing)!;
         const response = await api.fetch(`/api/songs/${lane.songId}/stream`, {
           ...options, headers: { ...options.headers, Accept: 'application/json', 'x-idempotency-key': lane.id },
@@ -608,7 +608,7 @@ class Store {
   private removePlayback(lane: Playback) {
     this.playbacks.delete(lane.id);
     if (lane.retry) clearTimeout(lane.retry);
-    try { localStorage.removeItem(`${STREAM_STORAGE}${lane.id}`); } catch {}
+    try { localStorage.removeItem(`${STREAM_STORAGE}${lane.id}`); } catch { }
   }
 
   public async closeSessionPlayback(token: string | null): Promise<boolean> {
@@ -1192,7 +1192,7 @@ class Store {
     if (typeof window !== 'undefined') {
       try {
         localStorage.setItem(STORAGE_KEYS.repeat, mode);
-      } catch {}
+      } catch { }
     }
     this.notify();
   }
@@ -1208,7 +1208,7 @@ class Store {
     if (typeof window !== 'undefined') {
       try {
         localStorage.setItem(STORAGE_KEYS.shuffle, String(shuffle));
-      } catch {}
+      } catch { }
     }
     this.notify();
   }
@@ -1218,7 +1218,7 @@ class Store {
     if (typeof window !== 'undefined') {
       try {
         localStorage.setItem(STORAGE_KEYS.autoplay, String(autoplay));
-      } catch {}
+      } catch { }
     }
     this.notify();
   }
@@ -1262,7 +1262,7 @@ class Store {
           expiredAt: Date.now(),
         };
         localStorage.setItem(STORAGE_KEYS.sleepTimerExpired, JSON.stringify(promptData));
-      } catch {}
+      } catch { }
     }
     if (pauseAudio && this.state.isPlaying) {
       void this.setPlaying(false);
@@ -1299,7 +1299,7 @@ class Store {
     if (typeof window !== 'undefined') {
       try {
         localStorage.removeItem(STORAGE_KEYS.sleepTimerExpired);
-      } catch {}
+      } catch { }
     }
 
     this.state = {
@@ -1324,7 +1324,7 @@ class Store {
     if (typeof window !== 'undefined') {
       try {
         localStorage.removeItem(STORAGE_KEYS.sleepTimerExpired);
-      } catch {}
+      } catch { }
     }
     if (this.state.sleepTimerPrompt) {
       this.state = { ...this.state, sleepTimerPrompt: null };
@@ -1434,7 +1434,7 @@ class Store {
             this.state = { ...this.state, sleepTimerPrompt: parsedExpired };
           }
         }
-      } catch {}
+      } catch { }
     }
 
     const allowOverlap = this.pendingAutoAdvanceOverlap;
