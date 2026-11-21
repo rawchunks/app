@@ -9,6 +9,9 @@ import { isBase, preview, interval, source, clips, sourceInterval, retained, mas
 import type { Project } from '../cache';
 import { DRUM_STEPS } from './notes';
 import { type WaveSculptState, createDefaultWaveSculpt, seedResolvedPeaks } from './peaks';
+import type { AlignedLine, AlignedWord, LyricsAlignment } from '../lyrics';
+
+export type { AlignedLine, AlignedWord, LyricsAlignment };
 
 export type TrackType = 'stem' | 'sample' | 'sequencer' | 'pianoroll' | 'strudel';
 
@@ -141,29 +144,6 @@ export interface DAWTrack {
   hasOriginalStem?: boolean;
   originalUrl?: string;
   activeVersionTakeId?: string | null;
-}
-
-export interface AlignedWord {
-  text: string;
-  start: number;
-  end: number;
-  loss?: number;
-}
-
-export interface AlignedLine {
-  index: number;
-  text: string;
-  isTag?: boolean;
-  start: number | null;
-  end: number | null;
-  words: AlignedWord[];
-}
-
-export interface LyricsAlignment {
-  source: 'scribe_v2' | 'forced_alignment';
-  updatedAt: string;
-  lines: AlignedLine[];
-  words: AlignedWord[];
 }
 
 export interface Take {
@@ -1884,7 +1864,7 @@ export const useDawStore = create<DAWState>((set, get) => ({
     const songId = state.songId;
     if (!songId) return;
     try {
-      localStorage.removeItem(`rawchunks:wip:${songId}`);
+      localStorage.removeItem(`wip:${songId}`);
     } catch { }
     try {
       await api.fetch(`/api/editing/wip/${encodeURIComponent(songId)}`, {
@@ -2477,8 +2457,8 @@ export const useDawStore = create<DAWState>((set, get) => ({
       tracks,
       ...(!state.takes.some(take => take.task === 'text2music')
         ? {
-            bpm: baseParams?.submitted?.bpm ?? baseParams?.resolved?.bpm ?? state.bpm,
-          }
+          bpm: baseParams?.submitted?.bpm ?? baseParams?.resolved?.bpm ?? state.bpm,
+        }
         : {}),
       ...(resolvedKeyScale ? { keyScale: String(resolvedKeyScale) } : {}),
       ...(resolvedStylePrompt ? { stylePrompt: String(resolvedStylePrompt) } : {}),

@@ -1,3 +1,136 @@
+import { api } from './api';
+
+export interface AlignedWord {
+  text: string;
+  start: number;
+  end: number;
+  loss?: number;
+}
+
+export interface AlignedLine {
+  index: number;
+  text: string;
+  isTag?: boolean;
+  start: number | null;
+  end: number | null;
+  words: AlignedWord[];
+}
+
+export interface LyricsAlignment {
+  source: 'scribe' | 'aligned';
+  updatedAt: string;
+  lines: AlignedLine[];
+  words: AlignedWord[];
+}
+
+export interface PublicLyrics {
+  songId: string;
+  alignment: LyricsAlignment | null;
+  status: 'cached' | 'transcribing' | 'none';
+}
+
+export interface EditorLyrics {
+  songId: string;
+  lyrics: string;
+  vocalLanguage: string;
+  alignment: LyricsAlignment | null;
+  status: 'cached' | 'transcribing' | 'aligning' | 'none';
+}
+
+export function collapseWhitespace(raw: string): string {
+  let out = '';
+  let prevSpace = true;
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i];
+    if (ch === ' ' || ch === '\t' || ch === '\r' || ch === '\n') {
+      if (!prevSpace) {
+        out += ' ';
+        prevSpace = true;
+      }
+    } else {
+      out += ch;
+      prevSpace = false;
+    }
+  }
+  return out.endsWith(' ') ? out.slice(0, -1) : out;
+}
+
+export function isBracketOnlyLine(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith('[') || !trimmed.endsWith(']')) return false;
+  let depth = 0;
+  for (let i = 0; i < trimmed.length; i++) {
+    const ch = trimmed[i];
+    if (ch === '[') depth += 1;
+    else if (ch === ']') {
+      if (depth === 0) return false;
+      depth -= 1;
+    } else if (depth === 0 && ch !== ' ' && ch !== '\t') {
+      return false;
+    }
+  }
+  return depth === 0;
+}
+
+export async function fetchPublicLyrics(
+  songIdOrSlug: string,
+  options?: { creatorSlug?: string | null; userAddress?: string | null }
+): Promise<PublicLyrics> {
+  const params = new URLSearchParams();
+  if (options?.creatorSlug?.trim()) params.set('creator', options.creatorSlug.trim());
+  const qs = params.toString() ? `?${params.toString()}` : '';
+  const response = await api.fetch(`/api/lyrics/${encodeURIComponent(songIdOrSlug)}${qs}`, {
+    ...(options?.userAddress ? { userAddress: options.userAddress } : {}),
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok || !data) {
+    throw new Error(data?.error || 'Could not load lyrics');
+  }
+  return data as PublicLyrics;
+}
+
+export async function fetchEditorLyrics(
+  songId: string,
+  options?: { language?: string; userAddress?: string | null }
+): Promise<EditorLyrics> {
+  const params = new URLSearchParams({ scope: 'editor' });
+  if (options?.language?.trim()) params.set('language', options.language.trim());
+  const response = await api.fetch(`/api/lyrics/${encodeURIComponent(songId)}?${params.toString()}`, {
+    ...(options?.userAddress ? { userAddress: options.userAddress } : {}),
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok || !data) {
+    throw new Error(data?.error || 'Could not load editor lyrics');
+  }
+  return data as EditorLyrics;
+}
+
+export async function syncEditorLyrics(
+  songId: string,
+  options: {
+    userAddress: string;
+    mode: 'extract' | 'align';
+    lyrics?: string;
+    vocalLanguage?: string;
+  }
+): Promise<EditorLyrics> {
+  const response = await api.fetch(`/api/lyrics/${encodeURIComponent(songId)}`, {
+    method: 'POST',
+    userAddress: options.userAddress,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      vocalLanguage: options.vocalLanguage || 'en',
+      mode: options.mode,
+      ...(options.lyrics !== undefined ? { lyrics: options.lyrics } : {}),
+    }),
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok || !data) {
+    throw new Error(data?.error || 'Could not sync lyrics');
+  }
+  return data as EditorLyrics;
+}
+
 export type LyricCategory = 'structure' | 'intensity' | 'solo' | 'vocal';
 
 export interface StructuredTag {

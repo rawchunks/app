@@ -8,6 +8,7 @@ import { Badge } from '../components/badge';
 import { Modal } from '../components/modal';
 import { Song, Task } from '../lib/schema';
 import { useDawStore, TrackType, type Take, type LyricsAlignment } from '../lib/daw/store';
+import { collapseWhitespace, fetchEditorLyrics, syncEditorLyrics } from '../lib/lyrics';
 import { dawEngine } from '../lib/daw/engine';
 import { useOptions } from '../hooks/use-options';
 import { useSelectedUserAddress } from '../hooks/use-address';
@@ -492,6 +493,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
   const pollTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const streamControllersRef = useRef<Map<string, AbortController>>(new Map());
   const lyricsPollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lyricsReqSeqRef = useRef(0);
   const scopeRef = useRef(0);
   const sessionRef = useRef(false);
   useEffect(() => {
@@ -517,7 +519,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
     return () => { window.removeEventListener('pagehide', leave); leave(); };
   }, [song.id, readAddress]);
 
-  // Non-blocking background poller for ElevenLabs Scribe vocal stem transcription & forced alignment
+  // Single unified non-blocking poller against /api/lyrics/:id?scope=editor (serialized via lyricsReqSeqRef so polls never race explicit Sync/Extract)
   const pollSongLyrics = useCallback((targetSongId: string, attempt = 0) => {
     const effectiveAddress = readAddress || song.creator || '';
     if (lyricsPollTimerRef.current) {
@@ -525,18 +527,24 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
       lyricsPollTimerRef.current = null;
     }
     const scope = scopeRef.current;
+    const seq = ++lyricsReqSeqRef.current;
     void (async () => {
       try {
-        const res = await api.fetch(
-          `/api/editing/lyrics/${encodeURIComponent(targetSongId)}?language=${encodeURIComponent(vocalLanguage || 'en')}`,
-          effectiveAddress ? { userAddress: effectiveAddress } : {},
-        );
-        if (!res.ok || scope !== scopeRef.current || useDawStore.getState().songId !== targetSongId) return;
-        const data = await res.json();
+        const data = await fetchEditorLyrics(targetSongId, {
+          language: vocalLanguage || 'en',
+          userAddress: effectiveAddress || undefined,
+        });
+        if (
+          seq !== lyricsReqSeqRef.current ||
+          scope !== scopeRef.current ||
+          useDawStore.getState().songId !== targetSongId
+        ) {
+          return;
+        }
         if (
           data.alignment &&
           Array.isArray(data.alignment.lines) &&
-          data.alignment.lines.some((l: any) => typeof l?.start === 'number')
+          data.alignment.lines.some((l) => typeof l?.start === 'number')
         ) {
           setLyricsAlignment(data.alignment);
           useDawStore.setState({ lyricsAlignment: data.alignment });
@@ -545,7 +553,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
           useDawStore.setState({ lyrics: data.lyrics });
           setLyrics(prev => {
             if (!prev) return data.lyrics;
-            if (prev.replace(/\s+/g, ' ').trim() === data.lyrics.replace(/\s+/g, ' ').trim()) {
+            if (collapseWhitespace(prev) === collapseWhitespace(data.lyrics)) {
               return data.lyrics;
             }
             return prev;
@@ -563,8 +571,10 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
           setIsAligningLyrics(false);
         }
       } catch {
-        setIsTranscribingLyrics(false);
-        setIsAligningLyrics(false);
+        if (seq === lyricsReqSeqRef.current) {
+          setIsTranscribingLyrics(false);
+          setIsAligningLyrics(false);
+        }
       }
     })();
   }, [readAddress, song.creator, vocalLanguage]);
@@ -591,7 +601,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
             if (!lastWipRef.current || remoteUpdatedAt >= localUpdatedAt) {
               lastWipRef.current = wipData.wip;
               try {
-                localStorage.setItem(`rawchunks:wip:${song.id}`, JSON.stringify(wipData.wip));
+                localStorage.setItem(`wip:${song.id}`, JSON.stringify(wipData.wip));
               } catch { }
               useDawStore.getState().hydrateWipSnapshot(wipData.wip);
             }
@@ -619,8 +629,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
       const initialLyrics =
         history.takes.find((t: Take) => t.is_active && t.lyrics && t.lyrics !== '[Instrumental]')?.lyrics ??
         history.takes.find((t: Take) => t.task === 'text2music' && t.lyrics && t.lyrics !== '[Instrumental]')?.lyrics ??
-        history.takes.find((t: Take) => t.task === 'extract' && t.lyrics && t.lyrics !== '[Instrumental]')?.lyrics ??
-        history.takes.map((t: Take) => (t.provenance?.parameters as any)?.transcribedLyrics).find((l: any) => typeof l === 'string' && l.trim() && l.trim() !== '[Instrumental]');
+        history.takes.find((t: Take) => t.task === 'extract' && t.lyrics && t.lyrics !== '[Instrumental]')?.lyrics;
       const initialAlignment =
         history.takes
           .map((t: Take) => (t.provenance?.parameters as any)?.lyricsAlignment)
@@ -716,7 +725,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
     initProject(song.id, song.title, initialDur, song.url, cached ?? undefined);
 
     try {
-      const rawLocalWip = localStorage.getItem(`rawchunks:wip:${song.id}`);
+      const rawLocalWip = localStorage.getItem(`wip:${song.id}`);
       if (rawLocalWip) {
         const parsedLocalWip = JSON.parse(rawLocalWip);
         if (parsedLocalWip && typeof parsedLocalWip === 'object') {
@@ -746,18 +755,6 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
   }, [song.id]);
 
   useEffect(() => { void loadSongData(); }, [loadSongData]);
-
-  const autoPolledSongRef = useRef<string>('');
-  useEffect(() => {
-    if (lyricsAlignment || isTranscribingLyrics || isAligningLyrics) return;
-    const hasAudioTrack = tracks.some(
-      t => t.clips.length > 0 && Boolean(t.clips[0]?.url),
-    );
-    if (hasAudioTrack && autoPolledSongRef.current !== song.id) {
-      autoPolledSongRef.current = song.id;
-      pollSongLyrics(song.id);
-    }
-  }, [song.id, tracks, lyricsAlignment, isTranscribingLyrics, isAligningLyrics, pollSongLyrics]);
 
   const lastScheduledSynthRef = useRef<Map<string, string>>(new Map());
   const synthScheduleSignature = useMemo(() => {
@@ -1037,7 +1034,6 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
       setSelection(interval(data.take, useDawStore.getState().duration));
       toast.success('Section ready');
     } else {
-      if (!lyrics.trim() || !lyricsAlignment) pollSongLyrics(song.id);
       toast.success('Tracks ready');
     }
   };
@@ -1151,7 +1147,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
       };
       lastWipRef.current = wipSnapshot;
       try {
-        localStorage.setItem(`rawchunks:wip:${song.id}`, JSON.stringify(wipSnapshot));
+        localStorage.setItem(`wip:${song.id}`, JSON.stringify(wipSnapshot));
       } catch { }
 
       if (syncRemote) {
@@ -1283,7 +1279,6 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
           useDawStore.getState().syncStems(data.stems);
         }
         void loadSongData();
-        if (!lyrics.trim() || !lyricsAlignment) pollSongLyrics(song.id);
         useDawStore.setState(state => ({ operations: state.operations.filter(item => item.id !== (data.taskId ?? operation)) }));
         toast.success('Tracks separated');
         return;
@@ -1300,54 +1295,50 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
     }
   };
 
-  // Explicit on-demand Scribe lyrics extraction from the isolated vocal stem
+  // Explicit on-demand Scribe lyrics extraction via unified /api/lyrics/:id (cancels any active poll)
   const handleExtractLyrics = useCallback(async () => {
     const addr = effectiveAddress || readAddress;
     if (!addr) {
       toast.error('Connect your account to extract lyrics');
       return;
     }
-    if (isTranscribingLyrics) return;
+    if (isTranscribingLyrics || isAligningLyrics) return;
+    if (lyricsPollTimerRef.current) {
+      clearTimeout(lyricsPollTimerRef.current);
+      lyricsPollTimerRef.current = null;
+    }
+    const seq = ++lyricsReqSeqRef.current;
     setIsTranscribingLyrics(true);
     const scope = scopeRef.current;
     try {
-      const res = await api.fetch(`/api/editing/lyrics/${encodeURIComponent(song.id)}`, {
-        method: 'POST',
+      const data = await syncEditorLyrics(song.id, {
         userAddress: addr,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ vocalLanguage: vocalLanguage || 'en', mode: 'extract' }),
+        vocalLanguage: vocalLanguage || 'en',
+        mode: 'extract',
       });
-      const data = await res.json();
-      if (scope !== scopeRef.current || useDawStore.getState().songId !== song.id) return;
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to extract lyrics');
-      }
-      if (data.status === 'no_vocals_stem') {
-        setIsTranscribingLyrics(false);
-        toast.info('Separating tracks first to isolate the vocals for lyrics...');
-        await handleIsolateStems();
-        return;
-      }
+      if (seq !== lyricsReqSeqRef.current || scope !== scopeRef.current || useDawStore.getState().songId !== song.id) return;
       if (data.alignment && Array.isArray(data.alignment.lines) && data.alignment.lines.length > 0) {
         setLyricsAlignment(data.alignment);
+        useDawStore.setState({ lyricsAlignment: data.alignment });
       }
       if (typeof data.lyrics === 'string' && data.lyrics.trim()) {
         setLyrics(data.lyrics);
+        useDawStore.setState({ lyrics: data.lyrics });
         setHasExistingLyrics(data.lyrics.trim() !== '[Instrumental]');
-        toast.success('Lyrics extracted & synced from vocal stem');
+        toast.success('Lyrics extracted & synced to timeline');
       } else {
-        toast.info('No vocals detected in the isolated vocal stem');
+        toast.info('No vocals detected in this track');
       }
     } catch (err: any) {
       toast.error(err?.message || 'Could not extract lyrics');
     } finally {
-      if (scope === scopeRef.current) {
+      if (seq === lyricsReqSeqRef.current && scope === scopeRef.current) {
         setIsTranscribingLyrics(false);
       }
     }
-  }, [effectiveAddress, readAddress, isTranscribingLyrics, song.id, vocalLanguage]);
+  }, [effectiveAddress, readAddress, isTranscribingLyrics, isAligningLyrics, song.id, vocalLanguage]);
 
-  // Explicit forced-alignment of existing/edited lyrics against the isolated vocal stem
+  // Explicit forced-alignment of existing/edited lyrics via unified /api/lyrics/:id (cancels any active poll)
   const handleAlignLyrics = useCallback(async (customLyrics?: string) => {
     const addr = effectiveAddress || readAddress;
     if (!addr) {
@@ -1359,45 +1350,37 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
       toast.info('Add or extract lyrics first before syncing to timeline');
       return;
     }
-    if (isAligningLyrics) return;
+    if (isAligningLyrics || isTranscribingLyrics) return;
+    if (lyricsPollTimerRef.current) {
+      clearTimeout(lyricsPollTimerRef.current);
+      lyricsPollTimerRef.current = null;
+    }
+    const seq = ++lyricsReqSeqRef.current;
     setIsAligningLyrics(true);
     const scope = scopeRef.current;
     try {
-      const res = await api.fetch(`/api/editing/lyrics/${encodeURIComponent(song.id)}`, {
-        method: 'POST',
+      const data = await syncEditorLyrics(song.id, {
         userAddress: addr,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          vocalLanguage: vocalLanguage || 'en',
-          lyrics: textToAlign,
-          mode: 'align',
-        }),
+        vocalLanguage: vocalLanguage || 'en',
+        lyrics: textToAlign,
+        mode: 'align',
       });
-      const data = await res.json();
-      if (scope !== scopeRef.current || useDawStore.getState().songId !== song.id) return;
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to sync lyrics to timeline');
-      }
-      if (data.status === 'no_vocals_stem') {
-        setIsAligningLyrics(false);
-        toast.info('Separating tracks first to isolate the vocals for syncing...');
-        await handleIsolateStems();
-        return;
-      }
+      if (seq !== lyricsReqSeqRef.current || scope !== scopeRef.current || useDawStore.getState().songId !== song.id) return;
       if (data.alignment && Array.isArray(data.alignment.lines) && data.alignment.lines.length > 0) {
         setLyricsAlignment(data.alignment);
-        toast.success('Lyrics synced with vocal timeline');
+        useDawStore.setState({ lyricsAlignment: data.alignment, lyrics: textToAlign });
+        toast.success('Lyrics synced with timeline');
       } else {
-        toast.info('Could not align lyrics to vocal audio');
+        toast.info('Could not align lyrics to audio');
       }
     } catch (err: any) {
       toast.error(err?.message || 'Could not sync lyrics to timeline');
     } finally {
-      if (scope === scopeRef.current) {
+      if (seq === lyricsReqSeqRef.current && scope === scopeRef.current) {
         setIsAligningLyrics(false);
       }
     }
-  }, [effectiveAddress, readAddress, isAligningLyrics, lyrics, song.id, vocalLanguage]);
+  }, [effectiveAddress, readAddress, isAligningLyrics, isTranscribingLyrics, lyrics, song.id, vocalLanguage]);
 
   // AI Task Execution Dispatcher
   const handleApplyEdit = async (retry = false) => {

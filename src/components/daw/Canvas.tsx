@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo } from 'react';
-import { useDawStore, type LyricsAlignment, type AlignedLine, type AlignedWord } from '../../lib/daw/store';
+import { useDawStore, type LyricsAlignment, type AlignedLine } from '../../lib/daw/store';
+import { collapseWhitespace, isBracketOnlyLine } from '../../lib/lyrics';
 import { dawEngine } from '../../lib/daw/engine';
 import {
   DEFAULT_WAVE_SCULPT,
@@ -15,10 +16,6 @@ import { Tooltip } from './Tooltip';
 import { Languages } from '../studio/languages';
 
 const SECTION_TAGS = ['[Intro]', '[Verse]', '[Pre-Chorus]', '[Chorus]', '[Bridge]', '[Hook]', '[Outro]'];
-
-function isBracketOnlyLine(text: string): boolean {
-  return /^\s*(?:\[[^\]]*\]\s*)+$/.test(text);
-}
 
 function resolveEffectiveLyricsSculpt(tracks: ReturnType<typeof useDawStore.getState>['tracks']): {
   sculpt: WaveSculptState;
@@ -69,37 +66,6 @@ function formatSyncTimestamp(sec: number | null | undefined): string {
   return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}.${ms}`;
 }
 
-function sanitizeAlignedLineWords(rawWords: AlignedWord[]): AlignedWord[] {
-  if (!Array.isArray(rawWords) || rawWords.length === 0) return [];
-  const words: AlignedWord[] = rawWords.map((w) => ({ ...w }));
-
-  if (words.length >= 2) {
-    for (let k = Math.min(1, words.length - 2); k >= 0; k--) {
-      const w = words[k];
-      const next = words[k + 1];
-      const prev = k > 0 ? words[k - 1] : null;
-      const dur = w.end - w.start;
-      const gapToNext = next.start - w.end;
-      const gapFromPrev = prev ? w.start - prev.end : Infinity;
-      const loss = w.loss ?? 0;
-
-      const isPrematureBlip = gapToNext > 1.2;
-      const isIsolatedPreSilenceStretch = gapFromPrev > 0.6 && dur > 1.6 && loss > 1.8;
-
-      if (isPrematureBlip || isIsolatedPreSilenceStretch) {
-        const cleanLen = Math.max(1, w.text.replace(/[^\p{L}\p{N}]+/gu, '').length);
-        const estDur = Math.min(0.45, Math.max(0.18, cleanLen * 0.065));
-        const newEnd = Number(Math.max(0, next.start - 0.04).toFixed(3));
-        const newStart = Number(Math.max(0, newEnd - estDur).toFixed(3));
-        w.start = newStart;
-        w.end = Math.max(newStart, newEnd);
-      }
-    }
-  }
-
-  return words;
-}
-
 function normalizeAlignmentLines(alignment: LyricsAlignment): LyricsAlignment {
   const normalizedLines: AlignedLine[] = [];
 
@@ -114,14 +80,14 @@ function normalizeAlignmentLines(alignment: LyricsAlignment): LyricsAlignment {
       continue;
     }
 
-    const cleanWords = sanitizeAlignedLineWords(line.words);
+    const words = line.words;
     normalizedLines.push({
       index: normalizedLines.length,
       text: line.text,
       isTag: false,
-      start: cleanWords[0]?.start ?? line.start,
-      end: cleanWords[cleanWords.length - 1]?.end ?? line.end,
-      words: cleanWords,
+      start: words[0]?.start ?? line.start,
+      end: words[words.length - 1]?.end ?? line.end,
+      words,
     });
   }
 
@@ -514,25 +480,30 @@ export const Canvas: React.FC<CanvasProps> = ({
   const selection = useDawStore((s) => s.selection);
   const isPlaying = useDawStore((s) => s.isPlaying);
   const [isEditingLyricsCanvas, setIsEditingLyricsCanvas] = useState<boolean>(autoEdit || mode === 'overlay');
+  const [hasLocalLyricsEdit, setHasLocalLyricsEdit] = useState<boolean>(false);
   const [isLanguageModalOpen, setIsLanguageModalOpen] = useState<boolean>(false);
   const lyricsCanvasRef = useRef<HTMLTextAreaElement | null>(null);
 
+  useEffect(() => {
+    setHasLocalLyricsEdit(false);
+  }, [lyricsAlignment]);
+
   const isLyricsDirty = useMemo(() => {
     if (!lyricsAlignment?.lines || lyricsAlignment.lines.length === 0) return false;
-    const alignedText = lyricsAlignment.lines
-      .filter((l) => !l.isTag && !isBracketOnlyLine(l.text))
-      .map((l) => l.text.trim())
-      .filter(Boolean)
-      .join(' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-    const currentNonTagText = lyrics
-      .split(/\r?\n/)
-      .map((l) => l.trim())
-      .filter((l) => Boolean(l) && !isBracketOnlyLine(l))
-      .join(' ')
-      .replace(/\s+/g, ' ')
-      .trim();
+    const alignedText = collapseWhitespace(
+      lyricsAlignment.lines
+        .filter((l) => !l.isTag && !isBracketOnlyLine(l.text))
+        .map((l) => l.text.trim())
+        .filter(Boolean)
+        .join(' '),
+    );
+    const currentNonTagText = collapseWhitespace(
+      lyrics
+        .split('\n')
+        .map((l) => l.trim())
+        .filter((l) => Boolean(l) && !isBracketOnlyLine(l))
+        .join(' '),
+    );
     return currentNonTagText !== alignedText;
   }, [lyrics, lyricsAlignment?.lines]);
 
@@ -546,8 +517,12 @@ export const Canvas: React.FC<CanvasProps> = ({
       return null;
     }
 
+    if (!hasLocalLyricsEdit) {
+      return baseNorm;
+    }
+
     const rawLines = lyrics
-      .split(/\r?\n/)
+      .split('\n')
       .map((l) => l.trim())
       .filter(Boolean);
 
@@ -614,12 +589,12 @@ export const Canvas: React.FC<CanvasProps> = ({
     }
 
     return {
-      source: baseNorm.source ?? 'scribe_v2',
+      source: baseNorm.source ?? 'scribe',
       updatedAt: baseNorm.updatedAt ?? new Date().toISOString(),
       lines: mergedLines,
       words: mergedLines.flatMap((l) => l.words),
     };
-  }, [lyricsAlignment, isLyricsDirty, lyrics]);
+  }, [lyricsAlignment, hasLocalLyricsEdit, isLyricsDirty, lyrics]);
 
   const isLyricsExtracted = Boolean(
     lyrics.trim().length > 0 &&
@@ -802,9 +777,11 @@ export const Canvas: React.FC<CanvasProps> = ({
   }, [autoEdit, mode]);
 
   const finishEditingLyrics = () => {
+    const shouldAlign = hasLocalLyricsEdit && isLyricsDirty;
     pendingEditTargetRef.current = null;
     setIsEditingLyricsCanvas(false);
-    if (isLyricsDirty && onAlignLyrics && lyrics.trim().length > 0) {
+    setHasLocalLyricsEdit(false);
+    if (shouldAlign && onAlignLyrics && lyrics.trim().length > 0) {
       onAlignLyrics(lyrics);
     }
   };
@@ -840,6 +817,7 @@ export const Canvas: React.FC<CanvasProps> = ({
   const insertSectionTag = (tag: string) => {
     const el = lyricsCanvasRef.current;
     const isFocused = typeof document !== 'undefined' && document.activeElement === el;
+    setHasLocalLyricsEdit(true);
     if (!isEditingLyricsCanvas) {
       setIsEditingLyricsCanvas(true);
     }
@@ -1134,6 +1112,7 @@ export const Canvas: React.FC<CanvasProps> = ({
           onFocus={() => setIsEditingLyricsCanvas(true)}
           onChange={(e) => {
             setIsEditingLyricsCanvas(true);
+            setHasLocalLyricsEdit(true);
             onLyricsChange?.(e.target.value);
           }}
         />
