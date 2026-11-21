@@ -7,6 +7,7 @@ const RESERVED_ROOT_SEGMENTS = new Set([
   'mypage',
   'market',
   'editor',
+  'video',
   'api',
   'assets',
   'branding',
@@ -108,6 +109,7 @@ export function parseRoute(pathname: string): Route {
   const clean = pathname.replace(/^\/+|\/+$/g, '').toLowerCase();
   if (clean === 'my-page' || clean === 'mypage') return 'mypage';
   if (clean === 'editor' || /^editor\/[^/]+$/.test(clean)) return 'editor';
+  if (clean === 'video' || /^video\/[^/]+$/.test(clean)) return 'video';
   if (marketCreator(pathname) !== null && marketSong(pathname) !== null) return 'song';
   if (clean === 'market' || marketCreator(pathname) !== null) return 'market';
   return 'studio';
@@ -138,3 +140,12 @@ export function editorPath(id: string): string {
   return `/editor/${encodeURIComponent(id)}`;
 }
 
+export function videoId(pathname: string): string | null {
+  const match = /^\/video\/([^/]+)\/?$/.exec(pathname);
+  try { return match ? decodeURIComponent(match[1]) : null; }
+  catch { return null; }
+}
+
+export function videoPath(id: string): string {
+  return `/video/${encodeURIComponent(id)}`;
+}

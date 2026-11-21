@@ -14,6 +14,7 @@ import {
   GitBranch,
   ChevronRight,
   GitFork,
+  Film,
 } from 'lucide-react';
 import { Button } from '../button';
 import { Badge } from '../badge';
@@ -46,6 +47,7 @@ export interface DraftProps {
   onToggleMenu?: () => void;
   onEditDetails?: (song: Song) => void;
   onEditInStudio?: (song: Song) => void;
+  onDirectVideo?: (song: Song) => void;
   onDownload?: (song: Song) => void;
   onDelete?: (id: string) => void;
   onPublishClick?: (song: Song) => void;
@@ -85,6 +87,7 @@ export const Draft: React.FC<DraftProps> = ({
   onToggleMenu,
   onEditDetails,
   onEditInStudio,
+  onDirectVideo,
   onDownload,
   onDelete,
   onPublishClick,
@@ -151,6 +154,16 @@ export const Draft: React.FC<DraftProps> = ({
           >
             <Pencil size={12} />
             <span>AUDIO EDITOR</span>
+          </button>
+        )}
+        {onDirectVideo && (
+          <button
+            type="button"
+            className="mypage-menu-item mypage-item-edit"
+            onClick={() => onDirectVideo(song)}
+          >
+            <Film size={12} />
+            <span>{song.video ? 'VIDEO DIRECTOR ✓' : 'VIDEO DIRECTOR'}</span>
           </button>
         )}
         {onDownload && (

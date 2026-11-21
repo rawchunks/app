@@ -9,6 +9,7 @@ import {
   Share2,
   MoreHorizontal,
   Trash2,
+  Film,
 } from 'lucide-react';
 import { Tooltip } from '../daw/Tooltip';
 import { useLicense } from '../../hooks/use-license';
@@ -38,6 +39,7 @@ export interface AssetProps {
   onPlayToggle: () => void;
   isMenuOpen?: boolean;
   onToggleMenu?: () => void;
+  onDirectVideo?: (song: Song) => void;
   onDownload?: (song: Song) => void;
   onShare?: (song: Song) => void;
   onDelete?: (id: string) => void;
@@ -60,6 +62,7 @@ export const Asset: React.FC<AssetProps> = ({
   onPlayToggle,
   isMenuOpen = false,
   onToggleMenu,
+  onDirectVideo,
   onDownload,
   onShare,
   onDelete,
@@ -274,6 +277,16 @@ export const Asset: React.FC<AssetProps> = ({
                   >
                     <Share2 size={12} />
                     <span>SHARE</span>
+                  </button>
+                )}
+                {onDirectVideo && (
+                  <button
+                    type="button"
+                    className="mypage-menu-item mypage-item-edit"
+                    onClick={() => onDirectVideo(song)}
+                  >
+                    <Film size={12} />
+                    <span>{song.video ? 'VIDEO DIRECTOR ✓' : 'VIDEO DIRECTOR'}</span>
                   </button>
                 )}
                 {onDownload && (

@@ -215,10 +215,11 @@ async function detectAudioOnsetSec(url: string): Promise<number> {
 
 export interface Props {
   onEditSong: (song: Song) => void;
+  onDirectVideo: (song: Song) => void;
   className?: string;
 }
 
-export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
+export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className = '' }) => {
   const { readAddress, isReconnecting } =
     useSelectedUserAddress();
 
@@ -1441,6 +1442,14 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
           setMenuOpenId(null);
           onEditSong(s);
         }}
+        onDirectVideo={
+          isRemixLicensed
+            ? undefined
+            : (s) => {
+              setMenuOpenId(null);
+              onDirectVideo(s);
+            }
+        }
         onDownload={handleDownload}
         onDelete={handleDelete}
         onPublishClick={isRemixLicensed ? undefined : (s) => setPublishConfirmSong(s)}
@@ -1489,6 +1498,10 @@ export const Mypage: React.FC<Props> = ({ onEditSong, className = '' }) => {
           } else {
             store.playSong(song, state.songs, null);
           }
+        }}
+        onDirectVideo={(s) => {
+          setMenuOpenId(null);
+          onDirectVideo(s);
         }}
         onDownload={handleDownload}
         onDelete={handleDelete}

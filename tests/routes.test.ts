@@ -5,6 +5,8 @@ import {
   marketSong,
   normalizeSlugKey,
   parseRoute,
+  videoId,
+  videoPath,
 } from '../src/lib/routes';
 import { buildShareCopy, buildShareDisplayUrl, buildShareUrl } from '../src/lib/share';
 
@@ -29,6 +31,11 @@ describe('per-song slug routing & sharing', () => {
     expect(parseRoute('/studio')).toBe('studio');
     expect(parseRoute('/my-page')).toBe('mypage');
     expect(parseRoute('/editor/sng-123')).toBe('editor');
+    expect(parseRoute('/video/sng-123')).toBe('video');
+    expect(videoPath('sng-123')).toBe('/video/sng-123');
+    expect(videoId('/video/sng-123')).toBe('sng-123');
+    expect(marketCreator('/video/sng-123')).toBeNull();
+    expect(marketSong('/video/sng-123')).toBeNull();
   });
 
   it('builds share URLs and X post copy pointing directly to /:creator/:song-slug', () => {

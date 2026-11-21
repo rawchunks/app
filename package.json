@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@compose-market/sdk": "^0.8.46",
+    "@google/genai": "^3.6.1",
     "@paypal/react-paypal-js": "^10.6.1",
     "@solana/kit": "^8.6.0",
     "@strudel/core": "1.2.6",

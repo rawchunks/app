@@ -6,7 +6,7 @@ import { Tooltip } from './daw/Tooltip';
 import { AccountChip } from './account';
 import { Session } from './session';
 
-export type Route = 'studio' | 'mypage' | 'market' | 'editor' | 'song';
+export type Route = 'studio' | 'mypage' | 'market' | 'editor' | 'video' | 'song';
 
 export interface Props {
   current: Route;
@@ -15,7 +15,7 @@ export interface Props {
 }
 
 export const Layout: React.FC<Props> = ({ current, onNavigate, children }) => {
-  const isWorkstation = current === 'editor';
+  const isWorkstation = current === 'editor' || current === 'video';
   useGuideOwner({ id: 'navigation', scope: current, handles: step => step.id === 'A6', prepare: () => isWorkstation ? { target: 'editor.back', description: 'Use the workstation back button to leave the project.' } : { focus: '[aria-current="page"]' } });
   const navItems: { id: Route; label: string; Icon: React.ComponentType<{ className?: string }> }[] = [
     { id: 'studio', label: 'STUDIO', Icon: AudioWaveform },

@@ -4,6 +4,7 @@ import { Studio } from './pages/studio';
 import { Mypage } from './pages/mypage';
 import { Market } from './pages/market';
 import { Editor } from './pages/editor';
+import { Video } from './pages/video';
 import { SongPage } from './pages/song';
 import { store } from './lib/store';
 import { bus } from './lib/bus';
@@ -18,12 +19,15 @@ import {
   parseRoute,
   editorId,
   editorPath,
+  videoId,
+  videoPath,
   marketCreator,
   marketSong,
   navigateToCreator,
 } from './lib/routes';
 import { GuideProvider } from './components/guide/Tour';
 import './styles/styles.css';
+import './styles/video.css';
 
 function readCachedSong(id: string | null, readAddress?: string | null): Song | null {
   if (!id) return null;
@@ -38,7 +42,7 @@ function readCachedSong(id: string | null, readAddress?: string | null): Song | 
   if (fromStore) return fromStore;
   if (store.getState().editingSong?.id === id) return store.getState().editingSong;
   try {
-    const saved = sessionStorage.getItem('rawchunks_editing_song');
+    const saved = sessionStorage.getItem('rawchunks_video_song') || sessionStorage.getItem('rawchunks_editing_song');
     if (saved) {
       const parsed = JSON.parse(saved);
       if (parsed?.id === id) return parsed;
@@ -60,6 +64,7 @@ export const App: React.FC = () => {
   }, [selectedNetwork, setSelectedNetwork]);
 
   const [editorError, setEditorError] = useState<string | null>(null);
+  const [videoError, setVideoError] = useState<string | null>(null);
 
   const readSongTarget = (pathname: string): { creator: string; slug: string } | null => {
     const creator = marketCreator(pathname);
@@ -69,6 +74,7 @@ export const App: React.FC = () => {
 
   const [route, setRoute] = useState<Route>(() => parseRoute(window.location.pathname));
   const [songId, setSongId] = useState(() => editorId(window.location.pathname));
+  const [videoSongId, setVideoSongId] = useState(() => videoId(window.location.pathname));
   const [viewSong, setViewSong] = useState(() => readSongTarget(window.location.pathname));
 
   const [editingSong, setEditingSong] = useState<Song | null>(() => {
@@ -76,6 +82,10 @@ export const App: React.FC = () => {
     return readCachedSong(id, readAddress);
   });
 
+  const [videoSong, setVideoSong] = useState<Song | null>(() => {
+    const id = videoId(window.location.pathname);
+    return readCachedSong(id, readAddress);
+  });
 
   const prevAccountIdRef = useRef<string | null>(accountId);
 
@@ -84,9 +94,12 @@ export const App: React.FC = () => {
     if (prev && ((!accountId && !isReconnecting) || (accountId && prev !== accountId))) {
       setEditingSong(null);
       setEditorError(null);
-      if (route === 'editor') {
+      setVideoSong(null);
+      setVideoError(null);
+      if (route === 'editor' || route === 'video') {
         setRoute('studio');
         setSongId(null);
+        setVideoSongId(null);
         window.history.replaceState(null, '', '/studio');
       }
     }
@@ -97,9 +110,12 @@ export const App: React.FC = () => {
     const exitWorkstations = () => {
       setEditingSong(null);
       setEditorError(null);
+      setVideoSong(null);
+      setVideoError(null);
       setRoute((current) => {
-        if (current === 'editor') {
+        if (current === 'editor' || current === 'video') {
           setSongId(null);
+          setVideoSongId(null);
           window.history.replaceState(null, '', '/studio');
           return 'studio';
         }
@@ -119,10 +135,14 @@ export const App: React.FC = () => {
       const next = parseRoute(window.location.pathname);
       setRoute(next);
       const edId = editorId(window.location.pathname);
+      const vidId = videoId(window.location.pathname);
       setSongId(edId);
+      setVideoSongId(vidId);
       setViewSong(readSongTarget(window.location.pathname));
       setEditorError(null);
+      setVideoError(null);
       setEditingSong((current) => (current?.id === edId ? current : readCachedSong(edId, readAddress)));
+      setVideoSong((current) => (current?.id === vidId ? current : readCachedSong(vidId, readAddress)));
     };
 
     window.addEventListener('popstate', handlePopState);
@@ -136,6 +156,12 @@ export const App: React.FC = () => {
     }
   }, [route, editingSong, songId]);
 
+  useEffect(() => {
+    if (route === 'video' && videoSong && videoSong.id !== videoSongId) {
+      setVideoSongId(videoSong.id);
+      window.history.replaceState(null, '', videoPath(videoSong.id));
+    }
+  }, [route, videoSong, videoSongId]);
 
   useEffect(() => {
     if (route === 'editor' && !editingSong) {
@@ -176,6 +202,39 @@ export const App: React.FC = () => {
     }
   }, [route, editingSong, readAddress, isReconnecting, songId]);
 
+  useEffect(() => {
+    if (route === 'video' && !videoSong) {
+      if (!videoSongId) {
+        setVideoError('Choose a song from Workspace to open Video Studio');
+        return;
+      }
+      if (!readAddress) {
+        if (!isReconnecting) setVideoError('Connect the creator wallet to direct this video');
+        return;
+      }
+      let mounted = true;
+      setVideoError(null);
+      const loadVideoTarget = async () => {
+        try {
+          const response = await api.fetch(`/api/songs/${encodeURIComponent(videoSongId)}`, { userAddress: readAddress });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || 'Could not open this song');
+          if (!mounted) return;
+          const target = Array.isArray(data) ? data[0] : (data?.song || data);
+          if (target && target.id) {
+            setVideoSong(target);
+            try { sessionStorage.setItem('rawchunks_video_song', JSON.stringify(target)); } catch { }
+          } else {
+            setVideoError('Song not found');
+          }
+        } catch (error: any) {
+          if (mounted) setVideoError(error?.message || 'Could not open this song');
+        }
+      };
+      loadVideoTarget();
+      return () => { mounted = false; };
+    }
+  }, [route, videoSong, readAddress, isReconnecting, videoSongId]);
 
   useEffect(() => {
     if (route !== 'editor' || !editingSong?.metadata_cid || !readAddress) return;
@@ -200,7 +259,12 @@ export const App: React.FC = () => {
   const navigate = (nextRoute: Route, id?: string) => {
     setRoute(nextRoute);
     const path = nextRoute === 'mypage' ? 'my-page' : nextRoute;
-    const url = nextRoute === 'editor' && id ? editorPath(id) : `/${path}`;
+    const url =
+      nextRoute === 'editor' && id
+        ? editorPath(id)
+        : nextRoute === 'video' && id
+          ? videoPath(id)
+          : `/${path}`;
     window.history.pushState(null, '', url);
     if (nextRoute === 'market') {
       window.dispatchEvent(new PopStateEvent('popstate'));
@@ -217,6 +281,14 @@ export const App: React.FC = () => {
     navigate('editor', song.id);
   };
 
+  const handleDirectVideo = (song: Song) => {
+    setVideoSongId(song.id);
+    setVideoSong(song);
+    try {
+      sessionStorage.setItem('rawchunks_video_song', JSON.stringify(song));
+    } catch { }
+    navigate('video', song.id);
+  };
 
   const handleBackFromEditor = () => {
     setEditingSong(null);
@@ -227,12 +299,20 @@ export const App: React.FC = () => {
     navigate('mypage');
   };
 
+  const handleBackFromVideo = () => {
+    setVideoSong(null);
+    setVideoSongId(null);
+    try {
+      sessionStorage.removeItem('rawchunks_video_song');
+    } catch { }
+    navigate('mypage');
+  };
 
   return (
-    <GuideProvider activePage={route === 'song' ? 'market' : route}>
+    <GuideProvider activePage={route === 'song' ? 'market' : route === 'video' ? 'editor' : route}>
       <Layout current={route} onNavigate={navigate}>
         {route === 'studio' && <Studio onEditSong={handleEditSong} />}
-        {route === 'mypage' && <Mypage onEditSong={handleEditSong} />}
+        {route === 'mypage' && <Mypage onEditSong={handleEditSong} onDirectVideo={handleDirectVideo} />}
         {route === 'market' && <Market />}
         {route === 'song' && viewSong && (
           <SongPage
@@ -247,6 +327,24 @@ export const App: React.FC = () => {
         {route === 'editor' && (!editingSong || editingSong.metadata_cid) && (
           <div className="editor-status-screen">
             {editorError ?? 'Opening song…'}
+          </div>
+        )}
+        {route === 'video' && videoSong && (
+          <Video
+            song={videoSong}
+            onBack={handleBackFromVideo}
+            onSongUpdated={(updated) => {
+              setVideoSong(updated);
+              store.updateSong(updated.id, { video: updated.video ?? null });
+              try {
+                sessionStorage.setItem('rawchunks_video_song', JSON.stringify(updated));
+              } catch { }
+            }}
+          />
+        )}
+        {route === 'video' && !videoSong && (
+          <div className="editor-status-screen">
+            {videoError ?? 'Opening Video Studio…'}
           </div>
         )}
       </Layout>
