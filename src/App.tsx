@@ -4,39 +4,78 @@ import { Studio } from './pages/studio';
 import { Mypage } from './pages/mypage';
 import { Market } from './pages/market';
 import { Editor } from './pages/editor';
+import { SongPage } from './pages/song';
 import { store } from './lib/store';
 import { bus } from './lib/bus';
 import { Song } from './lib/schema';
 import { api } from './lib/api';
 import { useSelectedUserAddress } from './hooks/use-address';
 import { useSongs } from './hooks/use-songs';
-import { readProject, writeProject } from './lib/cache';
-import { parseRoute, editorId, editorPath } from './lib/routes';
+import { useChain } from './contexts/Network';
+import { getModeNetworks } from './lib/chains';
+import { readProject, readSongs, writeProject } from './lib/cache';
+import {
+  parseRoute,
+  editorId,
+  editorPath,
+  marketCreator,
+  marketSong,
+  navigateToCreator,
+} from './lib/routes';
 import { GuideProvider } from './components/guide/Tour';
 import './styles/styles.css';
 
+function readCachedSong(id: string | null, readAddress?: string | null): Song | null {
+  if (!id) return null;
+  if (readAddress) {
+    const project = readProject(id, readAddress);
+    if (project?.song) return project.song;
+    const mySongs = readSongs(readAddress);
+    const hit = mySongs?.find((s) => s.id === id);
+    if (hit) return hit;
+  }
+  const fromStore = store.getState().songs.find((s) => s.id === id);
+  if (fromStore) return fromStore;
+  if (store.getState().editingSong?.id === id) return store.getState().editingSong;
+  try {
+    const saved = sessionStorage.getItem('rawchunks_editing_song');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (parsed?.id === id) return parsed;
+    }
+  } catch { }
+  return null;
+}
+
 export const App: React.FC = () => {
   useSongs();
+  const { selectedNetwork, setSelectedNetwork } = useChain();
   const { readAddress, accountId, isReconnecting } = useSelectedUserAddress();
+
+  useEffect(() => {
+    const allowed = getModeNetworks();
+    if (!allowed.includes(selectedNetwork)) {
+      setSelectedNetwork(allowed[0]);
+    }
+  }, [selectedNetwork, setSelectedNetwork]);
+
   const [editorError, setEditorError] = useState<string | null>(null);
+
+  const readSongTarget = (pathname: string): { creator: string; slug: string } | null => {
+    const creator = marketCreator(pathname);
+    const slug = marketSong(pathname);
+    return creator && slug ? { creator, slug } : null;
+  };
+
   const [route, setRoute] = useState<Route>(() => parseRoute(window.location.pathname));
   const [songId, setSongId] = useState(() => editorId(window.location.pathname));
+  const [viewSong, setViewSong] = useState(() => readSongTarget(window.location.pathname));
+
   const [editingSong, setEditingSong] = useState<Song | null>(() => {
     const id = editorId(window.location.pathname);
-    if (!id) return null;
-    const cached = id && readAddress ? readProject(id, readAddress) : null;
-    if (cached) return cached.song;
-    const fromStore = store.getState().editingSong;
-    if (fromStore?.id === id) return fromStore;
-    try {
-      const saved = sessionStorage.getItem('rawchunks_editing_song');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed.id === id) return parsed;
-      }
-    } catch { }
-    return null;
+    return readCachedSong(id, readAddress);
   });
+
 
   const prevAccountIdRef = useRef<string | null>(accountId);
 
@@ -55,7 +94,7 @@ export const App: React.FC = () => {
   }, [accountId, isReconnecting, route]);
 
   useEffect(() => {
-    const exitEditor = () => {
+    const exitWorkstations = () => {
       setEditingSong(null);
       setEditorError(null);
       setRoute((current) => {
@@ -67,8 +106,8 @@ export const App: React.FC = () => {
         return current;
       });
     };
-    const unsubLogout = bus.onRemoteLogout(exitEditor);
-    const unsubSwitch = bus.onRemoteAccountSwitch(exitEditor);
+    const unsubLogout = bus.onRemoteLogout(exitWorkstations);
+    const unsubSwitch = bus.onRemoteAccountSwitch(exitWorkstations);
     return () => {
       unsubLogout();
       unsubSwitch();
@@ -77,11 +116,13 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     const handlePopState = () => {
-      setRoute(parseRoute(window.location.pathname));
-      const id = editorId(window.location.pathname);
-      setSongId(id);
+      const next = parseRoute(window.location.pathname);
+      setRoute(next);
+      const edId = editorId(window.location.pathname);
+      setSongId(edId);
+      setViewSong(readSongTarget(window.location.pathname));
       setEditorError(null);
-      setEditingSong(current => current?.id === id ? current : id && readAddress ? readProject(id, readAddress)?.song ?? null : null);
+      setEditingSong((current) => (current?.id === edId ? current : readCachedSong(edId, readAddress)));
     };
 
     window.addEventListener('popstate', handlePopState);
@@ -94,6 +135,7 @@ export const App: React.FC = () => {
       window.history.replaceState(null, '', editorPath(editingSong.id));
     }
   }, [route, editingSong, songId]);
+
 
   useEffect(() => {
     if (route === 'editor' && !editingSong) {
@@ -134,6 +176,7 @@ export const App: React.FC = () => {
     }
   }, [route, editingSong, readAddress, isReconnecting, songId]);
 
+
   useEffect(() => {
     if (route !== 'editor' || !editingSong?.metadata_cid || !readAddress) return;
     let current = true;
@@ -157,7 +200,8 @@ export const App: React.FC = () => {
   const navigate = (nextRoute: Route, id?: string) => {
     setRoute(nextRoute);
     const path = nextRoute === 'mypage' ? 'my-page' : nextRoute;
-    window.history.pushState(null, '', nextRoute === 'editor' && id ? editorPath(id) : `/${path}`);
+    const url = nextRoute === 'editor' && id ? editorPath(id) : `/${path}`;
+    window.history.pushState(null, '', url);
     if (nextRoute === 'market') {
       window.dispatchEvent(new PopStateEvent('popstate'));
     }
@@ -173,6 +217,7 @@ export const App: React.FC = () => {
     navigate('editor', song.id);
   };
 
+
   const handleBackFromEditor = () => {
     setEditingSong(null);
     store.setEditingSong(null);
@@ -182,12 +227,20 @@ export const App: React.FC = () => {
     navigate('mypage');
   };
 
+
   return (
-    <GuideProvider activePage={route}>
+    <GuideProvider activePage={route === 'song' ? 'market' : route}>
       <Layout current={route} onNavigate={navigate}>
         {route === 'studio' && <Studio onEditSong={handleEditSong} />}
         {route === 'mypage' && <Mypage onEditSong={handleEditSong} />}
         {route === 'market' && <Market />}
+        {route === 'song' && viewSong && (
+          <SongPage
+            creatorSlug={viewSong.creator}
+            songSlug={viewSong.slug}
+            onBack={() => navigateToCreator(viewSong.creator)}
+          />
+        )}
         {route === 'editor' && editingSong && !editingSong.metadata_cid && (
           <Editor song={editingSong} onBack={handleBackFromEditor} />
         )}

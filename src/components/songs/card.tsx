@@ -21,7 +21,7 @@ import { Licenses } from './licenses';
 import { LikeButton, PlaylistAdder } from './row';
 import { store } from '../../lib/store';
 import { useProfile } from '../../hooks/use-profile';
-import { navigateToCreator } from '../../lib/routes';
+import { navigateToCreator, navigateToSong } from '../../lib/routes';
 import { NETWORK_LOGOS, networkLogo } from '../../contexts/Network';
 import { getExplorerUrl, getExplorerTxUrl } from '../../lib/chains';
 import type { Song } from '../../lib/schema';
@@ -408,6 +408,7 @@ export const Card: React.FC<CardProps> = ({
 }) => {
   const [marketMenuOpen, setMarketMenuOpen] = useState(false);
   const marketMenuRef = useRef<HTMLDivElement>(null);
+  const { nickname: creatorNickname } = useProfile(song.creator);
 
   useEffect(() => {
     if (!marketMenuOpen) return;
@@ -518,8 +519,17 @@ export const Card: React.FC<CardProps> = ({
       <div className="market-card-body">
         {/* Zone 1: Title + Creator Identity */}
         <div className="market-card-identity">
-          <Tooltip title={song.title} className="mypage-card-title-tooltip">
-            <div className="market-card-row-title">{song.title}</div>
+          <Tooltip title={song.title} description="Open track page" className="mypage-card-title-tooltip">
+            <button
+              type="button"
+              className="market-card-row-title song-title-link"
+              onClick={(e) => {
+                e.stopPropagation();
+                navigateToSong(creatorNickname?.trim() || song.creator, song.title);
+              }}
+            >
+              {song.title}
+            </button>
           </Tooltip>
 
           <CreatorSlot

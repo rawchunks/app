@@ -17,12 +17,14 @@ import { formatDuration, normalizeTags } from './card';
 import { Badge } from '../badge';
 import { store } from '../../lib/store';
 import { useSelectedUserAddress } from '../../hooks/use-address';
+import { useProfile } from '../../hooks/use-profile';
 import { useSongComments } from '../../hooks/use-social';
-import { navigateToCreator } from '../../lib/routes';
+import { navigateToCreator, navigateToSong } from '../../lib/routes';
 import type { Comment, Song } from '../../lib/schema';
 
 export interface TimelineProps {
   song: Song;
+  creatorSlug?: string | null;
   versions?: Song[];
   isPlayingThis: boolean;
   onPlayToggle: () => void;
@@ -40,6 +42,7 @@ const formatShortAddr = (addr?: string | null): string => {
 
 export const Timeline: React.FC<TimelineProps> = ({
   song,
+  creatorSlug,
   versions,
   isPlayingThis,
   onPlayToggle,
@@ -48,6 +51,7 @@ export const Timeline: React.FC<TimelineProps> = ({
   onShare,
 }) => {
   const { readAddress } = useSelectedUserAddress();
+  const { nickname: creatorNickname } = useProfile(song.creator);
   const { comments, addComment, isPosting, deleteComment } = useSongComments(
     song.id,
     readAddress
@@ -187,7 +191,14 @@ export const Timeline: React.FC<TimelineProps> = ({
 
         <div className="timeline-title-cluster">
           <div className="timeline-title-row">
-            <h3 className="timeline-song-title">{song.title}</h3>
+            <button
+              type="button"
+              className="timeline-song-title song-title-link"
+              onClick={() => navigateToSong(creatorSlug?.trim() || creatorNickname?.trim() || song.creator, song.title)}
+              title={`Open ${song.title}`}
+            >
+              {song.title}
+            </button>
             {versions && versions.length > 1 && onSelectVersion && (
               <div className="timeline-versions-slot">
                 <Versions songs={versions} selected={song.id} onSelect={onSelectVersion} />

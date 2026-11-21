@@ -26,7 +26,7 @@ import {
   addSongToPlaylistApi,
   removeSongFromPlaylistApi,
 } from '../../hooks/use-playlists';
-import { navigateToCreator } from '../../lib/routes';
+import { navigateToCreator, navigateToSong } from '../../lib/routes';
 import type { Song } from '../../lib/schema';
 
 export interface LikeButtonProps {
@@ -394,7 +394,17 @@ export const Row: React.FC<RowProps> = ({
       {/* Track Title + Creator + Genre Pill */}
       <div className="market-row-info">
         <div className="market-row-title-line">
-          <span className="market-row-title">{song.title}</span>
+          <button
+            type="button"
+            className="market-row-title song-title-link"
+            onClick={(e) => {
+              e.stopPropagation();
+              navigateToSong(nickname?.trim() || song.creator, song.title);
+            }}
+            title={`Open ${song.title}`}
+          >
+            {song.title}
+          </button>
           {typeof song.plays === 'number' && song.plays > 0 && (
             <span className="market-row-plays" title={`${song.plays} streams`}>
               <Headphones size={10} />

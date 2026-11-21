@@ -6,7 +6,7 @@ import { Tooltip } from './daw/Tooltip';
 import { AccountChip } from './account';
 import { Session } from './session';
 
-export type Route = 'studio' | 'mypage' | 'market' | 'editor';
+export type Route = 'studio' | 'mypage' | 'market' | 'editor' | 'song';
 
 export interface Props {
   current: Route;
@@ -15,7 +15,8 @@ export interface Props {
 }
 
 export const Layout: React.FC<Props> = ({ current, onNavigate, children }) => {
-  useGuideOwner({ id: 'navigation', scope: current, handles: step => step.id === 'A6', prepare: () => current === 'editor' ? { target: 'editor.back', description: 'Use the Editor’s back button to leave the project.' } : { focus: '[aria-current="page"]' } });
+  const isWorkstation = current === 'editor';
+  useGuideOwner({ id: 'navigation', scope: current, handles: step => step.id === 'A6', prepare: () => isWorkstation ? { target: 'editor.back', description: 'Use the workstation back button to leave the project.' } : { focus: '[aria-current="page"]' } });
   const navItems: { id: Route; label: string; Icon: React.ComponentType<{ className?: string }> }[] = [
     { id: 'studio', label: 'STUDIO', Icon: AudioWaveform },
     { id: 'mypage', label: 'WORKSPACE', Icon: FileMusic },
@@ -23,11 +24,11 @@ export const Layout: React.FC<Props> = ({ current, onNavigate, children }) => {
   ];
 
   return (
-    <div className={`app-viewport viewport ${current === 'editor' ? 'is-editor-route' : ''}`.trim()}>
+    <div className={`app-viewport viewport ${isWorkstation ? 'is-editor-route' : ''}`.trim()}>
       <div className="scanlines" />
 
-      {/* Top Header Navigation (suppressed on internal /editor workstation route) */}
-      {current !== 'editor' && (
+      {/* Top Header Navigation (suppressed on full-page /editor and /video workstations) */}
+      {!isWorkstation && (
         <header className="app-header">
           {/* Brand */}
           <Tooltip title="RAWCHUNKS" description="Open Studio" position="bottom">
@@ -39,7 +40,7 @@ export const Layout: React.FC<Props> = ({ current, onNavigate, children }) => {
           {/* The 3 Core Visible Pages */}
           <nav className="service-switcher" aria-label="Services" data-guide="app.navigation">
             {navItems.map((item) => {
-              const active = current === item.id;
+              const active = current === item.id || (current === 'song' && item.id === 'market');
               const Icon = item.Icon;
               return (
                 <Tooltip key={item.id} title={item.label} position="bottom">
@@ -72,13 +73,13 @@ export const Layout: React.FC<Props> = ({ current, onNavigate, children }) => {
       </main>
 
       {/* Persistent Audio Transport Dock (Studio / My-Page / Market) */}
-      {current !== 'editor' && <Player />}
+      {!isWorkstation && <Player />}
 
       {/* Bottom Tab Navigation (visible on mobile, directly under the player strip) */}
-      {current !== 'editor' && (
+      {!isWorkstation && (
         <nav className="tabbar" aria-label="Sections" data-guide="app.navigation">
           {navItems.map((item) => {
-            const active = current === item.id;
+            const active = current === item.id || (current === 'song' && item.id === 'market');
             const Icon = item.Icon;
             return (
               <button

@@ -19,6 +19,7 @@ export interface ShareUrlModalProps {
   isOpen: boolean;
   onClose: () => void;
   creator: string;
+  songTitle?: string;
   title?: string;
 }
 
@@ -26,6 +27,7 @@ export const ShareUrlModal: React.FC<ShareUrlModalProps> = ({
   isOpen,
   onClose,
   creator,
+  songTitle,
   title = 'SHARE',
 }) => {
   const [copied, setCopied] = useState(false);
@@ -34,8 +36,8 @@ export const ShareUrlModal: React.FC<ShareUrlModalProps> = ({
     if (!isOpen) setCopied(false);
   }, [isOpen]);
 
-  const cleanUrl = buildShareUrl(creator);
-  const displayUrl = buildShareDisplayUrl(creator);
+  const cleanUrl = buildShareUrl(creator, songTitle);
+  const displayUrl = buildShareDisplayUrl(creator, songTitle);
   const encodedUrl = encodeURIComponent(cleanUrl);
 
   const socialTargets = [
@@ -198,8 +200,8 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, data })
 
   if (!data) return null;
 
-  const shareUrl = buildShareUrl(data.creator);
-  const displayUrl = buildShareDisplayUrl(data.creator);
+  const shareUrl = buildShareUrl(data.creator, data.title);
+  const displayUrl = buildShareDisplayUrl(data.creator, data.title);
   const coverSrc = data.image?.trim() || '/branding/mark.svg';
 
   const markCopied = (field: 'url' | 'post' | 'tx' | 'cid' | 'card') => {
@@ -278,13 +280,13 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, data })
             </div>
 
             <div className="publish-spec-row">
-              <span className="publish-label">CATALOG LINK</span>
-              <Tooltip title="Copy Creator Market Link" description={shareUrl}>
+              <span className="publish-label">TRACK LINK</span>
+              <Tooltip title="Copy Track Link" description={shareUrl}>
                 <button
                   type="button"
                   className="mypage-copy-btn share-spec-copy-btn"
-                  onClick={() => void copyValue(shareUrl, 'url', 'Catalog link')}
-                  aria-label="Copy catalog link"
+                  onClick={() => void copyValue(shareUrl, 'url', 'Track link')}
+                  aria-label="Copy track link"
                 >
                   <span className="share-spec-copy-text">{displayUrl}</span>
                   {copiedField === 'url' ? <Check size={11} /> : <Copy size={11} />}

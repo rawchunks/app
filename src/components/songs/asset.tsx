@@ -23,10 +23,12 @@ import {
   resolveTxUrl,
 } from './card';
 import { GenreBadges } from '../ag/genres';
+import { navigateToSong } from '../../lib/routes';
 import type { Song, SongEarningsItem } from '../../lib/schema';
 
 export interface AssetProps {
   song: Song;
+  creatorHandle?: string | null;
   versionNumber?: number | null;
   earning?: SongEarningsItem;
   networkFilter?: NetworkFilter;
@@ -48,6 +50,7 @@ export interface AssetProps {
  */
 export const Asset: React.FC<AssetProps> = ({
   song,
+  creatorHandle,
   versionNumber = null,
   earning,
   networkFilter = 'all',
@@ -145,9 +148,17 @@ export const Asset: React.FC<AssetProps> = ({
 
         <div className="earn-track-meta">
           <div className="finder-list-title-wrap">
-            <span className="finder-list-title" title={song.title}>
+            <button
+              type="button"
+              className="finder-list-title song-title-link"
+              title={`Open ${song.title}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                navigateToSong(creatorHandle?.trim() || song.creator, song.title);
+              }}
+            >
               {song.title}
-            </span>
+            </button>
             {versionNumber !== null && versionNumber !== undefined && (
               <span
                 className="board-take-badge-pill selected"

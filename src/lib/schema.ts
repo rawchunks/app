@@ -64,6 +64,7 @@ export interface Song {
   creator: string;       // useraddress
   public: boolean;       // isPublic
   image?: string;        // optional URL
+  video?: string | null; // saved silent background video URL (R2)
   album_id?: string | null; // associated album ID
   album_title?: string | null;
   licenses: number;      // amount of licenses

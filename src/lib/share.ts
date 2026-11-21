@@ -102,7 +102,7 @@ export function buildShareDisplayUrl(creator: string, songTitle?: string): strin
 
 export function buildShareCopy(data: MintShareData): string {
   const title = data.title?.trim() || 'Untitled';
-  const url = buildShareUrl(data.creator);
+  const url = buildShareUrl(data.creator, data.title);
   return `${title} is live 🙌 \n\nYou can now Stream it or Remix it on @rawchunks \n\n${url}`;
 }
 
