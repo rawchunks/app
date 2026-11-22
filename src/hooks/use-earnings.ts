@@ -1,6 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
+import type { FacilitatorChain } from '@compose-market/sdk/chains';
 import { api } from '../lib/api';
-import { NETWORK_LOGOS } from '../contexts/Network';
+import { networkLogo } from '../contexts/Network';
+import { getChainByNetwork, getChains, isSolanaNetwork, isTestnet } from '../lib/chains';
 import type {
   CreatorEarningsResponse,
   CreatorEarningsSummary,
@@ -24,39 +26,73 @@ export function formatUsd(val: number, withSymbol = true): string {
 
 export function getNetworkLogo(networkOrFamily?: string | null): string | null {
   if (!networkOrFamily) return null;
-  if (NETWORK_LOGOS[networkOrFamily]) return NETWORK_LOGOS[networkOrFamily];
+  const direct = networkLogo(networkOrFamily);
+  if (direct) return direct;
   const lower = networkOrFamily.trim().toLowerCase();
-  if (lower === 'base' || lower === 'eip155:8453') return NETWORK_LOGOS['eip155:8453'] || '/networks/base.png';
-  if (lower === 'eip155:84532') return NETWORK_LOGOS['eip155:84532'] || '/networks/baseSepolia.png';
-  if (lower === 'tempo' || lower === 'eip155:4217') return NETWORK_LOGOS['eip155:4217'] || '/networks/tempo.png';
-  if (lower === 'eip155:42431') return NETWORK_LOGOS['eip155:42431'] || '/networks/tempoModerato.png';
-  if (lower === 'solana' || lower === 'solana:5eykt4usfv8p8njdtrepy1vzqkqzqvdp') {
-    return NETWORK_LOGOS['solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp'] || '/networks/solana.jpeg';
+  const active = getChains();
+  const matched = active.find(
+    (c) => c.network.toLowerCase() === lower || classifySongNetwork(c.network, c).family === lower,
+  );
+  if (matched) {
+    const logo = networkLogo(matched.network);
+    if (logo) return logo;
   }
-  if (lower.startsWith('solana:')) {
-    return NETWORK_LOGOS['solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1'] || '/networks/solanaDevnet.jpeg';
+  if (lower === 'base') return '/networks/base.png';
+  if (lower === 'tempo') return '/networks/tempoModerato.png';
+  if (lower === 'solana') return '/networks/solana.jpeg';
+  if (isSolanaNetwork(lower)) {
+    return isTestnet(networkOrFamily) ? '/networks/solanaDevnet.jpeg' : '/networks/solana.jpeg';
   }
   return null;
 }
 
-export function classifySongNetwork(network?: string | null): {
+export function classifySongNetwork(
+  network?: string | null,
+  chain?: FacilitatorChain,
+): {
   family: 'base' | 'tempo' | 'solana' | 'other';
   label: string;
 } {
   if (!network) return { family: 'other', label: 'Unassigned' };
+  const resolved = chain ?? getChainByNetwork(network);
+  if (resolved) {
+    const nameLower = resolved.name.toLowerCase();
+    const family: 'base' | 'tempo' | 'solana' | 'other' =
+      resolved.namespace === 'solana'
+        ? 'solana'
+        : nameLower.startsWith('base')
+          ? 'base'
+          : nameLower.startsWith('tempo')
+            ? 'tempo'
+            : 'other';
+    return { family, label: resolved.name };
+  }
   const lower = network.toLowerCase();
-  if (lower.startsWith('solana:')) {
+  if (isSolanaNetwork(lower)) {
     return {
       family: 'solana',
-      label: lower.includes('etwtrab') ? 'Solana Devnet' : 'Solana',
+      label: isTestnet(network) ? 'Solana Devnet' : 'Solana',
     };
   }
   if (lower === 'eip155:84532') return { family: 'base', label: 'Base Sepolia' };
   if (lower === 'eip155:8453') return { family: 'base', label: 'Base' };
-  if (lower === 'eip155:42431' || lower === 'eip155:4217') {
-    return { family: 'tempo', label: lower === 'eip155:42431' ? 'Tempo Testnet' : 'Tempo' };
-  }
+  if (lower === 'eip155:42431') return { family: 'tempo', label: 'Tempo Moderato' };
   return { family: 'other', label: network };
+}
+
+export function activeNetworkFilters(
+  chains: readonly FacilitatorChain[],
+): Array<{ family: Exclude<NetworkFilter, 'all'>; label: string; logoUrl: string | null }> {
+  const seen = new Set<Exclude<NetworkFilter, 'all'>>();
+  const options: Array<{ family: Exclude<NetworkFilter, 'all'>; label: string; logoUrl: string | null }> = [];
+  for (const chain of chains) {
+    const { family } = classifySongNetwork(chain.network, chain);
+    if (family === 'other' || seen.has(family)) continue;
+    seen.add(family);
+    const label = family === 'base' ? 'Base' : family === 'solana' ? 'Solana' : 'Tempo';
+    options.push({ family, label, logoUrl: networkLogo(chain.network) ?? getNetworkLogo(family) });
+  }
+  return options;
 }
 
 export function buildFallbackSongEarning(song: Song): SongEarningsItem {
