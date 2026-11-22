@@ -2,7 +2,10 @@ import { useGuideOwner, prepareViews, draftCanLeave } from './guide/owners';
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useActiveAccount, useActiveWallet, useAutoConnect, useConnectModal } from "thirdweb/react";
 import { createWallet, inAppWallet } from "thirdweb/wallets";
-import { BookOpen, Check, Copy, ExternalLink, LogOut, Pencil, ShieldAlert, ShieldCheck, Wallet } from "lucide-react";
+import { BookOpen, Check, Copy, ExternalLink, LogOut, Pencil, RefreshCw, ShieldAlert, ShieldCheck, Wallet } from "lucide-react";
+import type { Chain } from "thirdweb";
+import type { Wallet as ThirdwebWallet } from "thirdweb/wallets";
+import type { EvmNetworkId } from "@compose-market/sdk/chains";
 import { useChain } from "@/contexts/Network";
 import { useSelectedUserAddress } from "@/hooks/use-address";
 import { useProfile } from "@/hooks/use-profile";
@@ -15,7 +18,7 @@ import { DisclaimerBody, DISCLAIMER_POLICY_VERSION } from "@/components/disclaim
 import { Modal } from "@/components/modal";
 import { Button } from "@/components/button";
 import { Tooltip } from "@/components/daw/Tooltip";
-import { thirdwebClient, getChainObject, getChainConfig, getUsdcAddress, getExplorerUrl, isEvmNetwork, isSolanaNetwork, evmChainId } from "@/lib/chains";
+import { thirdwebClient, getChainObject, getChainConfig, getUsdcAddress, getExplorerUrl, isEvmNetwork, isTestnet, evmChainId } from "@/lib/chains";
 import { thirdwebCustomTheme } from "@/lib/connector";
 import { rawchunksOAuthBridge } from "@/lib/oauth";
 import { announceInstalledSolanaWallets, createSolanaBrowserWallet } from "@/lib/svm/wallet";
@@ -50,6 +53,23 @@ const GATE_TITLES = {
   funding: 'SESSION & CREDITS',
 } as const;
 
+function AutoConnectBridge({
+  wallets,
+  chain,
+  onLoadingChange,
+}: {
+  wallets: ThirdwebWallet[];
+  chain: Chain;
+  onLoadingChange: (loading: boolean) => void;
+}) {
+  const autoConnect = useAutoConnect({ client: thirdwebClient, wallets, chain, timeout: 30000 });
+  const isLoading = Boolean(autoConnect?.isLoading);
+  useEffect(() => {
+    onLoadingChange(isLoading);
+  }, [isLoading, onLoadingChange]);
+  return null;
+}
+
 export interface AccountChipProps {
   className?: string;
 }
@@ -59,7 +79,7 @@ export function AccountChip({ className }: AccountChipProps) {
   const account = useActiveAccount();
   const wallet = useActiveWallet();
   const { connect: openConnectModal, isConnecting: isModalConnecting } = useConnectModal();
-  const { paymentNetwork, getChainByNetworkId, chains, defaultNetwork } = useChain();
+  const { paymentNetwork, getChainByNetworkId, chains, evmChains, solanaChains, error: networkError, retry: retryNetworks } = useChain();
   const {
     userAddress,
     readAddress,
@@ -103,10 +123,17 @@ export function AccountChip({ className }: AccountChipProps) {
   });
 
   // Payment selection cannot change the chain used to restore the login identity.
-  const [thirdwebNetwork] = useState(() => {
-    const evmChains = chains.filter(chain => isEvmNetwork(chain.network));
-    return evmChains.find(chain => chain.network === defaultNetwork)?.network ?? evmChains[0]?.network;
-  });
+  const firstEvmNetwork = useMemo<EvmNetworkId | undefined>(() => {
+    const candidate = (evmChains ?? chains.filter(chain => isEvmNetwork(chain.network)))[0]?.network;
+    return candidate && isEvmNetwork(candidate) ? candidate : undefined;
+  }, [evmChains, chains]);
+  const [latchedEvmNetwork, setLatchedEvmNetwork] = useState<EvmNetworkId | undefined>(() => firstEvmNetwork);
+  useEffect(() => {
+    if (!latchedEvmNetwork && firstEvmNetwork) {
+      setLatchedEvmNetwork(firstEvmNetwork);
+    }
+  }, [latchedEvmNetwork, firstEvmNetwork]);
+  const thirdwebNetwork = latchedEvmNetwork ?? firstEvmNetwork;
   const thirdwebChainIdValue = thirdwebNetwork && isEvmNetwork(thirdwebNetwork)
     ? evmChainId(thirdwebNetwork)
     : undefined;
@@ -134,10 +161,10 @@ export function AccountChip({ className }: AccountChipProps) {
     ],
     [connectChain],
   );
-  const autoConnect = useAutoConnect({ client: thirdwebClient, wallets, chain: connectChain, timeout: 30000 });
-  const isReconnecting = Boolean(reconnecting || (autoConnect?.isLoading && readAddress));
+  const [autoConnecting, setAutoConnecting] = useState(false);
+  const isReconnecting = Boolean(reconnecting || (autoConnecting && readAddress));
 
-  const chainInfo = getChainByNetworkId(paymentNetwork);
+  const chainInfo = paymentNetwork ? getChainByNetworkId(paymentNetwork) : undefined;
 
   const selectedPaymentToken = useMemo(() => {
     if (thirdwebChainIdValue == null) return undefined;
@@ -217,32 +244,58 @@ export function AccountChip({ className }: AccountChipProps) {
     }
   }, [gate, gateStep]);
 
+  const autoConnectBridge = connectChain ? (
+    <AutoConnectBridge wallets={wallets} chain={connectChain} onLoadingChange={setAutoConnecting} />
+  ) : null;
+
   if (!account && !isReconnecting) {
     if (!connectChain || !selectedPaymentToken) {
+      if (networkError) {
+        return (
+          <>
+            {autoConnectBridge}
+            <button
+              type="button"
+              onClick={retryNetworks}
+              aria-label="Retry loading networks"
+              className={cn("btn btn-ghost connect", className)}
+            >
+              <RefreshCw className="icon" aria-hidden="true" />
+              <span className="connect-address">RETRY</span>
+            </button>
+          </>
+        );
+      }
       return (
-        <button
-          type="button"
-          disabled
-          aria-label="Loading wallet"
-          className={cn("btn btn-ghost connect", className)}
-        >
-          <Wallet className="icon" aria-hidden="true" />
-          <span className="connect-address">Loading...</span>
-        </button>
+        <>
+          {autoConnectBridge}
+          <button
+            type="button"
+            disabled
+            aria-label="Loading wallet"
+            className={cn("btn btn-ghost connect", className)}
+          >
+            <Wallet className="icon" aria-hidden="true" />
+            <span className="connect-address">Loading...</span>
+          </button>
+        </>
       );
     }
 
     return (
-      <button
-        type="button"
-        disabled={isModalConnecting}
-        data-guide="account.sign-in"
-        onClick={connect}
-        className={cn("btn btn-solid connect", className)}
-      >
-        <Wallet className="icon" aria-hidden="true" />
-        <span className="connect-address">LOGIN</span>
-      </button>
+      <>
+        {autoConnectBridge}
+        <button
+          type="button"
+          disabled={isModalConnecting}
+          data-guide="account.sign-in"
+          onClick={connect}
+          className={cn("btn btn-solid connect", className)}
+        >
+          <Wallet className="icon" aria-hidden="true" />
+          <span className="connect-address">LOGIN</span>
+        </button>
+      </>
     );
   }
 
@@ -263,10 +316,11 @@ export function AccountChip({ className }: AccountChipProps) {
     if (!displayAddress) return null;
     const explorerNetwork =
       displayAddress.startsWith("0x") && !isEvmNetwork(paymentNetwork)
-        ? (defaultNetwork || thirdwebNetwork || "eip155:8453")
-        : !displayAddress.startsWith("0x") && isEvmNetwork(paymentNetwork)
-          ? (chains.find(chain => isSolanaNetwork(chain.network))?.network || "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp")
+        ? (thirdwebNetwork ?? firstEvmNetwork)
+        : !displayAddress.startsWith("0x") && (!paymentNetwork || isEvmNetwork(paymentNetwork))
+          ? (solanaChains ?? []).at(0)?.network
           : paymentNetwork;
+    if (!explorerNetwork) return null;
     const url = getExplorerUrl(explorerNetwork, "address", displayAddress);
     return url === "#" ? null : url;
   })();
@@ -294,6 +348,7 @@ export function AccountChip({ className }: AccountChipProps) {
 
   return (
     <>
+      {autoConnectBridge}
       <Tooltip title={displayName} description={chipDescription} position="bottom">
         <button
           type="button"
@@ -388,7 +443,7 @@ export function AccountChip({ className }: AccountChipProps) {
               <p className="menu-note">
                 {isActivationFunded
                   ? "Ready to activate when you start a session."
-                  : paymentNetwork === "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"
+                  : paymentNetwork && !isTestnet(paymentNetwork)
                     ? `Fund this address with ${requiredActivationSol} SOL or USDC to activate it.`
                     : `Fund this address with ${requiredActivationSol} SOL to activate it.`}
               </p>
