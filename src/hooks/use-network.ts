@@ -2,15 +2,15 @@ import { createContext, useContext } from "react";
 import type { FacilitatorChain, NetworkId } from "@compose-market/sdk/chains";
 
 export interface NetworkValue {
-  selectedNetwork: NetworkId;
+  selectedNetwork: NetworkId | null;
   setSelectedNetwork: (network: NetworkId) => void;
-  paymentNetwork: NetworkId;
+  paymentNetwork: NetworkId | null;
   chains: FacilitatorChain[];
   evmChains: FacilitatorChain[];
   solanaChains: FacilitatorChain[];
-  defaultNetwork: NetworkId;
   isLoading: boolean;
   error: Error | null;
+  retry: () => void;
   getChainById: (chainId: number) => FacilitatorChain | undefined;
   getChainByNetworkId: (network: string) => FacilitatorChain | undefined;
 }

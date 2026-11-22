@@ -1,6 +1,18 @@
 export type ContractName = "Factory" | "Remix" | "Royalties";
+export type NetworkMode = "testnet" | "mainnet";
 
 const env = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env ?? {};
+
+export function getNetworkMode(): NetworkMode {
+  const metaEnv = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env ?? {};
+  const procEnv = typeof process !== "undefined" ? process.env : undefined;
+  const raw = String(
+    metaEnv.NETWORK_MODE ?? metaEnv.VITE_NETWORK_MODE ?? procEnv?.NETWORK_MODE ?? procEnv?.VITE_NETWORK_MODE ?? "testnet",
+  ).trim().toLowerCase();
+  return raw === "mainnet" ? "mainnet" : "testnet";
+}
+
+export const NETWORK_MODE: NetworkMode = getNetworkMode();
 
 const CONTRACT_ENV: Record<ContractName, string | undefined> = {
   Factory: env.VITE_FACTORY_ADDRESS,
@@ -16,7 +28,7 @@ export const CONTRACT_ADDRESSES: Record<ContractName, `0x${string}` | undefined>
 
 export type SolanaProgramName = "Factory" | "Remix" | "Royalties";
 
-const mainnet = env.VITE_NETWORK_MODE === "mainnet";
+const mainnet = NETWORK_MODE === "mainnet";
 
 const SOLANA_PROGRAM_ENV: Record<SolanaProgramName, string | undefined> = {
   Factory: mainnet ? env.VITE_FACTORY_PROGRAM_ID : env.VITE_DEVNET_FACTORY_PROGRAM_ID,
