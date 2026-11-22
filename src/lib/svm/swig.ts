@@ -52,6 +52,7 @@ import {
     type SigningFn,
 } from "@swig-wallet/kit";
 import type { NetworkId } from "@compose-market/sdk/chains";
+import { isSolanaNetwork, isTestnet } from "@/lib/chains";
 import { buildMainnetUsdcToSolRoute } from "@/lib/svm/jupiter";
 
 /**
@@ -59,9 +60,12 @@ import { buildMainnetUsdcToSolRoute } from "@/lib/svm/jupiter";
  * Uses the real RPC URL from the chains config (no proxy).
  */
 export function createSolanaRpcFromNetwork(network: NetworkId, rpcUrl: string) {
-    if (network === "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1") { return createSolanaRpc(solanaDevnet(rpcUrl)); }
-    if (network === "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp") { return createSolanaRpc(solanaMainnet(rpcUrl)); }
-    throw new Error(`Unsupported Solana network: ${network}`);
+    if (!isSolanaNetwork(network)) {
+        throw new Error(`Unsupported Solana network: ${network}`);
+    }
+    return isTestnet(network)
+        ? createSolanaRpc(solanaDevnet(rpcUrl))
+        : createSolanaRpc(solanaMainnet(rpcUrl));
 }
 
 /**
@@ -82,7 +86,6 @@ const SWIG_CONFIG_SIZE = 112n;
 export const SVM_ACTIVATION_MINIMUM_LAMPORTS = 50_000_000n;
 export const SVM_ACTIVATION_MEMO = "compose.market: activate account";
 export const SVM_SESSION_APPROVAL_MEMO = "compose.market: approve session";
-const MAINNET_NETWORK = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";
 const COMPUTE_BUDGET_PROGRAM = "ComputeBudget111111111111111111111111111111";
 const MAX_COMPUTE_UNITS = 1_400_000;
 const SPL_TOKEN_ACCOUNT_SIZE = 165n;
@@ -200,7 +203,7 @@ export async function buildUsdcFundedCreateSwigTransaction(input: {
     signMessage: (message: Uint8Array) => Promise<string>;
 }): Promise<SvmActivationTransaction> {
     const { swigId, evmPubkey, feePayer, usdcMint, availableUsdc, network, rpc, signMessage } = input;
-    if (network !== MAINNET_NETWORK) {
+    if (!isSolanaNetwork(network) || isTestnet(network)) {
         throw new Error("USDC-funded Solana activation is available on mainnet only");
     }
     const context = await deriveSelfFundedActivationContext(swigId, usdcMint, rpc);

@@ -23,12 +23,11 @@ import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useActiveAccount, useActiveWallet, useAdminWallet } from "thirdweb/react";
 import { useChain } from "@/contexts/Network";
-import { isEvmNetwork } from "@/lib/chains";
+import { isEvmNetwork, isTestnet } from "@/lib/chains";
 import { clearSwigCreated, getSmartAccountAdminWallet, readCachedAccount, readSwigCreated, writeSwigCreated, type SmartAccountAdminWallet } from "@/lib/cache";
 
 export { getSmartAccountAdminWallet, type SmartAccountAdminWallet };
 
-export const SOLANA_MAINNET = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";
 export interface SolanaActivationResult {
   signature: string;
   confirmed: boolean;
@@ -82,7 +81,7 @@ export function createActivationService(deps = activationDependencies) {
       const balance = (await rpc.getBalance(walletAddress as any).send()).value;
       assertCurrent();
       input.onFunding?.(balance);
-      const useUsdc = balance < SVM_ACTIVATION_MINIMUM_LAMPORTS && chain.network === SOLANA_MAINNET;
+      const useUsdc = balance < SVM_ACTIVATION_MINIMUM_LAMPORTS && !isTestnet(chain);
       const availableUsdc = useUsdc ? await deps.balance({ owner: walletAddress as any, mint: chain.assetAddress, rpc }) : 0n;
       assertCurrent();
       if (balance < SVM_ACTIVATION_MINIMUM_LAMPORTS && availableUsdc === 0n) {
@@ -133,7 +132,7 @@ export function useSolanaSmartAccount() {
   const signer = adminWallet?.getAccount();
   const adminAddress = signer?.address ?? null;
   const { paymentNetwork, solanaChains } = useChain();
-  const selectedChain = useMemo(() => isEvmNetwork(paymentNetwork)
+  const selectedChain = useMemo(() => !paymentNetwork || isEvmNetwork(paymentNetwork)
     ? solanaChains[0] : solanaChains.find(chain => chain.network === paymentNetwork), [paymentNetwork, solanaChains]);
   const [derived, setDerived] = useState<{ owner: string; address: string } | null>(() => {
     const cached = readCachedAccount();
@@ -169,7 +168,7 @@ export function useSolanaSmartAccount() {
   const cachedActivated = Boolean(adminAddress && selectedChain && readSwigCreated(adminAddress, selectedChain.network));
   const status = useQuery({
     queryKey: ['swig', adminAddress, selectedChain?.network, selectedChain?.rpcUrl, selectedChain?.assetAddress, swigAddress],
-    enabled: Boolean(adminAddress && swigAddress && selectedChain && !isEvmNetwork(paymentNetwork)),
+    enabled: Boolean(adminAddress && swigAddress && selectedChain && paymentNetwork && !isEvmNetwork(paymentNetwork)),
     retry: false,
     staleTime: ACTIVATION_POLL_MS,
     refetchInterval: (query) => query.state.data?.activated ? false : ACTIVATION_POLL_MS,
@@ -190,7 +189,7 @@ export function useSolanaSmartAccount() {
   const create = useCallback(async (): Promise<SolanaActivationResult | null> => {
     if (!signer || !adminAddress) throw new Error("EVM signer account not available");
     if (!swigAddress) throw new Error("Solana account address is still resolving");
-    if (!selectedChain || isEvmNetwork(paymentNetwork)) throw new Error("Select a configured Solana network before activation");
+    if (!selectedChain || !paymentNetwork || isEvmNetwork(paymentNetwork)) throw new Error("Select a configured Solana network before activation");
     const assertCurrent = () => {
       if (!mounted.current || current.current.generation !== generation || current.current.key !== scopeKey || adminWallet?.getAccount()?.address !== adminAddress) {
         throw new Error("The signer or selected network changed; retry the operation");
