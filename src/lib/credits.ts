@@ -1,4 +1,5 @@
 import { api } from './api';
+import { isMainnet } from './chains';
 
 export type CheckoutIntent = { kind: 'balance' };
 export function promptCardCheckout(intent: CheckoutIntent = { kind: 'balance' }): void {
@@ -28,9 +29,7 @@ export interface CreditBalance {
   environment: 'sandbox' | 'live';
   promo?: CreditPromoStatus;
 }
-export const MAINNET_MODE =
-  typeof import.meta !== 'undefined' &&
-  String(import.meta.env?.VITE_NETWORK_MODE).trim().toLowerCase() === 'mainnet';
+export const MAINNET_MODE = isMainnet();
 export const DEFAULT_PAYPAL_CLIENT_ID: string =
   MAINNET_MODE ? '' : ((typeof import.meta !== 'undefined' && import.meta.env?.VITE_PAYPAL_CLIENT_ID) || '');
 export const zeroCredits: CreditBalance = {

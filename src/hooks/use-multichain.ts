@@ -53,7 +53,7 @@ export function useMultiChainBalance(
       evmKey,
       solanaKey,
     ],
-    enabled: enabled && ready && Boolean(input.evmAddress || input.svmAddress),
+    enabled: enabled && ready && Boolean(input.evmAddress || input.svmAddress) && (evmChains.length > 0 || solanaChains.length > 0),
     refetchInterval: 30_000,
     queryFn: async (): Promise<BalanceEntry[]> => {
       const entries: BalanceEntry[] = [];
@@ -117,13 +117,4 @@ export function useMultiChainBalance(
   });
 
   return { data: query.data, isLoading: query.isLoading, refetch: query.refetch };
-}
-
-export function useTotalBalance(
-  input: BalanceInput,
-  options: BalanceOptions = {},
-) {
-  const { data, isLoading } = useMultiChainBalance(input, options);
-  const total = (data ?? []).reduce((sum, entry) => sum + Number(entry.formatted), 0);
-  return { formatted: total.toFixed(2), isLoading };
 }

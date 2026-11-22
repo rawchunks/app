@@ -38,7 +38,6 @@ function useIdentityState(isRootProvider: boolean) {
         setSelectedNetwork,
         solanaChains,
         evmChains,
-        defaultNetwork,
         getChainByNetworkId,
     } = useChain();
     const {
@@ -72,22 +71,23 @@ function useIdentityState(isRootProvider: boolean) {
             autoSwitchedIdentityRef.current = null;
             return;
         }
+        if (!paymentNetwork) return;
         const identityKey = `${liveEvmAddress ?? ""}:${liveSvmAddress ?? ""}:${evmSignerAddress ?? ""}`;
         if (autoSwitchedIdentityRef.current === identityKey) return;
         if (liveSvmAddress && !liveEvmAddress && isEvmNetwork(paymentNetwork)) {
-            const targetSolana = (solanaChains?.[0]?.network ?? "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1") as any;
+            const targetSolana = solanaChains?.[0]?.network;
+            if (!targetSolana) return;
             autoSwitchedIdentityRef.current = identityKey;
             setSelectedNetwork?.(targetSolana);
             return;
         }
         if (liveEvmAddress && !liveSvmAddress && !evmSignerAddress && !isEvmNetwork(paymentNetwork)) {
-            const targetEvm = (defaultNetwork && isEvmNetwork(defaultNetwork)
-                ? defaultNetwork
-                : evmChains?.[0]?.network ?? "eip155:8453") as any;
+            const targetEvm = evmChains?.[0]?.network;
+            if (!targetEvm) return;
             autoSwitchedIdentityRef.current = identityKey;
             setSelectedNetwork?.(targetEvm);
         }
-    }, [liveEvmAddress, liveSvmAddress, evmSignerAddress, paymentNetwork, solanaChains, evmChains, defaultNetwork, setSelectedNetwork]);
+    }, [liveEvmAddress, liveSvmAddress, evmSignerAddress, paymentNetwork, solanaChains, evmChains, setSelectedNetwork]);
 
     const isEvm = isEvmNetwork(paymentNetwork);
     const isReconnecting = Boolean(cached) && !liveEvmAddress && !liveSvmAddress && (connectionStatus === 'unknown' || connectionStatus === 'connecting');
@@ -106,7 +106,7 @@ function useIdentityState(isRootProvider: boolean) {
     const userAddress = isEvm
         ? (liveEvmAddress ?? (liveSvmAddress ? (pairedAddresses.evmAddress ?? liveSvmAddress) : null))
         : (liveSvmAddress ?? (liveEvmAddress ? (pairedAddresses.svmAddress ?? svmAddress) : null));
-    const readAddress = userAddress ?? liveEvmAddress ?? liveSvmAddress ?? cachedAddress(cached, paymentNetwork, isEvm, connectionStatus);
+    const readAddress = userAddress ?? liveEvmAddress ?? liveSvmAddress ?? cachedAddress(cached, paymentNetwork ?? '', isEvm, connectionStatus);
     const accountId = evmAddress ? evmAddress.toLowerCase() : (svmAddress ?? userAddress ?? readAddress ?? null);
     const isResolving = isReconnecting || (Boolean(evmSignerAddress) && !isEvm && (!svmAddress || !isActivated || isCreating));
 
@@ -123,7 +123,7 @@ function useIdentityState(isRootProvider: boolean) {
         const key = `${(liveEvmAddress ?? '').toLowerCase()}:${liveSvmAddress ?? ''}`;
         if (syncedWalletPairs.has(key)) return;
         syncedWalletPairs.add(key);
-        writeCachedAccount(liveEvmAddress ?? '', paymentNetwork, liveSvmAddress, undefined, undefined, undefined, evmSignerAddress);
+        writeCachedAccount(liveEvmAddress ?? '', paymentNetwork ?? '', liveSvmAddress, undefined, undefined, undefined, evmSignerAddress);
         const sessionAddr = liveEvmAddress || liveSvmAddress || '';
         api.fetch('/api/user', {
             method: 'PUT',
@@ -156,7 +156,7 @@ function useIdentityState(isRootProvider: boolean) {
                 if (resolvedSvm) writeCachedProfile(resolvedSvm, profile);
                 writeCachedAccount(
                     resolvedEvm ?? '',
-                    paymentNetwork,
+                    paymentNetwork ?? '',
                     resolvedSvm,
                     profile.nickname,
                     profile.avatar,
@@ -289,7 +289,7 @@ function useIdentityState(isRootProvider: boolean) {
         },
         [addresses],
     );
-    const chain = getChainByNetworkId(paymentNetwork);
+    const chain = paymentNetwork ? getChainByNetworkId(paymentNetwork) : undefined;
     const operationKey = `${paymentNetwork}:${evmAddress}:${evmSignerAddress}:${svmAddress}:${chain?.rpcUrl}:${chain?.assetAddress}`;
     const current = useRef({ key: operationKey, generation: 0 });
     if (current.current.key !== operationKey) current.current = { key: operationKey, generation: current.current.generation + 1 };
