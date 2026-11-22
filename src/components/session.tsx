@@ -154,14 +154,14 @@ export function SessionProvider({ children, userAddress: propUserAddress }: Sess
   const { chains, selectedNetwork } = useChain();
   const { userAddress, readAddress, isReconnecting, evmSignerAddress, activate } = useSelectedUserAddress();
   const liveAddress = propUserAddress ?? userAddress;
-  const address = liveAddress && (isEvmNetwork(selectedNetwork)
+  const address = selectedNetwork && liveAddress && (isEvmNetwork(selectedNetwork)
     ? /^0x[0-9a-f]{40}$/i.test(liveAddress) && Boolean(account)
     : /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(liveAddress) && Boolean(evmSignerAddress || !isReconnecting)) ? liveAddress : null;
-  const scope: SessionScope | null = address ? { address, network: selectedNetwork } : null;
+  const scope: SessionScope | null = selectedNetwork && address ? { address, network: selectedNetwork } : null;
   const displayAddress = address ?? (isReconnecting ? readAddress : null);
-  const displayScope: SessionScope | null = displayAddress ? { address: displayAddress, network: selectedNetwork } : null;
+  const displayScope: SessionScope | null = selectedNetwork && displayAddress ? { address: displayAddress, network: selectedNetwork } : null;
   const key = scope ? scopeKey(scope) : null;
-  const config = chains.find(chain => chain.network === selectedNetwork);
+  const config = selectedNetwork ? chains.find(chain => chain.network === selectedNetwork) : undefined;
   const identityKey = `${key}:${account?.address}:${evmSignerAddress}:${config?.rpcUrl}:${config?.assetAddress}`;
   const current = useRef({ identityKey, generation: 0 });
   if (current.current.identityKey !== identityKey) current.current = { identityKey, generation: current.current.generation + 1 };
@@ -667,9 +667,9 @@ export function FundingPanel({ onDone, reason, funding }: FundingPanelProps) {
   const isUsdcSelected = isUsdcSession && activeSource === 'usdc';
 
   const activeNetwork = session.active && session.network ? session.network : selectedNetwork;
-  const chainInfo = getChainByNetworkId(activeNetwork);
+  const chainInfo = activeNetwork ? getChainByNetworkId(activeNetwork) : undefined;
   const assetSymbol = chainInfo?.asset ?? "USDC";
-  const currentBalance = balances?.find((b) => b.network === selectedNetwork)?.formatted ?? "0.00";
+  const currentBalance = selectedNetwork ? (balances?.find((b) => b.network === selectedNetwork)?.formatted ?? "0.00") : "0.00";
 
   const effectiveBudgetWei = customBudget.trim()
     ? Math.floor(Math.max(0, parseFloat(customBudget) || 0) * 10_000).toString()

@@ -15,8 +15,9 @@ import { tempoModerato } from "viem/chains";
 import { withRelay } from "viem/tempo";
 import { ShieldCheck, CreditCard } from "lucide-react";
 import type { NetworkId } from "@compose-market/sdk/chains";
+import { useChain } from "@/contexts/Network";
 import { compose } from "@/lib/compose";
-import { getEvmChainObject, getModeNetworks, isEvmNetwork, isMainnet, thirdwebClient } from "@/lib/chains";
+import { evmChainId, getChainByNetwork, getEvmChainObject, isEvmNetwork, isMainnet, thirdwebClient } from "@/lib/chains";
 import { getSmartAccountAdminWallet, type SmartAccountAdminWallet } from "@/lib/cache";
 import { openGate } from "@/lib/gate";
 import { cn } from "@/lib/utils";
@@ -527,8 +528,6 @@ const PROVIDERS: readonly { id: Provider; label: string }[] = [
   { id: 'rampnow', label: 'RAMPNOW' },
 ];
 
-const BASE_MAINNET_USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913' as `0x${string}`;
-
 export type Order = {
   operationId: string;
   chainId: number;
@@ -634,8 +633,8 @@ async function ensureComposeApproval(
 export function ThirdwebCard({
   amountAtomics,
   receiverAddress,
-  chainId = 8453,
-  tokenAddress = BASE_MAINNET_USDC,
+  chainId,
+  tokenAddress,
   createOrder,
   onComplete,
   onError,
@@ -679,7 +678,7 @@ export function ThirdwebCard({
   }, []);
 
   useEffect(() => {
-    if (!receiverAddress || !/^0x[a-fA-F0-9]{40}$/.test(receiverAddress) || amountAtomics <= 0n) {
+    if (!chainId || !tokenAddress || !receiverAddress || !/^0x[a-fA-F0-9]{40}$/.test(receiverAddress) || amountAtomics <= 0n) {
       setLoadingQuotes(false);
       return;
     }
@@ -863,6 +862,7 @@ export function CardCheckout({
   onCancel: () => void;
 }) {
   const { session, credits, creditsLoading, creditOwner, completeCreditPurchase } = useSession();
+  const { chains, evmChains } = useChain();
   const { paymentNetwork, userAddress, readAddress, evmAddress } = useSelectedUserAddress();
   const account = useActiveAccount();
   const mainnet = isMainnet();
@@ -870,10 +870,13 @@ export function CardCheckout({
   const [packId, setPackId] = useState(packs[0]?.id ?? '');
   const pack = packs.find(value => value.id === packId) ?? packs[0];
   const [error, setError] = useState<string | null>(null);
-  const operation = useRef<{ operationId: string; orderId: string } | null>(null);
+  const operation = useRef<{ operationId: string; orderId: string; tokenAddress?: `0x${string}`; network?: string } | null>(null);
   const requestKey = useRef(crypto.randomUUID());
 
-  const resolvedNetwork = session?.network || paymentNetwork || getModeNetworks()[0];
+  const resolvedNetwork = session?.network || paymentNetwork || chains[0]?.network || null;
+  const activeEvmChain = (resolvedNetwork && isEvmNetwork(resolvedNetwork) ? getChainByNetwork(resolvedNetwork) : undefined) ?? evmChains[0];
+  const activeChainId = activeEvmChain && isEvmNetwork(activeEvmChain.network) ? evmChainId(activeEvmChain.network) : undefined;
+  const activeTokenAddress = activeEvmChain?.assetAddress as `0x${string}` | undefined;
   const resolvedUserAddress = session?.userAddress || userAddress || readAddress || creditOwner || null;
   const orderParamsRef = useRef({
     packId: pack?.id ?? '',
@@ -957,10 +960,13 @@ export function CardCheckout({
           <ThirdwebCard
             amountAtomics={BigInt(pack.amountAtomics)}
             receiverAddress={evmAddress || creditOwner}
+            chainId={activeChainId}
+            tokenAddress={activeTokenAddress}
             createOrder={async () => {
               setError(null);
               const current = orderParamsRef.current;
               if (!current.creditOwner) throw new Error('Connect your account first');
+              if (!current.network) throw new Error('Payment network is unavailable');
               try {
                 const result = await creditsApi<Order>(
                   'thirdweb/create-order',
@@ -972,7 +978,12 @@ export function CardCheckout({
                   },
                   requestKey.current,
                 );
-                operation.current = { operationId: result.operationId, orderId: result.operationId };
+                operation.current = {
+                  operationId: result.operationId,
+                  orderId: result.operationId,
+                  tokenAddress: result.tokenAddress as `0x${string}`,
+                  network: result.network,
+                };
                 localStorage.setItem(purchaseCacheKey(current.creditOwner), result.operationId);
                 return result;
               } catch (err) {
@@ -984,12 +995,16 @@ export function CardCheckout({
             onComplete={async confirmation => {
               try {
                 await creditsApi('thirdweb/confirm-order', confirmation);
-                await ensureComposeApproval(
-                  account,
-                  orderParamsRef.current.network as NetworkId,
-                  BASE_MAINNET_USDC,
-                  BigInt(pack.amountAtomics),
-                ).catch(() => {});
+                const approvalNetwork = (operation.current?.network || orderParamsRef.current.network) as NetworkId | null;
+                const approvalToken = operation.current?.tokenAddress ?? activeTokenAddress;
+                if (approvalNetwork && approvalToken) {
+                  await ensureComposeApproval(
+                    account,
+                    approvalNetwork,
+                    approvalToken,
+                    BigInt(pack.amountAtomics),
+                  ).catch(() => {});
+                }
                 await completeCreditPurchase(confirmation.operationId);
                 operation.current = null;
                 requestKey.current = crypto.randomUUID();
