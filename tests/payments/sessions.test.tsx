@@ -25,6 +25,8 @@ vi.mock("@/components/connector", () => ({ approveTempoSession: mock.tempoApprov
 vi.mock("@/lib/chains", () => ({
   isEvmNetwork: (network: string) => network.startsWith("eip155:"),
   isSolanaNetwork: (network: string) => network.startsWith("solana:"), evmChainId: (network: string) => Number(network.slice(7)),
+  isMainnet: (network?: string) => network ? (network === "eip155:8453" || network === "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp") : false,
+  isTestnet: (network?: string) => network ? (network !== "eip155:8453" && network !== "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp") : true,
   getChainObject: (id: number) => ({ id, rpc: "https://rpc.test" }), thirdwebClient: {}
 }));
 vi.mock("thirdweb/react", () => ({

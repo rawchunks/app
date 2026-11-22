@@ -21,6 +21,8 @@ vi.mock("@/components/connector", () => ({ prepareTempoTransaction: mock.tempo }
 vi.mock("@/hooks/use-address", () => ({ useSelectedUserAddress: () => ({ userAddress: mock.wallet, svmAddress: mock.wallet,
   evmAddress: mock.smart, paymentNetwork: mock.network, captureSolanaOperation: mock.capture, assertCurrent: mock.guard }) }));
 vi.mock("@/lib/chains", () => ({ isEvmNetwork: (network: string) => network.startsWith("eip155:"),
+  isMainnet: (network?: string) => network ? (network === "eip155:8453" || network === "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp") : false,
+  isTestnet: (network?: string) => network ? (network !== "eip155:8453" && network !== "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp") : true,
   getEvmChainObject: () => ({ id: 42431, rpc: "https://rpc.test" }), thirdwebClient: { clientId: "test" },
   getNetworkRpcUrl: () => "https://rpc.test", usdcToWei: (amount: number) => BigInt(amount * 1_000_000) }));
 vi.mock("@/lib/contracts", async original => ({ ...await original<typeof import("@/lib/contracts")>(), requireEvmDeployment: vi.fn() }));

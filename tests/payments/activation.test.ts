@@ -1,8 +1,9 @@
 import { expect, test, vi } from "vitest";
-import { createActivationService, SOLANA_MAINNET } from "@/hooks/use-svm";
+import { createActivationService } from "@/hooks/use-svm";
 
 vi.mock("@/lib/sdk", () => ({ sdk: { svm: { feePayer: vi.fn(), relay: vi.fn() } } }));
 const DEVNET = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1";
+const SOLANA_MAINNET = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";
 const ADMIN = "0x1111111111111111111111111111111111111111";
 const WALLET = "J62vBhiY1skwoXLmh3VG7jpgu6nrwczXh7NAfZgZn2tz";
 

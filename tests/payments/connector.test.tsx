@@ -21,9 +21,19 @@ vi.mock("thirdweb/extensions/erc20", async original => ({ ...await original<type
 vi.mock("thirdweb/react", () => ({ ConnectButton: (props: any) => { mock.button(props); return null; }, useActiveAccount: () => mock.account,
   useActiveWallet: () => null, useActiveWalletConnectionStatus: () => "disconnected", useConnectModal: () => ({ connect: mock.button, isConnecting: false }), useAutoConnect: mock.autoConnect }));
 vi.mock("thirdweb/wallets", () => ({ inAppWallet: (options?: any) => mock.inAppWallet(options), createWallet: (id: string) => mock.createWallet(id) }));
-vi.mock("@/contexts/Network", () => ({ useChain: () => ({ chains: mock.chains, defaultNetwork: "eip155:8453",
-  paymentNetwork: mock.selected, getChainByNetworkId: (id: string) => mock.chains.find(chain => chain.network === id) }) }));
-vi.mock("@/hooks/use-multichain", () => ({ useTotalBalance: () => ({ formatted: "0", isLoading: false }) }));
+vi.mock("@/contexts/Network", () => ({
+  useChain: () => ({
+    chains: mock.chains,
+    evmChains: mock.chains.filter(chain => chain.namespace === "eip155"),
+    solanaChains: mock.chains.filter(chain => chain.namespace === "solana"),
+    paymentNetwork: mock.selected,
+    selectedNetwork: mock.selected,
+    isLoading: false,
+    error: null,
+    retry: vi.fn(),
+    getChainByNetworkId: (id: string) => mock.chains.find(chain => chain.network === id),
+  }),
+}));
 vi.mock("@/hooks/use-address", () => ({ useSelectedUserAddress: () => ({ userAddress: mock.account?.address ?? null, disconnect: mock.disconnect }) }));
 vi.mock("@/hooks/use-profile", () => ({ useProfile: () => ({}) }));
 vi.mock("@/hooks/use-disclaimer", () => ({ useDisclaimerConsent: () => mock.consent }));
@@ -73,7 +83,7 @@ test("payment selection including Tempo does not change the account login chain;
   mock.chains = [8453, 84532, 42431].map(id => ({ network: `eip155:${id}`, namespace: "eip155", name: `Chain ${id}`,
     rpcUrl: `https://rpc.test/${id}`, explorer: `https://explorer.test/${id}`, assetAddress: "0x1111111111111111111111111111111111111111", asset: "USDC", decimals: 6, schemes: ["upto"] }));
   mock.selected = "eip155:8453";
-  setChainRegistry(mock.chains, "eip155:8453");
+  setChainRegistry(mock.chains);
   const result = render(<AccountChip />);
   fireEvent.click(screen.getByRole("button", { name: "LOGIN" }));
   const initial = mock.button.mock.calls.at(-1)![0];
@@ -93,11 +103,32 @@ test("payment selection including Tempo does not change the account login chain;
   expect(mock.inAppWallet.mock.calls.at(-1)![0].executionMode.smartAccount.chain).toBe(initial.chain);
   expect(getChainObject(42431)).toMatchObject({ id: 42431, rpc: "https://rpc.test/42431", blockExplorers: [{ url: "https://explorer.test/42431" }] });
   mock.chains = mock.chains.map(c => c.network === "eip155:8453" ? { ...c, rpcUrl: "https://new.rpc" } : c);
-  setChainRegistry(mock.chains, "eip155:8453");
+  setChainRegistry(mock.chains);
   result.rerender(<AccountChip />);
   fireEvent.click(screen.getByRole("button", { name: "LOGIN" }));
   expect(mock.button.mock.calls.at(-1)![0].chain).toMatchObject({ id: 8453, rpc: "https://new.rpc" });
   expect(mock.inAppWallet.mock.calls.at(-1)![0].executionMode.smartAccount.chain).toMatchObject({ id: 8453, rpc: "https://new.rpc" });
+});
+
+test("AccountChip defers useAutoConnect until chains resolve and latches the login chain without defaultNetwork", () => {
+  mock.chains = [];
+  mock.selected = "";
+  const view = render(<AccountChip />);
+  expect(mock.autoConnect).not.toHaveBeenCalled();
+  expect(screen.getByRole("button", { name: "Loading wallet" })).toBeDefined();
+
+  mock.chains = [84532, 42431].map(id => ({
+    network: `eip155:${id}`, namespace: "eip155", name: `Chain ${id}`, isTestnet: true,
+    rpcUrl: `https://rpc.test/${id}`, explorer: `https://explorer.test/${id}`,
+    assetAddress: "0x1111111111111111111111111111111111111111", asset: "USDC", decimals: 6, schemes: ["upto"],
+  }));
+  mock.selected = "eip155:84532";
+  setChainRegistry(mock.chains);
+  view.rerender(<AccountChip />);
+  expect(mock.autoConnect).toHaveBeenCalled();
+  expect(mock.autoConnect.mock.calls.at(-1)![0].chain).toMatchObject({ id: 84532, rpc: "https://rpc.test/84532" });
+  fireEvent.click(screen.getByRole("button", { name: "LOGIN" }));
+  expect(mock.button.mock.calls.at(-1)![0].chain).toMatchObject({ id: 84532 });
 });
 
 test("getSmartAccountAdminWallet keeps enclave admin for inApp smart accounts and returns undefined for browser EOA wallets", () => {
@@ -113,7 +144,7 @@ test("getSmartAccountAdminWallet keeps enclave admin for inApp smart accounts an
 
 test("Phantom, Solflare, and Backpack connect via their native Solana provider with Base58 addresses and never touch window.phantom.ethereum", async () => {
   mock.chains = [{ network: "eip155:8453", namespace: "eip155", name: "Base", rpcUrl: "https://rpc.test/8453", explorer: "https://explorer.test/8453", assetAddress: "0x1111111111111111111111111111111111111111", asset: "USDC", decimals: 6, schemes: ["upto"] }];
-  setChainRegistry(mock.chains, "eip155:8453");
+  setChainRegistry(mock.chains);
   render(<AccountChip />);
   fireEvent.click(screen.getByRole("button", { name: "LOGIN" }));
   const modalArgs = mock.button.mock.calls.at(-1)![0];
@@ -160,7 +191,7 @@ test("Phantom, Solflare, and Backpack connect via their native Solana provider w
 
 test("new user without recorded consent automatically sees compulsory Generation Terms and must sign or disconnect", () => {
   mock.chains = [{ network: "eip155:8453", namespace: "eip155", name: "Base", rpcUrl: "https://rpc.test/8453", explorer: "https://explorer.test/8453", assetAddress: "0x1111111111111111111111111111111111111111", asset: "USDC", decimals: 6, schemes: ["upto"] }];
-  setChainRegistry(mock.chains, "eip155:8453");
+  setChainRegistry(mock.chains);
   mock.account = { address: smartAddress };
   mock.consent = { hasConsented: false, isLoading: false };
 
