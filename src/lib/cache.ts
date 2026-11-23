@@ -378,7 +378,7 @@ export function isVoice(value: unknown, address?: string): value is Voice {
         (voice.error != null && typeof voice.error !== 'string') ||
         !voice.availability || typeof voice.availability !== 'object') return false;
     const availability = voice.availability as Record<string, unknown>;
-    return (['turbo', 'sft'] as const).every(mode => {
+    return (['sft'] as const).every(mode => {
         const entry = availability[mode];
         if (!entry || typeof entry !== 'object') return false;
         const output = entry as Record<string, unknown>;

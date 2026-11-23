@@ -13,19 +13,31 @@ function key(address: string) { return ['voices', identity(address)] as const; }
 export function voiceStatus(voice: Voice): string {
   if (voice.status === 'ready') return 'Ready';
   if (voice.status === 'error') return 'Error';
-  return voice.status === 'saved' ? 'Saved' : 'Preparing';
+  if (voice.status === 'saved') return 'Saved';
+  if (voice.status === 'extracting') return 'Isolating';
+  if (voice.status === 'queued') return 'Queued';
+  if (voice.status === 'training') return 'Training';
+  return 'Preparing';
 }
 
 export function voiceAvailability(voice: Voice, mode: 'turbo' | 'sft'): string {
-  const output = voice.availability[mode];
-  if (voiceReady(voice, mode)) return 'Ready';
+  if (mode === 'turbo') {
+    if (voice.sample_url) return 'Ready';
+    if (voice.status === 'error') return 'Error';
+    return voice.status === 'extracting' ? 'Isolating' : 'Not ready';
+  }
+  const output = voice.availability.sft;
+  if (voiceReady(voice, 'sft')) return 'Ready';
   if (output.status === 'error') return 'Error';
+  if (output.status === 'queued') return 'Queued';
+  if (output.status === 'training') return 'Training';
   return output.status === 'unavailable' ? 'Not ready' : 'Preparing';
 }
 
 export function voiceReady(voice: Voice, mode: 'turbo' | 'sft'): boolean {
-  const output = voice.availability[mode];
-  return output.status === 'ready' && output.adapter?.status === 'ready' && output.adapter.model === `acestep-v15-xl-${mode}`;
+  if (mode === 'turbo') return Boolean(voice.sample_url);
+  const output = voice.availability.sft;
+  return output.status === 'ready' && output.adapter?.status === 'ready' && output.adapter.model === 'acestep-v15-xl-sft';
 }
 
 function pending(voice: Voice): boolean {
