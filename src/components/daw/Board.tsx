@@ -35,7 +35,7 @@ import { Song, Task } from '../../lib/schema';
 import { toast } from 'sonner';
 import { TrackType } from '../../lib/daw/store';
 import { getStemColor, formatTrackBadgeCode, formatTrackBadgeFull } from '../../lib/daw/palette';
-import { isBase, mounted, preview, interval, pending, masterArrangement, taskLabel, taskBadgeLabel, isLayerTake, layerTrackName, isFullSongRestyleTake } from '../../lib/daw/takes';
+import { isBase, mounted, preview, interval, pending, masterArrangement, taskLabel, taskBadgeLabel, isLayerTake, layerTrackName, isFullSongRemixTake } from '../../lib/daw/takes';
 
 export interface BoardProps {
   song: Song;
@@ -45,7 +45,7 @@ export interface BoardProps {
   onOpenTool?: (tool: 'studio' | 'mixer' | 'keys' | 'drums' | 'strudel' | 'dsp' | 'sample' | 'history', studioTask?: Task) => void;
   onIsolateStems: () => void;
   isSeparating: boolean;
-  onReworkSection?: () => void;
+  onEditSection?: () => void;
   lyrics?: string;
   onLyricsChange?: (lyrics: string) => void;
   vocalLanguage?: string;
@@ -59,7 +59,6 @@ export interface BoardProps {
   onAlignLyrics?: (customLyrics?: string) => void;
   task?: Task;
   instrument?: string;
-  processing?: boolean;
   reveal?: number;
   toolboxSlot?: React.ReactNode;
   canUndo?: boolean;
@@ -111,7 +110,7 @@ export const Board: React.FC<BoardProps> = ({
   onOpenTool,
   onIsolateStems,
   isSeparating,
-  onReworkSection,
+  onEditSection,
   lyrics = '',
   onLyricsChange,
   vocalLanguage = 'en',
@@ -125,7 +124,6 @@ export const Board: React.FC<BoardProps> = ({
   onAlignLyrics,
   task,
   instrument,
-  processing = false,
   reveal: _reveal,
   toolboxSlot,
   canUndo = false,
@@ -188,7 +186,7 @@ export const Board: React.FC<BoardProps> = ({
         t.id === selectedTrackId &&
         pending(t) &&
         !isLayerTake(t) &&
-        !isFullSongRestyleTake(t)
+        !isFullSongRemixTake(t)
     );
     const mruKey = matchedTake
       ? `cat-${(matchedTake.task || 'extract').toLowerCase()}`
@@ -202,8 +200,8 @@ export const Board: React.FC<BoardProps> = ({
       t.clips.length > 0,
   );
   const isVocalMacro =
-    task === 'repaint' ||
-    task === 'cover' ||
+    task === 'edit' ||
+    task === 'remix' ||
     task === 'complete' ||
     task === 'extend' ||
     (task === 'lego' && (instrument === 'vocals' || instrument === 'backing_vocals'));
@@ -224,7 +222,7 @@ export const Board: React.FC<BoardProps> = ({
           !take.provenance?.mergedInto &&
           !isBase(take, tracks, takes) &&
           !isLayerTake(take) &&
-          !isFullSongRestyleTake(take)
+          !isFullSongRemixTake(take)
       )
   );
   const [drag, setDrag] = useState<{ id: string; shift: number } | null>(null);
@@ -247,7 +245,7 @@ export const Board: React.FC<BoardProps> = ({
   const takesByCategory = React.useMemo(() => {
     const groups: Record<string, typeof takes> = {};
     takes.forEach((take) => {
-      if (!pending(take) || isLayerTake(take) || isFullSongRestyleTake(take)) return;
+      if (!pending(take) || isLayerTake(take) || isFullSongRemixTake(take)) return;
       const cat = (take.task || 'extract').toLowerCase();
       if (!groups[cat]) groups[cat] = [];
       groups[cat].push(take);
@@ -343,10 +341,10 @@ export const Board: React.FC<BoardProps> = ({
     const firstMounted = allExtractedTakes.find((t) => mounted(t, tracks, takes));
     return firstMounted ?? allExtractedTakes[0] ?? null;
   }, [isManualSelection, activeExtractedTakeId, selectionMatchesTake, allExtractedTakes, selectedTrackId, tracks, takes, guideTakeId]);
-  const masterRestyleTakes = React.useMemo(
+  const masterRemixTakes = React.useMemo(
     () =>
       takes
-        .filter(take => !take.provenance?.mergedInto && !take.is_active && isFullSongRestyleTake(take))
+        .filter(take => !take.provenance?.mergedInto && !take.is_active && isFullSongRemixTake(take))
         .sort((a, b) => a.take_number - b.take_number),
     [takes]
   );
@@ -1521,16 +1519,16 @@ export const Board: React.FC<BoardProps> = ({
             <span className="board-segment-hud-label">EXTRACT</span>
           </button>
         </Tooltip>
-        {onReworkSection && (
-          <Tooltip title="Rework Section" description="Focus AI Studio on this selected section">
+        {onEditSection && (
+          <Tooltip title="Edit Section" description="Focus AI Studio on this selected section">
             <button
               type="button"
               className="board-segment-hud-btn accent"
-              aria-label="Rework Section"
-              onClick={onReworkSection}
+              aria-label="Edit Section"
+              onClick={onEditSection}
             >
               <Sparkles size={11} />
-              <span className="board-segment-hud-label">REWORK</span>
+              <span className="board-segment-hud-label">EDIT</span>
             </button>
           </Tooltip>
         )}
@@ -1561,10 +1559,10 @@ export const Board: React.FC<BoardProps> = ({
             <Tooltip title="Master" description={song.title}>
               <button
                 type="button"
-                data-guide="board.master-focus" className={`board-track-badge board-badge-mst board-track-badge-btn ${masterRestyleTakes.length > 0 && (!masterTrack?.activeVersionTakeId || masterTrack.activeVersionTakeId === 'MST') ? 'selected' : ''}`}
+                data-guide="board.master-focus" className={`board-track-badge board-badge-mst board-track-badge-btn ${masterRemixTakes.length > 0 && (!masterTrack?.activeVersionTakeId || masterTrack.activeVersionTakeId === 'MST') ? 'selected' : ''}`}
                 onClick={(e) => {
                   e.stopPropagation();
-                  if (masterRestyleTakes.length > 0) {
+                  if (masterRemixTakes.length > 0) {
                     void selectMasterVersion(null);
                   } else {
                     onSelectTrack('master');
@@ -1582,15 +1580,15 @@ export const Board: React.FC<BoardProps> = ({
               <span className="board-master-map-hint">MASTER MAP</span>
             )}
 
-            {masterRestyleTakes.length > 0 && (
-              <div className="board-master-badges" aria-label="Restyle version controls">
-                {masterRestyleTakes.map((take, idx) => {
+            {masterRemixTakes.length > 0 && (
+              <div className="board-master-badges" aria-label="Remix version controls">
+                {masterRemixTakes.map((take, idx) => {
                   const isVersionActive = masterTrack?.activeVersionTakeId === take.id;
                   return (
                     <Tooltip
                       key={take.id}
-                      title={`Restyle #TK${idx + 1}`}
-                      description={take.prompt || `Full-song Restyle Take #${take.take_number}`}
+                      title={`Remix #TK${idx + 1}`}
+                      description={take.prompt || `Full-song Remix Take #${take.take_number}`}
                     >
                       <button
                         type="button"
@@ -1757,11 +1755,11 @@ export const Board: React.FC<BoardProps> = ({
 
               {masterTrack?.activeVersionTakeId && masterTrack.activeVersionTakeId !== 'MST' && (
                 <>
-                  <Tooltip title="Merge Restyle" description="Merge this restyle as the new master.">
+                  <Tooltip title="Merge Remix" description="Merge this remix as the new master.">
                     <button
                       type="button"
                       className="board-btn-mini active"
-                      data-guide="board.restyle-actions" aria-label="Merge Restyle version into Master"
+                      data-guide="board.remix-actions" aria-label="Merge Remix version into Master"
                       disabled={Boolean(pendingTake)}
                       onClick={(e) => {
                         e.stopPropagation();
@@ -1777,13 +1775,13 @@ export const Board: React.FC<BoardProps> = ({
                     </button>
                   </Tooltip>
                   <Tooltip
-                    title="Discard Restyle"
-                    description="Delete this Restyle version and restore Master."
+                    title="Discard Remix"
+                    description="Delete this Remix version and restore Master."
                   >
                     <button
                       type="button"
                       className="board-btn-mini delete"
-                      aria-label="Discard Restyle version"
+                      aria-label="Discard Remix version"
                       disabled={Boolean(pendingTake)}
                       onClick={(e) => {
                         e.stopPropagation();
@@ -1878,7 +1876,7 @@ export const Board: React.FC<BoardProps> = ({
             segments={masterLayout.segments}
             interactive={role === 'focus'}
             showSelection={isManualSelection}
-            onReworkSection={onReworkSection}
+            onEditSection={onEditSection}
             onSelectTrack={onSelectTrack}
             lanes={masterExpanded ? masterLanes : []}
             selectedTrackId={selectedTrackId}
@@ -2424,10 +2422,10 @@ export const Board: React.FC<BoardProps> = ({
               </div>
             )}
 
-            {currentTake.repainting_start != null && currentTake.repainting_end != null && (
+            {currentTake.editing_start != null && currentTake.editing_end != null && (
               <span className="board-take-interval-label">
-                [{formatTime(currentTake.repainting_start).slice(0, 5)} ➔{' '}
-                {formatTime(currentTake.repainting_end).slice(0, 5)}]
+                [{formatTime(currentTake.editing_start).slice(0, 5)} ➔{' '}
+                {formatTime(currentTake.editing_end).slice(0, 5)}]
               </span>
             )}
           </div>
@@ -2946,7 +2944,7 @@ export const Board: React.FC<BoardProps> = ({
       };
       if (step.id === 'T6' && (!lane || !canLaneMerge(lane))) return { ...result, target: 'board.stems', description: 'Select an added lane to use its Merge into Master control.' };
       if (['T5', 'T6'].includes(step.id) && !lane) return { ...result, target: 'board.stems', description: 'Select a populated lane to use its Merge control.' };
-      if (step.id === 'T8' && (!masterTrack?.activeVersionTakeId || masterTrack.activeVersionTakeId === 'MST')) return { ...result, target: 'board.master-focus', description: 'Restyle controls appear when a Restyle version is active on Master.' };
+      if (step.id === 'T8' && (!masterTrack?.activeVersionTakeId || masterTrack.activeVersionTakeId === 'MST')) return { ...result, target: 'board.master-focus', description: 'Remix controls appear when a Remix version is active on Master.' };
       return {
         ...result, target: step.id === 'T1' ? 'board.take-display' : step.id === 'R5' ? 'board.waveform' : undefined, entity: ['T1', 'T2', 'T4'].includes(step.id) ? takeId : ['T5', 'T6'].includes(step.id) ? laneId : undefined,
         focus: step.id === 'H1' ? canUndo || canRedo ? 'button:not(:disabled)' : 'self' : step.id === 'T2' ? '[aria-label^="Original audio for Take"]' : undefined
@@ -3102,7 +3100,6 @@ export const Board: React.FC<BoardProps> = ({
             lyricsAlignment={lyricsAlignment}
             isAligningLyrics={isAligningLyrics}
             onAlignLyrics={onAlignLyrics}
-            processing={processing}
             onClose={() => {
               setIsCanvasOpen(false);
             }}

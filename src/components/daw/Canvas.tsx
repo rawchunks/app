@@ -454,7 +454,6 @@ export interface CanvasProps {
   lyricsAlignment?: LyricsAlignment | null;
   isAligningLyrics?: boolean;
   onAlignLyrics?: (customLyrics?: string) => void;
-  processing?: boolean;
   onClose?: () => void;
   mode?: 'dock' | 'overlay';
   autoEdit?: boolean;
@@ -472,7 +471,6 @@ export const Canvas: React.FC<CanvasProps> = ({
   lyricsAlignment = null,
   isAligningLyrics = false,
   onAlignLyrics,
-  processing = false,
   onClose,
   mode = 'dock',
   autoEdit = false,
@@ -905,7 +903,6 @@ export const Canvas: React.FC<CanvasProps> = ({
         <button
           type="button"
           className="toolbox-lyrics-unified-icon is-extract"
-          disabled={processing}
           onClick={(e) => {
             e.stopPropagation();
             onExtractLyrics();
