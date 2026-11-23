@@ -10,8 +10,8 @@ const { renderToStaticMarkup } = require('react-dom/server');
 const initial = { ...useDawStore.getInitialState() };
 const takes: Take[] = [
   { id: 'original', song_id: 'song', take_number: 1, model: 'base', task: 'text2music', url: 'original.wav', is_active: true, created_at: '2026-10-09T00:00:00Z' },
-  { id: 'earlier', song_id: 'song', take_number: 2, model: 'base', task: 'extract', url: 'earlier.wav', is_active: false, created_at: '2026-10-09T00:00:01Z', repainting_start: 10, repainting_end: 15 },
-  { id: 'later', song_id: 'song', take_number: 3, model: 'base', task: 'extract', url: 'later.wav', is_active: false, created_at: '2026-10-09T00:00:02Z', repainting_start: 20, repainting_end: 30 },
+  { id: 'earlier', song_id: 'song', take_number: 2, model: 'base', task: 'extract', url: 'earlier.wav', is_active: false, created_at: '2026-10-09T00:00:01Z', editing_start: 10, editing_end: 15 },
+  { id: 'later', song_id: 'song', take_number: 3, model: 'base', task: 'extract', url: 'later.wav', is_active: false, created_at: '2026-10-09T00:00:02Z', editing_start: 20, editing_end: 30 },
 ];
 
 function render(selectedTrackId: string, tracks: DAWTrack[] = [], versions = takes) {
@@ -166,7 +166,7 @@ describe('SoundCloud-like Master dents & On-Selector 3-Icon HUD', () => {
     const extendTake: Take = {
       id: 'ext-take', song_id: 'song', take_number: 4, model: 'base', task: 'extend',
       url: 'ext.wav', is_active: false, created_at: '2026-10-09T00:00:03Z',
-      repainting_start: 60, repainting_end: 90,
+      editing_start: 60, editing_end: 90,
       provenance: { target: 'master', region: { start: 60, end: 90 }, outputDuration: 90 },
     };
     const mountedTrack = {

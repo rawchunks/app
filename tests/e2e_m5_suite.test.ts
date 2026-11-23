@@ -13,12 +13,12 @@ import { extractPeaksFromBuffer, extractBipolarPeaksFromUrl } from '../src/lib/d
 describe('Milestone M5 E2E & Adversarial Suite', () => {
   beforeEach(() => {
     vi.spyOn(dawEngine, 'loadClip').mockResolvedValue();
-    vi.spyOn(dawEngine, 'scheduleSequencer').mockImplementation(() => {});
-    vi.spyOn(dawEngine, 'schedulePiano').mockImplementation(() => {});
-    vi.spyOn(dawEngine, 'scheduleStrudel').mockImplementation(() => {});
-    vi.spyOn(dawEngine, 'updateTrackMixer').mockImplementation(() => {});
-    vi.spyOn(dawEngine, 'updateTrackFx').mockImplementation(() => {});
-    vi.spyOn(dawEngine, 'disposeTrack').mockImplementation(() => {});
+    vi.spyOn(dawEngine, 'scheduleSequencer').mockImplementation(() => { });
+    vi.spyOn(dawEngine, 'schedulePiano').mockImplementation(() => { });
+    vi.spyOn(dawEngine, 'scheduleStrudel').mockImplementation(() => { });
+    vi.spyOn(dawEngine, 'updateTrackMixer').mockImplementation(() => { });
+    vi.spyOn(dawEngine, 'updateTrackFx').mockImplementation(() => { });
+    vi.spyOn(dawEngine, 'disposeTrack').mockImplementation(() => { });
   });
 
   it('passes Tiers 1-5 unit, boundary, pairwise, workload, and adversarial checks', async () => {
@@ -179,7 +179,7 @@ describe('Milestone M5 E2E & Adversarial Suite', () => {
     // =========================================================================
     const takesMock = [
       { id: 'take-v1', song_id: 'song-m5-001', take_number: 1, model: 'acestep-v15-xl-turbo', task: 'text2music', url: 'http://localhost/t1.wav', is_active: true, created_at: new Date().toISOString() },
-      { id: 'take-v2', song_id: 'song-m5-001', take_number: 2, model: 'acestep-v15-xl-base', task: 'repaint', url: 'http://localhost/t2.wav', is_active: false, created_at: new Date().toISOString() },
+      { id: 'take-v2', song_id: 'song-m5-001', take_number: 2, model: 'acestep-v15-xl-base', task: 'edit', url: 'http://localhost/t2.wav', is_active: false, created_at: new Date().toISOString() },
     ];
     store.setTakes(takesMock);
     store.toggleTake('take-v2');

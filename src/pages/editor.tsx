@@ -20,7 +20,7 @@ import { Toolbox, ManualToolTab } from '../components/daw/Toolbox';
 import { Studio } from '../components/daw/Studio';
 import { Tooltip } from '../components/daw/Tooltip';
 import { ArrowLeft, Play, Pause, Square, SkipBack, Repeat } from 'lucide-react';
-import { source, sourceInterval, interval, isLayerTake, layerTrackName, isFullSongRestyleTake, taskLabel } from '../lib/daw/takes';
+import { source, sourceInterval, interval, isLayerTake, layerTrackName, isFullSongRemixTake, taskLabel } from '../lib/daw/takes';
 import { readProject, writeProject } from '../lib/cache';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -418,7 +418,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
   }, [applyHistorySnapshot]);
 
   // AI Generation & Studio Parameters
-  const [task, setTask] = useState<Task>('repaint');
+  const [task, setTask] = useState<Task>('edit');
   const [selectedQuality, setSelectedQuality] = useState<string>('');
   const [prompt, setPrompt] = useState<string>('');
   const [lyrics, setLyrics] = useState<string>('');
@@ -428,9 +428,10 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
   const [lyricsAlignment, setLyricsAlignment] = useState<LyricsAlignment | null>(null);
   const [isAligningLyrics, setIsAligningLyrics] = useState<boolean>(false);
   const [stemType, setStemType] = useState<string>('vocals');
-  const [coverStrength, setCoverStrength] = useState<number>(0.65);
-  const [repaintMode, setRepaintMode] = useState<'conservative' | 'balanced' | 'aggressive'>('balanced');
-  const [repaintStrength, setRepaintStrength] = useState<number>(0.5);
+  const [remixStrength, setRemixStrength] = useState<number>(0.65);
+  const [remixMode, setRemixMode] = useState<'style' | 'preserve'>('style');
+  const [editMode, setEditMode] = useState<'conservative' | 'balanced' | 'aggressive'>('balanced');
+  const [editStrength, setEditStrength] = useState<number>(0.5);
   const [instrument, setInstrument] = useState('guitar');
   const [targetDuration, setTargetDuration] = useState<number>(duration > 0 ? Math.ceil(duration) + 30 : 60);
 
@@ -469,7 +470,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
       if (tool) patch.activeTool = tool;
       if (step.id === 'X5' && !document.querySelector('[data-guide="fx.module.sculpt"].active-module')) patch.activeTool = 'mixer';
       if (step.id === 'T3' || step.id === 'H3') patch.activeTool = 'history';
-      const operation = ({ I3: 'repaint', I4: 'lego', I5: 'extend', I6: 'complete', I7: 'cover', I8: 'extract' } as const)[step.id as 'I3'];
+      const operation = ({ I3: 'edit', I4: 'lego', I5: 'extend', I6: 'complete', I7: 'remix', I8: 'extract' } as const)[step.id as 'I3'];
       if (operation && !(step.id === 'I3' && !selection)) {
         patch.task = operation;
         const modes = editing?.tasks.find(action => action.id === operation)?.modes;
@@ -486,8 +487,11 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
     },
   });
 
-  // Processing & Poller
-  const [processing, setProcessing] = useState<boolean>(false);
+  // Processing & Poller (derived live from useDawStore.operations — unlimited concurrent ops)
+  const operations = useDawStore((s) => s.operations);
+  const activeOps = operations.filter((op) => op.status === 'submitting' || op.status === 'pending' || op.status === 'processing');
+  const activeOpCount = activeOps.length;
+  const isSeparating = activeOps.some((op) => Boolean(op.isolate));
   const [progress, setProgress] = useState<number | undefined>(undefined);
   const [toolboxRevision, setToolboxRevision] = useState(0);
   const pollTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
@@ -498,7 +502,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
   const sessionRef = useRef(false);
   useEffect(() => {
     scopeRef.current++;
-    setProcessing(false);
+    setProgress(undefined);
     setVocalLanguage('en');
     setHasExistingLyrics(false);
     setIsTranscribingLyrics(false);
@@ -849,10 +853,10 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
     }
   };
 
-  const handleReworkSection = useCallback(() => {
+  const handleEditSection = useCallback(() => {
     const sel = useDawStore.getState().selection;
     if (sel) {
-      setTask('repaint');
+      setTask('edit');
       setMobileFocus('studio');
       setToolboxRevision(value => value + 1);
       requestAnimationFrame(() => {
@@ -863,7 +867,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
         }
       });
     } else {
-      toast.error('Select a region on the timeline first to rework');
+      toast.error('Select a region on the timeline first to edit');
     }
   }, [setTask]);
 
@@ -923,7 +927,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
       } else if (e.key === 'r' || e.key === 'R') {
         if (useDawStore.getState().selection) {
           e.preventDefault();
-          handleReworkSection();
+          handleEditSection();
         }
       } else if (e.key === '[' || e.key === ']' || e.key === '{' || e.key === '}') {
         const st = useDawStore.getState();
@@ -952,7 +956,7 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isPlaying, loop, selection, selectedTrackId, takes, setSelection, handleUndo, handleRedo, handleReworkSection, song.duration]);
+  }, [isPlaying, loop, selection, selectedTrackId, takes, setSelection, handleUndo, handleRedo, handleEditSection, song.duration]);
 
   // Track Creation via '+' Tool Selector
   const handleAddTrack = (type: TrackType) => {
@@ -1010,9 +1014,9 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
     }
     await loadSongData();
     if (data.take) {
-      if (isFullSongRestyleTake(data.take)) {
+      if (isFullSongRemixTake(data.take)) {
         setSelectedTrackId('master');
-        toast.success('Restyle ready');
+        toast.success('Remix ready');
         return;
       }
       if (isLayerTake(data.take)) {
@@ -1070,10 +1074,6 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
           }));
           if (data.status === 'ready') {
             streamControllersRef.current.delete(job.taskId);
-            const remaining = useDawStore.getState().operations.filter(
-              item => item.id !== job.taskId && (item.status === 'pending' || item.status === 'processing' || item.status === 'submitting')
-            ).length;
-            if (remaining === 0) setProcessing(false);
             setProgress(100);
             await showResult(data);
             useDawStore.setState(state => ({ operations: state.operations.filter(item => item.id !== job.taskId) }));
@@ -1084,10 +1084,6 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
       } catch (error) {
         if (scope !== scopeRef.current || controller.signal.aborted) return;
         streamControllersRef.current.delete(job.taskId);
-        const remaining = useDawStore.getState().operations.filter(
-          item => item.id !== job.taskId && (item.status === 'pending' || item.status === 'processing' || item.status === 'submitting')
-        ).length;
-        if (remaining === 0) setProcessing(false);
         const message = error instanceof Error ? error.message : 'Failed to check audio status';
         useDawStore.setState(state => ({ operations: state.operations.filter(item => item.id !== job.taskId) }));
         toast.error(message);
@@ -1230,23 +1226,24 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
 
   useEffect(() => {
     if (!readAddress) return;
-    const pending = useDawStore.getState().operations.find(operation => ['pending', 'processing'].includes(operation.status));
-    if (pending) { setProcessing(true); pollTask({ taskId: pending.id, task: pending.task as Task, stemId: pending.stemId }, readAddress); }
+    const pendingOps = useDawStore.getState().operations.filter(operation => ['pending', 'processing'].includes(operation.status));
+    for (const pending of pendingOps) {
+      pollTask({ taskId: pending.id, task: pending.task as Task, stemId: pending.stemId }, readAddress);
+    }
   }, [song.id, readAddress]);
 
   // Demix Stems
   const handleIsolateStems = async (retry = false) => {
-    if (processing) return;
+    if (isSeparating) return;
     if (!effectiveAddress) {
       void openGate({ steps: ['login', 'funding'] });
       return;
     }
     if (!await openGate({ steps: ['funding'] })) return;
-    setProcessing(true);
     setProgress(undefined);
     const operation = crypto.randomUUID();
     const scope = scopeRef.current;
-    useDawStore.setState(state => ({ operations: [...state.operations, { id: operation, task: 'extract', status: 'submitting' }] }));
+    useDawStore.setState(state => ({ operations: [...state.operations, { id: operation, task: 'extract', status: 'submitting', isolate: true }] }));
     try {
       const res = await api.fetch('/api/editing/isolate', {
         method: 'POST',
@@ -1260,7 +1257,6 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
 
       if (!res.ok) {
         if (res.status === 402) {
-          setProcessing(false);
           useDawStore.setState(state => ({ operations: state.operations.filter(item => item.id !== operation) }));
           if (!retry && await openGate({ steps: ['funding'], reason: 'Session budget exhausted' })) return handleIsolateStems(true);
           return;
@@ -1273,7 +1269,6 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
       if (scope !== scopeRef.current) return;
       useDawStore.setState(state => ({ operations: state.operations.map(item => item.id === operation ? { ...item, id: data.taskId ?? operation, status: data.status } : item) }));
       if (data.status === 'ready') {
-        setProcessing(false);
         setProgress(100);
         if (Array.isArray(data.stems) && data.stems.length > 0) {
           useDawStore.getState().syncStems(data.stems);
@@ -1289,7 +1284,6 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
       }
     } catch (err: any) {
       if (scope !== scopeRef.current) return;
-      setProcessing(false);
       useDawStore.setState(state => ({ operations: state.operations.filter(item => item.id !== operation) }));
       toast.error(err.message || 'Stem isolation failed');
     }
@@ -1382,10 +1376,8 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
     }
   }, [effectiveAddress, readAddress, isAligningLyrics, isTranscribingLyrics, lyrics, song.id, vocalLanguage]);
 
-  // AI Task Execution Dispatcher
+  // AI Task Execution Dispatcher (concurrent — unlimited queued/parallel operations)
   const handleApplyEdit = async (retry = false) => {
-    if (processing) return;
-
     if (!effectiveAddress) {
       void openGate({ steps: ['login', 'funding'] });
       return;
@@ -1393,7 +1385,6 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
 
     if (!await openGate({ steps: ['funding'] })) return;
 
-    setProcessing(true);
     setProgress(undefined);
     const operation = crypto.randomUUID();
     const scope = scopeRef.current;
@@ -1402,15 +1393,29 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
     try {
       if (!editing || (task !== 'extract' && !selectedQuality)) throw new Error('Music options are unavailable');
       const baseTake = takes.find(t => t.task === 'text2music') ?? takes.find(t => t.is_active);
+      const seenContext = new Set<string>();
       const globalCaption = [
+        ...(Array.isArray(song.genres) ? song.genres : []),
+        ...(Array.isArray(song.production) ? song.production : []),
+        ...(Array.isArray(song.mood) ? song.mood : []),
+        ...(Array.isArray(song.vocal) ? song.vocal : []),
         ...(Array.isArray(song.tags) ? song.tags : []),
         baseTake?.prompt || '',
       ]
-        .map(s => s.trim())
-        .filter(Boolean)
+        .map(s => String(s ?? '').trim())
+        .filter((s) => {
+          const key = s.toLowerCase();
+          if (!key || seenContext.has(key)) return false;
+          seenContext.add(key);
+          return true;
+        })
         .join(', ');
 
-      let endpoint = '/api/editing/repaint';
+      const activeBpm = bpm > 0 ? bpm : (typeof parameters.bpm === 'number' ? parameters.bpm : undefined);
+      const activeKeyScale = typeof parameters.keyScale === 'string' && parameters.keyScale.trim() ? parameters.keyScale.trim() : undefined;
+      const activeTimeSignature = typeof parameters.timeSignature === 'string' && parameters.timeSignature.trim() ? parameters.timeSignature.trim() : undefined;
+
+      let endpoint = '/api/editing/edit';
       let payload: any = {
         songId: song.id,
         stemId: (() => { const candidate = takes.find(take => take.id === selectedTrackId); const id = candidate ? source(candidate, tracks) : selectedTrackId; if (!id) throw new Error('The source lane is unavailable'); return id !== 'master' ? id : undefined; })(),
@@ -1421,13 +1426,16 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
             : task === 'lego' || task === 'complete'
               ? 'base'
               : selectedQuality,
+        bpm: activeBpm,
+        keyScale: activeKeyScale,
+        timeSignature: activeTimeSignature,
         vocalLanguage: vocalLanguage || 'en',
         globalCaption: globalCaption || undefined,
         ...Object.fromEntries(Object.entries(parameters).filter(([key]) => editing.parameters[key]?.tasks?.includes(task))),
       };
       if (typeof payload.trackClasses === 'string') payload.trackClasses = payload.trackClasses.split(',').map((value: string) => value.trim()).filter(Boolean);
 
-      if (task === 'repaint' && !selection) throw new Error('Select a section to rework');
+      if (task === 'edit' && !selection) throw new Error('Select a section to edit');
       const selectedTake = takes.find(take => take.id === selectedTrackId);
       const sourceRegion = selection && selectedTake ? sourceInterval(selectedTake, tracks, selection) : selection;
       const start = sourceRegion?.start;
@@ -1465,16 +1473,17 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
         }
       }
 
-      if (task === 'repaint') {
-        endpoint = '/api/editing/repaint';
+      if (task === 'edit') {
+        endpoint = '/api/editing/edit';
         payload = {
           ...payload,
           prompt: prompt.trim() ? prompt.trim() : undefined,
           lyrics: lyrics.trim() ? lyrics : undefined,
           start,
           end,
-          repaint_mode: repaintMode,
-          repaint_strength: repaintMode === 'balanced' ? repaintStrength : undefined,
+          editMode,
+          editStrength: editMode === 'balanced' ? editStrength : undefined,
+          editCrossfadeSec: typeof parameters.editCrossfadeSec === 'number' ? parameters.editCrossfadeSec : undefined,
         };
       } else if (task === 'lego') {
         if (!instrument.trim()) throw new Error('Enter the instrument to add');
@@ -1510,12 +1519,14 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
         };
       } else if (task === 'complete') {
         if (!prompt.trim()) throw new Error('Describe the accompaniment');
+        const defaultCompleteClasses = editing.completePresets?.[0]?.trackClasses;
         endpoint = '/api/editing/apply';
         payload = {
           ...payload,
           task: 'complete',
           prompt: prompt.trim(),
           lyrics: lyrics.trim() ? lyrics : undefined,
+          trackClasses: Array.isArray(payload.trackClasses) && payload.trackClasses.length > 0 ? payload.trackClasses : defaultCompleteClasses,
           start,
           end,
           audioDuration: duration,
@@ -1530,8 +1541,8 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
           end,
           audioDuration: targetDuration,
         };
-      } else if (task === 'cover') {
-        if (!prompt.trim()) throw new Error('Describe the style transformation');
+      } else if (task === 'remix') {
+        if (!prompt.trim()) throw new Error('Describe the remix style');
         endpoint = '/api/editing/remix';
         payload = {
           ...payload,
@@ -1539,8 +1550,8 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
           lyrics: lyrics.trim() ? lyrics : undefined,
           start,
           end,
-          coverStrength,
-          coverNoiseStrength: parameters.coverNoiseStrength,
+          remixStrength,
+          remixMode,
         };
       } else if (task === 'extract') {
         const normalizedStem = (stemType && stemType !== 'all' ? stemType : 'vocals').trim().toLowerCase();
@@ -1550,6 +1561,8 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
           task: 'extract',
           trackName: normalizedStem,
           modelQuality: 'base',
+          start,
+          end,
         };
       }
 
@@ -1561,7 +1574,6 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
 
       if (!res.ok) {
         if (res.status === 402) {
-          setProcessing(false);
           useDawStore.setState(state => ({ operations: state.operations.filter(item => item.id !== operation) }));
           if (!retry && await openGate({ steps: ['funding'], reason: 'Session budget exhausted' })) return handleApplyEdit(true);
           return;
@@ -1574,19 +1586,17 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
       if (scope !== scopeRef.current) return;
       useDawStore.setState(state => ({ operations: state.operations.map(item => item.id === operation ? { ...item, id: data.taskId ?? operation, status: data.status, stemId: data.stemId } : item) }));
       if (data.status === 'ready') {
-        setProcessing(false);
         setProgress(100);
         await showResult(data);
         useDawStore.setState(state => ({ operations: state.operations.filter(item => item.id !== (data.taskId ?? operation)) }));
         return;
       }
-      toast.success('Processing audio...');
+      toast.success(useDawStore.getState().operations.length > 1 ? `Queued ${taskLabel(task)}` : 'Processing audio...');
       if (data.taskId) {
         pollTask({ taskId: data.taskId, task: data.task, stemId: data.stemId }, effectiveAddress!);
       }
     } catch (err: any) {
       if (scope !== scopeRef.current) return;
-      setProcessing(false);
       useDawStore.setState(state => ({ operations: state.operations.filter(item => item.id !== operation) }));
       toast.error(err.message || 'Failed to process audio');
     }
@@ -1634,11 +1644,13 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
                   dawEngine.setBpm(v);
                 }}
               />
-              {processing && (
+              {activeOpCount > 0 && (
                 <>
                   <span>•</span>
                   <Badge variant="secondary">
-                    PROCESSING {progress === undefined ? '' : `${progress}%`}
+                    {activeOpCount > 1
+                      ? `${activeOpCount} TASKS`
+                      : `PROCESSING ${progress === undefined ? '' : `${progress}%`}`}
                   </Badge>
                 </>
               )}
@@ -1678,8 +1690,8 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
             }
           }}
           onIsolateStems={() => handleIsolateStems()}
-          isSeparating={processing}
-          onReworkSection={handleReworkSection}
+          isSeparating={isSeparating}
+          onEditSection={handleEditSection}
           lyrics={lyrics}
           onLyricsChange={setLyrics}
           vocalLanguage={vocalLanguage}
@@ -1693,7 +1705,6 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
           onAlignLyrics={handleAlignLyrics}
           task={task}
           instrument={instrument}
-          processing={processing}
           reveal={toolboxRevision}
           canUndo={historyCounts.past > 0}
           canRedo={historyCounts.future > 0}
@@ -1744,20 +1755,22 @@ export const Editor: React.FC<Props> = ({ song, onBack, className = '' }) => {
           onAlignLyrics={handleAlignLyrics}
           selectedQuality={selectedQuality}
           onQualityChange={setSelectedQuality}
-          repaintMode={repaintMode}
-          onRepaintModeChange={setRepaintMode}
-          repaintStrength={repaintStrength}
-          onRepaintStrengthChange={setRepaintStrength}
+          editMode={editMode}
+          onEditModeChange={setEditMode}
+          editStrength={editStrength}
+          onEditStrengthChange={setEditStrength}
           instrument={instrument}
           onInstrumentChange={setInstrument}
-          coverStrength={coverStrength}
-          onCoverStrengthChange={setCoverStrength}
+          remixStrength={remixStrength}
+          onRemixStrengthChange={setRemixStrength}
+          remixMode={remixMode}
+          onRemixModeChange={setRemixMode}
           targetDuration={targetDuration}
           onTargetDurationChange={setTargetDuration}
           stemType={stemType}
           onStemTypeChange={setStemType}
           onExecute={() => handleApplyEdit()}
-          processing={processing}
+          processing={activeOpCount > 0}
           progress={progress}
           selectedTrackId={selectedTrackId}
           onClearSelection={() => setSelection(null)}

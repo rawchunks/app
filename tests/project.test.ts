@@ -36,7 +36,7 @@ describe('project initialization', () => {
     useDawStore.getState().initProject('song', 'Session', 30, 'master.wav');
     const master = useDawStore.getState().tracks[0];
     const overlay = { ...master, id: 'part', activeTakeId: 'part', muted: true, clips: [{ ...master.clips[0], id: 'part:5:10', startTime: 8, origin: 5, duration: 5 }] };
-    const operation = { id: 'edit-job', task: 'repaint', status: 'processing' } as const;
+    const operation = { id: 'edit-job', task: 'edit', status: 'processing' } as const;
     useDawStore.getState().initProject('song', 'Session', 30, 'master.wav', {
       stems: [], takes: [{ id: 'part', task: 'extract' } as Take], commits: [],
       session: { tracks: [master, overlay], originals: [{ start: 8, end: 13 }], operations: [operation], bpm: 100 },
@@ -69,7 +69,7 @@ describe('project initialization', () => {
 
 describe('mounted takes', () => {
   const takes = [
-    { id: 'first', take_number: 2, url: 'first.wav', task: 'extract', repainting_start: 4, repainting_end: 7, provenance: { audioOffset: 0 } },
+    { id: 'first', take_number: 2, url: 'first.wav', task: 'extract', editing_start: 4, editing_end: 7, provenance: { audioOffset: 0 } },
     { id: 'second', take_number: 3, url: 'second.wav', task: 'cover' },
   ] as Take[];
 
@@ -212,11 +212,11 @@ describe('candidate placement', () => {
       song_id: 'song',
       stem_id: 'stm-master-song',
       take_number: 2,
-      task: 'repaint',
+      task: 'edit',
       url: 'rework.wav',
       is_active: false,
-      repainting_start: 4,
-      repainting_end: 8,
+      editing_start: 4,
+      editing_end: 8,
       provenance: { target: 'master', region: { start: 4, end: 8 }, audioOffset: 4, outputDuration: 30 },
     } as Take;
     useDawStore.getState().initProject('song', 'Session', 30, 'master.wav');
@@ -335,7 +335,7 @@ describe('candidate placement', () => {
       muted: false,
       solo: true,
       mounted: true,
-       mixer: { ...master.mixer!, muted: false, solo: true },
+      mixer: { ...master.mixer!, muted: false, solo: true },
       clips: [],
       strudelCode: 'note("c3 e3 g3 b3").s("sawtooth")',
     };
