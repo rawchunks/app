@@ -5,8 +5,8 @@ interface Version {
   is_active: boolean;
   model?: string;
   task?: string;
-  repainting_start?: number | null;
-  repainting_end?: number | null;
+  editing_start?: number | null;
+  editing_end?: number | null;
   provenance?: { target?: string; layerName?: string; audioOffset?: number; region?: { start: number; end: number } | null; regions?: { start: number; end: number }[]; outputDuration?: number | null; mergedInto?: string; parameters?: Record<string, any> } | null;
 }
 
@@ -17,24 +17,22 @@ export interface MasterSegment {
 }
 
 const TASK_LABELS: Record<string, string> = {
-  repaint: 'REWORK',
-  inpaint: 'REWORK',
+  edit: 'EDIT',
   lego: 'LAYER',
   extend: 'EXTEND',
   complete: 'ACCOMPANY',
-  cover: 'RESTYLE',
+  remix: 'REMIX',
   extract: 'EXTRACT',
   merge: 'MERGED',
   text2music: 'MASTER',
 };
 
 const TASK_BADGE_LABELS: Record<string, string> = {
-  repaint: 'RWK',
-  inpaint: 'RWK',
+  edit: 'EDT',
   lego: 'LYR',
   extend: 'EXT',
   complete: 'ACC',
-  cover: 'RST',
+  remix: 'RMX',
   extract: 'EXR',
 };
 
@@ -69,13 +67,13 @@ export function layerTrackName(take?: Version | null): string {
   return String(raw).trim().toLowerCase().replace(/\s+/g, '_');
 }
 
-export function isFullSongRestyleTake(take?: Version | null): boolean {
+export function isFullSongRemixTake(take?: Version | null): boolean {
   return Boolean(
     take &&
-    take.task === 'cover' &&
+    take.task === 'remix' &&
     (take.provenance?.target === 'master' || (take.stem_id && (take.stem_id.startsWith('stem-master') || take.stem_id.startsWith('stm-master')))) &&
     !take.provenance?.region &&
-    take.repainting_start == null
+    take.editing_start == null
   );
 }
 
@@ -85,7 +83,7 @@ export function pending(take: Version): boolean {
     take.task !== 'merge' &&
     take.task !== 'text2music' &&
     take.model !== 'demucs-htdemucs' &&
-    !(take.is_active && (take.provenance?.region || take.repainting_start != null || isLayerTake(take) || isFullSongRestyleTake(take)))
+    !(take.is_active && (take.provenance?.region || take.editing_start != null || isLayerTake(take) || isFullSongRemixTake(take)))
   );
 }
 
@@ -173,7 +171,7 @@ interface Lane {
 }
 
 export function retained<T extends Lane>(tracks: T[], takes: Version[]): T[] {
-  const ids = new Set(takes.filter(t => pending(t) && !isLayerTake(t) && !isFullSongRestyleTake(t)).map(take => take.id));
+  const ids = new Set(takes.filter(t => pending(t) && !isLayerTake(t) && !isFullSongRemixTake(t)).map(take => take.id));
   return tracks.filter(track => track.id !== track.activeTakeId || ids.has(track.id));
 }
 
@@ -199,7 +197,7 @@ export function mounted(take: Version, tracks: Lane[], takes: Version[]): boolea
 }
 
 export function preview(take: Version) {
-  const region = take.provenance?.region ?? (take.repainting_start != null && take.repainting_end != null ? { start: take.repainting_start, end: take.repainting_end } : null);
+  const region = take.provenance?.region ?? (take.editing_start != null && take.editing_end != null ? { start: take.editing_start, end: take.editing_end } : null);
   const start = take.provenance?.audioOffset ?? region?.start ?? 0;
   const duration = region ? region.end - region.start : undefined;
   return { start, end: duration === undefined ? undefined : start + duration, timelineStart: region?.start ?? 0 };
