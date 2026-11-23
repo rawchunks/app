@@ -173,6 +173,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
     window.addEventListener('scroll', handleGlobalDismiss, true);
     window.addEventListener('wheel', handleGlobalDismiss, { passive: true, capture: true });
     window.addEventListener('resize', handleGlobalDismiss);
+    window.addEventListener('popstate', handleGlobalDismiss);
     window.addEventListener('blur', handleGlobalDismiss);
 
     return () => {
@@ -183,6 +184,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
       window.removeEventListener('scroll', handleGlobalDismiss, true);
       window.removeEventListener('wheel', handleGlobalDismiss, true);
       window.removeEventListener('resize', handleGlobalDismiss);
+      window.removeEventListener('popstate', handleGlobalDismiss);
       window.removeEventListener('blur', handleGlobalDismiss);
     };
   }, [isVisible]);

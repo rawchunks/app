@@ -349,11 +349,11 @@ export const Toolbox: React.FC<ToolboxProps> = ({
                 return 'SNAPSHOT';
               }
               const msg = (c.message || '').toLowerCase();
-              if (msg.includes('repaint') || msg.includes('rework')) return 'REWORK';
+              if (msg.includes('edit')) return 'EDIT';
               if (msg.includes('extend')) return 'EXTEND';
               if (msg.includes('extract') || msg.includes('stem')) return 'ISOLATE';
               if (msg.includes('lego') || msg.includes('layer')) return 'LAYER';
-              if (msg.includes('cover') || msg.includes('restyle')) return 'RESTYLE';
+              if (msg.includes('remix')) return 'REMIX';
               return 'SESSION';
             };
             const visibleCommits = sortedCommits;
@@ -406,9 +406,9 @@ export const Toolbox: React.FC<ToolboxProps> = ({
                               <div className="toolbox-take-meta">
                                 <span className="toolbox-take-num">#{take.take_number ?? idx + 1}</span>
                                 <span className="toolbox-take-task">{taskLabel(take.task)}</span>
-                                {take.repainting_start != null && take.repainting_end != null && (
+                                {take.editing_start != null && take.editing_end != null && (
                                   <span className="toolbox-take-range">
-                                    [{formatTime(take.repainting_start)}➔{formatTime(take.repainting_end)}]
+                                    [{formatTime(take.editing_start)}➔{formatTime(take.editing_end)}]
                                   </span>
                                 )}
                               </div>
