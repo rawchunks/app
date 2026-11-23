@@ -1789,7 +1789,18 @@ class DAWEngine {
     }
   }
 
-  public async render(trackIds: string[], duration: number, commit = false, startTime = 0): Promise<Blob> {
+  private renderQueue: Promise<unknown> = Promise.resolve();
+
+  public render(trackIds: string[], duration: number, commit = false, startTime = 0): Promise<Blob> {
+    const task = this.renderQueue.then(
+      () => this.executeRender(trackIds, duration, commit, startTime),
+      () => this.executeRender(trackIds, duration, commit, startTime),
+    );
+    this.renderQueue = task.catch(() => {});
+    return task;
+  }
+
+  private async executeRender(trackIds: string[], duration: number, commit = false, startTime = 0): Promise<Blob> {
     if (!trackIds.length || !Number.isFinite(duration) || duration <= 0) throw new Error('Select reference lanes with a valid duration');
     const state = useDawStore.getState();
     const tracks = trackIds.map(id => {
