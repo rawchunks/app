@@ -49,14 +49,16 @@ export interface StudioProps {
   onAlignLyrics?: (customLyrics?: string) => void;
   selectedQuality: string;
   onQualityChange: (quality: string) => void;
-  repaintMode: 'conservative' | 'balanced' | 'aggressive';
-  onRepaintModeChange: (mode: 'conservative' | 'balanced' | 'aggressive') => void;
-  repaintStrength: number;
-  onRepaintStrengthChange: (strength: number) => void;
+  editMode: 'conservative' | 'balanced' | 'aggressive';
+  onEditModeChange: (mode: 'conservative' | 'balanced' | 'aggressive') => void;
+  editStrength: number;
+  onEditStrengthChange: (strength: number) => void;
   instrument: string;
   onInstrumentChange: (instrument: string) => void;
-  coverStrength: number;
-  onCoverStrengthChange: (strength: number) => void;
+  remixStrength: number;
+  onRemixStrengthChange: (strength: number) => void;
+  remixMode: 'style' | 'preserve';
+  onRemixModeChange: (mode: 'style' | 'preserve') => void;
   targetDuration: number;
   onTargetDurationChange: (dur: number) => void;
   stemType: string;
@@ -71,11 +73,11 @@ export interface StudioProps {
 }
 
 const ACTION_ICONS = {
-  repaint: Sparkles,
+  edit: Sparkles,
   lego: Layers,
   complete: Wand2,
   extend: ArrowRightCircle,
-  cover: Shuffle,
+  remix: Shuffle,
   extract: Split,
 };
 
@@ -170,7 +172,7 @@ const OperationMiniGraphic: React.FC<{ actionId: string; isActive: boolean }> = 
   isActive,
 }) => {
   const stroke = isActive ? '#00ff41' : 'rgba(0, 240, 255, 0.75)';
-  if (actionId === 'repaint') {
+  if (actionId === 'edit') {
     return (
       <svg className="studio-op-mini-svg" viewBox="0 0 36 12" aria-hidden="true">
         <line x1="1" y1="6" x2="10" y2="6" stroke="rgba(255,255,255,0.3)" strokeWidth="1.5" />
@@ -205,7 +207,7 @@ const OperationMiniGraphic: React.FC<{ actionId: string; isActive: boolean }> = 
       </svg>
     );
   }
-  if (actionId === 'cover') {
+  if (actionId === 'remix') {
     return (
       <svg className="studio-op-mini-svg" viewBox="0 0 36 12" aria-hidden="true">
         <path d="M 2 9 Q 10 2 18 6 T 34 3" fill="none" stroke="rgba(255,255,255,0.35)" strokeWidth="1.4" />
@@ -243,14 +245,16 @@ export const Studio: React.FC<StudioProps> = ({
   onAlignLyrics,
   selectedQuality,
   onQualityChange,
-  repaintMode,
-  onRepaintModeChange,
-  repaintStrength,
-  onRepaintStrengthChange,
+  editMode,
+  onEditModeChange,
+  editStrength,
+  onEditStrengthChange,
   instrument,
   onInstrumentChange,
-  coverStrength,
-  onCoverStrengthChange,
+  remixStrength,
+  onRemixStrengthChange,
+  remixMode,
+  onRemixModeChange,
   targetDuration,
   onTargetDurationChange,
   stemType,
@@ -276,10 +280,10 @@ export const Studio: React.FC<StudioProps> = ({
   const guideView = { isPromptModalOpen, isParamModalOpen, isLyricsModalOpen };
   const guideViewRef = useRef(guideView); guideViewRef.current = guideView;
   useGuideOwner({ id: 'ai', scope: useDawStore.getState().songId ?? 'loading', handles: step => step.owner === 'ai' || step.id === 'E4', prepare: ({ step }) => {
-    if (step.id === 'I3' && !selection) return { target: 'board.section', description: 'Use SECTION to select the range you want to rework.' };
+    if (step.id === 'I3' && !selection) return { target: 'board.section', description: 'Use SECTION to select the range you want to edit.' };
     const result = prepareViews(guideView, () => guideViewRef.current, { isPromptModalOpen: setIsPromptModalOpen, isParamModalOpen: setIsParamModalOpen, isLyricsModalOpen: setIsLyricsModalOpen },
       { isPromptModalOpen: step.id === 'I1', isParamModalOpen: ['I3', 'I4', 'I5', 'I6', 'I7', 'I8'].includes(step.id), isLyricsModalOpen: step.id === 'I2' });
-    return { ...result, target: ['I3', 'I4', 'I5', 'I6', 'I7', 'I8'].includes(step.id) ? `ai.${({ I3: 'repaint', I4: 'lego', I5: 'extend', I6: 'complete', I7: 'cover', I8: 'extract' } as const)[step.id as 'I3']}-parameters` : undefined,
+    return { ...result, target: ['I3', 'I4', 'I5', 'I6', 'I7', 'I8'].includes(step.id) ? `ai.${({ I3: 'edit', I4: 'lego', I5: 'extend', I6: 'complete', I7: 'remix', I8: 'extract' } as const)[step.id as 'I3']}-parameters` : undefined,
       focus: step.id === 'I1' ? 'textarea' : ['I3', 'I5', 'I7'].includes(step.id) ? 'input[type="range"]' : step.id === 'I4' ? 'input[type="text"]' : undefined };
   } });
 
@@ -343,8 +347,9 @@ export const Studio: React.FC<StudioProps> = ({
   ].filter((preset, idx, arr) => arr.findIndex((p) => p.value === preset.value) === idx);
 
   const aiTasks = options?.tasks ?? [];
-  const reworkPresets = options?.reworkPresets ?? [];
-  const coverPresets = options?.coverPresets ?? [];
+  const editPresets = options?.editPresets ?? [];
+  const remixPresets = options?.remixPresets ?? [];
+  const remixModes = options?.remixModes ?? [];
   const completePresets = options?.completePresets ?? [];
   const promptQuickTags = options?.promptTags ?? [];
   const instrumentList = options?.parameters.trackName?.options ?? options?.tracks ?? [];
@@ -366,38 +371,42 @@ export const Studio: React.FC<StudioProps> = ({
     return allModes;
   }, [options?.qualities, options?.modes, task, activeTaskDef]);
 
-  const effectiveRepaintVal =
-    repaintMode === 'conservative' ? 0 : repaintMode === 'aggressive' ? 1 : repaintStrength;
-  const effectiveRepaintPct = Math.round(effectiveRepaintVal * 100);
-  const closestReworkPreset =
-    reworkPresets.length > 0
-      ? reworkPresets.reduce((prev, curr) =>
-          Math.abs(curr.strength - effectiveRepaintVal) < Math.abs(prev.strength - effectiveRepaintVal)
+  const effectiveEditVal =
+    editMode === 'conservative' ? 0 : editMode === 'aggressive' ? 1 : editStrength;
+  const effectiveEditPct = Math.round(effectiveEditVal * 100);
+  const closestEditPreset =
+    editPresets.length > 0
+      ? editPresets.reduce((prev, curr) =>
+          Math.abs(curr.strength - effectiveEditVal) < Math.abs(prev.strength - effectiveEditVal)
             ? curr
             : prev,
         )
-      : { id: repaintMode, mode: repaintMode, strength: effectiveRepaintVal, label: `${effectiveRepaintPct}%`, shortLabel: repaintMode, desc: '' };
+      : { id: editMode, mode: editMode, strength: effectiveEditVal, label: `${effectiveEditPct}%`, shortLabel: editMode, desc: '' };
 
-  const handleReworkIntensityChange = (val0to1: number) => {
+  const handleEditIntensityChange = (val0to1: number) => {
     const clamped = Math.max(0, Math.min(1, Number(val0to1.toFixed(2))));
     if (clamped <= 0.02) {
-      onRepaintModeChange('conservative');
-      onRepaintStrengthChange(0);
+      onEditModeChange('conservative');
+      onEditStrengthChange(0);
     } else if (clamped >= 0.98) {
-      onRepaintModeChange('aggressive');
-      onRepaintStrengthChange(1);
+      onEditModeChange('aggressive');
+      onEditStrengthChange(1);
     } else {
-      onRepaintModeChange('balanced');
-      onRepaintStrengthChange(clamped);
+      onEditModeChange('balanced');
+      onEditStrengthChange(clamped);
     }
   };
 
-  const closestCoverPreset =
-    coverPresets.length > 0
-      ? coverPresets.reduce((prev, curr) =>
-          Math.abs(curr.value - coverStrength) < Math.abs(prev.value - coverStrength) ? curr : prev,
+  const closestRemixPreset =
+    remixPresets.length > 0
+      ? remixPresets.reduce((prev, curr) =>
+          Math.abs(curr.value - remixStrength) < Math.abs(prev.value - remixStrength) ? curr : prev,
         )
-      : { id: String(coverStrength), value: coverStrength, label: `${Math.round(coverStrength * 100)}%`, shortLabel: `${Math.round(coverStrength * 100)}%`, desc: '' };
+      : { id: String(remixStrength), value: remixStrength, label: `${Math.round(remixStrength * 100)}%`, shortLabel: `${Math.round(remixStrength * 100)}%`, desc: '' };
+
+  const activeRemixMode =
+    remixModes.find((m) => m.id === remixMode) ??
+    remixModes[0] ?? { id: remixMode, label: remixMode === 'preserve' ? 'Preserve Voice' : 'Style Transfer', desc: '' };
 
   const activeInstrumentLabel = instrumentList.find((i) => i.id === instrument)?.label ?? instrument;
   const activeStemLabel = stemList.find((s) => s.id === stemType)?.label ?? stemType;
@@ -405,25 +414,26 @@ export const Studio: React.FC<StudioProps> = ({
     completePresets.find((p) => p.id === completePreset) ??
     completePresets[0] ?? { id: completePreset, label: completePreset, classes: String(parameters.trackClasses || ''), desc: '' };
 
+  const editCrossfadeSec = Number(parameters.editCrossfadeSec ?? 0.05);
+
   const getParamSummary = (
     actionId: string,
   ): { tag: string; value: string; shortVal: string; title: string } => {
-    if (actionId === 'repaint') {
+    if (actionId === 'edit') {
       return {
         tag: 'INTENSITY',
-        value: `${closestReworkPreset.shortLabel} · ${effectiveRepaintPct}%`,
-        shortVal: `${effectiveRepaintPct}%`,
-        title: 'Rework Intensity & Crossfade',
+        value: `${closestEditPreset.shortLabel} · ${effectiveEditPct}%`,
+        shortVal: `${effectiveEditPct}%`,
+        title: 'Edit Intensity & Crossfade',
       };
     }
     if (actionId === 'lego') {
-      const seamSec = Number(parameters.repaintWavCrossfadeSec ?? 0);
       const shortInst = instrument === 'backing_vocals' ? 'Backing' : activeInstrumentLabel.split(' ')[0];
       return {
         tag: 'STEM',
-        value: seamSec > 0 ? `${activeInstrumentLabel} · ${seamSec.toFixed(2)}s` : activeInstrumentLabel,
+        value: activeInstrumentLabel,
         shortVal: shortInst,
-        title: 'Layer Stem & Boundary Seam',
+        title: 'Layer Instrument',
       };
     }
     if (actionId === 'extract') {
@@ -443,12 +453,12 @@ export const Studio: React.FC<StudioProps> = ({
         title: 'Extension Target Length & Seam',
       };
     }
-    if (actionId === 'cover') {
+    if (actionId === 'remix') {
       return {
         tag: 'BLEND',
-        value: `${closestCoverPreset.shortLabel} · ${Math.round(coverStrength * 100)}%`,
-        shortVal: `${Math.round(coverStrength * 100)}%`,
-        title: 'Restyle Blend & Source Detail',
+        value: `${closestRemixPreset.shortLabel} · ${Math.round(remixStrength * 100)}%`,
+        shortVal: `${Math.round(remixStrength * 100)}%`,
+        title: 'Remix Mode & Source Preservation',
       };
     }
     if (actionId === 'complete') {
@@ -463,7 +473,7 @@ export const Studio: React.FC<StudioProps> = ({
   };
 
   const getFilterDescription = (actionId: string): string => {
-    if (actionId === 'repaint') return closestReworkPreset.desc;
+    if (actionId === 'edit') return closestEditPreset.desc;
     if (actionId === 'lego') {
       return instrument === 'vocals' || instrument === 'backing_vocals'
         ? `Adds ${activeInstrumentLabel} stem — opens Lyrics Canvas to write or sync lines`
@@ -471,28 +481,28 @@ export const Studio: React.FC<StudioProps> = ({
     }
     if (actionId === 'extract') return `Isolates ${activeStemLabel} into its own dedicated track lane`;
     if (actionId === 'extend') return `Seamlessly extends arrangement to ${Math.round(targetDuration)}s total duration`;
-    if (actionId === 'cover') return closestCoverPreset.desc;
+    if (actionId === 'remix') return activeRemixMode.desc ? `${activeRemixMode.label} — ${closestRemixPreset.desc}` : closestRemixPreset.desc;
     if (actionId === 'complete') return activeCompletePreset.desc;
     return '';
   };
 
   const promptPlaceholder =
-    task === 'repaint'
-      ? 'Describe section rework (e.g. punchy bass fill, soaring vocal hook)...'
+    task === 'edit'
+      ? 'Describe section edit (e.g. punchy bass fill, soaring vocal hook)...'
       : task === 'lego'
         ? 'Describe new stem layer (e.g. funk bassline, airy vocal harmony)...'
         : task === 'extend'
           ? 'Describe continuation (e.g. building outro, drum breakdown)...'
-          : task === 'cover'
-            ? 'Describe style transformation (e.g. analog synthwave, acoustic)...'
+          : task === 'remix'
+            ? 'Describe remix style (e.g. analog synthwave, acoustic)...'
             : 'Describe accompaniment arrangement...';
 
   const activeSummary = getParamSummary(task);
   const visualIntensity =
-    task === 'repaint'
-      ? effectiveRepaintVal
-      : task === 'cover'
-        ? coverStrength
+    task === 'edit'
+      ? effectiveEditVal
+      : task === 'remix'
+        ? remixStrength
         : 0.65;
 
   return (
@@ -620,13 +630,13 @@ export const Studio: React.FC<StudioProps> = ({
                         <span className="studio-open-param-desc">{getFilterDescription(task)}</span>
                       </div>
                       <div className="studio-inline-presets">
-                        {task === 'repaint' &&
-                          reworkPresets.slice(0, 4).map((preset) => (
+                        {task === 'edit' &&
+                          editPresets.slice(0, 4).map((preset) => (
                             <button
                               key={preset.id}
                               type="button"
-                              className={`studio-inline-chip ${closestReworkPreset.id === preset.id ? 'active' : ''}`}
-                              onClick={() => handleReworkIntensityChange(preset.strength)}
+                              className={`studio-inline-chip ${closestEditPreset.id === preset.id ? 'active' : ''}`}
+                              onClick={() => handleEditIntensityChange(preset.strength)}
                             >
                               {preset.shortLabel}
                             </button>
@@ -653,13 +663,13 @@ export const Studio: React.FC<StudioProps> = ({
                               {preset.shortLabel}
                             </button>
                           ))}
-                        {task === 'cover' &&
-                          coverPresets.slice(0, 4).map((preset) => (
+                        {task === 'remix' &&
+                          remixPresets.slice(0, 4).map((preset) => (
                             <button
                               key={preset.value}
                               type="button"
-                              className={`studio-inline-chip ${closestCoverPreset.value === preset.value ? 'active' : ''}`}
-                              onClick={() => onCoverStrengthChange(preset.value)}
+                              className={`studio-inline-chip ${closestRemixPreset.value === preset.value ? 'active' : ''}`}
+                              onClick={() => onRemixStrengthChange(preset.value)}
                             >
                               {preset.shortLabel}
                             </button>
@@ -718,7 +728,7 @@ export const Studio: React.FC<StudioProps> = ({
                             value={prompt}
                             onChange={(e) => onPromptChange(e.target.value)}
                             onKeyDown={(e) => {
-                              if (e.key === 'Enter' && !processing) {
+                              if (e.key === 'Enter' && options) {
                                 onExecute();
                               }
                             }}
@@ -796,17 +806,11 @@ export const Studio: React.FC<StudioProps> = ({
                           <button
                             type="button"
                             className="btn-base btn-variant-primary btn-size-sm toolbox-execute-btn"
-                            disabled={processing || !options}
+                            disabled={!options}
                             onClick={onExecute}
                           >
                             <ArrowUp size={13} />
-                            <span>
-                              {processing
-                                ? progress !== undefined
-                                  ? `${progress}%`
-                                  : 'WAIT'
-                                : taskLabel(task)}
-                            </span>
+                            <span>{taskLabel(task)}</span>
                           </button>
                         </Tooltip>
                       </div>
@@ -869,22 +873,22 @@ export const Studio: React.FC<StudioProps> = ({
             <p className="toolbox-param-modal-desc">{getFilterDescription(task)}</p>
           </div>
 
-          {task === 'repaint' && (
+          {task === 'edit' && (
             <>
               <div className="toolbox-param-section">
                 <div className="toolbox-param-section-head">
                   <span className="daw-field-label">PRESELECT INTENSITY PROFILES</span>
-                  <span className="toolbox-param-readout-tag">{closestReworkPreset.label.toUpperCase()}</span>
+                  <span className="toolbox-param-readout-tag">{closestEditPreset.label.toUpperCase()}</span>
                 </div>
                 <div className="toolbox-param-presets-grid cols-5">
-                  {reworkPresets.map((preset) => {
-                    const isSelected = closestReworkPreset.id === preset.id;
+                  {editPresets.map((preset) => {
+                    const isSelected = closestEditPreset.id === preset.id;
                     return (
                       <button
                         key={preset.id}
                         type="button"
                         className={`toolbox-param-preset-btn ${isSelected ? 'active' : ''}`}
-                        onClick={() => handleReworkIntensityChange(preset.strength)}
+                        onClick={() => handleEditIntensityChange(preset.strength)}
                       >
                         <span className="preset-btn-title">{preset.shortLabel}</span>
                         <span className="preset-btn-val">{Math.round(preset.strength * 100)}%</span>
@@ -897,14 +901,14 @@ export const Studio: React.FC<StudioProps> = ({
 
               <div className="toolbox-param-section">
                 <div className="toolbox-param-section-head">
-                  <span className="daw-field-label">GRANULAR REWORK INTENSITY</span>
-                  <span className="toolbox-param-readout-val">{effectiveRepaintPct}%</span>
+                  <span className="daw-field-label">GRANULAR EDIT INTENSITY</span>
+                  <span className="toolbox-param-readout-val">{effectiveEditPct}%</span>
                 </div>
                 <div className="toolbox-param-slider-row">
                   <button
                     type="button"
                     className="toolbox-param-step-btn"
-                    onClick={() => handleReworkIntensityChange(effectiveRepaintVal - 0.05)}
+                    onClick={() => handleEditIntensityChange(effectiveEditVal - 0.05)}
                   >
                     -5%
                   </button>
@@ -913,14 +917,14 @@ export const Studio: React.FC<StudioProps> = ({
                     min="0"
                     max="1"
                     step="0.01"
-                    value={effectiveRepaintVal}
-                    onChange={(e) => handleReworkIntensityChange(Number(e.target.value))}
+                    value={effectiveEditVal}
+                    onChange={(e) => handleEditIntensityChange(Number(e.target.value))}
                     className="daw-ContextSlider toolbox-param-range"
                   />
                   <button
                     type="button"
                     className="toolbox-param-step-btn"
-                    onClick={() => handleReworkIntensityChange(effectiveRepaintVal + 0.05)}
+                    onClick={() => handleEditIntensityChange(effectiveEditVal + 0.05)}
                   >
                     +5%
                   </button>
@@ -936,7 +940,7 @@ export const Studio: React.FC<StudioProps> = ({
                 <div className="toolbox-param-section-head">
                   <span className="daw-field-label">BOUNDARY SEAM CROSSFADE</span>
                   <span className="toolbox-param-readout-val">
-                    {Number(parameters.repaintWavCrossfadeSec ?? 0).toFixed(2)}s
+                    {editCrossfadeSec.toFixed(2)}s
                   </span>
                 </div>
                 <div className="toolbox-param-slider-row">
@@ -946,22 +950,22 @@ export const Studio: React.FC<StudioProps> = ({
                     onClick={() =>
                       onParametersChange({
                         ...parameters,
-                        repaintWavCrossfadeSec: Math.max(0, Number((Number(parameters.repaintWavCrossfadeSec ?? 0) - 0.05).toFixed(2))),
+                        editCrossfadeSec: Math.max(0.02, Number((editCrossfadeSec - 0.02).toFixed(2))),
                       })
                     }
                   >
-                    -0.05s
+                    -0.02s
                   </button>
                   <input
                     type="range"
-                    min="0"
-                    max="2"
-                    step="0.05"
-                    value={Number(parameters.repaintWavCrossfadeSec ?? 0)}
+                    min="0.02"
+                    max="0.5"
+                    step="0.01"
+                    value={Math.max(0.02, Math.min(0.5, editCrossfadeSec))}
                     onChange={(e) =>
                       onParametersChange({
                         ...parameters,
-                        repaintWavCrossfadeSec: Number(e.target.value),
+                        editCrossfadeSec: Number(e.target.value),
                       })
                     }
                     className="daw-ContextSlider toolbox-param-range"
@@ -972,11 +976,11 @@ export const Studio: React.FC<StudioProps> = ({
                     onClick={() =>
                       onParametersChange({
                         ...parameters,
-                        repaintWavCrossfadeSec: Math.min(2, Number((Number(parameters.repaintWavCrossfadeSec ?? 0) + 0.05).toFixed(2))),
+                        editCrossfadeSec: Math.min(0.5, Number((editCrossfadeSec + 0.02).toFixed(2))),
                       })
                     }
                   >
-                    +0.05s
+                    +0.02s
                   </button>
                 </div>
               </div>
@@ -984,88 +988,37 @@ export const Studio: React.FC<StudioProps> = ({
           )}
 
           {task === 'lego' && (
-            <>
-              <div className="toolbox-param-section">
-                <div className="toolbox-param-section-head">
-                  <span className="daw-field-label">PRESELECT INSTRUMENT LAYER</span>
-                  <span className="toolbox-param-readout-tag">{activeInstrumentLabel.toUpperCase()}</span>
-                </div>
-                <div className="toolbox-param-presets-grid cols-4">
-                  {instrumentList.map((inst) => {
-                    const isSelected = instrument === inst.id;
-                    return (
-                      <button
-                        key={inst.id}
-                        type="button"
-                        className={`toolbox-param-preset-btn compact ${isSelected ? 'active' : ''}`}
-                        onClick={() => handleSelectLayerInstrument(inst.id)}
-                      >
-                        <span className="preset-btn-title">{inst.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-                <div className="toolbox-param-custom-row">
-                  <span className="daw-field-label">CUSTOM INSTRUMENT TARGET</span>
-                  <input
-                    type="text"
-                    className="toolbox-param-text-input"
-                    value={instrument}
-                    onChange={(e) => onInstrumentChange(e.target.value)}
-                    placeholder="e.g., cello, sax, 808 sub, choir..."
-                  />
-                </div>
+            <div className="toolbox-param-section">
+              <div className="toolbox-param-section-head">
+                <span className="daw-field-label">PRESELECT INSTRUMENT LAYER</span>
+                <span className="toolbox-param-readout-tag">{activeInstrumentLabel.toUpperCase()}</span>
               </div>
-
-              <div className="toolbox-param-section">
-                <div className="toolbox-param-section-head">
-                  <span className="daw-field-label">BOUNDARY SEAM CROSSFADE</span>
-                  <span className="toolbox-param-readout-val">
-                    {Number(parameters.repaintWavCrossfadeSec ?? 0).toFixed(2)}s
-                  </span>
-                </div>
-                <div className="toolbox-param-slider-row">
-                  <button
-                    type="button"
-                    className="toolbox-param-step-btn"
-                    onClick={() =>
-                      onParametersChange({
-                        ...parameters,
-                        repaintWavCrossfadeSec: Math.max(0, Number((Number(parameters.repaintWavCrossfadeSec ?? 0) - 0.05).toFixed(2))),
-                      })
-                    }
-                  >
-                    -0.05s
-                  </button>
-                  <input
-                    type="range"
-                    min="0"
-                    max="2"
-                    step="0.05"
-                    value={Number(parameters.repaintWavCrossfadeSec ?? 0)}
-                    onChange={(e) =>
-                      onParametersChange({
-                        ...parameters,
-                        repaintWavCrossfadeSec: Number(e.target.value),
-                      })
-                    }
-                    className="daw-ContextSlider toolbox-param-range"
-                  />
-                  <button
-                    type="button"
-                    className="toolbox-param-step-btn"
-                    onClick={() =>
-                      onParametersChange({
-                        ...parameters,
-                        repaintWavCrossfadeSec: Math.min(2, Number((Number(parameters.repaintWavCrossfadeSec ?? 0) + 0.05).toFixed(2))),
-                      })
-                    }
-                  >
-                    +0.05s
-                  </button>
-                </div>
+              <div className="toolbox-param-presets-grid cols-4">
+                {instrumentList.map((inst) => {
+                  const isSelected = instrument === inst.id;
+                  return (
+                    <button
+                      key={inst.id}
+                      type="button"
+                      className={`toolbox-param-preset-btn compact ${isSelected ? 'active' : ''}`}
+                      onClick={() => handleSelectLayerInstrument(inst.id)}
+                    >
+                      <span className="preset-btn-title">{inst.label}</span>
+                    </button>
+                  );
+                })}
               </div>
-            </>
+              <div className="toolbox-param-custom-row">
+                <span className="daw-field-label">CUSTOM INSTRUMENT TARGET</span>
+                <input
+                  type="text"
+                  className="toolbox-param-text-input"
+                  value={instrument}
+                  onChange={(e) => onInstrumentChange(e.target.value)}
+                  placeholder="e.g., cello, sax, 808 sub, choir..."
+                />
+              </div>
+            </div>
           )}
 
           {task === 'extend' && (
@@ -1203,22 +1156,44 @@ export const Studio: React.FC<StudioProps> = ({
             </>
           )}
 
-          {task === 'cover' && (
+          {task === 'remix' && (
             <>
+              {remixModes.length > 0 && (
+                <div className="toolbox-param-section">
+                  <div className="toolbox-param-section-head">
+                    <span className="daw-field-label">REMIX MODE</span>
+                    <span className="toolbox-param-readout-tag">{activeRemixMode.label.toUpperCase()}</span>
+                  </div>
+                  <div className="toolbox-param-chip-list">
+                    {remixModes.map((mode) => (
+                      <Tooltip key={mode.id} title={mode.label} description={mode.desc}>
+                        <button
+                          type="button"
+                          className={`toolbox-param-chip ${remixMode === mode.id ? 'active' : ''}`}
+                          onClick={() => onRemixModeChange(mode.id)}
+                        >
+                          {mode.label}
+                        </button>
+                      </Tooltip>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="toolbox-param-section">
                 <div className="toolbox-param-section-head">
-                  <span className="daw-field-label">PRESELECT RESTYLE BLEND PROFILES</span>
-                  <span className="toolbox-param-readout-tag">{closestCoverPreset.label.toUpperCase()}</span>
+                  <span className="daw-field-label">PRESELECT REMIX PROFILES</span>
+                  <span className="toolbox-param-readout-tag">{closestRemixPreset.label.toUpperCase()}</span>
                 </div>
                 <div className="toolbox-param-presets-grid cols-4">
-                  {coverPresets.map((preset) => {
-                    const isSelected = closestCoverPreset.value === preset.value;
+                  {remixPresets.map((preset) => {
+                    const isSelected = closestRemixPreset.value === preset.value;
                     return (
                       <button
                         key={preset.value}
                         type="button"
                         className={`toolbox-param-preset-btn ${isSelected ? 'active' : ''}`}
-                        onClick={() => onCoverStrengthChange(preset.value)}
+                        onClick={() => onRemixStrengthChange(preset.value)}
                       >
                         <span className="preset-btn-title">{preset.shortLabel}</span>
                         <span className="preset-btn-val">{Math.round(preset.value * 100)}%</span>
@@ -1231,14 +1206,14 @@ export const Studio: React.FC<StudioProps> = ({
 
               <div className="toolbox-param-section">
                 <div className="toolbox-param-section-head">
-                  <span className="daw-field-label">GRANULAR STYLE TRANSFER BLEND</span>
-                  <span className="toolbox-param-readout-val">{Math.round(coverStrength * 100)}%</span>
+                  <span className="daw-field-label">SOURCE PRESERVATION</span>
+                  <span className="toolbox-param-readout-val">{Math.round(remixStrength * 100)}%</span>
                 </div>
                 <div className="toolbox-param-slider-row">
                   <button
                     type="button"
                     className="toolbox-param-step-btn"
-                    onClick={() => onCoverStrengthChange(Math.max(0.05, Number((coverStrength - 0.05).toFixed(2))))}
+                    onClick={() => onRemixStrengthChange(Math.max(0.05, Number((remixStrength - 0.05).toFixed(2))))}
                   >
                     -5%
                   </button>
@@ -1247,17 +1222,22 @@ export const Studio: React.FC<StudioProps> = ({
                     min="0.05"
                     max="1"
                     step="0.01"
-                    value={coverStrength}
-                    onChange={(e) => onCoverStrengthChange(Number(e.target.value))}
+                    value={remixStrength}
+                    onChange={(e) => onRemixStrengthChange(Number(e.target.value))}
                     className="daw-ContextSlider toolbox-param-range"
                   />
                   <button
                     type="button"
                     className="toolbox-param-step-btn"
-                    onClick={() => onCoverStrengthChange(Math.min(1, Number((coverStrength + 0.05).toFixed(2))))}
+                    onClick={() => onRemixStrengthChange(Math.min(1, Number((remixStrength + 0.05).toFixed(2))))}
                   >
                     +5%
                   </button>
+                </div>
+                <div className="toolbox-param-scale-labels">
+                  <span>25% (Full Remix)</span>
+                  <span>65% (Balanced)</span>
+                  <span>100% (Keep Original)</span>
                 </div>
               </div>
             </>
@@ -1321,7 +1301,7 @@ export const Studio: React.FC<StudioProps> = ({
             <button
               type="button"
               className="btn-base btn-variant-primary btn-size-sm"
-              disabled={processing || !options}
+              disabled={!options}
               onClick={() => {
                 setIsParamModalOpen(false);
                 onExecute();
@@ -1378,7 +1358,7 @@ export const Studio: React.FC<StudioProps> = ({
             value={prompt}
             onChange={(e) => onPromptChange(e.target.value)}
             onKeyDown={(e) => {
-              if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && !processing) {
+              if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && options) {
                 e.preventDefault();
                 setIsPromptModalOpen(false);
                 onExecute();
@@ -1428,7 +1408,7 @@ export const Studio: React.FC<StudioProps> = ({
               <button
                 type="button"
                 className="btn-base btn-variant-primary btn-size-sm"
-                disabled={processing || !options}
+                disabled={!options}
                 onClick={() => {
                   setIsPromptModalOpen(false);
                   onExecute();
@@ -1468,7 +1448,6 @@ export const Studio: React.FC<StudioProps> = ({
               <button
                 type="button"
                 className="lyrics-modal-sync-badge is-extract"
-                disabled={processing}
                 onClick={onExtractLyrics}
               >
                 <span>EXTRACT</span>
