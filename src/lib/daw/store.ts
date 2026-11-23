@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { create } from 'zustand';
 import { dawEngine } from './engine';
 import { bus } from '../bus';
-import { isBase, preview, interval, source, clips, sourceInterval, retained, masterArrangement, pending, isLayerTake, layerTrackName, isFullSongRestyleTake, isMasterTargetTake } from './takes';
+import { isBase, preview, interval, source, clips, sourceInterval, retained, masterArrangement, pending, isLayerTake, layerTrackName, isFullSongRemixTake, isMasterTargetTake } from './takes';
 import type { Project } from '../cache';
 import { DRUM_STEPS } from './notes';
 import { type WaveSculptState, createDefaultWaveSculpt, seedResolvedPeaks } from './peaks';
@@ -155,8 +155,8 @@ export interface Take {
   task: string;
   prompt?: string | null;
   lyrics?: string | null;
-  repainting_start?: number | null;
-  repainting_end?: number | null;
+  editing_start?: number | null;
+  editing_end?: number | null;
   url: string;
   is_active: boolean;
   created_at: string;
@@ -207,7 +207,7 @@ export interface DAWState {
   sectionHigh: number;
   originalMasterUrl: string | null;
   originals: { start: number; end: number }[];
-  operations: { id: string; task: string; status: 'submitting' | 'pending' | 'processing' | 'ready' | 'error'; progress?: number; error?: string; stemId?: string }[];
+  operations: { id: string; task: string; status: 'submitting' | 'pending' | 'processing' | 'ready' | 'error'; progress?: number; error?: string; stemId?: string; isolate?: boolean }[];
   auditionId: string | null;
 
   // LEGO conditioning context
@@ -1110,30 +1110,30 @@ export const useDawStore = create<DAWState>((set, get) => ({
       }
     }
 
-    // 4. Reconcile Full-Song Restyle (`cover`) takes on Master
-    const masterRestyleTakes = state.takes
-      .filter((t) => pending(t) && isFullSongRestyleTake(t))
+    // 4. Reconcile Full-Song Remix takes on Master
+    const masterRemixTakes = state.takes
+      .filter((t) => pending(t) && isFullSongRemixTake(t))
       .sort((a, b) => a.take_number - b.take_number);
     const masterIdx = nextTracks.findIndex((t) => t.id === 'master');
     if (masterIdx >= 0) {
       const mTrack = nextTracks[masterIdx];
       const baseMasterUrl = mTrack.originalUrl || state.originalMasterUrl || mTrack.clips[0]?.url;
-      if (masterRestyleTakes.length > 0) {
-        const preferredRestyle = preferredTakeId ? masterRestyleTakes.find((tk) => tk.id === preferredTakeId) : undefined;
+      if (masterRemixTakes.length > 0) {
+        const preferredRemix = preferredTakeId ? masterRemixTakes.find((tk) => tk.id === preferredTakeId) : undefined;
         let nextMasterVer = mTrack.activeVersionTakeId;
-        if (preferredRestyle) {
-          nextMasterVer = preferredRestyle.id;
-        } else if (nextMasterVer !== 'MST' && (!nextMasterVer || !masterRestyleTakes.some((tk) => tk.id === nextMasterVer))) {
+        if (preferredRemix) {
+          nextMasterVer = preferredRemix.id;
+        } else if (nextMasterVer !== 'MST' && (!nextMasterVer || !masterRemixTakes.some((tk) => tk.id === nextMasterVer))) {
           nextMasterVer = 'MST';
         }
-        const selectedRestyle = nextMasterVer && nextMasterVer !== 'MST'
-          ? masterRestyleTakes.find((tk) => tk.id === nextMasterVer)
+        const selectedRemix = nextMasterVer && nextMasterVer !== 'MST'
+          ? masterRemixTakes.find((tk) => tk.id === nextMasterVer)
           : undefined;
-        const targetUrl = selectedRestyle ? selectedRestyle.url : baseMasterUrl;
+        const targetUrl = selectedRemix ? selectedRemix.url : baseMasterUrl;
         const urlChanged = Boolean(targetUrl && mTrack.clips[0]?.url !== targetUrl);
         const masterClip: DAWClip = {
           id: 'clip-master',
-          name: selectedRestyle ? `${mTrack.name} (#TK${selectedRestyle.take_number})` : (state.songTitle || 'Master Output'),
+          name: selectedRemix ? `${mTrack.name} (#TK${selectedRemix.take_number})` : (state.songTitle || 'Master Output'),
           url: targetUrl || '',
           startTime: 0,
           duration: dur,
@@ -1143,7 +1143,7 @@ export const useDawStore = create<DAWState>((set, get) => ({
           ...mTrack,
           hasOriginalStem: true,
           originalUrl: baseMasterUrl,
-          activeVersionTakeId: selectedRestyle ? selectedRestyle.id : 'MST',
+          activeVersionTakeId: selectedRemix ? selectedRemix.id : 'MST',
           clips: urlChanged && targetUrl ? [masterClip] : mTrack.clips,
         };
         if (urlChanged && targetUrl) {
@@ -1929,7 +1929,7 @@ export const useDawStore = create<DAWState>((set, get) => ({
     if (trackId === 'master') return; // Cannot delete master
     const removed = get().tracks.find((t) => t.id === trackId);
     const take = get().takes.find((tk) => tk.id === trackId);
-    const isReplacement = Boolean(take && isMasterTargetTake(take) && ['repaint', 'complete', 'cover'].includes(take.task));
+    const isReplacement = Boolean(take && isMasterTargetTake(take) && ['edit', 'complete', 'remix'].includes(take.task));
     dawEngine.disposeTrack(trackId);
     set((state) => {
       let nextOriginals = state.originals;
@@ -2476,7 +2476,7 @@ export const useDawStore = create<DAWState>((set, get) => ({
     const track = get().tracks.find(track => track.id === takeId && track.activeTakeId === takeId);
     const take = get().takes.find(take => take.id === takeId);
     if (!track || !take || !track.clips.length) return;
-    const isReplacement = isMasterTargetTake(take) && ['repaint', 'complete', 'cover'].includes(take.task);
+    const isReplacement = isMasterTargetTake(take) && ['edit', 'complete', 'remix'].includes(take.task);
     const original = clips(take, get().duration);
     const starts = track.clips.map((clip, index) => clip.origin ?? original[index]?.startTime ?? clip.startTime);
     const moved = Math.max(shift, -Math.min(...starts));
@@ -2670,7 +2670,7 @@ export const useDawStore = create<DAWState>((set, get) => ({
       if (lane) await get().selectLaneVersion(lane.id, take.id);
       return;
     }
-    if (isFullSongRestyleTake(take)) {
+    if (isFullSongRemixTake(take)) {
       await get().selectMasterVersion(take.id);
       return;
     }
@@ -2704,7 +2704,7 @@ export const useDawStore = create<DAWState>((set, get) => ({
       fx: JSON.parse(JSON.stringify(DEFAULT_FX)), clips: clips(take, duration),
     };
     const firstClip = track.clips[0];
-    const isReplacement = isMasterTargetTake(take) && ['repaint', 'complete', 'cover'].includes(take.task);
+    const isReplacement = isMasterTargetTake(take) && ['edit', 'complete', 'remix'].includes(take.task);
     const nextOriginals = isReplacement
       ? [
         ...originals,
@@ -2729,7 +2729,7 @@ export const useDawStore = create<DAWState>((set, get) => ({
   activateTake: async (takeId, action = 'base') => {
     const target = get().takes.find(take => take.id === takeId);
     if (!target) return;
-    if (action === 'merge' && !isLayerTake(target) && !isFullSongRestyleTake(target) && isMasterTargetTake(target)) {
+    if (action === 'merge' && !isLayerTake(target) && !isFullSongRemixTake(target) && isMasterTargetTake(target)) {
       return get().mergeTakes([takeId]);
     }
     if ((action === 'base' && isBase(target, get().tracks, get().takes)) || get().pendingTake) return;
