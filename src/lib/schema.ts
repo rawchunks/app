@@ -10,7 +10,7 @@
 
 export type Model = 'acestep-v15-xl-turbo' | 'acestep-v15-xl-sft' | 'acestep-v15-xl-base';
 
-export type Task = 'repaint' | 'lego' | 'complete' | 'extend' | 'cover' | 'extract';
+export type Task = 'edit' | 'lego' | 'complete' | 'extend' | 'remix' | 'extract';
 
 /**
  * Pure Backend Inference Instructions for Song Creation
@@ -36,8 +36,8 @@ export interface Edit {
   audio: string | File;
   prompt?: string;
   lyrics?: string;
-  start?: number; // repainting_start
-  end?: number;   // repainting_end
+  start?: number; // editing_start
+  end?: number;   // editing_end
   steps?: number;
   guidance?: number;
   seed?: number;
@@ -289,8 +289,8 @@ export interface Voice {
   created_at: string;
   metadata?: Record<string, unknown> | null;
   error?: string | null;
-  availability: Record<'turbo' | 'sft', {
-    model: 'acestep-v15-xl-turbo' | 'acestep-v15-xl-sft';
+  availability: Record<'sft', {
+    model: 'acestep-v15-xl-sft';
     status: 'unavailable' | 'queued' | 'training' | 'ready' | 'error';
     stage?: string;
     step?: number;
@@ -298,7 +298,7 @@ export interface Voice {
     error?: string | null;
     adapter?: {
       id: string;
-      model: 'acestep-v15-xl-turbo' | 'acestep-v15-xl-sft';
+      model: 'acestep-v15-xl-sft';
       status: 'queued' | 'training' | 'ready' | 'error';
       task_id?: string | null;
       artifact_url?: string | null;
@@ -348,8 +348,8 @@ export interface Take {
   stem_id?: string | null;
   take_number: number;
   task: Task;
-  repainting_start?: number | null;
-  repainting_end?: number | null;
+  editing_start?: number | null;
+  editing_end?: number | null;
   url: string;
   is_active: boolean;
 }

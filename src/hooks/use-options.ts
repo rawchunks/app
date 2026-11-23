@@ -35,7 +35,7 @@ export interface DurationPresetOption {
   label: string;
   desc: string;
 }
-export interface ReworkPreset {
+export interface EditPreset {
   id: string;
   mode: 'conservative' | 'balanced' | 'aggressive';
   strength: number;
@@ -43,13 +43,17 @@ export interface ReworkPreset {
   shortLabel: string;
   desc: string;
 }
-export interface CoverPreset {
+export interface RemixPreset {
   id: string;
   value: number;
   strength?: number;
-  noise?: number;
   label: string;
   shortLabel: string;
+  desc: string;
+}
+export interface RemixModeOption {
+  id: 'style' | 'preserve';
+  label: string;
   desc: string;
 }
 export interface CompletePreset {
@@ -97,12 +101,13 @@ export interface Options {
   editing: {
     modes: Choice[];
     tasks: (Choice & { modes: string[]; description: string })[];
-    repaintModes: Choice[];
+    editModes: Choice[];
     stems: Choice[];
     tracks?: Choice[];
     qualities?: Choice[];
-    reworkPresets?: ReworkPreset[];
-    coverPresets?: CoverPreset[];
+    editPresets?: EditPreset[];
+    remixPresets?: RemixPreset[];
+    remixModes?: RemixModeOption[];
     completePresets?: CompletePreset[];
     promptTags?: string[];
     sculptModes?: SculptModeOption[];
