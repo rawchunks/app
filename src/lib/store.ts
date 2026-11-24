@@ -118,6 +118,8 @@ class Store {
   private preloadedNextSongId: string | null = null;
   private playCountedSongId: string | null = null;
   private playedHistory: Song[] = [];
+  private contextOriginSongs: Song[] = [];
+  private loadedAccountKey: string = 'guest';
   private sleepTimerTimeout: ReturnType<typeof setTimeout> | null = null;
 
   private pushPlayedHistory(song: Song | null | undefined) {
@@ -131,21 +133,52 @@ class Store {
   constructor() {
     let initialSong: Song | null = null;
     let initialDuration = 0;
-    let initialRepeat: RepeatMode = 'all';
+    let initialRepeat: RepeatMode = 'off';
     let initialShuffle = false;
-    let initialAutoplay = true;
+    let initialAutoplay = false;
+    let initialUserQueue: Song[] = [];
+    let initialContextQueue: Song[] = [];
     let initialQueue: Song[] = [];
     let initialQueueIndex = -1;
+    let initialActivePlaylistId: string | null = null;
+    let initialActiveContextId: string | null = null;
+    let initialPlaybackContext: PlaybackContext | null = null;
     let initialSleepTimerPrompt: SleepTimerPrompt | null = null;
+    let initialAccountKey = 'guest';
 
     if (typeof window !== 'undefined') {
       try {
-        const raw = localStorage.getItem(STORAGE_KEYS.playback);
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          if (parsed?.song && typeof parsed.song.id === 'string') {
-            initialSong = parsed.song as Song;
-            initialDuration = typeof parsed.duration === 'number' && parsed.duration > 0 ? parsed.duration : (initialSong.duration || 0);
+        // Purge legacy unscoped queue/playback keys so cross-account tracks never leak
+        localStorage.removeItem(STORAGE_KEYS.queue);
+        localStorage.removeItem(STORAGE_KEYS.playback);
+
+        const rawAccount = localStorage.getItem('last_account');
+        const bootAddresses = new Set<string>();
+        if (rawAccount) {
+          const parsedAccount = JSON.parse(rawAccount) as { address?: string; evmAddress?: string; svmAddress?: string };
+          for (const raw of [parsedAccount?.address, parsedAccount?.evmAddress, parsedAccount?.svmAddress]) {
+            const clean = typeof raw === 'string' ? raw.trim().toLowerCase() : '';
+            if (clean) bootAddresses.add(clean);
+          }
+          const addr = (parsedAccount?.address || parsedAccount?.evmAddress || parsedAccount?.svmAddress || '').trim().toLowerCase();
+          if (addr) initialAccountKey = addr;
+        }
+
+        const isAllowedForBoot = (item: any): item is Song => {
+          if (!item || typeof item.id !== 'string') return false;
+          if (item.public === true) return true;
+          if (initialAccountKey === 'guest') return false;
+          const creator = typeof item.creator === 'string' ? item.creator.trim().toLowerCase() : '';
+          return Boolean(creator && bootAddresses.has(creator));
+        };
+
+        const rawPlayback = localStorage.getItem(`${STORAGE_KEYS.playback}:${initialAccountKey}`);
+        if (rawPlayback) {
+          const parsed = JSON.parse(rawPlayback);
+          if (isAllowedForBoot(parsed?.song)) {
+            const bootSong: Song = parsed.song;
+            initialSong = bootSong;
+            initialDuration = typeof parsed.duration === 'number' && parsed.duration > 0 ? parsed.duration : (bootSong.duration || 0);
           }
         }
         const savedRepeat = localStorage.getItem(STORAGE_KEYS.repeat);
@@ -158,13 +191,31 @@ class Store {
         }
         const savedAutoplay = localStorage.getItem(STORAGE_KEYS.autoplay);
         if (savedAutoplay !== null) {
-          initialAutoplay = savedAutoplay !== 'false';
+          initialAutoplay = savedAutoplay === 'true';
         }
-        const savedQueue = localStorage.getItem(STORAGE_KEYS.queue);
+        const savedQueue = localStorage.getItem(`${STORAGE_KEYS.queue}:${initialAccountKey}`);
         if (savedQueue) {
-          const parsedQueue = JSON.parse(savedQueue);
+          const parsedQueue = JSON.parse(savedQueue) as StoredQueuePayload | Song[];
           if (Array.isArray(parsedQueue)) {
-            initialQueue = parsedQueue.filter((item): item is Song => Boolean(item && typeof item.id === 'string'));
+            initialContextQueue = parsedQueue.filter(isAllowedForBoot);
+          } else if (parsedQueue && typeof parsedQueue === 'object') {
+            if (Array.isArray(parsedQueue.userQueue)) {
+              initialUserQueue = parsedQueue.userQueue.filter(isAllowedForBoot);
+            }
+            if (Array.isArray(parsedQueue.contextQueue)) {
+              initialContextQueue = parsedQueue.contextQueue.filter(isAllowedForBoot);
+            } else if (Array.isArray(parsedQueue.queue)) {
+              initialContextQueue = parsedQueue.queue.filter(isAllowedForBoot);
+            }
+            if (typeof parsedQueue.activePlaylistId === 'string') {
+              initialActivePlaylistId = parsedQueue.activePlaylistId;
+            }
+            if (typeof parsedQueue.activeContextId === 'string') {
+              initialActiveContextId = parsedQueue.activeContextId;
+            }
+            if (parsedQueue.playbackContext && typeof parsedQueue.playbackContext.id === 'string') {
+              initialPlaybackContext = parsedQueue.playbackContext;
+            }
           }
         }
         const rawSleepExpired = localStorage.getItem(STORAGE_KEYS.sleepTimerExpired);
@@ -186,18 +237,35 @@ class Store {
       } catch { }
     }
 
-    if (initialSong && initialQueue.length === 0) {
-      initialQueue = [initialSong];
+    this.loadedAccountKey = initialAccountKey;
+
+    if (initialSong) {
+      initialUserQueue = initialUserQueue.filter((s) => s.id !== initialSong!.id);
+      const userIds = new Set(initialUserQueue.map((s) => s.id));
+      initialContextQueue = initialContextQueue.filter((s) => s.id !== initialSong!.id && !userIds.has(s.id));
+      initialQueue = [initialSong, ...initialUserQueue, ...initialContextQueue];
       initialQueueIndex = 0;
-    } else if (initialSong) {
-      const foundIdx = initialQueue.findIndex((s) => s.id === initialSong!.id);
-      if (foundIdx >= 0) {
-        initialQueue = initialQueue.slice(foundIdx);
-        initialQueueIndex = 0;
-      } else {
-        initialQueue = [initialSong, ...initialQueue];
-        initialQueueIndex = 0;
+      this.contextOriginSongs = [initialSong, ...initialContextQueue];
+    } else {
+      const userIds = new Set(initialUserQueue.map((s) => s.id));
+      initialContextQueue = initialContextQueue.filter((s) => !userIds.has(s.id));
+      initialQueue = [...initialUserQueue, ...initialContextQueue];
+      initialQueueIndex = initialQueue.length > 0 ? 0 : -1;
+      if (initialQueue.length > 0) {
+        initialSong = initialQueue[0];
+        initialDuration = initialSong.duration || 0;
+        initialUserQueue = initialUserQueue.filter((s) => s.id !== initialSong!.id);
+        initialContextQueue = initialContextQueue.filter((s) => s.id !== initialSong!.id);
+        this.contextOriginSongs = [initialSong, ...initialContextQueue];
       }
+    }
+
+    if (initialSong && !initialPlaybackContext) {
+      initialPlaybackContext = this.derivePlaybackContext(
+        initialActiveContextId,
+        initialActivePlaylistId,
+        this.contextOriginSongs,
+      );
     }
 
     this.state = {
@@ -214,12 +282,17 @@ class Store {
       evmAddress: null,
       svmAddress: null,
       queue: initialQueue,
+      userQueue: initialUserQueue,
+      contextQueue: initialContextQueue,
       queueIndex: initialQueueIndex,
       repeatMode: initialRepeat,
       shuffle: initialShuffle,
       autoplay: initialAutoplay,
-      activePlaylistId: null,
-      activeContextId: null,
+      activePlaylistId: initialActivePlaylistId,
+      activeContextId: initialActiveContextId,
+      playbackContext: initialPlaybackContext,
+      transitionDirection: 'direct',
+      transitionSeq: 0,
       sleepTimer: null,
       sleepTimerPrompt: initialSleepTimerPrompt,
     };
@@ -235,7 +308,10 @@ class Store {
       }
     });
 
-    bus.registerPlaybackSync(({ song, playhead, duration }) => {
+    bus.registerPlaybackSync(({ accountId, song, playhead, duration }) => {
+      const currentAccount = this.getAccountStorageSuffix();
+      if ((accountId || 'guest') !== currentAccount) return;
+      if (song && !this.isSongAllowedForAccount(song)) return;
       this.finishPlayback();
       if (this.state.isPlaying) {
         this.playRequestId++;
@@ -247,12 +323,17 @@ class Store {
         this.userSeekedWhilePaused = false;
         audio.reset();
       }
+      const combined = this.buildCombinedQueue(song, this.state.userQueue, this.state.contextQueue);
       this.state = {
         ...this.state,
         activeSong: song,
         playhead: typeof playhead === 'number' ? playhead : 0,
         duration: typeof duration === 'number' && duration > 0 ? duration : (song?.duration || 0),
         isPlaying: false,
+        queue: combined.queue,
+        userQueue: combined.userQueue,
+        contextQueue: combined.contextQueue,
+        queueIndex: combined.queueIndex,
       };
       this.notify();
     });
@@ -273,7 +354,7 @@ class Store {
       const now = Date.now();
       if (this.state.activeSong && now - this.lastBroadcastAt >= 1000) {
         this.lastBroadcastAt = now;
-        bus.broadcastPlayback(this.state.activeSong, time, this.state.duration, true);
+        bus.broadcastPlayback(this.getAccountStorageSuffix(), this.state.activeSong, time, this.state.duration, true);
       }
 
       if (this.state.activeSong) {
@@ -389,10 +470,161 @@ class Store {
     }
   }
 
-  private persistQueue(queue: Song[]) {
+  private getAccountStorageSuffix(overrideAddress?: string | null): string {
+    const addr = (
+      overrideAddress !== undefined
+        ? overrideAddress
+        : this.state?.userAddress || this.state?.evmAddress || this.state?.svmAddress || (this.loadedAccountKey !== 'guest' ? this.loadedAccountKey : '')
+    )
+      ?.trim()
+      .toLowerCase();
+    return addr || 'guest';
+  }
+
+  private derivePlaybackContext(
+    contextId?: string | null,
+    playlistId?: string | null,
+    songs?: Song[],
+    override?: Partial<PlaybackContext>,
+  ): PlaybackContext {
+    const rawId = (override?.id ?? contextId ?? (playlistId ? `playlist:${playlistId}` : 'market:feed')) || 'market:feed';
+    const lower = rawId.toLowerCase();
+
+    let domain: ContextDomain = override?.domain ?? 'market';
+    let label = override?.label ?? '';
+    let isPrivate = override?.isPrivate ?? false;
+
+    if (!override?.domain) {
+      if (lower.startsWith('studio')) domain = 'studio';
+      else if (lower.startsWith('workspace') || lower.startsWith('profile') || lower.startsWith('voice:')) domain = 'workspace';
+      else if (lower.startsWith('playlist:') || playlistId) domain = 'playlist';
+      else if (lower.startsWith('album:')) domain = 'album';
+      else if (lower.startsWith('creator:')) domain = 'creator';
+      else if (lower.startsWith('song:')) domain = 'song';
+      else domain = 'market';
+    }
+
+    if (override?.isPrivate === undefined) {
+      const allNonPublic = Boolean(songs && songs.length > 0 && songs.every((s) => !s.public));
+      isPrivate =
+        domain === 'studio' ||
+        lower.startsWith('workspace:draft') ||
+        lower.startsWith('voice:') ||
+        allNonPublic;
+    }
+
+    if (!label) {
+      if (lower === 'studio:feed') label = 'Studio · Variations';
+      else if (lower === 'workspace:drafts') label = 'Workspace · Drafts';
+      else if (lower === 'workspace:published') label = 'Workspace · Published';
+      else if (lower === 'workspace:licenses') label = 'Workspace · Licenses';
+      else if (lower.startsWith('voice:')) label = 'Workspace · Voice';
+      else if (lower === 'liked-crate' || lower === 'market:liked') label = 'Liked Tracks';
+      else if (lower === 'market:new' || lower === 'pulse-new' || lower === 'latest') label = 'Market · New';
+      else if (lower === 'market:popular' || lower === 'pulse-popular' || lower === 'popular') label = 'Market · Popular';
+      else if (lower === 'market:radio') label = 'Market · Radio';
+      else if (lower.startsWith('playlist:')) label = 'Playlist';
+      else if (lower.startsWith('album:')) label = 'Album';
+      else if (lower.startsWith('creator:')) label = 'Creator Releases';
+      else if (lower.startsWith('song:')) label = 'Track';
+      else label = 'Market';
+    }
+
+    return { domain, id: rawId, label, isPrivate };
+  }
+
+  private isSongAllowedForAccount(
+    song: Song | null | undefined,
+    additionalAddresses?: (string | null | undefined)[],
+    strictExplicit = false,
+  ): boolean {
+    if (!song || typeof song.id !== 'string') return false;
+    if (song.public === true) return true;
+
+    if (strictExplicit) {
+      const allowed = new Set(
+        (additionalAddresses ?? [])
+          .filter((a): a is string => typeof a === 'string' && a.trim().length > 0)
+          .map((a) => a.trim().toLowerCase()),
+      );
+      if (allowed.size === 0) return false;
+      const creator = typeof song.creator === 'string' ? song.creator.trim().toLowerCase() : '';
+      return Boolean(creator && allowed.has(creator));
+    }
+
+    const suffix = this.getAccountStorageSuffix(additionalAddresses?.[0]);
+    if (suffix === 'guest' && (!additionalAddresses || additionalAddresses.every((a) => !a))) {
+      return false;
+    }
+    return this.isCreatorOfSong(song, additionalAddresses);
+  }
+
+  private buildCombinedQueue(
+    activeSong: Song | null,
+    userQueue: Song[],
+    contextQueue: Song[],
+    additionalAddresses?: (string | null | undefined)[],
+    strictExplicit = false,
+  ): { queue: Song[]; userQueue: Song[]; contextQueue: Song[]; queueIndex: number } {
+    const allowedActive = activeSong && this.isSongAllowedForAccount(activeSong, additionalAddresses, strictExplicit) ? activeSong : null;
+    const seenUser = new Set<string>();
+    const cleanUser: Song[] = [];
+    for (const s of userQueue) {
+      if (!s || !this.isSongAllowedForAccount(s, additionalAddresses, strictExplicit)) continue;
+      if (allowedActive && s.id === allowedActive.id) continue;
+      if (!seenUser.has(s.id)) {
+        seenUser.add(s.id);
+        cleanUser.push(s);
+      }
+    }
+    const seenContext = new Set<string>();
+    const cleanContext: Song[] = [];
+    for (const s of contextQueue) {
+      if (!s || !this.isSongAllowedForAccount(s, additionalAddresses, strictExplicit)) continue;
+      if (allowedActive && s.id === allowedActive.id) continue;
+      if (seenUser.has(s.id) || seenContext.has(s.id)) continue;
+      seenContext.add(s.id);
+      cleanContext.push(s);
+    }
+    const queue = allowedActive ? [allowedActive, ...cleanUser, ...cleanContext] : [...cleanUser, ...cleanContext];
+    const queueIndex = queue.length > 0 ? 0 : -1;
+    return { queue, userQueue: cleanUser, contextQueue: cleanContext, queueIndex };
+  }
+
+  private persistQueue(
+    queue?: Song[],
+    userQueue: Song[] = this.state?.userQueue ?? [],
+    contextQueue: Song[] = this.state?.contextQueue ?? [],
+    activeSong: Song | null = this.state?.activeSong ?? null,
+    playbackContext: PlaybackContext | null = this.state?.playbackContext ?? null,
+  ) {
     if (typeof window === 'undefined') return;
     try {
-      localStorage.setItem(STORAGE_KEYS.queue, JSON.stringify(queue.slice(0, 100)));
+      const suffix = this.getAccountStorageSuffix();
+      const allowedUser = userQueue.filter((s) => this.isSongAllowedForAccount(s)).slice(0, 50);
+      const allowedContext = contextQueue.filter((s) => this.isSongAllowedForAccount(s)).slice(0, 100);
+      const allowedQueue = (queue ?? this.state?.queue ?? []).filter((s) => this.isSongAllowedForAccount(s)).slice(0, 100);
+      const payload: StoredQueuePayload = {
+        userQueue: allowedUser,
+        contextQueue: allowedContext,
+        queue: allowedQueue,
+        activePlaylistId: this.state?.activePlaylistId ?? null,
+        activeContextId: this.state?.activeContextId ?? null,
+        playbackContext,
+      };
+      localStorage.setItem(`${STORAGE_KEYS.queue}:${suffix}`, JSON.stringify(payload));
+      if (activeSong && this.isSongAllowedForAccount(activeSong)) {
+        localStorage.setItem(
+          `${STORAGE_KEYS.playback}:${suffix}`,
+          JSON.stringify({
+            song: activeSong,
+            playhead: this.state?.playhead ?? 0,
+            duration: this.state?.duration || activeSong.duration || 0,
+          })
+        );
+      } else {
+        localStorage.removeItem(`${STORAGE_KEYS.playback}:${suffix}`);
+      }
     } catch { }
   }
 
