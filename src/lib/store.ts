@@ -4,11 +4,21 @@ import { bus } from './bus';
 import { api, hasStreamBudget, hasPromoCreditsOnly, captureStreamBilling, streamOptions, type StreamBilling } from './api';
 import { compose } from './compose';
 import { readSongs } from './cache';
+import { clearPrefetchCache, prefetchSongAssets } from './prefetch';
 import { toast } from 'sonner';
 import { openGate, type GateOptions } from './gate';
 
 export type RepeatMode = 'off' | 'all' | 'one';
 export type SleepTimerMode = '5' | '15' | '30' | 'track' | 'queue';
+export type ContextDomain = 'market' | 'playlist' | 'album' | 'creator' | 'workspace' | 'studio' | 'song';
+export type TransitionDirection = 'next' | 'prev' | 'direct';
+
+export interface PlaybackContext {
+  domain: ContextDomain;
+  id: string;
+  label: string;
+  isPrivate: boolean;
+}
 
 export interface SleepTimerState {
   mode: SleepTimerMode;
@@ -36,12 +46,17 @@ export interface State {
   evmAddress?: string | null;
   svmAddress?: string | null;
   queue: Song[];
+  userQueue: Song[];
+  contextQueue: Song[];
   queueIndex: number;
   repeatMode: RepeatMode;
   shuffle: boolean;
   autoplay: boolean;
   activePlaylistId: string | null;
   activeContextId: string | null;
+  playbackContext: PlaybackContext | null;
+  transitionDirection: TransitionDirection;
+  transitionSeq: number;
   sleepTimer: SleepTimerState | null;
   sleepTimerPrompt: SleepTimerPrompt | null;
 }
@@ -56,6 +71,15 @@ const STORAGE_KEYS = {
   queue: 'queue',
   sleepTimerExpired: 'sleep-timer-expired',
 };
+
+interface StoredQueuePayload {
+  userQueue?: Song[];
+  contextQueue?: Song[];
+  queue?: Song[];
+  activePlaylistId?: string | null;
+  activeContextId?: string | null;
+  playbackContext?: PlaybackContext | null;
+}
 
 interface Playback {
   id: string;
