@@ -19,7 +19,8 @@ class AudioBus {
   private playerStopHandler: (() => void) | null = null;
   private dawStopHandler: (() => void) | null = null;
   private cueStopHandler: (() => void) | null = null;
-  private playbackSyncHandler: ((payload: { song: Song | null; playhead: number; duration: number; isPlaying: boolean }) => void) | null = null;
+  private videoStopHandler: (() => void) | null = null;
+  private playbackSyncHandler: ((payload: { accountId: string; song: Song | null; playhead: number; duration: number; isPlaying: boolean }) => void) | null = null;
   private logoutHandlers: Set<() => void> = new Set();
   private accountSwitchHandlers: Set<(address: string) => void> = new Set();
   private channel: BroadcastChannel | null = null;
@@ -41,6 +42,7 @@ class AudioBus {
               this.stopAllLocal();
             }
             this.playbackSyncHandler?.({
+              accountId: msg.accountId || 'guest',
               song: msg.song,
               playhead: msg.playhead,
               duration: msg.duration,
@@ -62,6 +64,7 @@ class AudioBus {
     this.playerStopHandler?.();
     this.dawStopHandler?.();
     this.cueStopHandler?.();
+    this.videoStopHandler?.();
     this.activeDomain = 'none';
   }
 
