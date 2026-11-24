@@ -14,7 +14,6 @@ function voice(creator = evm): Voice {
     id: 'voice-1', name: 'My voice', creator, created_at: '2026-10-10T10:00:00Z',
     sample_url: 'https://fixture.invalid/sample.wav', status: 'training',
     availability: {
-      turbo: { model: 'acestep-v15-xl-turbo', status: 'ready', adapter: { id: 'adapter-fast', model: 'acestep-v15-xl-turbo', status: 'ready' } },
       sft: { model: 'acestep-v15-xl-sft', status: 'training', step: 3, total_steps: 20, adapter: { id: 'adapter-master', model: 'acestep-v15-xl-sft', status: 'training' } },
     },
   };
@@ -55,8 +54,8 @@ describe('account-scoped voices cache', () => {
     { ...voice(), status: 'complete' },
     { ...voice(), sample_url: 9 },
     { ...voice(), availability: undefined },
-    { ...voice(), availability: { ...voice().availability, turbo: { model: 'acestep-v15-xl-sft', status: 'ready' } } },
-    { ...voice(), availability: { ...voice().availability, sft: { model: 'acestep-v15-xl-sft', status: 'training', step: '3' } } },
+    { ...voice(), availability: { sft: { model: 'acestep-v15-xl-turbo', status: 'ready' } } },
+    { ...voice(), availability: { sft: { model: 'acestep-v15-xl-sft', status: 'training', step: '3' } } },
   ])('rejects malformed voice metadata %j', invalid => {
     storage.set(`voices:${evm}`, JSON.stringify([invalid]));
     expect(readVoices(evm)).toBeNull();
@@ -72,12 +71,17 @@ describe('account-scoped voices cache', () => {
   });
 
   it('retains distinct source conditioning and readiness for voices sharing one canonical sample', () => {
-    const canonical = { ...voice(), metadata: { source: 'upload' } };
+    const canonical: Voice = {
+      ...voice(),
+      metadata: { source: 'upload' },
+      availability: {
+        sft: { model: 'acestep-v15-xl-sft', status: 'ready', adapter: { id: 'adapter-master', model: 'acestep-v15-xl-sft', status: 'ready' } },
+      },
+    };
     const source: Voice = {
-      ...voice(), id: 'source-variant', canonical_id: canonical.id, name: 'Source variant',
+      ...voice(), id: 'source-variant', name: 'Source variant',
       metadata: { lyrics: '[Verse]\r\nExact words', bpm: 100, keyscale: 'C major' },
       availability: {
-        turbo: { model: 'acestep-v15-xl-turbo', status: 'queued' },
         sft: { model: 'acestep-v15-xl-sft', status: 'queued' },
       },
     };
@@ -86,8 +90,9 @@ describe('account-scoped voices cache', () => {
     expect(cached.map(v => v.id)).toEqual([canonical.id, source.id]);
     expect(cached[1].metadata).toEqual(source.metadata);
     expect(cached[1].sample_url).toBe(cached[0].sample_url);
-    expect(voiceReady(cached[0], 'turbo')).toBe(true);
-    expect(voiceReady(cached[1], 'turbo')).toBe(false);
+    expect(voiceReady(cached[0], 'sft')).toBe(true);
+    expect(voiceReady(cached[1], 'sft')).toBe(false);
+    expect(voiceReady(cached[1], 'turbo')).toBe(true);
     expect(voiceUpdate({ voice: cached[1] }, evm, source.id)).toEqual(cached[1]);
     expect(() => voiceUpdate({ voice: cached[0] }, evm, source.id)).toThrow('Invalid voice update');
   });
@@ -100,21 +105,23 @@ describe('saved voice output availability', () => {
     expect(() => voiceUpdate({ status: 'error', error: 'Voice lookup failed' }, evm, 'voice-1')).toThrow('Voice lookup failed');
     expect(() => voiceUpdate({ voice: voice(other) }, evm, 'voice-1')).toThrow('Invalid voice update');
   });
-  it('permits Fast independently while Master is preparing', () => {
+  it('permits Fast via isolated vocal sample while Studio Master SFT LoRA is training', () => {
     const saved = voice();
     expect(voiceReady(saved, 'turbo')).toBe(true);
     expect(voiceReady(saved, 'sft')).toBe(false);
     expect(voiceAvailability(saved, 'turbo')).toBe('Ready');
-    expect(voiceAvailability(saved, 'sft')).toBe('Preparing');
-    expect(voiceStatus(saved)).toBe('Preparing');
+    expect(voiceAvailability(saved, 'sft')).toBe('Training');
+    expect(voiceStatus(saved)).toBe('Training');
   });
 
-  it('requires a ready adapter for the exact chosen output', () => {
+  it('requires a ready SFT adapter for Studio Master and sample_url for Fast', () => {
     const saved = voice();
-    saved.availability.turbo.adapter!.model = 'acestep-v15-xl-sft';
-    expect(voiceReady(saved, 'turbo')).toBe(false);
-    expect(voiceAvailability(saved, 'turbo')).not.toBe('Ready');
-    saved.availability.turbo.adapter = undefined;
+    saved.availability.sft.status = 'ready';
+    saved.availability.sft.adapter = { id: 'a', model: 'acestep-v15-xl-turbo' as any, status: 'ready' };
+    expect(voiceReady(saved, 'sft')).toBe(false);
+    saved.availability.sft.adapter = undefined;
+    expect(voiceReady(saved, 'sft')).toBe(false);
+    saved.sample_url = null;
     expect(voiceReady(saved, 'turbo')).toBe(false);
   });
 

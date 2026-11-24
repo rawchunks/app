@@ -18,7 +18,7 @@ import { GenresModal, formatTagSummary } from '../components/options';
 import { Languages } from '../components/studio/languages';
 import { Tooltip } from '../components/daw/Tooltip';
 import { useDismiss } from '../hooks/use-dismiss';
-import { Mic2, UploadCloud, FileAudio, Play, Pause, Sliders, Globe, Lock, ListMusic, ArrowLeft, FolderOpen } from 'lucide-react';
+import { Mic2, UploadCloud, FileAudio, Play, Pause, Sliders, Globe, Lock, ListMusic, ListStart, ArrowLeft, ChevronLeft, ChevronRight, FolderOpen, Check, X, Loader2, Sparkles } from 'lucide-react';
 import { useOptions } from '@/hooks/use-options';
 import { useVoices, voiceReady, voiceStatus } from '@/hooks/use-voices';
 import {
@@ -65,11 +65,21 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
   const uploadedVoice = useRef<{ file: File; creator: string; id: string } | null>(null);
   const [, setUploadedVoiceId] = useState<string | null>(null);
   const scopeRef = useRef(0);
-  const streamRef = useRef<AbortController | null>(null);
+  const generationStreamsRef = useRef<Map<string, AbortController>>(new Map());
+  const activeGenerationsRef = useRef(0);
+  const beginGeneration = () => {
+    activeGenerationsRef.current += 1;
+    store.setGenerating(true);
+  };
+  const endGeneration = () => {
+    activeGenerationsRef.current = Math.max(0, activeGenerationsRef.current - 1);
+    store.setGenerating(activeGenerationsRef.current > 0);
+  };
   const [streamPrice, setStreamPrice] = useState(0.01);
   const [licensePrice, setLicensePrice] = useState(5.0);
   const [licenses, setLicenses] = useState(20);
   const [mobilePocket, setMobilePocket] = useState<'create' | 'feed'>('create');
+  const [feedPage, setFeedPage] = useState(0);
 
   // Cover generation & Album association
   const [coverUrl, setCoverUrl] = useState<string | null>(null);
@@ -153,13 +163,13 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
     if (id === 'S4' || id.startsWith('L')) return 'lyrics';
     return ({ P2: 'language', P3: 'duration', P4: 'bpm', P5: 'key', P6: 'tags', O1: 'voice', O2: 'voice', O3: 'voice', C2: 'collection', C5: 'cover' } as const)[id as 'P2'] ?? null;
   };
-  const guideInputs = { instrumental, busy: isVibing || state.isGenerating || isRecordingVibeAudio, lyricsBlocks, tracks: state.tracks, coverUrl, voiceSelected: !!(voiceFile || selectedVoiceId) };
+  const guideInputs = { instrumental, busy: isVibing || isRecordingVibeAudio, lyricsBlocks, tracks: state.tracks, coverUrl, voiceSelected: !!(voiceFile || selectedVoiceId) };
   const guideInputsRef = useRef(guideInputs); guideInputsRef.current = guideInputs;
   useGuideOwner({
     id: 'studio', scope: userAddr ?? 'guest', handles: step => step.owner === 'studio',
     prepare: ({ step, bind }) => {
       const id = step.id;
-      if (isVibing || state.isGenerating || isRecordingVibeAudio) return { retry: () => !guideInputsRef.current.busy, target: isVibing ? 'studio.songwriter-progress' : isRecordingVibeAudio ? 'studio.vibe-audio' : 'studio.generate', description: 'Wait for the current task to finish before changing views.' };
+      if (isVibing || isRecordingVibeAudio) return { retry: () => !guideInputsRef.current.busy, target: isVibing ? 'studio.songwriter-progress' : 'studio.vibe-audio', description: 'Wait for the current task to finish before changing views.' };
       const feed = ['S8', 'O4', 'C6'].includes(id);
       const vibe = ['S2', 'V1', 'V2', 'V3', 'V4'].includes(id);
       const wantsLyrics = id === 'S4' || id.startsWith('L') || id === 'P2';
@@ -354,7 +364,9 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
     scopeRef.current++;
     return () => {
       scopeRef.current++;
-      streamRef.current?.abort();
+      for (const ctrl of generationStreamsRef.current.values()) ctrl.abort();
+      generationStreamsRef.current.clear();
+      activeGenerationsRef.current = 0;
       vibeAbortRef.current?.abort();
       if (vibeAudioRecRef.current) {
         window.clearInterval(vibeAudioRecRef.current.timer);
@@ -749,7 +761,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
 
   const handleVibe = async (retry = false) => {
     const trimmedPrompt = prompt.trim();
-    if (isVibing || state.isGenerating || !canSubmitVibe) return;
+    if (isVibing || !canSubmitVibe) return;
 
     let activeAudio = vibeAudio;
     if (isRecordingVibeAudio) {
@@ -937,7 +949,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
   };
 
   const handleGenerate = async () => {
-    if (state.isGenerating || isVibing || !canSubmitGeneration) return;
+    if (isVibing || !canSubmitGeneration) return;
 
     if (!userAddr) {
       void openGate({ steps: ['login', 'terms', 'funding'] });
@@ -957,9 +969,17 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
   const executeGenerate = async (retry = false) => {
     if (!userAddr) return;
     const scope = scopeRef.current;
+    const genTitle = title.trim();
+    const genAlbumId = selectedAlbumId || null;
     const initialCover = latestCoverUrlRef.current || coverUrl || '';
     const coverPendingAtStart = isGeneratingCover && !initialCover;
-    store.setGenerating(true);
+    beginGeneration();
+    let ended = false;
+    const finishGeneration = () => {
+      if (ended) return;
+      ended = true;
+      endGeneration();
+    };
 
     try {
       if (!generation || !model) throw new Error('Music options are unavailable');
@@ -982,7 +1002,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
             formData.append('file', voiceFile);
             const response = await api.fetch('/api/voices/upload', { method: 'POST', body: formData, userAddress: userAddr });
             if (response.status === 402) {
-              store.setGenerating(false);
+              finishGeneration();
               if (!retry && await openGate({ steps: ['terms', 'funding'], reason: 'Session budget exhausted' })) return executeGenerate(true);
               return;
             }
@@ -1002,15 +1022,15 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
       }
       if (scope !== scopeRef.current) return;
 
-      const currentCover = latestCoverUrlRef.current || coverUrl || undefined;
+      const currentCover = (coverPendingAtStart ? (latestCoverUrlRef.current || coverUrl) : initialCover) || undefined;
       const res = await api.fetch('/api/generation/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           creatorAddress: userAddr,
-          title: title.trim() || undefined,
+          title: genTitle || undefined,
           image: currentCover,
-          albumId: selectedAlbumId || undefined,
+          albumId: genAlbumId || undefined,
           prompt,
           lyrics: instrumental ? undefined : (lyrics.trim() ? lyrics : undefined),
           instrumental,
@@ -1034,7 +1054,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
 
       if (!res.ok) {
         if (res.status === 402) {
-          store.setGenerating(false);
+          finishGeneration();
           if (!retry && await openGate({ steps: ['terms', 'funding'], reason: 'Session budget exhausted' })) return executeGenerate(true);
           return;
         }
@@ -1047,9 +1067,12 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
         pendingCoverSongIdsRef.current.add(songId);
       }
       const now = Date.now();
-      const untitledCount = (state.songs || []).filter((s) => s.title && s.title.startsWith('Untitled')).length;
-      const baseTitle = title.trim() || `Untitled #${untitledCount + 1}`;
-      const resolvedTrackCover = latestCoverUrlRef.current || coverUrl || '';
+      const liveState = store.getState();
+      const untitledIds = new Set<string>();
+      for (const s of liveState.songs || []) if (s.title?.startsWith('Untitled')) untitledIds.add(s.id);
+      for (const t of liveState.tracks || []) if (t.song?.title?.startsWith('Untitled')) untitledIds.add(t.song.id);
+      const baseTitle = genTitle || `Untitled #${untitledIds.size + 1}`;
+      const resolvedTrackCover = (coverPendingAtStart ? (latestCoverUrlRef.current || coverUrl) : initialCover) || '';
 
       const songA: Song = {
         id: songId,
@@ -1059,14 +1082,14 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
         creator: userAddr,
         public: false,
         image: resolvedTrackCover,
-        album_id: selectedAlbumId || null,
+        album_id: genAlbumId,
         licenses: licenses,
         stream_price: streamPrice,
         license_price: licensePrice,
         url: '',
       };
 
-      const trackAId = `trk-${now}-1`;
+      const trackAId = `trk-${now}-${Math.random().toString(36).slice(2, 6)}-1`;
 
       store.addTracks([
         { id: trackAId, song: songA, variation: 1, status: 'generating', progress: 15 },
@@ -1081,17 +1104,17 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
       }
       setMobilePocket('feed');
 
-      toast.info('Generating tracks...');
+      toast.info(activeGenerationsRef.current > 1 ? `Queued ${baseTitle}` : 'Generating tracks...');
 
       const controller = new AbortController();
-      streamRef.current?.abort(); streamRef.current = controller;
+      generationStreamsRef.current.set(trackAId, controller);
       try {
         await watch(`/api/generation/events/${encodeURIComponent(taskId)}?songId=${encodeURIComponent(songId)}`, controller.signal, async result => {
           if (scope !== scopeRef.current) return true;
           if (!result.status) return false;
           if (result.status === 'ready') {
             if (!Array.isArray(result.audioUrls) || !result.audioUrls.length || result.audioUrls.some((url: unknown) => typeof url !== 'string' || !url)) throw new Error('Generation returned no audio');
-            const finalCover = latestCoverUrlRef.current || coverUrl || '';
+            const finalCover = (coverPendingAtStart ? (latestCoverUrlRef.current || coverUrl) : resolvedTrackCover) || '';
             const songs: Song[] = [];
             for (let index = 0; index < result.audioUrls.length; index++) {
               const id = index === 0 ? result.songAId : result.songBId;
@@ -1106,7 +1129,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                 duration: result.durations?.[index],
                 title: `${baseTitle}${result.audioUrls.length > 1 ? ` (Var ${index + 1})` : ''}`,
                 image: finalCover,
-                album_id: selectedAlbumId || null,
+                album_id: genAlbumId,
               };
               store.addSong(song); songs.push(song);
               if (index === 0) store.updateTrack(trackAId, { status: 'ready', progress: 100, song });
@@ -1122,8 +1145,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
             }
             const cached = readSongs(userAddr) ?? [];
             writeSongs([...songs, ...cached.filter(song => !songs.some(result => result.id === song.id))], userAddr);
-            store.setActiveSong(songs[0]); store.setGenerating(false);
-            toast.success('Song ready');
+            toast.success(`${baseTitle} ready`);
             return true;
           } else if (result.status === 'error') {
             throw new Error(result.error || 'Generation failed');
@@ -1133,15 +1155,20 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
           return false;
         });
       } catch (error) {
-        if (scope !== scopeRef.current) return;
-        store.setGenerating(false); store.updateTrack(trackAId, { status: 'error', progress: 0 });
+        if (scope !== scopeRef.current || controller.signal.aborted) return;
+        store.updateTrack(trackAId, { status: 'error', progress: 0 });
         toast.error(error instanceof Error ? error.message : 'Could not follow generation');
-      } finally { if (streamRef.current === controller) streamRef.current = null; }
+      } finally {
+        if (generationStreamsRef.current.get(trackAId) === controller) {
+          generationStreamsRef.current.delete(trackAId);
+        }
+      }
 
     } catch (err: any) {
       if (scope !== scopeRef.current) return;
-      store.setGenerating(false);
       toast.error(err.message || 'Generation error');
+    } finally {
+      finishGeneration();
     }
   };
 
@@ -1667,33 +1694,33 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                             <span>INSTRUMENTAL</span>
                           </label>
 
-                          <Tooltip title="Configure Vocal Language">
+                          <Tooltip title="Vocal Language" description={instrumental ? 'Muted in instrumental mode' : selectedLanguage ? `Language: ${selectedLanguage.toUpperCase()}` : 'Auto-detect language'}>
                             <button
                               type="button"
                               disabled={instrumental}
                               className={`studio-param-pill-mini ${selectedLanguage ? 'configured' : ''}`}
                               onClick={() => setActiveModal('language')}
+                              aria-label="Configure vocal language"
                             >
-                              <span className="studio-param-pill-label">LANGUAGE:</span>
+                              <Globe size={11} className="studio-param-pill-icon" aria-hidden="true" />
                               <span className="studio-param-pill-val">
-                                {instrumental ? 'MUTED' : selectedLanguage ? selectedLanguage.toUpperCase() : 'AUTO'}
+                                {instrumental ? 'OFF' : selectedLanguage ? selectedLanguage.toUpperCase() : 'AUTO'}
                               </span>
-                              <span className="studio-param-pill-icon">⚙</span>
                             </button>
                           </Tooltip>
 
-                          <Tooltip title="Configure Voice Profile">
+                          <Tooltip title="Voice Profile" description={instrumental ? 'Muted in instrumental mode' : useVoice && voiceName ? `Voice: ${voiceName}` : 'Default vocal synthesis'}>
                             <button
                               type="button"
                               disabled={instrumental}
                               className={`studio-param-pill-mini ${useVoice && voiceName ? 'configured' : ''}`}
                               onClick={() => setActiveModal('voice')}
+                              aria-label="Configure voice profile"
                             >
-                              <span className="studio-param-pill-label">VOICE:</span>
+                              <Mic2 size={11} className="studio-param-pill-icon" aria-hidden="true" />
                               <span className="studio-param-pill-val">
-                                {instrumental ? 'MUTED' : useVoice && voiceName ? voiceName.toUpperCase() : 'DEFAULT'}
+                                {instrumental ? 'OFF' : useVoice && voiceName ? voiceName.toUpperCase() : 'DEFAULT'}
                               </span>
-                              <span className="studio-param-pill-icon">⚙</span>
                             </button>
                           </Tooltip>
                         </div>
@@ -1996,7 +2023,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
             <Button
               variant="primary"
               size="lg"
-              disabled={isVibing || state.isGenerating || !canSubmitVibe}
+              disabled={isVibing || !canSubmitVibe}
               onClick={() => handleVibe()}
               data-guide="studio.vibe-submit" className="studio-generate-btn studio-vibe-btn"
             >
@@ -2006,22 +2033,56 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
             <Button
               variant="primary"
               size="lg"
-              disabled={state.isGenerating || isVibing || !canSubmitGeneration || !generation || !model}
+              disabled={isVibing || !canSubmitGeneration || !generation || !model}
               onClick={() => handleGenerate()}
               data-guide="studio.generate" className="studio-generate-btn"
             >
-              {isVibing ? 'VIBING...' : state.isGenerating ? 'SYNTHESIZING...' : 'GENERATE'}
+              {isVibing ? 'VIBING...' : 'GENERATE'}
             </Button>
           )}
         </div>
       </div>
 
-      {/* Generated Variations List */}
-      <div className="studio-panel-feed panel scrollable">
+      {/* Generated Variations List (Zero-Scroll Paginated) */}
+      {(() => {
+        const feedPageSize = 4;
+        const feedTotalPages = Math.max(1, Math.ceil(state.tracks.length / feedPageSize));
+        const clampedFeedPage = Math.min(feedPage, feedTotalPages - 1);
+        const visibleFeedTracks = state.tracks.slice(
+          clampedFeedPage * feedPageSize,
+          (clampedFeedPage + 1) * feedPageSize,
+        );
+        return (
+      <div className="studio-panel-feed panel">
         <div className="studio-feed-header">
           <Glitch text="VARIATIONS_FEED" />
           <div className="studio-feed-header-right">
-            <span className="studio-feed-count">{state.tracks.length} GENERATIONS</span>
+            {feedTotalPages > 1 && (
+              <div className="studio-feed-pager">
+                <button
+                  type="button"
+                  className="queue-icon-btn"
+                  disabled={clampedFeedPage <= 0}
+                  onClick={() => setFeedPage((p) => Math.max(0, p - 1))}
+                  aria-label="Previous variations page"
+                >
+                  <ChevronLeft size={13} />
+                </button>
+                <span className="queue-pager-info">
+                  {clampedFeedPage + 1}/{feedTotalPages}
+                </span>
+                <button
+                  type="button"
+                  className="queue-icon-btn"
+                  disabled={clampedFeedPage >= feedTotalPages - 1}
+                  onClick={() => setFeedPage((p) => Math.min(feedTotalPages - 1, p + 1))}
+                  aria-label="Next variations page"
+                >
+                  <ChevronRight size={13} />
+                </button>
+              </div>
+            )}
+            <span className="studio-feed-count">{state.tracks.length}</span>
             <Tooltip
               title="Create Studio"
               description="Return to generator"
@@ -2048,7 +2109,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
           </div>
         ) : (
           <div className="studio-variations-list">
-            {state.tracks.map((t) => {
+            {visibleFeedTracks.map((t) => {
               const isPlayingThis = state.activeSong?.id === t.song.id && state.isPlaying;
               return (
                 <div
@@ -2057,53 +2118,114 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                 >
                   <div className="variation-card-row-top">
                     <div className="variation-card-track-info">
-                      <img
-                        src={t.song.image || '/branding/mark.svg'}
-                        alt={t.song.title}
-                        className="variation-card-cover"
-                        loading="lazy"
-                        decoding="async"
-                      />
                       <Tooltip title={isPlayingThis ? 'Pause' : 'Play'} description="Preview generated track">
-                        <Button
-                          variant={isPlayingThis ? 'primary' : 'ghost'}
-                          size="sm"
+                        <button
+                          type="button"
+                          className={`variation-cover-play ${isPlayingThis ? 'active' : ''}`}
                           aria-label={isPlayingThis ? 'PAUSE' : 'PLAY'}
                           disabled={t.status !== 'ready' || !t.song.url}
                           onClick={() => {
                             if (isPlayingThis) {
-                              store.setPlaying(false);
+                              void store.setPlaying(false);
                             } else {
-                              store.setActiveSong(t.song);
-                              store.setPlaying(true);
+                              const readySongs = state.tracks
+                                .filter((item) => item.status === 'ready' && item.song.url)
+                                .map((item) => item.song);
+                              void store.playSong(t.song, readySongs, null, 'studio:feed', false, {
+                                domain: 'studio',
+                                id: 'studio:feed',
+                                label: 'Studio · Variations',
+                                isPrivate: true,
+                              });
                             }
                           }}
                         >
-                          {isPlayingThis ? <Pause size={13} /> : <Play size={13} />}
-                        </Button>
+                          <img
+                            src={t.song.image || '/branding/mark.svg'}
+                            alt={t.song.title}
+                            className="variation-card-cover"
+                            loading="lazy"
+                            decoding="async"
+                          />
+                          <span className="variation-cover-overlay" aria-hidden="true">
+                            {isPlayingThis ? <Pause size={13} /> : <Play size={13} />}
+                          </span>
+                        </button>
                       </Tooltip>
                       <div className="variation-card-text">
-                        <div className="variation-card-title">{t.song.title}</div>
-                        <div className="variation-card-meta">
-                          {t.song.tags.join(' // ')}{t.song.duration ? ` • ${t.song.duration}s` : ''}
-                        </div>
+                        <div className="variation-card-title" title={t.song.title}>{t.song.title}</div>
+                        <Tooltip
+                          title="Track Tags"
+                          description={`${t.song.tags.join(' · ')}${t.song.duration ? ` • ${t.song.duration}s` : ''}`}
+                        >
+                          <div className="variation-card-meta">
+                            {t.song.tags.slice(0, 2).join(' · ')}
+                            {t.song.tags.length > 2 ? ` +${t.song.tags.length - 2}` : ''}
+                            {t.song.duration ? ` • ${t.song.duration}s` : ''}
+                          </div>
+                        </Tooltip>
                       </div>
                     </div>
 
-                    <Badge variant={t.status === 'ready' ? 'primary' : t.status === 'error' ? 'muted' : 'warning'}>
-                      {t.status === 'ready' ? 'READY' : t.status === 'error' ? 'ERROR' : `SYNTHESIZING (${t.progress}%)`}
-                    </Badge>
+                    <Tooltip
+                      title={
+                        t.status === 'ready'
+                          ? 'Ready'
+                          : t.status === 'error'
+                            ? 'Synthesis Error'
+                            : `Synthesizing (${t.progress}%)`
+                      }
+                    >
+                      <Badge variant={t.status === 'ready' ? 'primary' : t.status === 'error' ? 'muted' : 'warning'}>
+                        {t.status === 'ready' ? (
+                          <Check size={11} />
+                        ) : t.status === 'error' ? (
+                          <X size={11} />
+                        ) : (
+                          <>
+                            <Loader2 size={11} className="song-spin" />
+                            <span>{t.progress}%</span>
+                          </>
+                        )}
+                      </Badge>
+                    </Tooltip>
                   </div>
 
                   <div className="variation-card-row-bottom">
                     <div className="variation-card-pricing">
-                      <span>STREAM: ${t.song.stream_price.toFixed(2)}/m</span>
-                      <span>LICENSE: ${t.song.license_price.toFixed(2)}</span>
+                      <Tooltip
+                        title="Stream Rate"
+                        description={`$${t.song.stream_price.toFixed(2)} per minute`}
+                      >
+                        <span className="variation-rate-pill">
+                          <Play size={10} />
+                          <span>${t.song.stream_price.toFixed(2)}/m</span>
+                        </span>
+                      </Tooltip>
+                      <Tooltip
+                        title="License Price"
+                        description={`$${t.song.license_price.toFixed(2)} commercial license`}
+                      >
+                        <span className="variation-rate-pill">
+                          <Sparkles size={10} />
+                          <span>${t.song.license_price.toFixed(2)}</span>
+                        </span>
+                      </Tooltip>
                     </div>
 
                     <div className="variation-card-actions">
                       {t.status === 'ready' && (
                         <>
+                          <Tooltip title="Play Next" description="Insert next in queue">
+                            <Button
+                              variant="ghost"
+                              size="xs"
+                              aria-label="PLAY NEXT"
+                              onClick={() => store.playNext(t.song)}
+                            >
+                              <ListStart size={12} />
+                            </Button>
+                          </Tooltip>
                           {onEditSong && (
                             <Tooltip title="Edit in DAW" description="Open multitrack workstation">
                               <Button
@@ -2150,6 +2272,8 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
           </div>
         )}
       </div>
+        );
+      })()}
 
 
 
@@ -2608,16 +2732,23 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
                           </div>
                         </div>
 
-                        {(['turbo', 'sft'] as const).map((output) => {
-                          const availability = voice.availability[output];
-                          const progress = availability.step != null && ['queued', 'training'].includes(availability.status);
-                          if (!progress && !availability.error) return null;
+                        {(() => {
+                          const availability = voice.availability.sft;
+                          const active = ['queued', 'training'].includes(availability.status);
+                          if (!active && !availability.error) return null;
+                          const hasSteps = availability.total_steps != null && availability.total_steps > 0;
                           return (
-                            <span className="studio-voice-detail" key={output}>
-                              {output === 'turbo' ? 'Fast' : 'Master'}: {availability.error || <>Preparing · {availability.step}{availability.total_steps != null ? ` / ${availability.total_steps}` : ''}</>}
+                            <span className="studio-voice-detail">
+                              Master:{' '}
+                              {availability.error ||
+                                (hasSteps
+                                  ? `Training · ${availability.step ?? 0} / ${availability.total_steps}`
+                                  : availability.status === 'training'
+                                    ? 'Preparing'
+                                    : 'Queued')}
                             </span>
                           );
-                        })}
+                        })()}
                         {voice.error && <span className="studio-voice-detail" role="alert">{voice.error}</span>}
                       </button>
                     );
@@ -3117,7 +3248,7 @@ export const Studio: React.FC<Props> = ({ onEditSong, className = '' }) => {
           ) : (
             <div className="studio-lyrics-raw-wrap">
               <div className="studio-lyrics-raw-hint">
-                ACESTEP SQUARED-BRACKET SYNTAX — EDIT DIRECTLY OR PASTE FULL SONG:
+                STRUCTURED TAGS — EDIT DIRECTLY OR PASTE FULL SONG:
               </div>
               <textarea
                 data-guide="lyrics.raw-editor" aria-label="Raw lyrics and tags" className="studio-lyrics-raw-textarea"

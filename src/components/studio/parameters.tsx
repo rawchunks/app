@@ -11,8 +11,8 @@ interface Props {
 }
 
 const SHORT_LABELS: Record<string, string> = {
-  repaintWavCrossfadeSec: 'X-Fade',
-  coverNoiseStrength: 'Detail',
+  editCrossfadeSec: 'X-Fade',
+  remixMode: 'Mode',
   globalCaption: 'Context',
   trackClasses: 'Instruments',
   voiceCoverStrength: 'Resemblance',
