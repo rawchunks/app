@@ -80,7 +80,11 @@ class AudioBus {
     this.cueStopHandler = stop;
   }
 
-  public registerPlaybackSync(handler: (payload: { song: Song | null; playhead: number; duration: number; isPlaying: boolean }) => void) {
+  public registerVideo(stop: () => void) {
+    this.videoStopHandler = stop;
+  }
+
+  public registerPlaybackSync(handler: (payload: { accountId: string; song: Song | null; playhead: number; duration: number; isPlaying: boolean }) => void) {
     this.playbackSyncHandler = handler;
   }
 
@@ -94,26 +98,17 @@ class AudioBus {
     return () => this.accountSwitchHandlers.delete(handler);
   }
 
-  public broadcastPlayback(song: Song | null, playhead: number, duration: number, isPlaying: boolean) {
+  public broadcastPlayback(accountId: string, song: Song | null, playhead: number, duration: number, isPlaying: boolean) {
     try {
       this.channel?.postMessage({
         type: 'playback',
         tabId: this.tabId,
+        accountId: accountId || 'guest',
         song,
         playhead,
         duration,
         isPlaying,
       } satisfies CrossTabEvent);
-      if (typeof window !== 'undefined') {
-        if (song) {
-          localStorage.setItem(
-            'playback',
-            JSON.stringify({ song, playhead, duration, updatedAt: Date.now() }),
-          );
-        } else {
-          localStorage.removeItem('playback');
-        }
-      }
     } catch { }
   }
 
@@ -138,14 +133,16 @@ class AudioBus {
 
   public request(domain: AudioDomain) {
     if (domain === 'daw') {
-      if (this.activeDomain === 'player') {
-        this.playerStopHandler?.();
-      }
+      if (this.activeDomain === 'player') this.playerStopHandler?.();
+      this.videoStopHandler?.();
       this.cueStopHandler?.();
     } else if (domain === 'player') {
-      if (this.activeDomain === 'daw') {
-        this.dawStopHandler?.();
-      }
+      if (this.activeDomain === 'daw') this.dawStopHandler?.();
+      this.videoStopHandler?.();
+      this.cueStopHandler?.();
+    } else if (domain === 'video') {
+      this.playerStopHandler?.();
+      this.dawStopHandler?.();
       this.cueStopHandler?.();
     } else if (domain === 'cue') {
       this.cueStopHandler?.();
@@ -153,6 +150,7 @@ class AudioBus {
       this.playerStopHandler?.();
       this.dawStopHandler?.();
       this.cueStopHandler?.();
+      this.videoStopHandler?.();
     }
 
     this.activeDomain = domain;
