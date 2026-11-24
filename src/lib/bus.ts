@@ -6,11 +6,11 @@
 
 import type { Song } from './schema';
 
-export type AudioDomain = 'none' | 'player' | 'daw' | 'cue';
+export type AudioDomain = 'none' | 'player' | 'daw' | 'cue' | 'video';
 
 export type CrossTabEvent =
   | { type: 'claim'; tabId: string; domain: AudioDomain }
-  | { type: 'playback'; tabId: string; song: Song | null; playhead: number; duration: number; isPlaying: boolean }
+  | { type: 'playback'; tabId: string; accountId: string; song: Song | null; playhead: number; duration: number; isPlaying: boolean }
   | { type: 'logout'; tabId: string }
   | { type: 'account_switch'; tabId: string; address: string };
 
