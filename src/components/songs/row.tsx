@@ -8,6 +8,7 @@ import {
   Check,
   Headphones,
   ListPlus,
+  ListStart,
   Share2,
   User,
 } from 'lucide-react';
@@ -225,8 +226,18 @@ export const PlaylistAdder: React.FC<PlaylistAdderProps> = ({
                 type="button"
                 className="social-popover-quick-btn"
                 onClick={() => {
+                  store.playNext(song);
+                  setOpen(false);
+                }}
+              >
+                <ListStart size={12} />
+                <span>NEXT</span>
+              </button>
+              <button
+                type="button"
+                className="social-popover-quick-btn"
+                onClick={() => {
                   store.addToQueue(song);
-                  toast.success(`Queued "${song.title}"`);
                   setOpen(false);
                 }}
               >
@@ -399,7 +410,7 @@ export const Row: React.FC<RowProps> = ({
             className="market-row-title song-title-link"
             onClick={(e) => {
               e.stopPropagation();
-              navigateToSong(nickname?.trim() || song.creator, song.title);
+              navigateToSong(nickname?.trim() || song.creator, song.title, song.id);
             }}
             title={`Open ${song.title}`}
           >
