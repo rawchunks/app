@@ -1221,54 +1221,73 @@ class Store {
   }
 
   public addToQueue(song: Song) {
-    const exists = this.state.queue.some((s) => s.id === song.id);
-    const nextQueue = exists ? [...this.state.queue] : [...this.state.queue, song];
-    const nextIndex = this.state.queueIndex >= 0 ? this.state.queueIndex : 0;
+    if (!this.isSongAllowedForAccount(song)) return;
+    const alreadyInUserQueue = this.state.userQueue.some((s) => s.id === song.id);
+    const isActive = this.state.activeSong?.id === song.id;
+    const nextUserQueue = alreadyInUserQueue || isActive ? [...this.state.userQueue] : [...this.state.userQueue, song];
+    const nextContextQueue = this.state.contextQueue.filter((s) => s.id !== song.id);
+    const active = this.state.activeSong ?? song;
+    const effectiveUserQueue = this.state.activeSong ? nextUserQueue : nextUserQueue.filter((s) => s.id !== song.id);
+    const nextContext =
+      this.state.playbackContext ??
+      this.derivePlaybackContext(`song:${active.id}`, null, [active], {
+        domain: 'song',
+        id: `song:${active.id}`,
+        label: active.public ? 'Queue' : 'Private Draft',
+        isPrivate: !active.public,
+      });
+    const combined = this.buildCombinedQueue(active, effectiveUserQueue, nextContextQueue);
     this.state = {
       ...this.state,
-      queue: nextQueue,
-      queueIndex: nextIndex,
+      activeSong: active,
+      queue: combined.queue,
+      userQueue: combined.userQueue,
+      contextQueue: combined.contextQueue,
+      queueIndex: combined.queueIndex,
+      playbackContext: nextContext,
     };
-    this.persistQueue(nextQueue);
+    this.persistQueue(combined.queue, combined.userQueue, combined.contextQueue, active, nextContext);
     this.notify();
-    toast.success(exists ? `"${song.title}" is already in queue` : `Added "${song.title}" to queue`);
+    this.prefetchUpcomingMetadata();
+    toast.success(alreadyInUserQueue ? `"${song.title}" is already in queue` : `Added "${song.title}" to queue`);
   }
 
   public removeFromQueue(index: number) {
     if (index < 0 || index >= this.state.queue.length) return;
     const removed = this.state.queue[index];
-    const nextQueue = this.state.queue.filter((_, idx) => idx !== index);
-    let nextIndex = this.state.queueIndex;
+    if (!removed) return;
 
-    if (index < nextIndex) {
-      nextIndex--;
-    } else if (index === nextIndex) {
-      if (nextQueue.length === 0) {
-        this.setActiveSong(null);
-        this.state = { ...this.state, queue: [], queueIndex: -1 };
-        this.persistQueue([]);
-        this.notify();
-        return;
-      }
-      nextIndex = Math.min(nextIndex, nextQueue.length - 1);
-      const replacement = nextQueue[nextIndex];
+    if (index === 0 && this.state.activeSong?.id === removed.id) {
+      const nextUser = [...this.state.userQueue];
+      const nextContext = [...this.state.contextQueue];
+      const replacement = nextUser.shift() ?? nextContext.shift() ?? null;
       const wasPlaying = this.state.isPlaying;
-      this.state = { ...this.state, queue: nextQueue, queueIndex: nextIndex };
-      this.persistQueue(nextQueue);
-      this.setActiveSong(replacement, undefined, undefined, undefined, true);
-      if (wasPlaying) {
+      const combined = this.buildCombinedQueue(replacement, nextUser, nextContext);
+      this.state = {
+        ...this.state,
+        queue: combined.queue,
+        userQueue: combined.userQueue,
+        contextQueue: combined.contextQueue,
+        queueIndex: combined.queueIndex,
+      };
+      this.setActiveSong(replacement, undefined, undefined, undefined, true, undefined, 'next');
+      if (wasPlaying && replacement) {
         void this.setPlaying(true);
       }
       return;
     }
 
+    const nextUserQueue = this.state.userQueue.filter((s) => s.id !== removed.id);
+    const nextContextQueue = this.state.contextQueue.filter((s) => s.id !== removed.id);
+    const combined = this.buildCombinedQueue(this.state.activeSong, nextUserQueue, nextContextQueue);
     this.state = {
       ...this.state,
-      queue: nextQueue,
-      queueIndex: nextQueue.length === 0 ? -1 : nextIndex,
-      activeSong: removed?.id === this.state.activeSong?.id && nextQueue.length === 0 ? null : this.state.activeSong,
+      queue: combined.queue,
+      userQueue: combined.userQueue,
+      contextQueue: combined.contextQueue,
+      queueIndex: combined.queueIndex,
     };
-    this.persistQueue(nextQueue);
+    this.persistQueue(combined.queue, combined.userQueue, combined.contextQueue, this.state.activeSong);
     this.notify();
   }
 
@@ -1283,16 +1302,35 @@ class Store {
     }
     const targetToIndex = activeAtTop && toIndex === 0 ? 1 : toIndex;
     if (fromIndex === targetToIndex) return;
-    const activeId = this.state.activeSong?.id;
     const [moved] = q.splice(fromIndex, 1);
     q.splice(targetToIndex, 0, moved);
-    const nextIndex = activeId ? q.findIndex((s) => s.id === activeId) : this.state.queueIndex;
+
+    const upcoming = activeAtTop ? q.slice(1) : q;
+    const userCount = this.state.userQueue.length;
+    const nextUserQueue = upcoming.slice(0, userCount);
+    const nextContextQueue = upcoming.slice(userCount);
+    const combined = this.buildCombinedQueue(this.state.activeSong, nextUserQueue, nextContextQueue);
     this.state = {
       ...this.state,
-      queue: q,
-      queueIndex: nextIndex,
+      queue: combined.queue,
+      userQueue: combined.userQueue,
+      contextQueue: combined.contextQueue,
+      queueIndex: combined.queueIndex,
     };
-    this.persistQueue(q);
+    this.persistQueue(combined.queue, combined.userQueue, combined.contextQueue, this.state.activeSong);
+    this.notify();
+  }
+
+  public clearUserQueue() {
+    const combined = this.buildCombinedQueue(this.state.activeSong, [], this.state.contextQueue);
+    this.state = {
+      ...this.state,
+      queue: combined.queue,
+      userQueue: [],
+      contextQueue: combined.contextQueue,
+      queueIndex: combined.queueIndex,
+    };
+    this.persistQueue(combined.queue, [], combined.contextQueue, this.state.activeSong);
     this.notify();
   }
 
@@ -1300,13 +1338,25 @@ class Store {
     const active = this.state.activeSong;
     const nextQueue = active ? [active] : [];
     const nextIndex = active ? 0 : -1;
+    this.contextOriginSongs = active ? [active] : [];
     this.state = {
       ...this.state,
       queue: nextQueue,
+      userQueue: [],
+      contextQueue: [],
       queueIndex: nextIndex,
       activePlaylistId: null,
+      activeContextId: active ? `song:${active.id}` : null,
+      playbackContext: active
+        ? {
+          domain: 'song',
+          id: `song:${active.id}`,
+          label: active.public ? 'Single' : 'Private Draft',
+          isPrivate: !active.public,
+        }
+        : null,
     };
-    this.persistQueue(nextQueue);
+    this.persistQueue(nextQueue, [], [], active, this.state.playbackContext);
     this.notify();
   }
 
