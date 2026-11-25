@@ -36,7 +36,7 @@ export interface Props {
   selection?: { start: number; end: number } | null;
   onSeek?: (ratio: number) => void;
   onSelectionChange?: (selection: { start: number; end: number }) => void;
-  onReworkSection?: () => void;
+  onEditSection?: () => void;
   onSelectTrack?: (trackId: string) => void;
   className?: string;
 }
@@ -139,9 +139,8 @@ function layerValues(clips: DAWTrack['clips'], duration: number, peaks: { bins: 
 const synthLayerValuesCache = new Map<string, number[]>();
 
 function synthLayerValues(lane: DAWTrack): number[] {
-  const cacheKey = `${lane.id}:${lane.type}:${lane.activeVersionId ?? ''}:${lane.strudelCode ?? ''}:${
-    lane.pianoRollNotes ? JSON.stringify(lane.pianoRollNotes) : ''
-  }:${lane.sequencerVoices ? JSON.stringify(lane.sequencerVoices.map(v => [v.muted, v.steps])) : ''}`;
+  const cacheKey = `${lane.id}:${lane.type}:${lane.activeVersionId ?? ''}:${lane.strudelCode ?? ''}:${lane.pianoRollNotes ? JSON.stringify(lane.pianoRollNotes) : ''
+    }:${lane.sequencerVoices ? JSON.stringify(lane.sequencerVoices.map(v => [v.muted, v.steps])) : ''}`;
   const cached = synthLayerValuesCache.get(cacheKey);
   if (cached) return cached;
 
@@ -202,7 +201,7 @@ export const Waveform: React.FC<Props> = ({
   onSeek,
   onSelectionChange,
   onSelectTrack,
-  onReworkSection,
+  onEditSection,
   className = '',
 }) => {
   const playheadRef = useRef<number>(useDawStore.getState().playhead);
@@ -230,7 +229,7 @@ export const Waveform: React.FC<Props> = ({
     boundaries: { start: number; end: number }[][];
     selectedTrackId?: string;
     highlightedKey: string;
-    reworkId?: string;
+    editId?: string;
     duration: number;
   } | null>(null);
 
@@ -398,23 +397,27 @@ export const Waveform: React.FC<Props> = ({
 
   const guideGeometry = useRef({ sculptMode, effectiveSculpt, zoomFactor, viewOffset });
   guideGeometry.current = { sculptMode, effectiveSculpt, zoomFactor, viewOffset };
-  useGuideOwner({ id: 'waveform', scope: 'master-waveform', handles: step => step.id === 'R5' && interactive && className.includes('board-master-waveform'), prepare: () => {
-    if (sculptMode !== 'curve') return { target: 'board.sculpt-mode', description: 'Choose Smooth to use the fade handles.', retry: () => guideGeometry.current.sculptMode === 'curve' };
-    return { target: 'board.waveform', rect: () => {
-      const canvas = canvasRef.current;
-      if (!canvas) return null;
-      const visible = visibleRect(canvas);
-      if (!visible) return null;
-      const bounds = canvas.getBoundingClientRect();
-      const { effectiveSculpt: sculpt, zoomFactor: zoom, viewOffset: pan } = guideGeometry.current;
-      const width = bounds.width * zoom;
-      const points = [Math.max(4, Math.min(width * .45, sculpt.fadeIn * width)), Math.max(width * .55, Math.min(width - 4, (1 - sculpt.fadeOut) * width))]
-        .map(x => bounds.left + x - pan * width).filter(x => x >= visible.left && x <= visible.right);
-      if (!points.length) return null;
-      const left = Math.max(visible.left, Math.min(...points) - 7), right = Math.min(visible.right, Math.max(...points) + 7);
-      return new DOMRect(left, visible.top, right - left, Math.min(14, visible.height));
-    } };
-  } });
+  useGuideOwner({
+    id: 'waveform', scope: 'master-waveform', handles: step => step.id === 'R5' && interactive && className.includes('board-master-waveform'), prepare: () => {
+      if (sculptMode !== 'curve') return { target: 'board.sculpt-mode', description: 'Choose Smooth to use the fade handles.', retry: () => guideGeometry.current.sculptMode === 'curve' };
+      return {
+        target: 'board.waveform', rect: () => {
+          const canvas = canvasRef.current;
+          if (!canvas) return null;
+          const visible = visibleRect(canvas);
+          if (!visible) return null;
+          const bounds = canvas.getBoundingClientRect();
+          const { effectiveSculpt: sculpt, zoomFactor: zoom, viewOffset: pan } = guideGeometry.current;
+          const width = bounds.width * zoom;
+          const points = [Math.max(4, Math.min(width * .45, sculpt.fadeIn * width)), Math.max(width * .55, Math.min(width - 4, (1 - sculpt.fadeOut) * width))]
+            .map(x => bounds.left + x - pan * width).filter(x => x >= visible.left && x <= visible.right);
+          if (!points.length) return null;
+          const left = Math.max(visible.left, Math.min(...points) - 7), right = Math.min(visible.right, Math.max(...points) + 7);
+          return new DOMRect(left, visible.top, right - left, Math.min(14, visible.height));
+        }
+      };
+    }
+  });
 
   const activePointers = useRef<Map<number, { x: number; y: number }>>(new Map());
   const pinchStartDist = useRef<number>(0);
@@ -544,9 +547,9 @@ export const Waveform: React.FC<Props> = ({
       ? { start: Math.max(0, storeSel.start / duration), end: Math.min(1, storeSel.end / duration) }
       : null;
 
-  // Look for any active reworked take on this song to highlight on the waveform
-  const activeReworkedTake = interactive
-    ? takes.find(t => t.is_active && t.provenance?.target === 'master' && t.provenance.region && t.repainting_start != null && t.repainting_end != null)
+  // Look for any active edited take on this song to highlight on the waveform
+  const activeEditedTake = interactive
+    ? takes.find(t => t.is_active && t.provenance?.target === 'master' && t.provenance.region && t.editing_start != null && t.editing_end != null)
     : undefined;
 
   // =========================================================================
@@ -578,7 +581,7 @@ export const Waveform: React.FC<Props> = ({
     const barWidth = barCount > 1 ? virtualW / (barCount - 1) : virtualW;
     const ampHeight = midY * 0.88;
     const highlightedKey = (highlighted ?? []).join(',');
-    const reworkId = activeReworkedTake ? `${activeReworkedTake.id}:${activeReworkedTake.repainting_start}:${activeReworkedTake.repainting_end}` : undefined;
+    const editId = activeEditedTake ? `${activeEditedTake.id}:${activeEditedTake.editing_start}:${activeEditedTake.editing_end}` : undefined;
 
     const prevStatic = staticCacheRef.current;
     const needsStaticRebuild =
@@ -596,7 +599,7 @@ export const Waveform: React.FC<Props> = ({
       prevStatic.boundaries !== boundaries ||
       prevStatic.selectedTrackId !== selectedTrackId ||
       prevStatic.highlightedKey !== highlightedKey ||
-      prevStatic.reworkId !== reworkId ||
+      prevStatic.editId !== editId ||
       prevStatic.duration !== duration;
 
     if (needsStaticRebuild && typeof document !== 'undefined') {
@@ -629,29 +632,29 @@ export const Waveform: React.FC<Props> = ({
           sCtx.stroke();
         }
 
-        // AI Reworked Section indicator overlay if active take exists
+        // AI Edited Section indicator overlay if active take exists
         if (
-          activeReworkedTake &&
+          activeEditedTake &&
           duration > 0 &&
-          typeof activeReworkedTake.repainting_start === 'number' &&
-          typeof activeReworkedTake.repainting_end === 'number'
+          typeof activeEditedTake.editing_start === 'number' &&
+          typeof activeEditedTake.editing_end === 'number'
         ) {
-          const reworkStartX = (activeReworkedTake.repainting_start / duration) * virtualW;
-          const reworkEndX = (activeReworkedTake.repainting_end / duration) * virtualW;
-          const reworkW = Math.max(2, reworkEndX - reworkStartX);
+          const editStartX = (activeEditedTake.editing_start / duration) * virtualW;
+          const editEndX = (activeEditedTake.editing_end / duration) * virtualW;
+          const editW = Math.max(2, editEndX - editStartX);
 
           sCtx.fillStyle = 'rgba(0, 255, 255, 0.12)';
-          sCtx.fillRect(reworkStartX, 0, reworkW, h);
+          sCtx.fillRect(editStartX, 0, editW, h);
 
           sCtx.strokeStyle = '#00ffff';
           sCtx.lineWidth = 1.5;
           sCtx.setLineDash([4, 4]);
-          sCtx.strokeRect(reworkStartX, 1, reworkW, h - 2);
+          sCtx.strokeRect(editStartX, 1, editW, h - 2);
           sCtx.setLineDash([]);
 
           sCtx.fillStyle = '#00ffff';
           sCtx.font = '700 11px monospace';
-          sCtx.fillText(`TAKE ${activeReworkedTake.take_number}: REWORKED`, reworkStartX + 4, 14);
+          sCtx.fillText(`TAKE ${activeEditedTake.take_number}: EDITED`, editStartX + 4, 14);
         }
 
         // Center zero baseline
@@ -773,7 +776,7 @@ export const Waveform: React.FC<Props> = ({
           boundaries,
           selectedTrackId,
           highlightedKey,
-          reworkId,
+          editId,
           duration,
         };
       }
@@ -1022,7 +1025,7 @@ export const Waveform: React.FC<Props> = ({
     customProgress,
     effectiveRatioSelection,
     showSelection,
-    activeReworkedTake,
+    activeEditedTake,
     duration,
     layers,
     selectedTrackId,
@@ -1826,7 +1829,7 @@ export const Waveform: React.FC<Props> = ({
         }
       }
     }
-    onReworkSection?.();
+    onEditSection?.();
   };
 
   const rangeDrag = useRef<{ mode: 'start' | 'end' | 'pan'; x: number; selection: { start: number; end: number }; width: number } | null>(null);

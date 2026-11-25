@@ -194,7 +194,7 @@ export const Timeline: React.FC<TimelineProps> = ({
             <button
               type="button"
               className="timeline-song-title song-title-link"
-              onClick={() => navigateToSong(creatorSlug?.trim() || creatorNickname?.trim() || song.creator, song.title)}
+              onClick={() => navigateToSong(creatorSlug?.trim() || creatorNickname?.trim() || song.creator, song.title, song.id)}
               title={`Open ${song.title}`}
             >
               {song.title}
