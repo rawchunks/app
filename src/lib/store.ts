@@ -905,52 +905,33 @@ class Store {
   }
 
   public setSongs(songs: Song[]) {
-    // If queue has not been seeded yet, seed with public songs so continuous play works out of the box
-    let nextQueue = this.state.queue;
-    let nextQueueIndex = this.state.queueIndex;
-    if (nextQueue.length <= 1 && songs.length > 1) {
-      const publicPool = songs.filter((s) => s.public);
-      if (publicPool.length > 0) {
-        nextQueue = publicPool;
-        if (this.state.activeSong) {
-          const idx = nextQueue.findIndex((s) => s.id === this.state.activeSong!.id);
-          if (idx >= 0) {
-            nextQueue = [...nextQueue.slice(idx), ...nextQueue.slice(0, idx)];
-            nextQueueIndex = 0;
-          } else {
-            nextQueue = [this.state.activeSong, ...nextQueue];
-            nextQueueIndex = 0;
-          }
-        }
-      }
+    const byId = new Map<string, Song>();
+    for (const s of songs) {
+      if (s && s.id) byId.set(s.id, s);
     }
+    const refresh = (list: Song[]) => list.map((item) => (byId.has(item.id) ? { ...item, ...byId.get(item.id)! } : item));
+    const nextActive =
+      this.state.activeSong && byId.has(this.state.activeSong.id)
+        ? { ...this.state.activeSong, ...byId.get(this.state.activeSong.id)! }
+        : this.state.activeSong;
 
     this.state = {
       ...this.state,
       songs,
-      queue: nextQueue,
-      queueIndex: nextQueueIndex,
+      activeSong: nextActive,
+      queue: refresh(this.state.queue),
+      userQueue: refresh(this.state.userQueue),
+      contextQueue: refresh(this.state.contextQueue),
     };
     this.notify();
   }
 
   public addSong(song: Song) {
-    this.finishPlayback();
-    this.authorizedSongId = null;
-    audio.stopImmediate();
-    const dur = typeof song.duration === 'number' && song.duration > 0 ? song.duration : 0;
-    const nextQueue = [song, ...this.state.queue.filter((s) => s.id !== song.id)];
+    if (!song || !song.id) return;
     this.state = {
       ...this.state,
-      songs: [song, ...this.state.songs],
-      activeSong: song,
-      duration: dur,
-      playhead: 0,
-      isPlaying: false,
-      queue: nextQueue,
-      queueIndex: 0,
+      songs: [song, ...this.state.songs.filter((s) => s.id !== song.id)],
     };
-    this.persistQueue(nextQueue);
     this.notify();
   }
 
@@ -960,6 +941,8 @@ class Store {
       songs: this.state.songs.map((s) => (s.id === id ? { ...s, ...updates } : s)),
       tracks: this.state.tracks.map((track) => (track.song.id === id ? { ...track, song: { ...track.song, ...updates } } : track)),
       queue: this.state.queue.map((s) => (s.id === id ? { ...s, ...updates } : s)),
+      userQueue: this.state.userQueue.map((s) => (s.id === id ? { ...s, ...updates } : s)),
+      contextQueue: this.state.contextQueue.map((s) => (s.id === id ? { ...s, ...updates } : s)),
       activeSong: this.state.activeSong?.id === id ? { ...this.state.activeSong, ...updates } : this.state.activeSong,
       editingSong: this.state.editingSong?.id === id ? { ...this.state.editingSong, ...updates } : this.state.editingSong,
     };
@@ -967,20 +950,23 @@ class Store {
   }
 
   public deleteSong(id: string) {
-    const nextQueue = this.state.queue.filter((s) => s.id !== id);
+    const nextUserQueue = this.state.userQueue.filter((s) => s.id !== id);
+    const nextContextQueue = this.state.contextQueue.filter((s) => s.id !== id);
     const activeRemoved = this.state.activeSong?.id === id;
     if (activeRemoved) { this.finishPlayback(); audio.stopImmediate(); this.authorizedSongId = null; }
     const nextActive = activeRemoved ? null : this.state.activeSong;
-    const nextQueueIndex = nextActive ? nextQueue.findIndex((s) => s.id === nextActive.id) : -1;
+    const combined = this.buildCombinedQueue(nextActive, nextUserQueue, nextContextQueue);
     this.state = {
       ...this.state,
       songs: this.state.songs.filter((s) => s.id !== id),
-      queue: nextQueue,
-      queueIndex: nextQueueIndex,
+      queue: combined.queue,
+      userQueue: combined.userQueue,
+      contextQueue: combined.contextQueue,
+      queueIndex: combined.queueIndex,
       activeSong: nextActive,
       editingSong: this.state.editingSong?.id === id ? null : this.state.editingSong,
     };
-    this.persistQueue(nextQueue);
+    this.persistQueue(combined.queue, combined.userQueue, combined.contextQueue, nextActive);
     this.notify();
   }
 
@@ -995,7 +981,9 @@ class Store {
     contextSongs?: Song[],
     playlistId?: string | null,
     contextId?: string | null,
-    forceRestart = false
+    forceRestart = false,
+    contextMeta?: Partial<PlaybackContext>,
+    direction: TransitionDirection = 'direct',
   ) {
     const isSameSong = Boolean(song && this.state.activeSong?.id === song.id);
     if (!isSameSong && this.state.activeSong) {
@@ -1022,62 +1010,72 @@ class Store {
       this.userSeekedWhilePaused = false;
     }
 
-    let nextQueue = this.state.queue;
-    let nextQueueIndex = this.state.queueIndex;
+    let nextUserQueue = this.state.userQueue;
+    let nextContextQueue = this.state.contextQueue;
+    const nextPlaylistId = playlistId !== undefined ? playlistId : this.state.activePlaylistId;
+    const nextContextId = contextId !== undefined ? contextId : this.state.activeContextId;
+    let nextPlaybackContext = this.state.playbackContext;
 
     if (song) {
+      nextUserQueue = nextUserQueue.filter((s) => s.id !== song.id);
       if (Array.isArray(contextSongs) && contextSongs.length > 0) {
-        const cleanContext = contextSongs.filter((s): s is Song => Boolean(s && s.id));
+        // Explicit new listening context replaces contextQueue cleanly (never concatenates or circularly wraps prior tracks)
+        const cleanContext = contextSongs.filter((s): s is Song => Boolean(s && s.id && this.isSongAllowedForAccount(s)));
+        this.contextOriginSongs = cleanContext.slice(0, 200);
         const startIdx = cleanContext.findIndex((s) => s.id === song.id);
-        const upcomingFromContext = startIdx >= 0 ? cleanContext.slice(startIdx) : [song, ...cleanContext];
-        const upcomingIds = new Set(upcomingFromContext.map((s) => s.id));
-        const unplayedCurrentQueue =
-          this.state.queueIndex >= 0 ? nextQueue.slice(this.state.queueIndex) : nextQueue;
-        const restOfQueue = unplayedCurrentQueue.filter((q) => q && !upcomingIds.has(q.id));
-        nextQueue = [...upcomingFromContext, ...restOfQueue];
-        nextQueueIndex = 0;
+        nextContextQueue =
+          startIdx >= 0
+            ? cleanContext.slice(startIdx + 1)
+            : cleanContext.filter((s) => s.id !== song.id);
+        nextPlaybackContext = this.derivePlaybackContext(nextContextId, nextPlaylistId, cleanContext, contextMeta);
       } else {
-        const existingIdx = nextQueue.findIndex((s) => s.id === song.id);
-        if (existingIdx >= 0) {
-          for (let i = 0; i < existingIdx; i++) {
-            this.pushPlayedHistory(nextQueue[i]);
+        const ctxIdx = nextContextQueue.findIndex((s) => s.id === song.id);
+        if (ctxIdx >= 0) {
+          for (let i = 0; i < ctxIdx; i++) {
+            this.pushPlayedHistory(nextContextQueue[i]);
           }
-          nextQueue = nextQueue.slice(existingIdx);
-          nextQueueIndex = 0;
-        } else if (nextQueue.length === 0 && this.state.songs.length > 0) {
-          const publicPool = this.state.songs.filter((s) => s.public);
-          const poolIdx = publicPool.findIndex((s) => s.id === song.id);
-          if (poolIdx >= 0) {
-            nextQueue = [...publicPool.slice(poolIdx), ...publicPool.slice(0, poolIdx)];
-            nextQueueIndex = 0;
-          } else {
-            nextQueue = [song, ...publicPool];
-            nextQueueIndex = 0;
-          }
+          nextContextQueue = nextContextQueue.slice(ctxIdx + 1);
         } else {
-          const unplayed = this.state.queueIndex >= 0 ? nextQueue.slice(this.state.queueIndex) : nextQueue;
-          nextQueue = [song, ...unplayed.filter((q) => q && q.id !== song.id)];
-          nextQueueIndex = 0;
+          nextContextQueue = nextContextQueue.filter((s) => s.id !== song.id);
+        }
+        if (contextMeta || contextId !== undefined || playlistId !== undefined || !nextPlaybackContext) {
+          nextPlaybackContext = this.derivePlaybackContext(
+            nextContextId,
+            nextPlaylistId,
+            [song, ...nextContextQueue],
+            contextMeta,
+          );
         }
       }
-      this.persistQueue(nextQueue);
+    } else {
+      this.contextOriginSongs = [];
+      nextPlaybackContext = null;
     }
 
+    const combined = this.buildCombinedQueue(song, nextUserQueue, nextContextQueue);
     const dur = typeof song?.duration === 'number' && song.duration > 0 ? song.duration : 0;
     const preserveSameState = isSameSong && !forceRestart;
+
     this.state = {
       ...this.state,
       activeSong: song,
       duration: preserveSameState ? (this.state.duration || dur) : dur,
       playhead: preserveSameState ? this.state.playhead : 0,
       isPlaying: preserveSameState ? this.state.isPlaying : false,
-      queue: nextQueue,
-      queueIndex: nextQueueIndex,
-      activePlaylistId: playlistId !== undefined ? playlistId : this.state.activePlaylistId,
-      activeContextId: contextId !== undefined ? contextId : this.state.activeContextId,
+      queue: combined.queue,
+      userQueue: combined.userQueue,
+      contextQueue: combined.contextQueue,
+      queueIndex: combined.queueIndex,
+      activePlaylistId: nextPlaylistId,
+      activeContextId: nextContextId,
+      playbackContext: nextPlaybackContext,
+      transitionDirection: direction,
+      transitionSeq: isSameSong ? this.state.transitionSeq : this.state.transitionSeq + 1,
     };
+    this.persistQueue(combined.queue, combined.userQueue, combined.contextQueue, song, nextPlaybackContext);
     this.notify();
-    bus.broadcastPlayback(song, this.state.playhead, this.state.duration, this.state.isPlaying);
+    bus.broadcastPlayback(this.getAccountStorageSuffix(), song, this.state.playhead, this.state.duration, this.state.isPlaying);
+    this.prefetchUpcomingMetadata();
   }
 
   public async playCollection(
