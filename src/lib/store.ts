@@ -1360,10 +1360,18 @@ class Store {
     this.notify();
   }
 
+  private prefetchUpcomingMetadata() {
+    const nextCandidate = this.peekNextSong();
+    if (nextCandidate) {
+      prefetchSongAssets(nextCandidate, this.state.userAddress || this.state.evmAddress || undefined);
+    }
+  }
+
   private preloadUpcomingTrack() {
     const nextCandidate = this.peekNextSong();
+    if (!nextCandidate) return;
+    prefetchSongAssets(nextCandidate, this.state.userAddress || this.state.evmAddress || undefined);
     if (
-      nextCandidate &&
       nextCandidate.id !== this.preloadedNextSongId &&
       nextCandidate.url &&
       !nextCandidate.url.endsWith('/stream')
@@ -1385,103 +1393,156 @@ class Store {
     return Array.from(map.values());
   }
 
-  private peekNextSong(): Song | null {
-    const { queue, queueIndex, repeatMode, shuffle, autoplay, activeSong } = this.state;
-    if (queue.length === 0 && !activeSong) return null;
+  private isCurrentContextPrivate(): boolean {
+    if (this.state.playbackContext?.isPrivate) return true;
+    if (this.state.activeSong && !this.state.activeSong.public) return true;
+    return false;
+  }
+
+  public peekNextSong(): Song | null {
+    const { userQueue, contextQueue, repeatMode, autoplay, activeSong } = this.state;
+    if (userQueue.length === 0 && contextQueue.length === 0 && !activeSong) return null;
     if (repeatMode === 'one' && activeSong) return activeSong;
-    if (shuffle && queue.length > 1) {
-      const candidates = queue.filter((_, idx) => idx !== queueIndex);
-      return candidates[0] || null;
+    if (userQueue.length > 0) return userQueue[0];
+    if (contextQueue.length > 0) return contextQueue[0];
+
+    const isPrivate = this.isCurrentContextPrivate();
+    if (repeatMode === 'all') {
+      const origin = this.contextOriginSongs.filter((s) => s && this.isSongAllowedForAccount(s));
+      const candidate = origin.find((s) => s.id !== activeSong?.id) ?? origin[0];
+      if (candidate) return candidate;
+      const historyCandidate = [...this.playedHistory].reverse().find((s) => s && this.isSongAllowedForAccount(s) && (!isPrivate || !s.public));
+      if (historyCandidate) return historyCandidate;
+      return activeSong;
     }
-    const nextIdx = queueIndex + 1;
-    if (nextIdx < queue.length) {
-      return queue[nextIdx];
-    }
-    if (autoplay) {
+
+    if (!isPrivate && autoplay) {
       const playedIds = new Set([activeSong?.id, ...this.playedHistory.map((s) => s.id)]);
       const unplayedCatalog = this.getPublicCatalog().filter((s) => !playedIds.has(s.id));
       if (unplayedCatalog.length > 0) {
         return unplayedCatalog[0];
       }
     }
-    if (repeatMode === 'all') {
-      return this.playedHistory[0] || queue[0] || null;
-    }
+
     return null;
   }
 
   public async playNextTrack(fromAutoAdvance = false): Promise<boolean> {
-    const { queue, queueIndex, repeatMode, shuffle, autoplay, activeSong } = this.state;
-    if (queue.length === 0 && !activeSong) return false;
+    const { userQueue, contextQueue, repeatMode, shuffle, autoplay, activeSong } = this.state;
+    if (userQueue.length === 0 && contextQueue.length === 0 && !activeSong) return false;
 
     if (fromAutoAdvance && repeatMode === 'one' && activeSong) {
-      this.setActiveSong(activeSong, undefined, undefined, undefined, true);
+      this.setActiveSong(activeSong, undefined, undefined, undefined, true, undefined, 'direct');
       return await this.setPlaying(true);
     }
 
-    const currentIdx = queueIndex >= 0 ? queueIndex : 0;
-    const finishedSong = queue[currentIdx] || activeSong;
-    if (finishedSong) {
-      this.pushPlayedHistory(finishedSong);
+    if (activeSong) {
+      this.pushPlayedHistory(activeSong);
     }
 
-    let remaining = queue.slice(currentIdx + 1);
+    // 1. Explicit User Queue always plays first in FIFO order
+    if (userQueue.length > 0) {
+      const [nextFromUser, ...restUser] = userQueue;
+      this.state = {
+        ...this.state,
+        userQueue: restUser,
+      };
+      this.setActiveSong(nextFromUser, undefined, undefined, undefined, true, undefined, 'next');
+      return await this.setPlaying(true);
+    }
 
-    if (remaining.length === 0) {
-      const publicCatalog = this.getPublicCatalog();
-      const playedIds = new Set([finishedSong?.id, ...this.playedHistory.map((s) => s.id)]);
-      const unplayedCatalog = publicCatalog.filter((s) => !playedIds.has(s.id));
-      if (unplayedCatalog.length > 0 && (!fromAutoAdvance || autoplay)) {
-        remaining = unplayedCatalog;
-      } else if (repeatMode === 'all' || !fromAutoAdvance) {
-        const refill = [...this.playedHistory].reverse().filter((s) => s && s.id !== finishedSong?.id);
-        const catalogFallback = publicCatalog.filter((s) => s.id !== finishedSong?.id);
-        if (refill.length > 0) {
-          remaining = refill;
-          this.playedHistory = [];
-        } else if (catalogFallback.length > 0 && (!fromAutoAdvance || autoplay)) {
-          remaining = catalogFallback;
-          this.playedHistory = [];
-        } else if (finishedSong) {
-          remaining = [finishedSong];
+    // 2. Context Queue plays next (with optional shuffle strictly inside active context)
+    let remainingContext = [...contextQueue].filter((s) => this.isSongAllowedForAccount(s));
+    let nextContextMeta: Partial<PlaybackContext> | undefined;
+
+    if (remainingContext.length === 0) {
+      const isPrivate = this.isCurrentContextPrivate();
+
+      if (repeatMode === 'all') {
+        const origin = this.contextOriginSongs.filter((s) => s && this.isSongAllowedForAccount(s));
+        const loopList = origin.filter((s) => s.id !== activeSong?.id);
+        if (loopList.length > 0) {
+          remainingContext = loopList;
+        } else if (origin.length > 0) {
+          remainingContext = origin;
+        } else {
+          const refill = [...this.playedHistory]
+            .reverse()
+            .filter((s) => s && s.id !== activeSong?.id && this.isSongAllowedForAccount(s) && (!isPrivate || !s.public));
+          if (refill.length > 0) {
+            remainingContext = refill;
+            this.playedHistory = [];
+          } else if (activeSong && this.isSongAllowedForAccount(activeSong)) {
+            remainingContext = [activeSong];
+          }
         }
-      } else {
-        this.setActiveSong(null);
-        this.state = { ...this.state, queue: [], queueIndex: -1, isPlaying: false };
-        this.persistQueue([]);
+      } else if (!isPrivate && autoplay) {
+        // Autoplay Radio is strictly opt-in and NEVER crosses out of private Workspace/Studio contexts
+        const publicCatalog = this.getPublicCatalog();
+        const playedIds = new Set([activeSong?.id, ...this.playedHistory.map((s) => s.id)]);
+        const unplayedCatalog = publicCatalog.filter((s) => !playedIds.has(s.id));
+        if (unplayedCatalog.length > 0) {
+          remainingContext = unplayedCatalog;
+          nextContextMeta = {
+            domain: 'market',
+            id: 'market:radio',
+            label: 'Market · Radio',
+            isPrivate: false,
+          };
+        }
+      } else if (!fromAutoAdvance && this.contextOriginSongs.length > 1) {
+        // Manual skip at the very end of a multi-track context cycles cleanly to track #1 of THAT SAME context
+        const origin = this.contextOriginSongs.filter((s) => s && s.id !== activeSong?.id && this.isSongAllowedForAccount(s));
+        if (origin.length > 0) {
+          remainingContext = origin;
+        }
+      }
+
+      if (remainingContext.length === 0) {
+        // Stop cleanly at end of queue without erasing activeSong from stage/player
+        this.finishPlayback();
+        audio.pause();
+        audio.seek(0);
+        bus.release('player');
+        this.state = {
+          ...this.state,
+          isPlaying: false,
+          playhead: 0,
+        };
         this.notify();
+        bus.broadcastPlayback(this.getAccountStorageSuffix(), this.state.activeSong, 0, this.state.duration, false);
         return false;
       }
     }
 
-    if (remaining.length === 0) {
-      return false;
+    if (shuffle && remainingContext.length > 1) {
+      const randIdx = Math.floor(Math.random() * remainingContext.length);
+      const [picked] = remainingContext.splice(randIdx, 1);
+      remainingContext = [picked, ...remainingContext];
     }
 
-    if (shuffle && remaining.length > 1) {
-      const randIdx = Math.floor(Math.random() * remaining.length);
-      const [picked] = remaining.splice(randIdx, 1);
-      remaining = [picked, ...remaining];
-    }
-
-    const nextSong = remaining[0];
+    const [nextSong, ...restContext] = remainingContext;
     if (!nextSong) return false;
 
     this.state = {
       ...this.state,
-      queue: remaining,
-      queueIndex: 0,
+      contextQueue: restContext,
     };
-    this.persistQueue(remaining);
 
-
-
-    this.setActiveSong(nextSong, undefined, undefined, undefined, true);
+    this.setActiveSong(
+      nextSong,
+      undefined,
+      nextContextMeta ? null : undefined,
+      nextContextMeta?.id,
+      true,
+      nextContextMeta,
+      'next',
+    );
     return await this.setPlaying(true);
   }
 
   public async playPreviousTrack(): Promise<boolean> {
-    const { queue, playhead } = this.state;
+    const { queue, playhead, activeSong } = this.state;
     if (playhead > 3.5) {
       this.setPlayhead(0);
       if (!this.state.isPlaying) {
@@ -1490,17 +1551,35 @@ class Store {
       return true;
     }
 
-    if (this.playedHistory.length > 0) {
-      const prevSong = this.playedHistory.pop()!;
-      const nextQueue = [prevSong, ...queue.filter((s) => s.id !== prevSong.id)];
+    while (this.playedHistory.length > 0) {
+      const prevSong = this.playedHistory.shift()!;
+      if (!this.isSongAllowedForAccount(prevSong)) continue;
+      const nextContext = activeSong
+        ? [activeSong, ...this.state.contextQueue.filter((s) => s.id !== activeSong.id && s.id !== prevSong.id)]
+        : this.state.contextQueue.filter((s) => s.id !== prevSong.id);
       this.state = {
         ...this.state,
-        queue: nextQueue,
-        queueIndex: 0,
+        contextQueue: nextContext,
       };
-      this.persistQueue(nextQueue);
-      this.setActiveSong(prevSong, undefined, undefined, undefined, true);
+      this.setActiveSong(prevSong, undefined, undefined, undefined, true, undefined, 'prev');
       return await this.setPlaying(true);
+    }
+
+    // If user hasn't skipped yet, step back inside contextOriginSongs when available
+    if (activeSong && this.contextOriginSongs.length > 1) {
+      const idx = this.contextOriginSongs.findIndex((s) => s.id === activeSong.id);
+      if (idx > 0) {
+        const prevSong = this.contextOriginSongs[idx - 1];
+        if (prevSong && this.isSongAllowedForAccount(prevSong)) {
+          const nextContext = [activeSong, ...this.state.contextQueue.filter((s) => s.id !== activeSong.id && s.id !== prevSong.id)];
+          this.state = {
+            ...this.state,
+            contextQueue: nextContext,
+          };
+          this.setActiveSong(prevSong, undefined, undefined, undefined, true, undefined, 'prev');
+          return await this.setPlaying(true);
+        }
+      }
     }
 
     this.setPlayhead(0);
