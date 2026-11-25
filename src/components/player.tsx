@@ -1,18 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { toast } from 'sonner';
 import { Button } from './button';
 import { Slider } from './slider';
 import { Tooltip } from './daw/Tooltip';
+import { Queue } from './queue';
 import { store, State, RepeatMode, SleepTimerMode } from '../lib/store';
 import { audio } from '../lib/audio';
 import { useDismiss } from '../hooks/use-dismiss';
-import { useSelectedUserAddress } from '../hooks/use-address';
 import { useProfile } from '../hooks/use-profile';
 import { readCachedProfile } from '../lib/cache';
-import { createPlaylistApi } from '../hooks/use-playlists';
-import { useQueryClient } from '@tanstack/react-query';
-import { openGate } from '../lib/gate';
-import { navigateToCreator } from '../lib/routes';
+import { navigateToCreator, navigateToSong } from '../lib/routes';
 import { LikeButton, PlaylistAdder } from './songs/row';
 import {
   Play,
@@ -23,18 +19,17 @@ import {
   Shuffle,
   Repeat,
   Repeat1,
-  Sparkles,
   X,
-  FolderPlus,
-  Trash2,
   Check,
-  GripVertical,
   Timer,
   ArrowLeft,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
 
 export interface Props {
   className?: string;
+  headless?: boolean;
 }
 
 const formatCreatorName = (creator?: string | null, resolvedNickname?: string | null): string => {
@@ -47,8 +42,9 @@ const formatCreatorName = (creator?: string | null, resolvedNickname?: string | 
 };
 
 const formatTime = (secs: number) => {
-  const m = Math.floor(secs / 60);
-  const s = Math.floor(secs % 60);
+  const safe = Math.max(0, Math.floor(secs || 0));
+  const m = Math.floor(safe / 60);
+  const s = safe % 60;
   return `${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`;
 };
 
@@ -67,11 +63,11 @@ const PlayerScrubber: React.FC = () => {
           selectionRef.current.style.display = 'block';
           selectionRef.current.style.setProperty(
             '--selection-left',
-            `${(s.selection.start / s.duration) * 100}%`
+            `${(s.selection.start / s.duration) * 100}%`,
           );
           selectionRef.current.style.setProperty(
             '--selection-width',
-            `${((s.selection.end - s.selection.start) / s.duration) * 100}%`
+            `${((s.selection.end - s.selection.start) / s.duration) * 100}%`,
           );
         } else {
           selectionRef.current.style.display = 'none';
@@ -102,7 +98,11 @@ const PlayerScrubber: React.FC = () => {
 const PlayerTimeReadout: React.FC = () => {
   const [times, setTimes] = useState(() => {
     const s = store.getState();
-    return { playheadSec: Math.floor(s.playhead), durationSec: Math.floor(s.duration), hasDuration: s.duration > 0 };
+    return {
+      playheadSec: Math.floor(s.playhead),
+      durationSec: Math.floor(s.duration),
+      hasDuration: s.duration > 0,
+    };
   });
 
   useEffect(() => {
@@ -115,7 +115,7 @@ const PlayerTimeReadout: React.FC = () => {
         prev.durationSec === durationSec &&
         prev.hasDuration === hasDuration
           ? prev
-          : { playheadSec, durationSec, hasDuration }
+          : { playheadSec, durationSec, hasDuration },
       );
     });
   }, []);
@@ -127,7 +127,7 @@ const PlayerTimeReadout: React.FC = () => {
   );
 };
 
-export const Player: React.FC<Props> = ({ className = '' }) => {
+export const Player: React.FC<Props> = ({ className = '', headless = false }) => {
   const [state, setState] = useState<State>(store.getState());
   const [volume, setVolume] = useState(0.85);
   const [muted, setMuted] = useState(false);
@@ -135,33 +135,29 @@ export const Player: React.FC<Props> = ({ className = '' }) => {
   const [queueOpen, setQueueOpen] = useState(false);
   const [sleepOpen, setSleepOpen] = useState(false);
   const [sleepNowMs, setSleepNowMs] = useState(() => Date.now());
-  const [dragIdx, setDragIdx] = useState<number | null>(null);
-  const [savingPlaylist, setSavingPlaylist] = useState(false);
-  const [playlistTitle, setPlaylistTitle] = useState('');
-  const [showSavePrompt, setShowSavePrompt] = useState(false);
   const [isTitleOverflowing, setIsTitleOverflowing] = useState(false);
 
   const queueRef = useRef<HTMLDivElement>(null);
   const titleViewportRef = useRef<HTMLDivElement>(null);
   const titleMeasureRef = useRef<HTMLSpanElement>(null);
-  const emptyDragImgRef = useRef<HTMLCanvasElement | null>(null);
-  const { readAddress } = useSelectedUserAddress();
+  const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
   const activeCreatorProfile = useProfile(state.activeSong?.creator);
-  const queryClient = useQueryClient();
+
+  useDismiss(
+    queueOpen && !headless,
+    () => {
+      setQueueOpen(false);
+      setSleepOpen(false);
+    },
+    queueRef,
+  );
 
   useEffect(() => {
-    if (typeof document !== 'undefined') {
-      const c = document.createElement('canvas');
-      c.width = 1;
-      c.height = 1;
-      emptyDragImgRef.current = c;
+    if (headless) {
+      setQueueOpen(false);
+      setSleepOpen(false);
     }
-  }, []);
-
-  useDismiss(queueOpen, () => {
-    setQueueOpen(false);
-    setSleepOpen(false);
-  }, queueRef);
+  }, [headless]);
 
   useEffect(() => {
     if (!sleepOpen || !state.sleepTimer) return;
@@ -180,12 +176,15 @@ export const Player: React.FC<Props> = ({ className = '' }) => {
           prev.isPlaying === next.isPlaying &&
           prev.duration === next.duration &&
           prev.queue === next.queue &&
+          prev.userQueue === next.userQueue &&
+          prev.contextQueue === next.contextQueue &&
           prev.queueIndex === next.queueIndex &&
           prev.repeatMode === next.repeatMode &&
           prev.shuffle === next.shuffle &&
           prev.autoplay === next.autoplay &&
           prev.activePlaylistId === next.activePlaylistId &&
           prev.activeContextId === next.activeContextId &&
+          prev.playbackContext === next.playbackContext &&
           prev.sleepTimer === next.sleepTimer &&
           prev.sleepTimerPrompt === next.sleepTimerPrompt
         ) {
@@ -200,8 +199,8 @@ export const Player: React.FC<Props> = ({ className = '' }) => {
     setImgError(false);
   }, [state.activeSong?.id, state.activeSong?.image]);
 
-  // Measure whether the song title overflows its container for Spotify-style continuous marquee loop
   useEffect(() => {
+    if (headless) return;
     const checkOverflow = () => {
       const vp = titleViewportRef.current;
       const measure = titleMeasureRef.current;
@@ -218,20 +217,20 @@ export const Player: React.FC<Props> = ({ className = '' }) => {
     const ro = new ResizeObserver(checkOverflow);
     ro.observe(vp);
     return () => ro.disconnect();
-  }, [state.activeSong?.title]);
+  }, [state.activeSong?.title, headless]);
 
   useEffect(() => {
     audio.setVolume(muted ? 0 : volume);
   }, [volume, muted]);
 
-  // MediaSession API for lock screen & OS media keys
+  // MediaSession API for lock screen & OS media keys (stays active even when headless on /song)
   useEffect(() => {
     if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return;
     const song = state.activeSong;
     if (song && typeof MediaMetadata !== 'undefined') {
       navigator.mediaSession.metadata = new MediaMetadata({
         title: song.title,
-        artist: song.creator || 'Rawchunks',
+        artist: activeCreatorProfile.nickname?.trim() || song.creator || 'Rawchunks',
         album: song.album_title || 'RAWCHUNKS',
         artwork: song.image ? [{ src: song.image, sizes: '512x512', type: 'image/png' }] : [],
       });
@@ -241,9 +240,7 @@ export const Player: React.FC<Props> = ({ className = '' }) => {
     const safeSetHandler = (action: MediaSessionAction, handler: MediaSessionActionHandler | null) => {
       try {
         navigator.mediaSession.setActionHandler(action, handler);
-      } catch {
-        // Ignore unsupported actions
-      }
+      } catch { }
     };
 
     safeSetHandler('play', () => store.setPlaying(true));
@@ -255,7 +252,7 @@ export const Player: React.FC<Props> = ({ className = '' }) => {
         store.setPlayhead(details.seekTime);
       }
     });
-  }, [state.activeSong, state.isPlaying]);
+  }, [state.activeSong, state.isPlaying, activeCreatorProfile.nickname]);
 
   // Global keyboard shortcuts when not typing in inputs
   useEffect(() => {
@@ -273,14 +270,14 @@ export const Player: React.FC<Props> = ({ className = '' }) => {
       if (e.code === 'Space' && !e.metaKey && !e.ctrlKey && !e.altKey) {
         if (store.getState().activeSong) {
           e.preventDefault();
-          store.setPlaying(!store.getState().isPlaying);
+          void store.setPlaying(!store.getState().isPlaying);
         }
       } else if (e.shiftKey && e.key === 'ArrowRight') {
         e.preventDefault();
-        store.playNextTrack();
+        void store.playNextTrack();
       } else if (e.shiftKey && e.key === 'ArrowLeft') {
         e.preventDefault();
-        store.playPreviousTrack();
+        void store.playPreviousTrack();
       } else if ((e.key === 'm' || e.key === 'M') && !e.metaKey && !e.ctrlKey && !e.altKey) {
         setMuted((prev) => !prev);
       }
@@ -289,8 +286,10 @@ export const Player: React.FC<Props> = ({ className = '' }) => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  if (headless) return null;
+
   const handlePlayPause = () => {
-    store.setPlaying(!state.isPlaying);
+    void store.setPlaying(!state.isPlaying);
   };
 
   const cycleRepeatMode = () => {
@@ -299,42 +298,37 @@ export const Player: React.FC<Props> = ({ className = '' }) => {
     store.setRepeatMode(next);
   };
 
-  const handleSaveQueueAsPlaylist = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!readAddress) {
-      openGate();
-      return;
-    }
-    if (state.queue.length === 0) return;
-    const title = playlistTitle.trim() || `QUEUE_${new Date().toISOString().slice(5, 10)}`;
-    setSavingPlaylist(true);
-    try {
-      await createPlaylistApi(
-        {
-          title,
-          creator: readAddress,
-          song_ids: state.queue.map((s) => s.id),
-          cover: state.queue[0]?.image || '',
-          public: false,
-        },
-        readAddress
-      );
-      await queryClient.invalidateQueries({ queryKey: ['playlists'] });
-      toast.success(`Saved "${title}"`);
-      setPlaylistTitle('');
-      setShowSavePrompt(false);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Could not save playlist');
-    } finally {
-      setSavingPlaylist(false);
-    }
-  };
-
   const currentSong = state.activeSong;
   const titleText = currentSong?.title || 'STANDBY';
   const creatorText = currentSong
     ? formatCreatorName(currentSong.creator, activeCreatorProfile.nickname)
-    : 'No audio loaded';
+    : 'Ready to play';
+
+  const openStage = () => {
+    if (!currentSong) return;
+    navigateToSong(
+      activeCreatorProfile.nickname?.trim() || currentSong.creator,
+      currentSong.title || currentSong.id,
+      currentSong.id,
+    );
+  };
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length !== 1) return;
+    swipeStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    const start = swipeStartRef.current;
+    swipeStartRef.current = null;
+    if (!start || !currentSong || e.changedTouches.length === 0) return;
+    const dx = e.changedTouches[0].clientX - start.x;
+    const dy = e.changedTouches[0].clientY - start.y;
+    if (Math.abs(dx) > 52 && Math.abs(dx) > Math.abs(dy) * 1.4) {
+      if (dx < 0) void store.playNextTrack();
+      else void store.playPreviousTrack();
+    }
+  };
 
   const endOfQueueLabel = state.activePlaylistId ? 'End of playlist' : 'End of queue';
   const sleepPresets: Array<{ mode: SleepTimerMode; label: string }> = [
@@ -365,9 +359,14 @@ export const Player: React.FC<Props> = ({ className = '' }) => {
     return `${endOfQueueLabel} left`;
   })();
 
+  const upcomingCount = state.userQueue.length + state.contextQueue.length;
+
   return (
-    <div className={`app-player panel ${className}`.trim()}>
-      {/* Reactivate Sleep Timer Prompt (YouTube Music style on app reopen / resume after expiry) */}
+    <div
+      className={`app-player panel ${className}`.trim()}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+    >
       {state.sleepTimerPrompt && !state.sleepTimer && (
         <div
           className="player-sleep-reactivate-prompt"
@@ -403,14 +402,18 @@ export const Player: React.FC<Props> = ({ className = '' }) => {
         </div>
       )}
 
-      {/* Top Scrubber Bar (isolated from Player React state to eliminate layout/paint thrashing) */}
       <PlayerScrubber />
 
-      {/* Main Transport Row */}
       <div className="player-transport-row">
-        {/* Track Info */}
         <div className="player-track-info">
-          <div className="player-track-avatar">
+          <button
+            type="button"
+            className="player-track-avatar player-track-stage-trigger"
+            disabled={!currentSong}
+            onClick={openStage}
+            title={currentSong ? `Open ${currentSong.title}` : undefined}
+            aria-label={currentSong ? `Open ${currentSong.title} stage` : 'No active track'}
+          >
             <img
               src={
                 !imgError && currentSong?.image && currentSong.image.trim() !== ''
@@ -421,9 +424,23 @@ export const Player: React.FC<Props> = ({ className = '' }) => {
               decoding="async"
               onError={() => setImgError(true)}
             />
-          </div>
+          </button>
           <div className="player-track-text">
-            <div className="player-track-title-viewport" ref={titleViewportRef}>
+            <div
+              className={`player-track-title-viewport ${currentSong ? 'is-clickable' : ''}`}
+              ref={titleViewportRef}
+              role={currentSong ? 'button' : undefined}
+              tabIndex={currentSong ? 0 : undefined}
+              onClick={openStage}
+              onKeyDown={(e) => {
+                if (!currentSong) return;
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  openStage();
+                }
+              }}
+              title={currentSong ? `Open ${currentSong.title}` : undefined}
+            >
               <span className="player-track-title-measure" ref={titleMeasureRef} aria-hidden="true">
                 {titleText}
               </span>
@@ -461,41 +478,41 @@ export const Player: React.FC<Props> = ({ className = '' }) => {
           )}
         </div>
 
-        {/* Transport Controls */}
         <div className="player-controls">
-          <Tooltip title="Previous" position="top">
+          <Tooltip title="Previous" description="Shift + ←" position="top">
             <Button
               size="xs"
               variant="ghost"
               className="player-skip-btn"
               aria-label="Previous"
               disabled={state.queue.length === 0 && !currentSong}
-              onClick={() => store.playPreviousTrack()}
+              onClick={() => void store.playPreviousTrack()}
             >
               <SkipBack size={13} />
             </Button>
           </Tooltip>
 
-          <Tooltip title={state.isPlaying ? 'Pause' : 'Play'} position="top">
+          <Tooltip title={state.isPlaying ? 'Pause' : 'Play'} description="Space" position="top">
             <Button
               size="sm"
               variant={state.isPlaying ? 'secondary' : 'primary'}
               onClick={handlePlayPause}
               className="player-play-btn"
+              disabled={!currentSong}
               aria-label={state.isPlaying ? 'Pause' : 'Play'}
             >
               {state.isPlaying ? <Pause size={14} /> : <Play size={14} />}
             </Button>
           </Tooltip>
 
-          <Tooltip title="Next" position="top">
+          <Tooltip title="Next" description="Shift + →" position="top">
             <Button
               size="xs"
               variant="ghost"
               className="player-skip-btn"
               aria-label="Next"
               disabled={state.queue.length === 0 && !currentSong}
-              onClick={() => store.playNextTrack()}
+              onClick={() => void store.playNextTrack()}
             >
               <SkipForward size={13} />
             </Button>
@@ -504,10 +521,9 @@ export const Player: React.FC<Props> = ({ className = '' }) => {
           <PlayerTimeReadout />
         </div>
 
-        {/* Right: Queue Drawer + Volume */}
         <div className="player-right-cluster" ref={queueRef}>
           <div className="player-queue-trigger-wrap">
-            <Tooltip title="Queue" position="top">
+            <Tooltip title="Queue" description={upcomingCount > 0 ? `${upcomingCount} upcoming` : 'Manage queue & playback modes'} position="top">
               <Button
                 size="xs"
                 variant={queueOpen ? 'primary' : 'ghost'}
@@ -523,6 +539,7 @@ export const Player: React.FC<Props> = ({ className = '' }) => {
                 aria-expanded={queueOpen}
               >
                 <ListMusic size={13} />
+                {upcomingCount > 0 && <span className="player-queue-count">{upcomingCount}</span>}
               </Button>
             </Tooltip>
 
@@ -583,242 +600,56 @@ export const Player: React.FC<Props> = ({ className = '' }) => {
                   </>
                 ) : (
                   <>
-                    <div className="player-queue-header">
-                      <span className="player-queue-title">
-                        QUEUE {state.queue.length > 0 ? `(${state.queue.length})` : ''}
-                      </span>
-                      <div className="player-queue-modes">
-                        <Tooltip title={state.isPlaying ? 'Pause' : 'Play'} position="top">
-                          <button
-                            type="button"
-                            className={`player-mode-btn player-queue-play-btn ${state.isPlaying ? 'active' : ''}`}
-                            disabled={state.queue.length === 0 && !currentSong}
-                            onClick={() => {
-                              if (currentSong) {
-                                void store.setPlaying(!state.isPlaying);
-                              } else if (state.queue.length > 0) {
-                                void store.playQueueIndex(0);
-                              }
-                            }}
-                            aria-label={state.isPlaying ? 'Pause Queue' : 'Play Queue'}
-                          >
-                            {state.isPlaying ? <Pause size={12} /> : <Play size={12} />}
-                          </button>
-                        </Tooltip>
-
-                        <Tooltip title="Shuffle" position="top">
-                          <button
-                            type="button"
-                            className={`player-mode-btn ${state.shuffle ? 'active' : ''}`}
-                            onClick={() => store.setShuffle(!state.shuffle)}
-                            aria-label="Shuffle"
-                          >
-                            <Shuffle size={12} />
-                          </button>
-                        </Tooltip>
-
-                        <Tooltip title="Repeat" position="top">
-                          <button
-                            type="button"
-                            className={`player-mode-btn ${state.repeatMode !== 'off' ? 'active' : ''}`}
-                            onClick={cycleRepeatMode}
-                            aria-label="Repeat"
-                          >
-                            {state.repeatMode === 'one' ? <Repeat1 size={12} /> : <Repeat size={12} />}
-                          </button>
-                        </Tooltip>
-
-                        <Tooltip
-                          title={state.autoplay ? 'Continuous Autoplay: ON' : 'Continuous Autoplay: OFF'}
-                          position="top"
-                        >
-                          <button
-                            type="button"
-                            className={`player-mode-btn ${state.autoplay ? 'active' : ''}`}
-                            onClick={() => store.toggleAutoplay()}
-                            aria-label="Continuous Autoplay"
-                          >
-                            <Sparkles size={12} />
-                          </button>
-                        </Tooltip>
-
-                        <Tooltip title="Sleep Timer" position="top">
-                          <button
-                            type="button"
-                            className={`player-mode-btn ${state.sleepTimer ? 'active' : ''}`}
-                            onClick={() => {
-                              setShowSavePrompt(false);
-                              setSleepOpen(true);
-                            }}
-                            aria-label="Sleep Timer"
-                            aria-expanded={sleepOpen}
-                          >
-                            <Timer size={12} />
-                          </button>
-                        </Tooltip>
-
-                        {state.queue.length > 0 && (
-                          <>
-                            <Tooltip title="Save as Playlist" position="top">
-                              <button
-                                type="button"
-                                className={`player-mode-btn ${showSavePrompt ? 'active' : ''}`}
-                                onClick={() => {
-                                  setSleepOpen(false);
-                                  setShowSavePrompt((prev) => !prev);
-                                }}
-                                aria-label="Save as Playlist"
-                              >
-                                <FolderPlus size={12} />
-                              </button>
-                            </Tooltip>
-                            <Tooltip title="Clear" position="top">
-                              <button
-                                type="button"
-                                className="player-mode-btn"
-                                onClick={() => store.clearQueue()}
-                                aria-label="Clear"
-                              >
-                                <Trash2 size={12} />
-                              </button>
-                            </Tooltip>
-                          </>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Save Queue as Private Playlist Inline Form */}
-                    {showSavePrompt && (
-                      <form className="player-save-playlist-form" onSubmit={handleSaveQueueAsPlaylist}>
-                        <input
-                          type="text"
-                          className="player-save-playlist-input"
-                          placeholder="Playlist name..."
-                          value={playlistTitle}
-                          onChange={(e) => setPlaylistTitle(e.target.value)}
-                          maxLength={80}
-                          autoFocus
-                        />
+                    <div className="player-queue-modebar">
+                      <Tooltip title={state.shuffle ? 'Shuffle: ON' : 'Shuffle: OFF'} position="top">
                         <button
-                          type="submit"
-                          className="player-save-playlist-submit"
-                          disabled={savingPlaylist}
-                          aria-label="Save"
+                          type="button"
+                          className={`player-mode-btn ${state.shuffle ? 'active' : ''}`}
+                          onClick={() => store.setShuffle(!state.shuffle)}
+                          aria-label="Shuffle"
                         >
-                          <Check size={12} />
+                          <Shuffle size={12} />
                         </button>
-                      </form>
-                    )}
+                      </Tooltip>
 
-                    {/* Queue List */}
-                    <div className="player-queue-list scrollable">
-                      {state.queue.length === 0 ? (
-                        <div className="player-queue-empty">EMPTY</div>
-                      ) : (
-                        state.queue.map((song, idx) => {
-                          const isCurrent =
-                            (idx === state.queueIndex || idx === 0) &&
-                            state.activeSong?.id === song.id;
-                          const isDragging = dragIdx === idx;
-                          return (
-                            <div
-                              key={song.id}
-                              data-queue-idx={idx}
-                              className={`player-queue-item ${isCurrent ? 'current' : ''} ${isDragging ? 'dragging' : ''}`}
-                              draggable={!isCurrent}
-                              onDragStart={(e) => {
-                                if (isCurrent) {
-                                  e.preventDefault();
-                                  return;
-                                }
-                                if (emptyDragImgRef.current) {
-                                  e.dataTransfer.setDragImage(emptyDragImgRef.current, 0, 0);
-                                }
-                                e.dataTransfer.effectAllowed = 'move';
-                                setDragIdx(idx);
-                              }}
-                              onDragOver={(e) => {
-                                e.preventDefault();
-                                if (dragIdx !== null && dragIdx !== idx) {
-                                  store.moveQueueItem(dragIdx, idx);
-                                  setDragIdx(idx);
-                                }
-                              }}
-                              onDrop={(e) => {
-                                e.preventDefault();
-                                setDragIdx(null);
-                              }}
-                              onDragEnd={() => setDragIdx(null)}
-                            >
-                              <div
-                                className={`player-queue-grip ${isCurrent ? 'disabled' : ''}`}
-                                onPointerDown={(e) => {
-                                  if (isCurrent) return;
-                                  e.stopPropagation();
-                                  e.currentTarget.setPointerCapture(e.pointerId);
-                                  setDragIdx(idx);
-                                }}
-                                onPointerMove={(e) => {
-                                  if (dragIdx === null) return;
-                                  const el = document
-                                    .elementFromPoint(e.clientX, e.clientY)
-                                    ?.closest('[data-queue-idx]') as HTMLElement | null;
-                                  if (!el) return;
-                                  const targetIdx = Number(el.dataset.queueIdx);
-                                  if (Number.isFinite(targetIdx) && targetIdx !== dragIdx) {
-                                    store.moveQueueItem(dragIdx, targetIdx);
-                                    setDragIdx(targetIdx);
-                                  }
-                                }}
-                                onPointerUp={(e) => {
-                                  if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-                                    e.currentTarget.releasePointerCapture(e.pointerId);
-                                  }
-                                  setDragIdx(null);
-                                }}
-                                onPointerCancel={() => setDragIdx(null)}
-                              >
-                                <GripVertical size={12} />
-                              </div>
-                              <button
-                                type="button"
-                                className="player-queue-item-main"
-                                onClick={() => void store.playQueueIndex(idx)}
-                              >
-                                <div className="player-queue-thumb">
-                                  <img
-                                    src={song.image && song.image.trim() !== '' ? song.image : '/branding/mark.svg'}
-                                    alt=""
-                                    width={28}
-                                    height={28}
-                                    decoding="async"
-                                  />
-                                  <span className="player-queue-thumb-play" aria-hidden="true">
-                                    {isCurrent && state.isPlaying ? <Pause size={11} /> : <Play size={11} />}
-                                  </span>
-                                </div>
-                                <div className="player-queue-item-text">
-                                  <span className="player-queue-item-title">{song.title}</span>
-                                  <span className="player-queue-item-meta">
-                                    {formatCreatorName(song.creator)}
-                                  </span>
-                                </div>
-                              </button>
-                              <div className="player-queue-item-actions">
-                                <button
-                                  type="button"
-                                  className="player-queue-remove-btn"
-                                  onClick={() => store.removeFromQueue(idx)}
-                                  aria-label="Remove"
-                                >
-                                  <X size={11} />
-                                </button>
-                              </div>
-                            </div>
-                          );
-                        })
-                      )}
+                      <Tooltip
+                        title={
+                          state.repeatMode === 'one'
+                            ? 'Repeat One'
+                            : state.repeatMode === 'all'
+                              ? 'Repeat Context'
+                              : 'Repeat Off'
+                        }
+                        position="top"
+                      >
+                        <button
+                          type="button"
+                          className={`player-mode-btn ${state.repeatMode !== 'off' ? 'active' : ''}`}
+                          onClick={cycleRepeatMode}
+                          aria-label="Repeat"
+                        >
+                          {state.repeatMode === 'one' ? <Repeat1 size={12} /> : <Repeat size={12} />}
+                        </button>
+                      </Tooltip>
+
+                      <Tooltip title={state.sleepTimer ? `Sleep: ${state.sleepTimer.label}` : 'Sleep Timer'} position="top">
+                        <button
+                          type="button"
+                          className={`player-mode-btn ${state.sleepTimer ? 'active' : ''}`}
+                          onClick={() => setSleepOpen(true)}
+                          aria-label="Sleep Timer"
+                        >
+                          <Timer size={12} />
+                        </button>
+                      </Tooltip>
                     </div>
+
+                    <Queue
+                      state={state}
+                      variant="popover"
+                      pageSize={6}
+                      onClose={() => setQueueOpen(false)}
+                    />
                   </>
                 )}
               </div>
@@ -826,6 +657,16 @@ export const Player: React.FC<Props> = ({ className = '' }) => {
           </div>
 
           <div className="player-volume-wrap">
+            <Tooltip title={muted ? 'Unmute (M)' : 'Mute (M)'} position="top">
+              <button
+                type="button"
+                className="player-mute-btn"
+                onClick={() => setMuted((prev) => !prev)}
+                aria-label={muted ? 'Unmute' : 'Mute'}
+              >
+                {muted || volume === 0 ? <VolumeX size={13} /> : <Volume2 size={13} />}
+              </button>
+            </Tooltip>
             <Slider
               min={0}
               max={1}
@@ -843,4 +684,3 @@ export const Player: React.FC<Props> = ({ className = '' }) => {
     </div>
   );
 };
-
