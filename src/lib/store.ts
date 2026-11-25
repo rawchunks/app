@@ -633,27 +633,18 @@ class Store {
     if (this.state.userAddress) candidates.add(this.state.userAddress.trim());
     if (this.state.evmAddress) candidates.add(this.state.evmAddress.trim());
     if (this.state.svmAddress) candidates.add(this.state.svmAddress.trim());
-    const currentWallet = compose.wallets.current() as { address?: string; svmAddress?: string } | null;
-    if (currentWallet?.address) candidates.add(currentWallet.address.trim());
-    if (currentWallet?.svmAddress) candidates.add(currentWallet.svmAddress.trim());
-    if (typeof window !== 'undefined') {
-      try {
-        const raw = localStorage.getItem('last_account');
-        if (raw) {
-          const parsed = JSON.parse(raw) as { address?: string; evmAddress?: string; svmAddress?: string };
-          if (parsed?.address) candidates.add(parsed.address.trim());
-          if (parsed?.evmAddress) candidates.add(parsed.evmAddress.trim());
-          if (parsed?.svmAddress) candidates.add(parsed.svmAddress.trim());
-        }
-      } catch { }
+    if (candidates.size === 0 && this.loadedAccountKey !== 'guest') {
+      const currentWallet = compose.wallets.current() as { address?: string; svmAddress?: string } | null;
+      if (currentWallet?.address) candidates.add(currentWallet.address.trim());
+      if (currentWallet?.svmAddress) candidates.add(currentWallet.svmAddress.trim());
     }
     return Array.from(candidates).filter(Boolean);
   }
 
   private async recordSongPlay(songId: string) {
     const activeContext = (this.state.activeContextId || '').toLowerCase();
-    const isMyPageRoute = typeof window !== 'undefined' && window.location.pathname.startsWith('/my-page');
-    if (activeContext.startsWith('mypage') || isMyPageRoute) return;
+    const isProfileRoute = typeof window !== 'undefined' && window.location.pathname.startsWith('/profile');
+    if (activeContext.startsWith('profile') || isProfileRoute) return;
 
     const song = this.state.activeSong?.id === songId ? this.state.activeSong : this.state.songs.find((s) => s.id === songId);
     if (!songId || !song?.public || this.isCreatorOfSong(song)) return;
@@ -831,8 +822,8 @@ class Store {
           const pending = lane.pending;
           const options = streamOptions(lane.billing)!;
           const activeContext = (this.state.activeContextId || '').toLowerCase();
-          const isMyPageRoute = typeof window !== 'undefined' && Boolean(window.location?.pathname?.startsWith('/my-page'));
-          const playbackContext = activeContext || (isMyPageRoute ? 'mypage' : '');
+          const isProfileRoute = typeof window !== 'undefined' && Boolean(window.location?.pathname?.startsWith('/profile'));
+          const playbackContext = activeContext || (isProfileRoute ? 'profile' : '');
           const response = await api.fetch(`/api/songs/${lane.songId}/stream/checkpoint`, {
             ...options,
             method: 'POST',
@@ -878,7 +869,7 @@ class Store {
       bus.release('player');
       this.state = { ...this.state, isPlaying: false };
       this.notify();
-      bus.broadcastPlayback(this.state.activeSong, this.state.playhead, this.state.duration, false);
+      bus.broadcastPlayback(this.getAccountStorageSuffix(), this.state.activeSong, this.state.playhead, this.state.duration, false);
     }
     const lanes = [...this.playbacks.values()].filter(matches);
     for (const lane of lanes) {
