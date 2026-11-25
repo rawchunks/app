@@ -1081,9 +1081,10 @@ class Store {
   public async playCollection(
     songs: Song[],
     contextId: string,
-    playlistId?: string | null
+    playlistId?: string | null,
+    contextMeta?: Partial<PlaybackContext>,
   ): Promise<boolean> {
-    const validSongs = songs.filter((s): s is Song => Boolean(s && s.id));
+    const validSongs = songs.filter((s): s is Song => Boolean(s && s.id && this.isSongAllowedForAccount(s)));
     if (validSongs.length === 0) return false;
 
     const isSameContext = this.state.activeContextId === contextId;
@@ -1091,20 +1092,11 @@ class Store {
       this.state.activeSong && validSongs.some((s) => s.id === this.state.activeSong!.id)
     );
 
-    const collectionIds = new Set(validSongs.map((s) => s.id));
-    const unplayedCurrentQueue =
-      this.state.queueIndex >= 0 ? this.state.queue.slice(this.state.queueIndex) : this.state.queue;
-    const restOfQueue = unplayedCurrentQueue.filter((q) => q && !collectionIds.has(q.id));
-    const mergedQueue = [...validSongs, ...restOfQueue];
-
     if (isSameContext && activeInCollection && this.state.activeSong && this.authorizedSongId === this.state.activeSong.id && audio.hasSource()) {
-      const idx = mergedQueue.findIndex((s) => s.id === this.state.activeSong!.id);
-      const sliced = idx >= 0 ? mergedQueue.slice(idx) : mergedQueue;
-      this.setQueue(sliced, 0, playlistId ?? null, contextId);
       return await this.setPlaying(!this.state.isPlaying);
     }
 
-    this.setActiveSong(validSongs[0], mergedQueue, playlistId ?? null, contextId, true);
+    this.setActiveSong(validSongs[0], validSongs, playlistId ?? null, contextId, true, contextMeta, 'direct');
     return await this.setPlaying(true);
   }
 
@@ -1113,7 +1105,8 @@ class Store {
     contextSongs?: Song[],
     playlistId?: string | null,
     contextId?: string | null,
-    restart = false
+    restart = false,
+    contextMeta?: Partial<PlaybackContext>,
   ): Promise<boolean> {
     const resolvedPlaylistId = playlistId ?? null;
     const resolvedContextId =
@@ -1121,25 +1114,14 @@ class Store {
         ? contextId
         : resolvedPlaylistId
           ? `playlist:${resolvedPlaylistId}`
-          : 'default';
+          : this.state.activeContextId || 'market:feed';
     const sameSong = this.state.activeSong?.id === song.id;
     const samePlaylist = this.state.activePlaylistId === resolvedPlaylistId;
     const sameContext = this.state.activeContextId === resolvedContextId;
     if (!restart && sameSong && samePlaylist && sameContext && this.authorizedSongId === song.id && audio.hasSource()) {
-      if (Array.isArray(contextSongs) && contextSongs.length > 0) {
-        const cleanContext = contextSongs.filter((s): s is Song => Boolean(s && s.id));
-        const startIdx = cleanContext.findIndex((s) => s.id === song.id);
-        const upcomingFromContext = startIdx >= 0 ? cleanContext.slice(startIdx) : [song, ...cleanContext];
-        const upcomingIds = new Set(upcomingFromContext.map((s) => s.id));
-        const unplayedCurrentQueue =
-          this.state.queueIndex >= 0 ? this.state.queue.slice(this.state.queueIndex) : this.state.queue;
-        const restOfQueue = unplayedCurrentQueue.filter((q) => q && !upcomingIds.has(q.id));
-        const mergedQueue = [...upcomingFromContext, ...restOfQueue];
-        this.setQueue(mergedQueue, 0, resolvedPlaylistId, resolvedContextId);
-      }
       return await this.setPlaying(!this.state.isPlaying);
     }
-    this.setActiveSong(song, contextSongs, resolvedPlaylistId, resolvedContextId, true);
+    this.setActiveSong(song, contextSongs, resolvedPlaylistId, resolvedContextId, true, contextMeta, 'direct');
     return await this.setPlaying(true);
   }
 
@@ -1162,14 +1144,17 @@ class Store {
     for (let i = 0; i < index; i++) {
       this.pushPlayedHistory(this.state.queue[i]);
     }
-    const remainingQueue = this.state.queue.slice(index);
+
+    // Consume any userQueue / contextQueue items prior to the selected index
+    const skippedIds = new Set(this.state.queue.slice(0, index + 1).map((s) => s.id));
+    const nextUserQueue = this.state.userQueue.filter((s) => !skippedIds.has(s.id));
+    const nextContextQueue = this.state.contextQueue.filter((s) => !skippedIds.has(s.id));
     this.state = {
       ...this.state,
-      queue: remainingQueue,
-      queueIndex: 0,
+      userQueue: nextUserQueue,
+      contextQueue: nextContextQueue,
     };
-    this.persistQueue(remainingQueue);
-    this.setActiveSong(targetSong, undefined, undefined, undefined, true);
+    this.setActiveSong(targetSong, undefined, undefined, undefined, true, undefined, 'next');
     return await this.setPlaying(true);
   }
 
@@ -1177,19 +1162,62 @@ class Store {
     songs: Song[],
     startIndex = 0,
     playlistId: string | null = null,
-    contextId?: string | null
+    contextId?: string | null,
+    contextMeta?: Partial<PlaybackContext>,
   ) {
-    const clean = songs.filter((s): s is Song => Boolean(s && s.id));
+    const clean = songs.filter((s): s is Song => Boolean(s && s.id && this.isSongAllowedForAccount(s)));
+    this.contextOriginSongs = clean.slice(0, 200);
     const clampedIdx = clean.length > 0 ? Math.min(Math.max(startIndex, 0), clean.length - 1) : -1;
+    const active = clampedIdx >= 0 ? clean[clampedIdx] : this.state.activeSong;
+    const upcomingContext = clampedIdx >= 0 ? clean.slice(clampedIdx + 1) : clean;
+    const nextContextId = contextId !== undefined ? contextId : this.state.activeContextId;
+    const nextPlaybackContext = this.derivePlaybackContext(nextContextId, playlistId, clean, contextMeta);
+    const combined = this.buildCombinedQueue(active, this.state.userQueue, upcomingContext);
     this.state = {
       ...this.state,
-      queue: clean,
-      queueIndex: clampedIdx,
+      activeSong: active,
+      queue: combined.queue,
+      userQueue: combined.userQueue,
+      contextQueue: combined.contextQueue,
+      queueIndex: combined.queueIndex,
       activePlaylistId: playlistId,
-      activeContextId: contextId !== undefined ? contextId : this.state.activeContextId,
+      activeContextId: nextContextId,
+      playbackContext: nextPlaybackContext,
     };
-    this.persistQueue(clean);
+    this.persistQueue(combined.queue, combined.userQueue, combined.contextQueue, active, nextPlaybackContext);
     this.notify();
+  }
+
+  public playNext(song: Song) {
+    if (!this.isSongAllowedForAccount(song)) return;
+    if (!this.state.activeSong) {
+      this.setActiveSong(song, [song], null, `song:${song.id}`, false, {
+        domain: 'song',
+        id: `song:${song.id}`,
+        label: song.public ? 'Single' : 'Private Draft',
+        isPrivate: !song.public,
+      });
+      toast.success(`Loaded "${song.title}"`);
+      return;
+    }
+    if (this.state.activeSong.id === song.id) {
+      toast.success(`"${song.title}" is already playing`);
+      return;
+    }
+    const nextUserQueue = [song, ...this.state.userQueue.filter((s) => s.id !== song.id)];
+    const nextContextQueue = this.state.contextQueue.filter((s) => s.id !== song.id);
+    const combined = this.buildCombinedQueue(this.state.activeSong, nextUserQueue, nextContextQueue);
+    this.state = {
+      ...this.state,
+      queue: combined.queue,
+      userQueue: combined.userQueue,
+      contextQueue: combined.contextQueue,
+      queueIndex: combined.queueIndex,
+    };
+    this.persistQueue(combined.queue, combined.userQueue, combined.contextQueue, this.state.activeSong);
+    this.notify();
+    this.prefetchUpcomingMetadata();
+    toast.success(`Playing "${song.title}" next`);
   }
 
   public addToQueue(song: Song) {
