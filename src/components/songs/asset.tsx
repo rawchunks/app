@@ -23,7 +23,7 @@ import {
   resolveNetworkName,
   resolveTxUrl,
 } from './card';
-import { GenreBadges } from '../ag/genres';
+import { GenreBadges } from '../dashboard/genres';
 import { navigateToSong } from '../../lib/routes';
 import type { Song, SongEarningsItem } from '../../lib/schema';
 
@@ -46,7 +46,7 @@ export interface AssetProps {
 }
 
 /**
- * Published & Monetized Catalog Asset Row (/my-page -> EARN).
+ * Published & Monetized Catalog Asset Row (/profile -> EARN).
  * Immutable on-chain catalog entry displaying per-song profit (licenses + x402 streams),
  * license inventory (sold vs remaining), verified public plays, and on-chain settlement link.
  */
@@ -121,7 +121,6 @@ export const Asset: React.FC<AssetProps> = ({
     licensesMinted > 0 ? Math.min(100, Math.round((licensesSold / licensesMinted) * 100)) : 0;
   const songGenres = [
     ...(Array.isArray(song.genres) ? song.genres : []),
-    ...(Array.isArray(song.tags) ? song.tags : []),
     ...(Array.isArray(earning?.genres) ? earning.genres : []),
   ];
 
@@ -157,7 +156,7 @@ export const Asset: React.FC<AssetProps> = ({
               title={`Open ${song.title}`}
               onClick={(e) => {
                 e.stopPropagation();
-                navigateToSong(creatorHandle?.trim() || song.creator, song.title);
+                navigateToSong(creatorHandle?.trim() || song.creator, song.title, song.id);
               }}
             >
               {song.title}
@@ -223,8 +222,8 @@ export const Asset: React.FC<AssetProps> = ({
       <div className="earn-list-cell earn-cell-licenses">
         <div className="earn-license-meter-wrap">
           <div className="earn-license-counts">
-            <span className="mypage-stat-badge sold">{licensesSold} sold</span>
-            <span className="mypage-stat-badge left">{licensesRemaining} left</span>
+            <span className="profile-stat-badge sold">{licensesSold} sold</span>
+            <span className="profile-stat-badge left">{licensesRemaining} left</span>
           </div>
           <div className="earn-license-bar" aria-hidden="true">
             <div className="earn-license-bar-fill" style={{ width: `${soldRatio}%` }} />
@@ -251,12 +250,12 @@ export const Asset: React.FC<AssetProps> = ({
         onClick={(e) => e.stopPropagation()}
       >
         {onToggleMenu && (
-          <div className="mypage-menu-wrap">
+          <div className="profile-menu-wrap">
             <Tooltip title="Release Options" description="Share or download audio">
               <button
                 type="button"
-                className="mypage-card-more-btn"
-                data-guide="mypage-card-menu"
+                className="profile-card-more-btn"
+                data-guide="profile-card-menu"
                 onClick={(e) => {
                   e.stopPropagation();
                   onToggleMenu();
@@ -268,11 +267,11 @@ export const Asset: React.FC<AssetProps> = ({
             </Tooltip>
 
             {isMenuOpen && (
-              <div className="mypage-menu-dropdown" onClick={(e) => e.stopPropagation()}>
+              <div className="profile-menu-dropdown" onClick={(e) => e.stopPropagation()}>
                 {onShare && (
                   <button
                     type="button"
-                    className="mypage-menu-item mypage-item-edit"
+                    className="profile-menu-item profile-item-edit"
                     onClick={() => onShare(song)}
                   >
                     <Share2 size={12} />
@@ -282,7 +281,7 @@ export const Asset: React.FC<AssetProps> = ({
                 {onDirectVideo && (
                   <button
                     type="button"
-                    className="mypage-menu-item mypage-item-edit"
+                    className="profile-menu-item profile-item-edit"
                     onClick={() => onDirectVideo(song)}
                   >
                     <Film size={12} />
@@ -292,7 +291,7 @@ export const Asset: React.FC<AssetProps> = ({
                 {onDownload && (
                   <button
                     type="button"
-                    className="mypage-menu-item mypage-item-download"
+                    className="profile-menu-item profile-item-download"
                     onClick={() => onDownload(song)}
                   >
                     <Download size={12} />
@@ -302,8 +301,8 @@ export const Asset: React.FC<AssetProps> = ({
                 {onDelete && (
                   <button
                     type="button"
-                    className="mypage-menu-item mypage-item-delete"
-                    data-guide="mypage-delete"
+                    className="profile-menu-item profile-item-delete"
+                    data-guide="profile-delete"
                     onClick={() => onDelete(song.id)}
                   >
                     <Trash2 size={12} />

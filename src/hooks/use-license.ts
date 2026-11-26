@@ -48,12 +48,14 @@ export function useLicensedSongs(songs: Song[]) {
   const { readAddress, userAddress, evmAddress, svmAddress } = useSelectedUserAddress();
   const effectiveUser = userAddress || readAddress;
   const originals = songs.filter(song => !song.source && !song.is_remix && song.chain_song_id && song.network && song.metadata_cid);
-  const results = useQueries({ queries: originals.map(song => ({
-    queryKey: licenseKey(song, evmAddress, svmAddress),
-    enabled: Boolean(effectiveUser),
-    retry: false,
-    queryFn: () => readLicense(song, evmAddress, svmAddress),
-  })) });
+  const results = useQueries({
+    queries: originals.map(song => ({
+      queryKey: licenseKey(song, evmAddress, svmAddress),
+      enabled: Boolean(effectiveUser),
+      retry: false,
+      queryFn: () => readLicense(song, evmAddress, svmAddress),
+    }))
+  });
   return {
     songs: effectiveUser ? originals.filter((_, index) => results[index].data?.owned) : [],
     loading: Boolean(effectiveUser) && results.some(result => result.isPending),
@@ -166,12 +168,10 @@ export function useLicense(song: Song, onEditSong?: (song: Song) => void, includ
     catch (error) { salesError = error instanceof Error ? error : new Error('Could not read license sales'); }
   }
 
-  let testnetMode = song.network !== 'eip155:8453' && song.network !== 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp';
+  let testnetMode = true;
   try {
-    if (typeof chainUtils.isTestnet === 'function') {
-      const mode = typeof chainUtils.getNetworkMode === 'function' ? chainUtils.getNetworkMode() : 'testnet';
-      testnetMode = mode === 'testnet' && !chainUtils.isMainnet(song.network);
-    }
+    const mode = typeof chainUtils.getNetworkMode === 'function' ? chainUtils.getNetworkMode() : 'testnet';
+    testnetMode = mode === 'testnet' && (typeof chainUtils.isMainnet === 'function' ? !chainUtils.isMainnet(song.network) : true);
   } catch { /* Partial unit test mocks of chains omit mode helpers. */ }
 
   const executeOnChainPurchase = async (
@@ -191,8 +191,10 @@ export function useLicense(song: Song, onEditSong?: (song: Song) => void, includ
         if (chain.id === 42431 && adminWallet) {
           const admin = adminWallet.getAccount();
           if (!admin) throw new Error('The admin signer is not ready');
-          prepared = await prepareTempoTransaction({ chain, admin, adminWallet,
-            accountAddress: account.address, assertCurrent }, transaction);
+          prepared = await prepareTempoTransaction({
+            chain, admin, adminWallet,
+            accountAddress: account.address, assertCurrent
+          }, transaction);
         }
         await simulateTransaction(prepared);
         assertCurrent();
@@ -249,7 +251,7 @@ export function useLicense(song: Song, onEditSong?: (song: Song) => void, includ
         // Best-effort copy persistence
       }
     }
-    toast.success('License purchased. You can remix this song from My-Page.');
+    toast.success('License purchased. You can remix this song from Profile.');
   };
 
   const buy = async () => {
@@ -269,7 +271,7 @@ export function useLicense(song: Song, onEditSong?: (song: Song) => void, includ
       } else {
         await queryClient.invalidateQueries({ queryKey: ['license', song.id] });
         assertCurrent();
-        toast.success('License purchased. You can remix this song from My-Page.');
+        toast.success('License purchased. You can remix this song from Profile.');
       }
     } catch (error) { toast.error(error instanceof Error ? error.message : 'Could not buy the license'); }
     finally { setPending(false); }
@@ -319,7 +321,7 @@ export function useLicense(song: Song, onEditSong?: (song: Song) => void, includ
       } else {
         await queryClient.invalidateQueries({ queryKey: ['license', song.id] });
         assertCurrent();
-        toast.success('License purchased. You can remix this song from My-Page.');
+        toast.success('License purchased. You can remix this song from Profile.');
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Could not complete card license purchase');

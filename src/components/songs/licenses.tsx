@@ -4,7 +4,8 @@ import { Tag, GitFork, CreditCard, ShieldCheck } from 'lucide-react';
 import { Button } from '../button';
 import { Badge } from '../badge';
 import { Tooltip } from '../daw/Tooltip';
-import { isMainnet, weiToUsdc } from '../../lib/chains';
+import { evmChainId, getChainByNetwork, isEvmNetwork, isMainnet, weiToUsdc } from '../../lib/chains';
+import { useChain } from '../../contexts/Network';
 import { Modal } from '../modal';
 import { PayPalCardFields, ThirdwebCard, type Order } from '../connector';
 import { useLicense } from '../../hooks/use-license';
@@ -19,7 +20,7 @@ export function Licenses({
 }: {
   song: Song;
   onEditSong?: (song: Song) => void;
-  placement: 'market' | 'mypage';
+  placement: 'market' | 'profile';
   compact?: boolean;
 }) {
   const {
@@ -33,9 +34,13 @@ export function Licenses({
     error,
     sold,
     salesError,
-  } = useLicense(song, onEditSong, placement === 'mypage', placement === 'mypage');
+  } = useLicense(song, onEditSong, placement === 'profile', placement === 'profile');
   const { evmAddress } = useSelectedUserAddress();
+  const { evmChains } = useChain();
   const mainnet = isMainnet();
+  const licenseChain = (song.network && isEvmNetwork(song.network) ? getChainByNetwork(song.network) : undefined) ?? evmChains[0];
+  const licenseChainId = licenseChain && isEvmNetwork(licenseChain.network) ? evmChainId(licenseChain.network) : undefined;
+  const licenseTokenAddress = licenseChain?.assetAddress as `0x${string}` | undefined;
   const [confirm, setConfirm] = useState(false);
   const [cardMode, setCardMode] = useState(false);
   const [cardError, setCardError] = useState<string | null>(null);
@@ -84,7 +89,7 @@ export function Licenses({
 
   return (
     <>
-      {placement === 'mypage' && !compact && (
+      {placement === 'profile' && !compact && (
         <Tooltip title="Licenses Sold" description={(salesError ?? error)?.message}>
           <Badge variant={sold ? 'secondary' : 'muted'}>
             {sold !== undefined ? `${sold} SOLD` : !song.chain_song_id ? '0 SOLD' : salesError || error ? 'SALES UNAVAILABLE' : 'LOADING SALES'}
@@ -115,7 +120,7 @@ export function Licenses({
         </Tooltip>
       )}
 
-      {(data?.owned || (placement === 'mypage' && compact)) && (
+      {(data?.owned || (placement === 'profile' && compact)) && (
         <Tooltip title="Remix in Studio" description="Open stems in Studio to create a remix">
           <Button
             variant="accent"
@@ -159,6 +164,8 @@ export function Licenses({
               <ThirdwebCard
                 amountAtomics={data?.price ?? 0n}
                 receiverAddress={evmAddress}
+                chainId={licenseChainId}
+                tokenAddress={licenseTokenAddress}
                 createOrder={async () => {
                   setCardError(null);
                   try {

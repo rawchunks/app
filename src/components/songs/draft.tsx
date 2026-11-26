@@ -15,7 +15,9 @@ import {
   ChevronRight,
   GitFork,
   Film,
+  ListStart,
 } from 'lucide-react';
+import { store } from '../../lib/store';
 import { Button } from '../button';
 import { Badge } from '../badge';
 import { Tooltip } from '../daw/Tooltip';
@@ -26,7 +28,7 @@ import {
   normalizeTags,
   formatDuration,
 } from './card';
-import { GenreBadges } from '../ag/genres';
+import { GenreBadges } from '../dashboard/genres';
 import type { Song } from '../../lib/schema';
 
 export type FinderViewMode = 'grid' | 'list' | 'columns';
@@ -67,7 +69,7 @@ const formatRelativeDate = (iso?: string): string => {
 };
 
 /**
- * Private Workspace Song Component (/my-page -> WORKSPACE).
+ * Private Workspace Song Component (/profile -> WORKSPACE).
  * Purpose-built for unminted WIP drafts, multi-version studio sessions, and licensed remix stems.
  * Supports macOS Finder view modes: 'grid' (Icons), 'list' (Table), and 'columns' (Miller Columns).
  */
@@ -96,7 +98,7 @@ export const Draft: React.FC<DraftProps> = ({
 }) => {
   useGuideOwner({
     id: 'card',
-    scope: viewMode === 'columns' ? `mypage:col:${song.id}` : `mypage:${song.id}`,
+    scope: viewMode === 'columns' ? `profile:col:${song.id}` : `profile:${song.id}`,
     handles: (step) => viewMode !== 'columns' && ['K5', 'K7', 'M4'].includes(step.id),
     prepare: ({ step, bind }) => {
       const id = bind('song', song.id);
@@ -123,11 +125,11 @@ export const Draft: React.FC<DraftProps> = ({
   const renderMenuDropdown = () => {
     if (isRemixLicensed || !isMenuOpen) return null;
     return (
-      <div className="mypage-menu-dropdown" onClick={(e) => e.stopPropagation()}>
+      <div className="profile-menu-dropdown" onClick={(e) => e.stopPropagation()}>
         {onEditDetails && (
           <button
             type="button"
-            className="mypage-menu-item mypage-item-details"
+            className="profile-menu-item profile-item-details"
             data-guide="card.details-item"
             onClick={() => onEditDetails(song)}
           >
@@ -138,7 +140,7 @@ export const Draft: React.FC<DraftProps> = ({
         {onAddToAlbum && (
           <button
             type="button"
-            className="mypage-menu-item"
+            className="profile-menu-item"
             onClick={() => onAddToAlbum(song)}
           >
             <Disc3 size={12} />
@@ -148,7 +150,7 @@ export const Draft: React.FC<DraftProps> = ({
         {onEditInStudio && (
           <button
             type="button"
-            className="mypage-menu-item mypage-item-edit"
+            className="profile-menu-item profile-item-edit"
             data-guide="card.editor-item"
             onClick={() => onEditInStudio(song)}
           >
@@ -159,7 +161,7 @@ export const Draft: React.FC<DraftProps> = ({
         {onDirectVideo && (
           <button
             type="button"
-            className="mypage-menu-item mypage-item-edit"
+            className="profile-menu-item profile-item-edit"
             onClick={() => onDirectVideo(song)}
           >
             <Film size={12} />
@@ -169,7 +171,7 @@ export const Draft: React.FC<DraftProps> = ({
         {onDownload && (
           <button
             type="button"
-            className="mypage-menu-item mypage-item-download"
+            className="profile-menu-item profile-item-download"
             onClick={() => onDownload(song)}
           >
             <Download size={12} />
@@ -179,7 +181,7 @@ export const Draft: React.FC<DraftProps> = ({
         {onDelete && (
           <button
             type="button"
-            className="mypage-menu-item mypage-item-delete"
+            className="profile-menu-item profile-item-delete"
             onClick={() => onDelete(song.id)}
           >
             <Trash2 size={12} />
@@ -319,7 +321,7 @@ export const Draft: React.FC<DraftProps> = ({
               <Button
                 variant="primary"
                 size="xs"
-                data-guide="mypage-card-publish"
+                data-guide="profile-card-publish"
                 onClick={() => onPublishClick(song)}
                 disabled={Boolean(publicPending)}
                 aria-label="Publish track"
@@ -329,12 +331,12 @@ export const Draft: React.FC<DraftProps> = ({
             </Tooltip>
           )}
           {!isRemixLicensed && onToggleMenu && (
-            <div className="mypage-menu-wrap">
+            <div className="profile-menu-wrap">
               <Tooltip title="Draft Options" description="Details, album, editor, download, or delete">
                 <button
                   type="button"
-                  className="mypage-card-more-btn"
-                  data-guide="mypage-card-menu"
+                  className="profile-card-more-btn"
+                  data-guide="profile-card-menu"
                   onClick={(e) => {
                     e.stopPropagation();
                     onToggleMenu();
@@ -379,12 +381,12 @@ export const Draft: React.FC<DraftProps> = ({
         duration={song.duration}
         topRightActions={
           !isRemixLicensed && onToggleMenu ? (
-            <div className="mypage-menu-wrap">
+            <div className="profile-menu-wrap">
               <Tooltip title="Draft Options" description="Details, album, editor, download, or delete">
                 <button
                   type="button"
-                  className="mypage-card-more-btn"
-                  data-guide="mypage-card-menu"
+                  className="profile-card-more-btn"
+                  data-guide="profile-card-menu"
                   onClick={(e) => {
                     e.stopPropagation();
                     onToggleMenu();
@@ -404,7 +406,7 @@ export const Draft: React.FC<DraftProps> = ({
       <div className="market-card-body">
         {/* Zone 1: Title + Album / Version Branch */}
         <div className="market-card-identity">
-          <Tooltip title={song.title} className="mypage-card-title-tooltip">
+          <Tooltip title={song.title} className="profile-card-title-tooltip">
             <div className="market-card-row-title">{song.title}</div>
           </Tooltip>
 
@@ -413,14 +415,14 @@ export const Draft: React.FC<DraftProps> = ({
             onClick={
               onAddToAlbum && !isRemixLicensed
                 ? (e) => {
-                    e.stopPropagation();
-                    onAddToAlbum(song);
-                  }
+                  e.stopPropagation();
+                  onAddToAlbum(song);
+                }
                 : undefined
             }
           >
             <Tooltip title="Private Draft">
-              <span className="mypage-meta-status-icon private">
+              <span className="profile-meta-status-icon private">
                 <Lock size={11} />
               </span>
             </Tooltip>
@@ -429,7 +431,7 @@ export const Draft: React.FC<DraftProps> = ({
             </Tooltip>
             {versions.length > 1 && (
               <Tooltip title={`${versions.length - 1} edit${versions.length - 1 === 1 ? '' : 's'}`}>
-                <span className="mypage-edits-pill">
+                <span className="profile-edits-pill">
                   <GitBranch size={10} />
                   <span>{versions.length - 1}</span>
                 </span>
@@ -480,17 +482,30 @@ export const Draft: React.FC<DraftProps> = ({
             <Licenses
               key={song.id}
               song={song}
-              placement="mypage"
+              placement="profile"
               onEditSong={onEditInStudio}
               compact
             />
           ) : (
-            <div className="mypage-private-action-wrap" data-guide="mypage-card-publish">
+            <div className="profile-private-action-wrap" data-guide="profile-card-publish">
+              <Tooltip title="Play Next" description="Insert draft next in queue">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={(e: React.MouseEvent) => {
+                    e.stopPropagation();
+                    store.playNext(song);
+                  }}
+                  aria-label="Play draft next"
+                >
+                  <ListStart size={12} />
+                </Button>
+              </Tooltip>
               <Tooltip title="Publish Track" description="Mint on-chain and publish to Market">
                 <Button
                   variant="primary"
                   size="sm"
-                  className="mypage-publish-icon-btn"
+                  className="profile-publish-icon-btn"
                   onClick={() => onPublishClick?.(song)}
                   disabled={Boolean(publicPending)}
                   aria-label="Publish track"
