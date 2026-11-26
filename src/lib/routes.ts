@@ -3,8 +3,8 @@ import type { Route } from '../components/Layout';
 const RESERVED_ROOT_SEGMENTS = new Set([
   '',
   'studio',
-  'my-page',
-  'mypage',
+  'profile',
+  'profile',
   'market',
   'editor',
   'video',
@@ -59,12 +59,23 @@ function decodeSegment(raw: string): string | null {
   return trimmed || null;
 }
 
-export function navigateToSong(creator?: string | null, songTitle?: string | null): void {
+export function navigateToSong(creator?: string | null, songTitle?: string | null, songId?: string | null): void {
   const target = marketPath(creator, songTitle);
+  const state = songId ? { songId } : null;
   if (window.location.pathname !== target) {
-    window.history.pushState(null, '', target);
+    window.history.pushState(state, '', target);
+  } else if (state) {
+    window.history.replaceState(state, '', target);
   }
   window.dispatchEvent(new PopStateEvent('popstate'));
+}
+
+export function replaceSongUrl(creator?: string | null, songTitle?: string | null, songId?: string | null): void {
+  const target = marketPath(creator, songTitle);
+  const state = songId ? { songId } : window.history.state;
+  if (window.location.pathname !== target || (songId && window.history.state?.songId !== songId)) {
+    window.history.replaceState(state, '', target);
+  }
 }
 
 export function marketCreator(pathname: string): string | null {
@@ -107,7 +118,7 @@ export function marketSong(pathname: string): string | null {
 
 export function parseRoute(pathname: string): Route {
   const clean = pathname.replace(/^\/+|\/+$/g, '').toLowerCase();
-  if (clean === 'my-page' || clean === 'mypage') return 'mypage';
+  if (clean === 'my-page' || clean === 'profile') return 'profile';
   if (clean === 'editor' || /^editor\/[^/]+$/.test(clean)) return 'editor';
   if (clean === 'video' || /^video\/[^/]+$/.test(clean)) return 'video';
   if (marketCreator(pathname) !== null && marketSong(pathname) !== null) return 'song';

@@ -6,7 +6,7 @@ import { Tooltip } from './daw/Tooltip';
 import { AccountChip } from './account';
 import { Session } from './session';
 
-export type Route = 'studio' | 'mypage' | 'market' | 'editor' | 'video' | 'song';
+export type Route = 'studio' | 'profile' | 'market' | 'editor' | 'video' | 'song';
 
 export interface Props {
   current: Route;
@@ -19,7 +19,7 @@ export const Layout: React.FC<Props> = ({ current, onNavigate, children }) => {
   useGuideOwner({ id: 'navigation', scope: current, handles: step => step.id === 'A6', prepare: () => isWorkstation ? { target: 'editor.back', description: 'Use the workstation back button to leave the project.' } : { focus: '[aria-current="page"]' } });
   const navItems: { id: Route; label: string; Icon: React.ComponentType<{ className?: string }> }[] = [
     { id: 'studio', label: 'STUDIO', Icon: AudioWaveform },
-    { id: 'mypage', label: 'WORKSPACE', Icon: FileMusic },
+    { id: 'profile', label: 'WORKSPACE', Icon: FileMusic },
     { id: 'market', label: 'MARKET', Icon: Radio },
   ];
 
@@ -72,8 +72,8 @@ export const Layout: React.FC<Props> = ({ current, onNavigate, children }) => {
         {children}
       </main>
 
-      {/* Persistent Audio Transport Dock (Studio / My-Page / Market) */}
-      {!isWorkstation && <Player />}
+      {/* Persistent Audio Transport Dock (absorbed into unified Stage Console on /song) */}
+      {!isWorkstation && <Player headless={current === 'song'} />}
 
       {/* Bottom Tab Navigation (visible on mobile, directly under the player strip) */}
       {!isWorkstation && (

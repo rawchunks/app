@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Layout, Route } from './components/Layout';
 import { Studio } from './pages/studio';
-import { Mypage } from './pages/mypage';
+import { Profile } from './pages/profile';
 import { Market } from './pages/market';
 import { Editor } from './pages/editor';
 import { Video } from './pages/video';
@@ -12,9 +12,7 @@ import { Song } from './lib/schema';
 import { api } from './lib/api';
 import { useSelectedUserAddress } from './hooks/use-address';
 import { useSongs } from './hooks/use-songs';
-import { useChain } from './contexts/Network';
-import { getModeNetworks } from './lib/chains';
-import { readProject, readSongs, writeProject } from './lib/cache';
+import { readProject, readSongs, writeProject, readCachedProfile } from './lib/cache';
 import {
   parseRoute,
   editorId,
@@ -24,10 +22,11 @@ import {
   marketCreator,
   marketSong,
   navigateToCreator,
+  replaceSongUrl,
+  normalizeSlugKey,
 } from './lib/routes';
 import { GuideProvider } from './components/guide/Tour';
 import './styles/styles.css';
-import './styles/video.css';
 
 function readCachedSong(id: string | null, readAddress?: string | null): Song | null {
   if (!id) return null;
@@ -53,29 +52,25 @@ function readCachedSong(id: string | null, readAddress?: string | null): Song | 
 
 export const App: React.FC = () => {
   useSongs();
-  const { selectedNetwork, setSelectedNetwork } = useChain();
   const { readAddress, accountId, isReconnecting } = useSelectedUserAddress();
-
-  useEffect(() => {
-    const allowed = getModeNetworks();
-    if (!allowed.includes(selectedNetwork)) {
-      setSelectedNetwork(allowed[0]);
-    }
-  }, [selectedNetwork, setSelectedNetwork]);
 
   const [editorError, setEditorError] = useState<string | null>(null);
   const [videoError, setVideoError] = useState<string | null>(null);
 
-  const readSongTarget = (pathname: string): { creator: string; slug: string } | null => {
+  const readSongTarget = (pathname: string): { creator: string; slug: string; songId?: string } | null => {
     const creator = marketCreator(pathname);
     const slug = marketSong(pathname);
-    return creator && slug ? { creator, slug } : null;
+    if (!creator || !slug) return null;
+    const state = window.history.state as { songId?: unknown } | null;
+    const stateSongId = typeof state?.songId === 'string' && state.songId.trim() ? state.songId.trim() : undefined;
+    return { creator, slug, songId: stateSongId };
   };
 
   const [route, setRoute] = useState<Route>(() => parseRoute(window.location.pathname));
   const [songId, setSongId] = useState(() => editorId(window.location.pathname));
   const [videoSongId, setVideoSongId] = useState(() => videoId(window.location.pathname));
   const [viewSong, setViewSong] = useState(() => readSongTarget(window.location.pathname));
+  const lastNonSongRouteRef = useRef<Route>(route === 'song' ? 'market' : route);
 
   const [editingSong, setEditingSong] = useState<Song | null>(() => {
     const id = editorId(window.location.pathname);
@@ -131,6 +126,12 @@ export const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    if (route !== 'song') {
+      lastNonSongRouteRef.current = route;
+    }
+  }, [route]);
+
+  useEffect(() => {
     const handlePopState = () => {
       const next = parseRoute(window.location.pathname);
       setRoute(next);
@@ -138,7 +139,16 @@ export const App: React.FC = () => {
       const vidId = videoId(window.location.pathname);
       setSongId(edId);
       setVideoSongId(vidId);
-      setViewSong(readSongTarget(window.location.pathname));
+      const target = readSongTarget(window.location.pathname);
+      const active = store.getState().activeSong;
+      if (target && !target.songId && active) {
+        const matchesActive =
+          active.id === target.slug ||
+          normalizeSlugKey(active.title) === normalizeSlugKey(target.slug);
+        setViewSong({ ...target, songId: matchesActive ? active.id : undefined });
+      } else {
+        setViewSong(target);
+      }
       setEditorError(null);
       setVideoError(null);
       setEditingSong((current) => (current?.id === edId ? current : readCachedSong(edId, readAddress)));
@@ -162,6 +172,61 @@ export const App: React.FC = () => {
       window.history.replaceState(null, '', videoPath(videoSong.id));
     }
   }, [route, videoSong, videoSongId]);
+
+  const routeRef = useRef<Route>(route);
+  routeRef.current = route;
+  const viewSongRef = useRef(viewSong);
+  viewSongRef.current = viewSong;
+  const lastSyncedSongIdRef = useRef<string | null>(store.getState().activeSong?.id ?? null);
+
+  useEffect(() => {
+    return store.subscribe((s) => {
+      const nextActive = s.activeSong;
+      const prevSyncedId = lastSyncedSongIdRef.current;
+      if (!nextActive?.id) {
+        lastSyncedSongIdRef.current = null;
+        return;
+      }
+      if (prevSyncedId === nextActive.id) return;
+      lastSyncedSongIdRef.current = nextActive.id;
+
+      if (routeRef.current !== 'song') return;
+      const currentView = viewSongRef.current;
+      const isViewingSyncedSong =
+        !currentView ||
+        !prevSyncedId ||
+        currentView.songId === prevSyncedId ||
+        s.transitionDirection !== 'direct';
+      if (!isViewingSyncedSong) return;
+
+      const cachedProfile = readCachedProfile(nextActive.creator);
+      const nextCreator = cachedProfile?.nickname?.trim() || nextActive.creator?.trim() || 'rawchunks';
+      const nextSlug = nextActive.title?.trim() || nextActive.id;
+
+      const applySwitch = () => {
+        setViewSong({ creator: nextCreator, slug: nextSlug, songId: nextActive.id });
+        replaceSongUrl(nextCreator, nextSlug, nextActive.id);
+      };
+
+      const prefersReduced =
+        typeof window !== 'undefined' &&
+        window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      const doc = document as Document & { startViewTransition?: (cb: () => void) => { finished: Promise<void> } };
+      if (!prefersReduced && typeof doc.startViewTransition === 'function') {
+        try {
+          document.documentElement.dataset.songTransition = s.transitionDirection;
+          const vt = doc.startViewTransition(applySwitch);
+          vt?.finished?.finally(() => {
+            delete document.documentElement.dataset.songTransition;
+          });
+          return;
+        } catch {
+          delete document.documentElement.dataset.songTransition;
+        }
+      }
+      applySwitch();
+    });
+  }, []);
 
   useEffect(() => {
     if (route === 'editor' && !editingSong) {
@@ -258,7 +323,7 @@ export const App: React.FC = () => {
 
   const navigate = (nextRoute: Route, id?: string) => {
     setRoute(nextRoute);
-    const path = nextRoute === 'mypage' ? 'my-page' : nextRoute;
+    const path = nextRoute === 'profile' ? 'profile' : nextRoute;
     const url =
       nextRoute === 'editor' && id
         ? editorPath(id)
@@ -296,7 +361,7 @@ export const App: React.FC = () => {
     try {
       sessionStorage.removeItem('rawchunks_editing_song');
     } catch { }
-    navigate('mypage');
+    navigate('profile');
   };
 
   const handleBackFromVideo = () => {
@@ -305,20 +370,28 @@ export const App: React.FC = () => {
     try {
       sessionStorage.removeItem('rawchunks_video_song');
     } catch { }
-    navigate('mypage');
+    navigate('profile');
   };
 
   return (
     <GuideProvider activePage={route === 'song' ? 'market' : route === 'video' ? 'editor' : route}>
       <Layout current={route} onNavigate={navigate}>
         {route === 'studio' && <Studio onEditSong={handleEditSong} />}
-        {route === 'mypage' && <Mypage onEditSong={handleEditSong} onDirectVideo={handleDirectVideo} />}
+        {route === 'profile' && <Profile onEditSong={handleEditSong} onDirectVideo={handleDirectVideo} />}
         {route === 'market' && <Market />}
         {route === 'song' && viewSong && (
           <SongPage
             creatorSlug={viewSong.creator}
             songSlug={viewSong.slug}
-            onBack={() => navigateToCreator(viewSong.creator)}
+            songId={viewSong.songId}
+            onBack={() => {
+              const fallback = lastNonSongRouteRef.current;
+              if (fallback && fallback !== 'song' && fallback !== 'editor' && fallback !== 'video') {
+                navigate(fallback);
+              } else {
+                navigateToCreator(viewSong.creator);
+              }
+            }}
           />
         )}
         {route === 'editor' && editingSong && !editingSong.metadata_cid && (

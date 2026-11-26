@@ -26,10 +26,10 @@ describe('per-song slug routing & sharing', () => {
     expect(parseRoute('/market')).toBe('market');
   });
 
-  it('preserves studio, mypage, editor, and full-page video workstation routes', () => {
+  it('preserves studio, profile, editor, and full-page video workstation routes', () => {
     expect(parseRoute('/')).toBe('studio');
     expect(parseRoute('/studio')).toBe('studio');
-    expect(parseRoute('/my-page')).toBe('mypage');
+    expect(parseRoute('/profile')).toBe('profile');
     expect(parseRoute('/editor/sng-123')).toBe('editor');
     expect(parseRoute('/video/sng-123')).toBe('video');
     expect(videoPath('sng-123')).toBe('/video/sng-123');
