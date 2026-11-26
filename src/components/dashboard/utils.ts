@@ -226,19 +226,19 @@ export function formatMs(ms: number): string {
   if (safe < 60_000) {
     const secs = Math.floor(safe / 1000);
     const cs = Math.floor((safe % 1000) / 10);
-    return `${String(secs).padStart(2, '0')},${String(cs).padStart(2, '0')}s`;
+    return `${String(secs).padStart(2, '0')}.${String(cs).padStart(2, '0')}s`;
   }
   if (safe < 3_600_000) {
     const totalSecs = Math.floor(safe / 1000);
     const mins = Math.floor(totalSecs / 60);
     const secs = totalSecs % 60;
-    return `${String(mins).padStart(2, '0')}.${String(secs).padStart(2, '0')}m`;
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
   }
   const totalSecs = Math.floor(safe / 1000);
   const hrs = Math.floor(totalSecs / 3600);
   const mins = Math.floor((totalSecs % 3600) / 60);
   const secs = totalSecs % 60;
-  return `${String(hrs).padStart(2, '0')}.${String(mins).padStart(2, '0')},${String(secs).padStart(2, '0')}h`;
+  return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 }
 
 export function shortTx(txHash?: string | null): string {

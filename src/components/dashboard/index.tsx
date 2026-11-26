@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { BarChart3, Globe, List, RotateCcw } from 'lucide-react';
 import { Tooltip } from '../daw/Tooltip';
-import { getNetworkLogo, type NetworkFilter } from '../../hooks/use-earnings';
+import { useChain } from '../../contexts/Network';
+import { activeNetworkFilters, getNetworkLogo, type NetworkFilter } from '../../hooks/use-earnings';
 import { BlockDropdown } from './dropdown';
 import { ActivityFeed } from './feed';
 import { SongsBlock } from './songs';
@@ -72,24 +73,18 @@ export function Earn({
     setFocusedBlock((prev) => (prev === id ? null : id));
   };
 
+  const { chains } = useChain();
   const networkOptions = useMemo<DropdownOption<NetworkFilter>[]>(
     () => [
-      { value: 'all', label: 'All', icon: Globe, tooltip: 'All supported networks' },
-      { value: 'base', label: 'Base', logoUrl: getNetworkLogo('base'), tooltip: 'Base L2 network' },
-      {
-        value: 'solana',
-        label: 'Solana',
-        logoUrl: getNetworkLogo('solana'),
-        tooltip: 'Solana network',
-      },
-      {
-        value: 'tempo',
-        label: 'Tempo',
-        logoUrl: getNetworkLogo('tempo'),
-        tooltip: 'Tempo network',
-      },
+      { value: 'all', label: 'All', icon: Globe, tooltip: 'All active networks' },
+      ...activeNetworkFilters(chains).map((item) => ({
+        value: item.family,
+        label: item.label,
+        logoUrl: item.logoUrl,
+        tooltip: `${item.label} network`,
+      })),
     ],
-    [],
+    [chains],
   );
 
   const viewSwitchOptions = useMemo<DropdownOption<'list' | 'charts'>[]>(
@@ -159,7 +154,6 @@ export function Earn({
         const rawGenres = [
           ...(Array.isArray(m.genres) ? m.genres : []),
           ...(Array.isArray(song.genres) ? song.genres : []),
-          ...(Array.isArray(song.tags) ? song.tags : []),
           m.primaryGenre || '',
         ]
           .flatMap((g) => (typeof g === 'string' ? g.split(',') : []))

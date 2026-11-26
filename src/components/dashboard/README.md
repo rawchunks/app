@@ -28,7 +28,7 @@ Built on **AG Grid Community v35** (`ag-grid-community` / `ag-grid-react`) and *
 
 ## 1. What We Built: Product & Analytical Overview
 
-In **`/my-page > EARN`**, creators can toggle between two complementary views of their published catalog:
+In **`/profile > EARN`**, creators can toggle between two complementary views of their published catalog:
 - **`LISTS`**: A release management table for editing track terms, inspecting license supply, and triggering quick actions.
 - **`CHARTS`** (`app/src/components/ag`): A high-density, real-time telemetry command center that answers four critical creator questions:
   1. **How much net profit am I earning over time, and from which revenue streams?** (`PROFIT` — net 80% creator royalties vs. 20% platform fee, filterable by `ALL SOURCES`, `STREAMS`, or `LICENSES`).
@@ -91,7 +91,7 @@ Rawchunks separates persistent state across three specialized PostgreSQL/Valkey 
 
 ```mermaid
 flowchart TB
-  subgraph Client["Frontend (/my-page > EARN > CHARTS)"]
+  subgraph Client["Frontend (/profile > EARN > CHARTS)"]
     HOOK["useCreatorEarnings (React Query, 15s poll)\n+ computeAggregatedEarnings"]
     AG["<Earn /> (app/src/components/ag)\nAgCharts + 3x AgGridReact"]
     HOOK --> AG
@@ -229,7 +229,7 @@ ChartsModuleRegistry.registerModules([ChartsCommunityModule]);
     6. `GENRE` (`width: 154px`, custom `cellRenderer` rendering `.cm-usage-modality` pill wrapped in a `Tooltip` listing all assigned genres when a track has multiple tags).
   - **Mobile (`focused && isMobile`)**: Appends `RATIO` (`width: 64px`) while keeping the row fit within narrow mobile viewports without horizontal overflow.
 - **Custom Header Tooltips**: Every column uses `headerComponent: AgHeaderTooltip` ([`dropdown.tsx`](./dropdown.tsx#L12-L30)) so hovering any column header (`SONG`, `PROFIT`, `PLAYS`, `STREAMED`, `RATIO`, `GENRE`) displays a concise explanation of the metric.
-- **Interactive DAW Playback**: Clicking a row in focused mode triggers `onRowClicked={handleSongRowClicked}`, which invokes `onSelectSong(song)` in [`mypage.tsx`](../../pages/mypage.tsx#L3692-L3699) to play or pause the track directly in the persistent bottom DAW player.
+- **Interactive DAW Playback**: Clicking a row in focused mode triggers `onRowClicked={handleSongRowClicked}`, which invokes `onSelectSong(song)` in [`profile.tsx`](../../pages/profile.tsx#L3692-L3699) to play or pause the track directly in the persistent bottom DAW player.
 
 ### 4.3 Pattern 2: Headerless Virtualized Receipt Feed (`ActivityFeed` — [`feed.tsx`](./feed.tsx))
 
@@ -265,7 +265,7 @@ When the user switches `SongsBlock` from `SONGS` to `BY GENRE`:
 
 ### 4.6 Spotlight Layout State Machine & Responsive Breakpoints
 
-The `.cm-dashboard` container in [`app/src/styles/mypage.css`](../../styles/mypage.css#L1822-L1880) uses CSS Grid template areas controlled by `data-focus`:
+The `.cm-dashboard` container in [`app/src/styles/profile.css`](../../styles/profile.css#L1822-L1880) uses CSS Grid template areas controlled by `data-focus`:
 
 - **Default Quad View (`data-focus` unset)**:
   - Left 3 columns (`75%` width): `TimelineChart` (`chart`) stacked above `SongsBlock` (`songs`).
@@ -280,14 +280,14 @@ The `.cm-dashboard` container in [`app/src/styles/mypage.css`](../../styles/mypa
 
 AG Grid v35 injects a runtime `.ag-theme-params-*` stylesheet onto `.ag-root-wrapper` that defaults to `-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto` at `14px`, and uses semi-transparent headers by default. To make AG Grid and AG Charts 100% indistinguishable from native Rawchunks DAW components:
 
-1. **Canonical Font & Size Tokens ([`mypage.css`](../../styles/mypage.css#L1822-L1855) & [`L3084-L3158`](../../styles/mypage.css#L3084-L3158))**:
+1. **Canonical Font & Size Tokens ([`profile.css`](../../styles/profile.css#L1822-L1855) & [`L3084-L3158`](../../styles/profile.css#L3084-L3158))**:
    - Mapped all `.cm-dashboard` typography variables directly to [`variables.css`](../../styles/variables.css):
      - `--cm-fs-micro`, `--cm-fs-sm`, `--cm-fs-body` $\rightarrow$ `var(--font-xs)` (`0.75rem` / `12px`)
      - `--cm-fs-title`, `--cm-fs-badge` $\rightarrow$ `var(--font-base)` (`1rem` / `16px`)
      - `--cm-fs-kpi` $\rightarrow$ `var(--font-lg)` (`1.25rem` / `20px`)
    - Enforced `--ag-font-family: var(--font-family) !important` (`'Courier New', Courier, monospace`) and `--ag-font-size: var(--font-xs) !important` on `.cm-ag-grid-wrap`, `.ag-root-wrapper`, `[class*="ag-theme-"]`, `.ag-header-cell-label`, and `.ag-cell`.
    - Passed `theme: { baseTheme: 'ag-default-dark', params: { fontFamily: "'Courier New', Courier, monospace", fontSize: 12 } }` to `AgCharts` in [`timeline.tsx`](./timeline.tsx#L49-L56).
-2. **Opaque Sticky Headers ([`mypage.css`](../../styles/mypage.css#L3115-L3130))**:
+2. **Opaque Sticky Headers ([`profile.css`](../../styles/profile.css#L3115-L3130))**:
    - Styled `.cm-ag-grid-wrap .ag-header` with an opaque `background: var(--surface-elevated) !important` and `z-index: 4` so scrolling song rows never bleed behind column headers (`SONG`, `PROFIT`, `PLAYS`).
 
 ---

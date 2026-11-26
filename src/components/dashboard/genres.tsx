@@ -58,18 +58,12 @@ export function GenreBadges({
         className={`cm-genre-badges${isMobile ? ' is-mobile' : ''}`}
         data-align={align}
       >
-        <span className="cm-usage-modality" title={firstGenre}>
+        <span className="cm-usage-modality cm-genre-badge-primary" title={firstGenre}>
           {firstGenre}
         </span>
-        {!isMobile &&
-          extraGenres.map((g) => (
-            <span key={g} className="cm-usage-modality cm-genre-badge-extra" title={g}>
-              {g}
-            </span>
-          ))}
         {extraGenres.length > 0 && (
           <span
-            className={`cm-usage-modality cm-genre-badge-overflow${isMobile ? ' force-show' : ''}`}
+            className="cm-usage-modality cm-genre-badge-overflow force-show"
             title={fullLabel}
           >
             +{extraGenres.length}
@@ -244,7 +238,7 @@ export function GenreBreakdown({
           >
             <div className="cm-modality-legend__item" title={s.genre}>
               <span className="cm-modality-legend__dot" style={{ background: s.color }} />
-              <span>{s.genre}</span>
+              <span className="cm-modality-legend__name">{s.genre}</span>
               <span style={{ color: 'var(--primary)', fontWeight: 700 }}>
                 {genreMetric === 'profit'
                   ? formatUsd(s.profitUsd)
