@@ -1,7 +1,7 @@
 // Shared step copy. Preparation lives with the component that owns each control.
 import type { GuideOwnerId } from "./registry";
-export type GuidePageId = "studio" | "mypage" | "market" | "editor";
-export type GuideFlowId = "welcome" | "studio" | "mypage" | "market" | "editor" | "funding" | "studio-vibe" | "studio-settings" | "studio-lyrics" | "studio-voice" | "studio-release-details" | "catalog" | "editor-selection" | "editor-ai" | "editor-takes" | "editor-keys" | "editor-drums" | "editor-code" | "editor-samples" | "editor-effects" | "editor-history";
+export type GuidePageId = "studio" | "profile" | "market" | "editor";
+export type GuideFlowId = "welcome" | "studio" | "profile" | "market" | "editor" | "funding" | "studio-vibe" | "studio-settings" | "studio-lyrics" | "studio-voice" | "studio-release-details" | "catalog" | "editor-selection" | "editor-ai" | "editor-takes" | "editor-keys" | "editor-drums" | "editor-code" | "editor-samples" | "editor-effects" | "editor-history";
 export interface GuideStep { id: string; title: string; description: string; target: string; owner: GuideOwnerId; alternate?: string[] }
 export interface GuideFlow { id: GuideFlowId; label: string; version: number; pages: GuidePageId[]; steps: GuideStep[] }
 export const GUIDE_STEPS: Record<string, GuideStep> = {
@@ -514,7 +514,7 @@ export const GUIDE_STEPS: Record<string, GuideStep> = {
   "R3": {
     "id": "R3",
     "title": "Work on the selection",
-    "description": "Move or resize the range with its handles. AUDITION plays it; EXTRACT and REWORK open the matching AI edit.",
+    "description": "Move or resize the range with its handles. AUDITION plays it; EXTRACT and EDIT open the matching AI action.",
     "target": "board.selection-actions",
     "owner": "board"
   },
@@ -548,9 +548,9 @@ export const GUIDE_STEPS: Record<string, GuideStep> = {
   },
   "I3": {
     "id": "I3",
-    "title": "Rework a section",
+    "title": "Edit a section",
     "description": "Choose how much to change the selected section. Crossfade controls its join with the surrounding audio.",
-    "target": "ai.rework-parameters",
+    "target": "ai.edit-parameters",
     "owner": "ai"
   },
   "I4": {
@@ -576,9 +576,9 @@ export const GUIDE_STEPS: Record<string, GuideStep> = {
   },
   "I7": {
     "id": "I7",
-    "title": "Restyle the audio",
-    "description": "Describe the new sound and adjust the blend with the source.",
-    "target": "ai.restyle-parameters",
+    "title": "Remix the audio",
+    "description": "Describe the new sound, choose a remix mode, and adjust how closely it keeps the original.",
+    "target": "ai.remix-parameters",
     "owner": "ai"
   },
   "I8": {
@@ -653,9 +653,9 @@ export const GUIDE_STEPS: Record<string, GuideStep> = {
   },
   "T8": {
     "id": "T8",
-    "title": "Keep or discard a Restyle",
-    "description": "Merge Restyle makes this version the new Master. Discard Restyle removes it and returns to Master.",
-    "target": "board.restyle-actions",
+    "title": "Keep or discard a Remix",
+    "description": "Merge Remix makes this version the new Master. Discard Remix removes it and returns to Master.",
+    "target": "board.remix-actions",
     "owner": "board"
   },
   "J1": {
@@ -878,7 +878,7 @@ const definitions: Array<Omit<GuideFlow, "steps"> & { stepIds: string[] }> = [
     "version": 2,
     "pages": [
       "studio",
-      "mypage",
+      "profile",
       "market",
       "editor"
     ],
@@ -910,11 +910,11 @@ const definitions: Array<Omit<GuideFlow, "steps"> & { stepIds: string[] }> = [
     ]
   },
   {
-    "id": "mypage",
+    "id": "profile",
     "label": "Workspace",
     "version": 2,
     "pages": [
-      "mypage"
+      "profile"
     ],
     "stepIds": [
       "W1",
@@ -960,7 +960,7 @@ const definitions: Array<Omit<GuideFlow, "steps"> & { stepIds: string[] }> = [
     "version": 2,
     "pages": [
       "studio",
-      "mypage",
+      "profile",
       "market",
       "editor"
     ],
@@ -1055,7 +1055,7 @@ const definitions: Array<Omit<GuideFlow, "steps"> & { stepIds: string[] }> = [
     "label": "Catalog and versions",
     "version": 2,
     "pages": [
-      "mypage",
+      "profile",
       "market"
     ],
     "stepIds": [
