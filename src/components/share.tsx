@@ -123,7 +123,7 @@ export const ShareUrlModal: React.FC<ShareUrlModalProps> = ({
                   type="button"
                   className="share-social-btn"
                   onClick={() => {
-                    void navigator.share({ url: cleanUrl }).catch(() => {});
+                    void navigator.share({ url: cleanUrl }).catch(() => { });
                   }}
                   aria-label="More"
                 >
@@ -234,7 +234,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, data })
       .then((blob) => {
         cardBlobRef.current = blob;
       })
-      .catch(() => {});
+      .catch(() => { });
     return promise;
   };
 
@@ -284,7 +284,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, data })
               <Tooltip title="Copy Track Link" description={shareUrl}>
                 <button
                   type="button"
-                  className="mypage-copy-btn share-spec-copy-btn"
+                  className="profile-copy-btn share-spec-copy-btn"
                   onClick={() => void copyValue(shareUrl, 'url', 'Track link')}
                   aria-label="Copy track link"
                 >
@@ -300,7 +300,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, data })
                 <Tooltip title="Copy Mint Transaction" description={data.txHash}>
                   <button
                     type="button"
-                    className="mypage-copy-btn share-spec-copy-btn"
+                    className="profile-copy-btn share-spec-copy-btn"
                     onClick={() => void copyValue(data.txHash!, 'tx', 'Transaction hash')}
                     aria-label="Copy transaction hash"
                   >
@@ -317,7 +317,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, data })
                 <Tooltip title="Copy Metadata CID" description={data.metadataCid}>
                   <button
                     type="button"
-                    className="mypage-copy-btn share-spec-copy-btn"
+                    className="profile-copy-btn share-spec-copy-btn"
                     onClick={() => void copyValue(data.metadataCid!, 'cid', 'Metadata CID')}
                     aria-label="Copy metadata CID"
                   >

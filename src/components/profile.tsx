@@ -421,11 +421,6 @@ export function resolveCreatorWallets(params: {
       const url = getExplorerUrl(chain.network, 'address', addr);
       if (url && url !== '#') explorerUrl = url;
     }
-    if (!explorerUrl) {
-      explorerUrl = isEvm
-        ? (mainnet ? `https://basescan.org/address/${addr}` : `https://sepolia.basescan.org/address/${addr}`)
-        : (mainnet ? `https://explorer.solana.com/address/${addr}` : `https://explorer.solana.com/address/${addr}?cluster=devnet`);
-    }
     return { address: addr, networkName, explorerUrl };
   };
 
@@ -444,7 +439,7 @@ export function resolveCreatorWallets(params: {
 }
 
 export interface CreatorProfileCardProps {
-  variant?: 'mypage' | 'creator' | 'connector' | 'editor-preview';
+  variant?: 'profile' | 'creator' | 'connector' | 'editor-preview';
   address?: string | null;
   addresses?: Iterable<string> | null;
   songs?: Array<{ creator?: string | null; network?: string | null }> | null;
@@ -467,10 +462,10 @@ export interface CreatorProfileCardProps {
 
 /**
  * Canonical Rawchunks Creator Identity Card.
- * Used identically across `/my-page`, `/:creator`, `AccountChip` connector modal, and `ProfileModal` live preview.
+ * Used identically across `/`, `/:creator`, `AccountChip` connector modal, and `ProfileModal` live preview.
  */
 export const CreatorProfileCard: React.FC<CreatorProfileCardProps> = ({
-  variant = 'mypage',
+  variant = 'profile',
   address,
   addresses,
   songs,
@@ -521,7 +516,7 @@ export const CreatorProfileCard: React.FC<CreatorProfileCardProps> = ({
   return (
     <div
       className={`creator-card-group variant-${variant} ${banner ? 'has-banner' : ''} ${onEdit ? 'is-editable' : ''} ${className}`.trim()}
-      data-guide={variant === 'mypage' ? 'mypage-profile' : undefined}
+      data-guide={variant === 'profile' ? 'profile-profile' : undefined}
     >
       {/* Scoped Banner Backdrop Layer */}
       <div
@@ -611,7 +606,7 @@ export const CreatorProfileCard: React.FC<CreatorProfileCardProps> = ({
 
         {/* Center Identity Stack */}
         <div className="creator-card-main">
-          {/* Row 1: Primary Name + Wallet External Links (/:creator) or Copy Icons (/my-page) + Preview */}
+          {/* Row 1: Primary Name + Wallet External Links (/:creator) or Copy Icons (/) + Preview */}
           <div className="creator-card-head-row">
             <div className="creator-card-title-cluster">
               <span className="creator-card-name">{primaryTitle}</span>

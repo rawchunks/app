@@ -23,7 +23,7 @@ import { store } from '../../lib/store';
 import { useProfile } from '../../hooks/use-profile';
 import { navigateToCreator, navigateToSong } from '../../lib/routes';
 import { NETWORK_LOGOS, networkLogo } from '../../contexts/Network';
-import { getExplorerUrl, getExplorerTxUrl } from '../../lib/chains';
+import { getChainByNetwork, getExplorerUrl, getExplorerTxUrl, isSolanaNetwork } from '../../lib/chains';
 import type { Song } from '../../lib/schema';
 
 /**
@@ -97,16 +97,13 @@ export const formatDuration = (secs?: number): string => {
 };
 
 /**
- * Human-readable full network name
+ * Human-readable full network name from the live facilitator chain registry
  */
 export const resolveNetworkName = (network?: string | null): string => {
   if (!network) return '';
-  if (network.includes('84532')) return 'Base Sepolia';
-  if (network.includes('8453')) return 'Base';
-  if (network.includes('42431')) return 'Tempo Moderato';
-  if (network.includes('4217')) return 'Tempo';
-  if (network.includes('EtWTRABZaYq6iMfeYKouRu166VU2xqa1')) return 'Solana Devnet';
-  if (network.startsWith('solana')) return 'Solana';
+  const registered = getChainByNetwork(network);
+  if (registered?.name) return registered.name;
+  if (isSolanaNetwork(network)) return 'Solana';
   return 'On-Chain';
 };
 
@@ -119,17 +116,13 @@ export const resolveTxUrl = (
   txUrl?: string | null
 ): string | null => {
   if (txUrl && txUrl.trim() !== '' && txUrl !== '#') return txUrl;
-  if (!txHash) return null;
-  if (network) {
-    try {
-      return getExplorerTxUrl(network as any, txHash);
-    } catch {
-      // fallback below
-    }
+  if (!txHash || !network) return null;
+  try {
+    const resolved = getExplorerTxUrl(network, txHash);
+    return resolved && resolved !== '#' ? resolved : null;
+  } catch {
+    return null;
   }
-  return txHash.startsWith('0x')
-    ? `https://basescan.org/tx/${txHash}`
-    : `https://explorer.solana.com/tx/${txHash}?cluster=devnet`;
 };
 
 /**
@@ -156,19 +149,14 @@ export const CreatorSlot: React.FC<{
 
   const displayName = nickname?.trim() || shortAddr;
 
-  let explorerUrl = '#';
+  let explorerUrl: string | null = null;
   if (network) {
     try {
-      explorerUrl = getExplorerUrl(network as any, 'address', address);
+      const resolved = getExplorerUrl(network, 'address', address);
+      if (resolved && resolved !== '#') explorerUrl = resolved;
     } catch {
-      explorerUrl = address.startsWith('0x')
-        ? `https://basescan.org/address/${address}`
-        : `https://explorer.solana.com/address/${address}?cluster=devnet`;
+      explorerUrl = null;
     }
-  } else {
-    explorerUrl = address.startsWith('0x')
-      ? `https://basescan.org/address/${address}`
-      : `https://explorer.solana.com/address/${address}?cluster=devnet`;
   }
 
   return (
@@ -201,18 +189,20 @@ export const CreatorSlot: React.FC<{
         </button>
       </Tooltip>
 
-      <Tooltip title="Creator's Address" description={address}>
-        <a
-          href={explorerUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="market-creator-link"
-          onClick={(e) => e.stopPropagation()}
-          aria-label="Creator's Address"
-        >
-          <ExternalLink size={12} />
-        </a>
-      </Tooltip>
+      {explorerUrl ? (
+        <Tooltip title="Creator's Address" description={address}>
+          <a
+            href={explorerUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="market-creator-link"
+            onClick={(e) => e.stopPropagation()}
+            aria-label="Creator's Address"
+          >
+            <ExternalLink size={12} />
+          </a>
+        </Tooltip>
+      ) : null}
     </div>
   );
 };
@@ -253,124 +243,124 @@ export const CoverArt: React.FC<{
   plays,
   topRightActions,
 }) => {
-  const [imgError, setImgError] = useState(false);
-  useEffect(() => {
-    setImgError(false);
-  }, [image, albumCover]);
-  const coverSrc =
-    !imgError && image && image.trim() !== ''
-      ? image
-      : !imgError && albumCover && albumCover.trim() !== ''
-        ? albumCover
-        : null;
+    const [imgError, setImgError] = useState(false);
+    useEffect(() => {
+      setImgError(false);
+    }, [image, albumCover]);
+    const coverSrc =
+      !imgError && image && image.trim() !== ''
+        ? image
+        : !imgError && albumCover && albumCover.trim() !== ''
+          ? albumCover
+          : null;
 
-  const netLogo = network ? NETWORK_LOGOS[network] || networkLogo(network) : null;
-  const netName = resolveNetworkName(network);
-  const finalTxUrl = resolveTxUrl(network, txHash, txUrl);
+    const netLogo = network ? NETWORK_LOGOS[network] || networkLogo(network) : null;
+    const netName = resolveNetworkName(network);
+    const finalTxUrl = resolveTxUrl(network, txHash, txUrl);
 
-  const displayDuration =
-    duration && duration > 0
-      ? duration
-      : isPlayingThis && store.getState().duration > 0
-        ? store.getState().duration
-        : undefined;
+    const displayDuration =
+      duration && duration > 0
+        ? duration
+        : isPlayingThis && store.getState().duration > 0
+          ? store.getState().duration
+          : undefined;
 
-  return (
-    <div className="market-card-media" data-guide="market-card-play">
-      {coverSrc ? (
-        <img
-          src={coverSrc}
-          alt={title}
-          className="market-card-cover-img"
-          loading="lazy"
-          onError={() => setImgError(true)}
-        />
-      ) : (
-        <div className="market-card-fallback-art">
-          <img src="/branding/mark.svg" alt="Rawchunks" className="market-card-fallback-logo" />
-        </div>
-      )}
+    return (
+      <div className="market-card-media" data-guide="market-card-play">
+        {coverSrc ? (
+          <img
+            src={coverSrc}
+            alt={title}
+            className="market-card-cover-img"
+            loading="lazy"
+            onError={() => setImgError(true)}
+          />
+        ) : (
+          <div className="market-card-fallback-art">
+            <img src="/branding/mark.svg" alt="Rawchunks" className="market-card-fallback-logo" />
+          </div>
+        )}
 
-      {/* Top Left: Verified Plays Counter (when > 0) */}
-      {typeof plays === 'number' && plays > 0 && (
-        <div className="market-card-plays-badge" title={`${plays} stream${plays === 1 ? '' : 's'}`}>
-          <Headphones size={12} />
-          <span>{plays >= 1000 ? `${(plays / 1000).toFixed(1)}k` : plays}</span>
-        </div>
-      )}
+        {/* Top Left: Verified Plays Counter (when > 0) */}
+        {typeof plays === 'number' && plays > 0 && (
+          <div className="market-card-plays-badge" title={`${plays} stream${plays === 1 ? '' : 's'}`}>
+            <Headphones size={12} />
+            <span>{plays >= 1000 ? `${(plays / 1000).toFixed(1)}k` : plays}</span>
+          </div>
+        )}
 
-      {/* Top Right: Network logo link (to mint tx) + custom actions */}
-      {(netLogo || topRightActions) && (
-        <div className="market-card-media-badge-right">
-          {netLogo && (
-            <Tooltip
-              title={netName || 'On-Chain'}
-              description={finalTxUrl ? 'View mint transaction' : 'Minted on-chain'}
-            >
-              {finalTxUrl ? (
-                <a
-                  href={finalTxUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="market-media-net-link"
-                  onClick={(e) => e.stopPropagation()}
-                  aria-label={`View mint transaction on ${netName || 'Explorer'}`}
-                >
-                  <img src={netLogo} alt={netName || 'Network'} className="market-card-media-net-logo" />
-                </a>
-              ) : (
-                <span className="market-media-net-badge">
-                  <img src={netLogo} alt={netName || 'Network'} className="market-card-media-net-logo" />
-                </span>
-              )}
-            </Tooltip>
-          )}
-          {topRightActions}
-        </div>
-      )}
+        {/* Top Right: Network logo link (to mint tx) + custom actions */}
+        {(netLogo || topRightActions) && (
+          <div className="market-card-media-badge-right">
+            {netLogo && (
+              <Tooltip
+                title={netName || 'On-Chain'}
+                description={finalTxUrl ? 'View mint transaction' : 'Minted on-chain'}
+              >
+                {finalTxUrl ? (
+                  <a
+                    href={finalTxUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="market-media-net-link"
+                    onClick={(e) => e.stopPropagation()}
+                    aria-label={`View mint transaction on ${netName || 'Explorer'}`}
+                  >
+                    <img src={netLogo} alt={netName || 'Network'} className="market-card-media-net-logo" />
+                  </a>
+                ) : (
+                  <span className="market-media-net-badge">
+                    <img src={netLogo} alt={netName || 'Network'} className="market-card-media-net-logo" />
+                  </span>
+                )}
+              </Tooltip>
+            )}
+            {topRightActions}
+          </div>
+        )}
 
-      {/* Play/Pause Hover Overlay */}
-      <div className={`market-card-play-overlay ${isPlayingThis ? 'is-playing' : ''}`}>
-        <Tooltip
-          title={isPlayingThis ? 'Pause' : 'Stream'}
-          description={isPlayingThis ? 'Pause streaming audio' : 'Stream track'}
-        >
-          <button
-            type="button"
-            data-guide="card.stream"
-            className={`market-overlay-play-btn ${isPlayingThis ? 'active' : ''}`}
-            onClick={(e) => {
-              e.stopPropagation();
-              onPlayToggle();
-            }}
-            aria-label={isPlayingThis ? 'Pause' : 'Stream'}
+        {/* Play/Pause Hover Overlay */}
+        <div className={`market-card-play-overlay ${isPlayingThis ? 'is-playing' : ''}`}>
+          <Tooltip
+            title={isPlayingThis ? 'Pause' : 'Stream'}
+            description={isPlayingThis ? 'Pause streaming audio' : 'Stream track'}
           >
-            {isPlayingThis ? <Pause size={15} /> : <Play size={15} className="market-play-icon-offset" />}
-          </button>
-        </Tooltip>
+            <button
+              type="button"
+              data-guide="card.stream"
+              className={`market-overlay-play-btn ${isPlayingThis ? 'active' : ''}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                onPlayToggle();
+              }}
+              aria-label={isPlayingThis ? 'Pause' : 'Stream'}
+            >
+              {isPlayingThis ? <Pause size={15} /> : <Play size={15} className="market-play-icon-offset" />}
+            </button>
+          </Tooltip>
+        </div>
+
+        {/* Bottom Left: Horizontal Version Switcher on the same row as duration */}
+        {versions && versions.length > 1 && selectedId && onSelectVersion && (
+          <div className="market-card-versions-badge" onClick={(e) => e.stopPropagation()}>
+            <Versions songs={versions} selected={selectedId} onSelect={onSelectVersion} />
+          </div>
+        )}
+
+        {/* Bottom Right: Duration Badge */}
+        {displayDuration !== undefined && displayDuration > 0 && (
+          <div
+            data-guide="card.version-status"
+            tabIndex={-1}
+            aria-label="Song version"
+            className="market-card-duration-badge"
+          >
+            {formatDuration(displayDuration)}
+          </div>
+        )}
       </div>
-
-      {/* Bottom Left: Horizontal Version Switcher on the same row as duration */}
-      {versions && versions.length > 1 && selectedId && onSelectVersion && (
-        <div className="market-card-versions-badge" onClick={(e) => e.stopPropagation()}>
-          <Versions songs={versions} selected={selectedId} onSelect={onSelectVersion} />
-        </div>
-      )}
-
-      {/* Bottom Right: Duration Badge */}
-      {displayDuration !== undefined && displayDuration > 0 && (
-        <div
-          data-guide="card.version-status"
-          tabIndex={-1}
-          aria-label="Song version"
-          className="market-card-duration-badge"
-        >
-          {formatDuration(displayDuration)}
-        </div>
-      )}
-    </div>
-  );
-};
+    );
+  };
 
 export interface CardProps {
   variant?: 'market';
@@ -474,10 +464,10 @@ export const Card: React.FC<CardProps> = ({
 
       {/* Market Streaming & Curation Menu */}
       {marketMenuOpen && (
-        <div className="mypage-menu-dropdown market-discovery-dropdown" onClick={(e) => e.stopPropagation()}>
+        <div className="profile-menu-dropdown market-discovery-dropdown" onClick={(e) => e.stopPropagation()}>
           <button
             type="button"
-            className="mypage-menu-item"
+            className="profile-menu-item"
             onClick={() => {
               store.addToQueue(song);
               setMarketMenuOpen(false);
@@ -489,7 +479,7 @@ export const Card: React.FC<CardProps> = ({
           {onAddToPlaylist && (
             <button
               type="button"
-              className="mypage-menu-item"
+              className="profile-menu-item"
               onClick={() => {
                 setMarketMenuOpen(false);
                 onAddToPlaylist(song);
@@ -502,7 +492,7 @@ export const Card: React.FC<CardProps> = ({
           {onShare && (
             <button
               type="button"
-              className="mypage-menu-item"
+              className="profile-menu-item"
               onClick={() => {
                 setMarketMenuOpen(false);
                 onShare(song);
@@ -519,13 +509,13 @@ export const Card: React.FC<CardProps> = ({
       <div className="market-card-body">
         {/* Zone 1: Title + Creator Identity */}
         <div className="market-card-identity">
-          <Tooltip title={song.title} description="Open track page" className="mypage-card-title-tooltip">
+          <Tooltip title={song.title} description="Open track page" className="profile-card-title-tooltip">
             <button
               type="button"
               className="market-card-row-title song-title-link"
               onClick={(e) => {
                 e.stopPropagation();
-                navigateToSong(creatorNickname?.trim() || song.creator, song.title);
+                navigateToSong(creatorNickname?.trim() || song.creator, song.title, song.id);
               }}
             >
               {song.title}
