@@ -322,3 +322,74 @@ export interface Event {
   edl?: Edl;
   wip?: Wip;
 }
+
+async function readJson<T>(res: Response, fallback: string): Promise<T> {
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(typeof data?.error === 'string' && data.error ? data.error : fallback);
+  }
+  return data as T;
+}
+
+async function readNdjson(
+  res: Response,
+  onEvent: (ev: Event) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(typeof data?.error === 'string' && data.error ? data.error : 'Request failed');
+  }
+  if (!res.body) throw new Error('Stream unavailable');
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+
+  const onAbort = () => {
+    void reader.cancel().catch(() => {});
+  };
+  if (signal) {
+    if (signal.aborted) {
+      onAbort();
+      reader.releaseLock();
+      return;
+    }
+    signal.addEventListener('abort', onAbort, { once: true });
+  }
+
+  try {
+    while (true) {
+      if (signal?.aborted) break;
+      const { value, done } = await reader.read();
+      if (done || signal?.aborted) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop() ?? '';
+      for (const line of lines) {
+        if (signal?.aborted) break;
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        try {
+          const parsed = JSON.parse(trimmed) as Event;
+          if (parsed.type === 'ping') continue;
+          onEvent(parsed);
+        } catch {
+          // Skip malformed chunk
+        }
+      }
+    }
+    const tail = buf.trim();
+    if (tail && !signal?.aborted) {
+      try {
+        const parsed = JSON.parse(tail) as Event;
+        if (parsed.type !== 'ping') onEvent(parsed);
+      } catch {
+        // ignore
+      }
+    }
+  } finally {
+    signal?.removeEventListener('abort', onAbort);
+    reader.releaseLock();
+  }
+}
