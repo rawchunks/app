@@ -393,3 +393,258 @@ async function readNdjson(
     reader.releaseLock();
   }
 }
+
+const VIDEO_BUNDLE_CACHE_PREFIX = 'video-bundle:';
+const inMemoryBundles = new Map<string, { score: Score; wip: Wip }>();
+const inFlightStemIsolation = new Map<string, Promise<any>>();
+
+export function createClientIdleWip(songId: string, quality: Quality = '720p'): Wip {
+  return {
+    songId,
+    rev: 0,
+    stage: 'idle',
+    quality,
+    updatedAt: 0,
+    plan: null,
+    messages: [],
+    previewUrl: null,
+    previewKey: null,
+    previewRev: 0,
+    masterResolution: null,
+    edl: null,
+    assemblyStale: false,
+    jobs: [],
+    error: null,
+  };
+}
+
+export function buildClientFallbackScore(song: Song): Score {
+  const durationSec = Math.max(5, Number(song.duration) > 0 ? Number(song.duration) : 120);
+  const bpm = 120;
+  const meter = 4;
+  const beatPeriod = 60 / bpm;
+  const barPeriod = beatPeriod * meter;
+  const beats: Beat[] = [];
+  const bars: Bar[] = [];
+  let beatIdx = 0;
+  for (let t = 0; t < durationSec; t += beatPeriod) {
+    const bar = Math.floor(beatIdx / meter);
+    const beatInBar = beatIdx % meter;
+    beats.push({
+      index: beatIdx,
+      bar,
+      beatInBar,
+      t: Math.round(t * 1000) / 1000,
+      strength: beatInBar === 0 ? 0.9 : 0.6,
+    });
+    beatIdx++;
+  }
+  const barCount = Math.max(1, Math.ceil(durationSec / barPeriod));
+  for (let b = 0; b < barCount; b++) {
+    const startSec = Math.round(b * barPeriod * 1000) / 1000;
+    const endSec = Math.round(Math.min(durationSec, (b + 1) * barPeriod) * 1000) / 1000;
+    bars.push({
+      index: b,
+      startSec,
+      endSec,
+      energy: 0.65,
+      centroidHz: 1500,
+      bandwidthHz: 1500,
+      flatness: 0.05,
+      chroma: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    });
+  }
+  const sectionCount = durationSec < 45 ? 2 : 4;
+  const sections: Structure[] = [];
+  for (let i = 0; i < sectionCount; i++) {
+    const startSec = Math.round(((durationSec * i) / sectionCount) * 1000) / 1000;
+    const endSec = Math.round(((durationSec * (i + 1)) / sectionCount) * 1000) / 1000;
+    const startBar = Math.floor(startSec / barPeriod);
+    const endBar = Math.max(startBar, Math.ceil(endSec / barPeriod) - 1);
+    const label = `Section ${i + 1}`;
+    sections.push({
+      id: `sec-${String(i + 1).padStart(2, '0')}`,
+      label,
+      tags: [],
+      cues: [],
+      startSec,
+      endSec,
+      startBar,
+      endBar,
+      energy: 0.65,
+      lyrics: [],
+    });
+  }
+  return {
+    songId: song.id,
+    title: song.title || 'Untitled',
+    prompt: '',
+    genres: Array.isArray(song.genres) ? song.genres : [],
+    mood: Array.isArray(song.mood) ? song.mood : [],
+    production: Array.isArray(song.production) ? song.production : [],
+    vocal: Array.isArray(song.vocal) ? song.vocal : [],
+    bpm,
+    pulseBpm: bpm,
+    meter,
+    keyScale: '',
+    vocalLanguage: '',
+    durationSec,
+    beats,
+    bars,
+    hits: [],
+    segments: [0],
+    sections,
+    tags: [],
+    vocalStemUrl: null,
+  };
+}
+
+export function readCachedVideoBundle(songId: string): { score: Score; wip: Wip } | null {
+  if (!songId) return null;
+  const mem = inMemoryBundles.get(songId);
+  if (mem) return mem;
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(`${VIDEO_BUNDLE_CACHE_PREFIX}${songId}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { score?: Score; wip?: Wip };
+    const firstBar = parsed?.score?.bars?.[0];
+    const hasLibrosaSchema =
+      Array.isArray(parsed?.score?.segments) &&
+      typeof firstBar?.centroidHz === 'number' &&
+      Array.isArray(firstBar?.chroma);
+    if (parsed?.score?.songId === songId && parsed?.wip?.songId === songId && hasLibrosaSchema) {
+      const entry = { score: parsed.score, wip: parsed.wip };
+      inMemoryBundles.set(songId, entry);
+      return entry;
+    }
+  } catch {
+    // ignore storage errors
+  }
+  return null;
+}
+
+export function writeCachedVideoBundle(songId: string, score: Score | null, wip: Wip | null): void {
+  if (!songId || !score || !wip) return;
+  const entry = { score, wip };
+  inMemoryBundles.set(songId, entry);
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(`${VIDEO_BUNDLE_CACHE_PREFIX}${songId}`, JSON.stringify(entry));
+  } catch {
+    // ignore quota errors
+  }
+}
+
+export function ensureSongStemsInBackground(
+  song: Song,
+  userAddress?: string,
+  onStemsReady?: (stems: any[]) => void,
+  signal?: AbortSignal
+): Promise<any> {
+  const addr = userAddress || song.creator || '';
+  const storageAddr = addr || 'public';
+  if (!song.id || !song.url || !addr) return Promise.resolve(null);
+
+  const cachedProject = readProject(song.id, storageAddr) ?? (song.creator ? readProject(song.id, song.creator) : null);
+  const alreadyHasCachedStems =
+    Array.isArray(cachedProject?.stems) &&
+    cachedProject.stems.some((s: any) => String(s?.name || '').toLowerCase() !== 'master' && Boolean(s?.url));
+  if (alreadyHasCachedStems && cachedProject?.stems) {
+    onStemsReady?.(cachedProject.stems);
+    return Promise.resolve({ status: 'ready', stems: cachedProject.stems });
+  }
+
+  const existing = inFlightStemIsolation.get(song.id);
+  if (existing) return existing;
+
+  const syncToDawAndCache = async (stems: any[]) => {
+    try {
+      if (useDawStore.getState().songId === song.id && Array.isArray(stems) && stems.length > 0) {
+        useDawStore.getState().syncStems(stems);
+      }
+      const histRes = await api.fetch(`/api/editing/history/${encodeURIComponent(song.id)}`, addr ? { userAddress: addr } : {});
+      if (histRes.ok) {
+        const history = await histRes.json();
+        const prev = readProject(song.id, storageAddr);
+        writeProject(
+          {
+            song: prev?.song ?? song,
+            stems: Array.isArray(history.stems) && history.stems.length > 0 ? history.stems : stems,
+            takes: Array.isArray(history.takes) ? history.takes : prev?.takes ?? [],
+            commits: Array.isArray(history.commits) ? history.commits : prev?.commits ?? [],
+            ...(prev?.session ? { session: prev.session } : {}),
+          },
+          storageAddr
+        );
+      }
+    } catch {
+      // non-fatal cache sync
+    }
+    onStemsReady?.(stems);
+  };
+
+  const task = (async () => {
+    try {
+      const res = await api.fetch('/api/editing/isolate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          songId: song.id,
+          userAddress: addr,
+          stemType: 'all',
+        }),
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (data.status === 'ready') {
+        if (Array.isArray(data.stems) && data.stems.length > 0) {
+          await syncToDawAndCache(data.stems);
+        }
+        return data;
+      }
+      if (data.taskId) {
+        const query = new URLSearchParams({
+          songId: song.id,
+          task: data.task || 'extract',
+          userAddress: addr,
+        });
+        const ctrl = new AbortController();
+        if (signal) {
+          signal.addEventListener('abort', () => ctrl.abort(), { once: true });
+        }
+        await watch(
+          `/api/editing/events/${encodeURIComponent(data.taskId)}?${query}`,
+          ctrl.signal,
+          async (ev) => {
+            if (!ev || !ev.status) return false;
+            if (ev.status === 'error') return true;
+            if (ev.status === 'ready') {
+              if (Array.isArray(ev.stems) && ev.stems.length > 0) {
+                await syncToDawAndCache(ev.stems);
+              }
+              return true;
+            }
+            return false;
+          },
+          { userAddress: addr }
+        );
+      }
+      return data;
+    } catch {
+      return null;
+    } finally {
+      inFlightStemIsolation.delete(song.id);
+    }
+  })();
+
+  inFlightStemIsolation.set(song.id, task);
+  return task;
+}
+
+export async function loadProject(songId: string): Promise<Bundle> {
+  const res = await api.fetch(`/api/video/wip/${encodeURIComponent(songId)}`, { method: 'GET' });
+  const bundle = await readJson<Bundle>(res, 'Could not load video project');
+  writeCachedVideoBundle(songId, bundle.score, bundle.wip);
+  return bundle;
+}
