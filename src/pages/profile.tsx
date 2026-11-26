@@ -47,8 +47,8 @@ import { Button } from '../components/button';
 import { Badge } from '../components/badge';
 import { Draft, type FinderViewMode } from '../components/songs/draft';
 import { Asset } from '../components/songs/asset';
-import { Earn } from '../components/ag';
-import { GenreBadges } from '../components/ag/genres';
+import { Earn } from '../components/dashboard';
+import { GenreBadges } from '../components/dashboard/genres';
 import { useLikes } from '../hooks/use-social';
 import {
   DATE_WINDOW_OPTIONS,
@@ -57,15 +57,17 @@ import {
   type DateWindow,
   type RevenueSourceFilter,
   type StatId,
-} from '../components/ag/utils';
+} from '../components/dashboard/utils';
 import { AlbumModal } from '../components/songs/album';
 import {
+  activeNetworkFilters,
   useCreatorEarnings,
   computeAggregatedEarnings,
   formatUsd,
   getNetworkLogo,
   type NetworkFilter,
 } from '../hooks/use-earnings';
+import { useChain } from '../contexts/Network';
 import { store, State } from '../lib/store';
 import { Song, Album, Playlist, Voice } from '../lib/schema';
 import { useSelectedUserAddress } from '../hooks/use-address';
@@ -112,8 +114,8 @@ import {
 } from '../lib/share';
 
 const MENU_IGNORE_SELECTORS = [
-  '.mypage-menu-wrap',
-  '.mypage-menu-dropdown',
+  '.profile-menu-wrap',
+  '.profile-menu-dropdown',
   '.market-view-select-wrap',
   '.guide-card',
   '.guide-portal-root',
@@ -219,7 +221,8 @@ export interface Props {
   className?: string;
 }
 
-export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className = '' }) => {
+export const Profile: React.FC<Props> = ({ onEditSong, onDirectVideo, className = '' }) => {
+  const { chains: activeChains } = useChain();
   const { readAddress, isReconnecting } =
     useSelectedUserAddress();
 
@@ -261,7 +264,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
   // Top-level Mode Switcher ('workspace' | 'earn') with sessionStorage memory & Finder View State
   const [activeTab, setActiveTab] = useState<'workspace' | 'earn'>(() => {
     try {
-      const saved = sessionStorage.getItem('mypage:tab');
+      const saved = sessionStorage.getItem('profile:tab');
       return saved === 'earn' ? 'earn' : 'workspace';
     } catch {
       return 'workspace';
@@ -269,7 +272,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
   });
   useEffect(() => {
     try {
-      sessionStorage.setItem('mypage:tab', activeTab);
+      sessionStorage.setItem('profile:tab', activeTab);
     } catch {
       // Ignore storage write errors
     }
@@ -287,7 +290,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
   const [earnSortDropdownOpen, setEarnSortDropdownOpen] = useState(false);
   const [earnView, setEarnView] = useState<'list' | 'charts'>(() => {
     try {
-      const saved = sessionStorage.getItem('mypage:earnView');
+      const saved = sessionStorage.getItem('profile:earnView');
       return saved === 'charts' ? 'charts' : 'list';
     } catch {
       return 'list';
@@ -295,7 +298,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
   });
   useEffect(() => {
     try {
-      sessionStorage.setItem('mypage:earnView', earnView);
+      sessionStorage.setItem('profile:earnView', earnView);
     } catch {
       // Ignore storage write errors
     }
@@ -1180,7 +1183,12 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
       toast.error('Add tracks to play this album.');
       return;
     }
-    void store.playCollection(resolved, `album:${album.id}`, album.id);
+    void store.playCollection(resolved, `album:${album.id}`, null, {
+      domain: 'album',
+      id: `album:${album.id}`,
+      label: album.title,
+      isPrivate: resolved.every((s) => !s.public),
+    });
   };
 
   const handleCreatePlaylist = async (e: React.FormEvent) => {
@@ -1257,7 +1265,12 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
       toast.error('Add tracks from /market to play this playlist.');
       return;
     }
-    void store.playCollection(resolved, `playlist:${playlist.id}`, playlist.id);
+    void store.playCollection(resolved, `playlist:${playlist.id}`, playlist.id, {
+      domain: 'playlist',
+      id: `playlist:${playlist.id}`,
+      label: playlist.title,
+      isPrivate: !playlist.public && resolved.every((s) => !s.public),
+    });
   };
 
   const resolveVoiceAudioUrl = (voice: Voice): string => {
@@ -1310,7 +1323,12 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
         stream_price: 0,
         license_price: 0,
       };
-      store.setActiveSong(voiceSong, [voiceSong], voice.id, voice.id, true);
+      store.setActiveSong(voiceSong, [voiceSong], null, `voice:${voice.id}`, true, {
+        domain: 'workspace',
+        id: `voice:${voice.id}`,
+        label: `Voice · ${voice.name}`,
+        isPrivate: true,
+      });
       if (onsetSec > 0.25) {
         store.setPlayhead(onsetSec);
       }
@@ -1401,16 +1419,28 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
         isPlayingThis={isPlayingThis}
         onPlayToggle={() => {
           if (isPlayingThis) {
-            store.setPlaying(false);
+            void store.setPlaying(false);
           } else {
-            store.playSong(song, state.songs, null);
+            const contextList = isRemixLicensed
+              ? [...filteredRemixSongs, ...filteredUnforkedLicensedSongs]
+              : filteredSortedFamilies.map((vers) => {
+                const fk = vers[0].family ?? vers[0].id;
+                return vers.find((item) => item.id === selected[fk]) ?? vers[0];
+              });
+            const ctxId = isRemixLicensed ? 'workspace:licenses' : 'workspace:drafts';
+            void store.playSong(song, contextList, null, ctxId, false, {
+              domain: 'workspace',
+              id: ctxId,
+              label: isRemixLicensed ? 'Workspace · Licenses' : 'Workspace · Drafts',
+              isPrivate: !isRemixLicensed || contextList.every((item) => !item.public),
+            });
           }
         }}
         onSelectVersion={(v) => {
           setSelected((current) => ({ ...current, [family]: v.id }));
           setMenuOpenId(null);
           if (versions.some((item) => item.id === state.activeSong?.id)) {
-            store.setActiveSong(v);
+            store.setActiveSong(v, undefined, null, isRemixLicensed ? 'workspace:licenses' : 'workspace:drafts');
           }
         }}
         isMenuOpen={menuOpenId === song.id}
@@ -1494,9 +1524,14 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
         }}
         onPlayToggle={() => {
           if (isPlayingThis) {
-            store.setPlaying(false);
+            void store.setPlaying(false);
           } else {
-            store.playSong(song, state.songs, null);
+            void store.playSong(song, filteredEarnSongs, null, 'workspace:published', false, {
+              domain: 'workspace',
+              id: 'workspace:published',
+              label: 'Workspace · Published',
+              isPrivate: false,
+            });
           }
         }}
         onDirectVideo={(s) => {
@@ -1522,19 +1557,19 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
   };
 
   return (
-    <div className={`mypage-container ${className}`}>
+    <div className={`profile-container ${className}`}>
       {/* Page Header + Workspace Snap-Stage Indicator Pills */}
-      <div className="mypage-header">
-        <div className="mypage-header-left">
-          <div className="mypage-title-cluster">
-            <Glitch text="MY_PAGE" className="mypage-title-text" />
+      <div className="profile-header">
+        <div className="profile-header-left">
+          <div className="profile-title-cluster">
+            <Glitch text="MY_PAGE" className="profile-title-text" />
             <Tooltip
               title="Preview Public Creator Profile"
               description="Open your public /creator studio page"
             >
               <button
                 type="button"
-                className="mypage-vault-pill public mypage-preview-btn"
+                className="profile-vault-pill public profile-preview-btn"
                 onClick={() => {
                   const handle = sanitizedNickname || activeAddress;
                   if (handle) {
@@ -1546,11 +1581,11 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                 aria-label="Preview Public Profile"
               >
                 <Globe size={11} />
-                <span className="mypage-preview-label">PREVIEW</span>
+                <span className="profile-preview-label">PREVIEW</span>
               </button>
             </Tooltip>
           </div>
-          <div className="mypage-subtitle">
+          <div className="profile-subtitle">
             {activeTab === 'workspace'
               ? `YOUR WORKSPACE`
               : `YOUR CREATOR DASHBOARD`}
@@ -1600,9 +1635,9 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
 
       {/* SECTION (i): Profile Header */}
       {activeAddress ? (
-        <div className="mypage-profile-bar">
+        <div className="profile-profile-bar">
           <CreatorProfileCard
-            variant="mypage"
+            variant="profile"
             address={activeAddress}
             songs={publishedSongsList}
             nickname={nickname}
@@ -1613,19 +1648,19 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
             onEdit={() => setProfileModalOpen(true)}
           />
 
-          <div className="mypage-profile-right">
-            <div className="mypage-profile-mode-tabs" role="tablist" aria-label="Creator page mode">
+          <div className="profile-profile-right">
+            <div className="profile-profile-mode-tabs" role="tablist" aria-label="Creator page mode">
               {activeTab === 'workspace' ? (
                 <button
                   type="button"
                   role="tab"
                   aria-selected={true}
-                  className="mypage-profile-mode-tab active"
+                  className="profile-profile-mode-tab active"
                   onClick={() => setActiveTab('workspace')}
                   aria-label="Workspace"
                 >
                   <Briefcase size={12} />
-                  <span className="mypage-tab-label">WORKSPACE</span>
+                  <span className="profile-tab-label">WORKSPACE</span>
                 </button>
               ) : (
                 <Tooltip title="Go to WORKSPACE (Private Drafts, Stems & Voices)">
@@ -1633,12 +1668,12 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                     type="button"
                     role="tab"
                     aria-selected={false}
-                    className="mypage-profile-mode-tab"
+                    className="profile-profile-mode-tab"
                     onClick={() => setActiveTab('workspace')}
                     aria-label="Go to WORKSPACE"
                   >
                     <Briefcase size={12} />
-                    <span className="mypage-tab-label">WORKSPACE</span>
+                    <span className="profile-tab-label">WORKSPACE</span>
                   </button>
                 </Tooltip>
               )}
@@ -1648,12 +1683,12 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                   type="button"
                   role="tab"
                   aria-selected={true}
-                  className="mypage-profile-mode-tab active"
+                  className="profile-profile-mode-tab active"
                   onClick={() => setActiveTab('earn')}
                   aria-label="Earn"
                 >
                   <TrendingUp size={12} />
-                  <span className="mypage-tab-label">EARN</span>
+                  <span className="profile-tab-label">EARN</span>
                 </button>
               ) : (
                 <Tooltip title="Go to EARN (Published Releases & On-Chain Royalties)">
@@ -1661,12 +1696,12 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                     type="button"
                     role="tab"
                     aria-selected={false}
-                    className="mypage-profile-mode-tab"
+                    className="profile-profile-mode-tab"
                     onClick={() => setActiveTab('earn')}
                     aria-label="Go to EARN"
                   >
                     <TrendingUp size={12} />
-                    <span className="mypage-tab-label">EARN</span>
+                    <span className="profile-tab-label">EARN</span>
                   </button>
                 </Tooltip>
               )}
@@ -1674,24 +1709,24 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
           </div>
         </div>
       ) : (
-        <div className="mypage-profile-card">
-          <div className="mypage-profile-left">
-            <div className="mypage-profile-avatar-placeholder">
+        <div className="profile-profile-card">
+          <div className="profile-profile-left">
+            <div className="profile-profile-avatar-placeholder">
               <User size={20} />
             </div>
-            <div className="mypage-profile-details">
-              <div className="mypage-profile-nickname-row">
-                <span className="mypage-profile-nickname">
+            <div className="profile-profile-details">
+              <div className="profile-profile-nickname-row">
+                <span className="profile-profile-nickname">
                   {isReconnecting ? 'RECONNECTING...' : 'CONNECT YOUR ACCOUNT'}
                 </span>
               </div>
-              <p className="mypage-profile-bio">
+              <p className="profile-profile-bio">
                 Sign in with Google, Email, Passkey, or Wallet to customize your creator profile and manage your tracks, licenses, albums, and voices.
               </p>
             </div>
           </div>
           {!isReconnecting && (
-            <div className="mypage-profile-stats">
+            <div className="profile-profile-stats">
               <Button
                 variant="primary"
                 size="sm"
@@ -1708,7 +1743,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
         <div
           ref={workspaceDeckRef}
           className="workspace-snap-deck"
-          data-guide="mypage-sections"
+          data-guide="profile-sections"
           onScroll={handleWorkspaceDeckScroll}
           onWheel={handleWorkspaceWheel}
           onTouchStart={handleWorkspaceTouchStart}
@@ -1721,7 +1756,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
             data-stage="songs"
             aria-label="My Songs"
           >
-            <div className="mypage-section workspace-stage-panel">
+            <div className="profile-section workspace-stage-panel">
               <div
                 className={`board-section-separator workspace-stage-header ${mobileSearchOpen || Boolean(songSearch) ? 'search-open' : ''}`}
                 data-guide="workspace.songs-heading"
@@ -1729,23 +1764,23 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                 <div className="board-section-left">
                   <span className="market-stage-num">01</span>
                   <Lock size={12} />
-                  <span className="mypage-section-title">MY SONGS</span>
+                  <span className="profile-section-title">MY SONGS</span>
                   <span className="board-section-badge">{filteredSortedFamilies.length}</span>
                 </div>
 
                 {workspaceFamilies.length > 0 && (
                   <div
-                    className="board-section-actions mypage-header-controls"
+                    className="board-section-actions profile-header-controls"
                     onClick={(e) => e.stopPropagation()}
                     onKeyDown={(e) => e.stopPropagation()}
                   >
                     {/* Expandable Search */}
                     <div
-                      className={`mypage-header-search ${mobileSearchOpen || Boolean(songSearch) ? 'expanded' : ''}`}
+                      className={`profile-header-search ${mobileSearchOpen || Boolean(songSearch) ? 'expanded' : ''}`}
                     >
                       <button
                         type="button"
-                        className="mypage-header-search-toggle"
+                        className="profile-header-search-toggle"
                         onClick={() => {
                           setMobileSearchOpen((prev) => {
                             const next = !prev;
@@ -1762,7 +1797,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                       <input
                         ref={searchInputRef}
                         type="text"
-                        className="mypage-header-search-input"
+                        className="profile-header-search-input"
                         placeholder="Search drafts..."
                         value={songSearch}
                         onChange={(e) => setSongSearch(e.target.value)}
@@ -1770,7 +1805,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                       {(songSearch || mobileSearchOpen) && (
                         <button
                           type="button"
-                          className="mypage-header-search-clear"
+                          className="profile-header-search-clear"
                           onClick={() => {
                             setSongSearch('');
                             setMobileSearchOpen(false);
@@ -1784,10 +1819,10 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
 
                     {/* Mobile Collections Filter Dropdown (shown in Columns view on mobile) */}
                     {finderView === 'columns' && (
-                      <div className="market-view-select-wrap mypage-mobile-col-filter">
+                      <div className="market-view-select-wrap profile-mobile-col-filter">
                         <button
                           type="button"
-                          className={`mypage-header-trigger ${columnFolderDropdownOpen ? 'open' : ''}`}
+                          className={`profile-header-trigger ${columnFolderDropdownOpen ? 'open' : ''}`}
                           onClick={() => {
                             setViewDropdownOpen(false);
                             setSortDropdownOpen(false);
@@ -1806,7 +1841,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                           ) : (
                             <Disc3 size={12} />
                           )}
-                          <span className="mypage-dropdown-label">
+                          <span className="profile-dropdown-label">
                             {columnFolder === 'all'
                               ? 'ALL DRAFTS'
                               : columnFolder === 'multi'
@@ -1823,7 +1858,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                         </button>
 
                         {columnFolderDropdownOpen && (
-                          <div className="market-popover-menu mypage-header-popover">
+                          <div className="market-popover-menu profile-header-popover">
                             <div className="market-popover-list" role="listbox">
                               <button
                                 type="button"
@@ -1943,7 +1978,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                     <div className="market-view-select-wrap finder-mobile-view-select">
                       <button
                         type="button"
-                        className={`mypage-header-trigger ${viewDropdownOpen ? 'open' : ''}`}
+                        className={`profile-header-trigger ${viewDropdownOpen ? 'open' : ''}`}
                         onClick={() => {
                           setSortDropdownOpen(false);
                           setColumnFolderDropdownOpen(false);
@@ -1960,7 +1995,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                         ) : (
                           <LayoutGrid size={12} />
                         )}
-                        <span className="mypage-dropdown-label">
+                        <span className="profile-dropdown-label">
                           {finderView === 'list'
                             ? 'LIST'
                             : finderView === 'columns'
@@ -1971,7 +2006,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                       </button>
 
                       {viewDropdownOpen && (
-                        <div className="market-popover-menu mypage-header-popover">
+                        <div className="market-popover-menu profile-header-popover">
                           <div className="market-popover-list" role="listbox">
                             <button
                               type="button"
@@ -2021,7 +2056,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                     <div className="market-view-select-wrap">
                       <button
                         type="button"
-                        className={`mypage-header-trigger ${sortDropdownOpen ? 'open' : ''}`}
+                        className={`profile-header-trigger ${sortDropdownOpen ? 'open' : ''}`}
                         onClick={() => {
                           setViewDropdownOpen(false);
                           setSortDropdownOpen((prev) => !prev);
@@ -2039,7 +2074,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                         ) : (
                           <Clock size={11} />
                         )}
-                        <span className="mypage-dropdown-label">
+                        <span className="profile-dropdown-label">
                           {songSort === 'date'
                             ? 'BY DATE'
                             : songSort === 'added'
@@ -2052,7 +2087,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                       </button>
 
                       {sortDropdownOpen && (
-                        <div className="market-popover-menu mypage-header-popover">
+                        <div className="market-popover-menu profile-header-popover">
                           <div className="market-popover-list" role="listbox">
                             <button
                               type="button"
@@ -2114,12 +2149,12 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                 )}
               </div>
 
-              <div className="mypage-section-body workspace-stage-content">
+              <div className="profile-section-body workspace-stage-content">
                 {error && originalSongs.length > 0 && <div role="alert">{error}</div>}
 
                 {workspaceFamilies.length === 0 ? (
-                  <div className="mypage-empty">
-                    <span className="mypage-empty-title">
+                  <div className="profile-empty">
+                    <span className="profile-empty-title">
                       {error
                         ? 'COULD NOT LOAD SONGS'
                         : loading || isReconnecting
@@ -2130,7 +2165,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                               : 'NO DRAFTS YET'
                             : 'LOGIN OR CONNECT YOUR WALLET'}
                     </span>
-                    <span className="mypage-empty-desc">
+                    <span className="profile-empty-desc">
                       {error ??
                         (loading || isReconnecting
                           ? 'Loading your workspace…'
@@ -2148,8 +2183,8 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                     )}
                   </div>
                 ) : filteredSortedFamilies.length === 0 && finderView !== 'columns' ? (
-                  <div className="mypage-empty">
-                    <span className="mypage-empty-title">NO MATCHING DRAFTS</span>
+                  <div className="profile-empty">
+                    <span className="profile-empty-title">NO MATCHING DRAFTS</span>
                   </div>
                 ) : finderView === 'columns' ? (
                   /* macOS Finder 3-Pane Miller Column Browser */
@@ -2284,7 +2319,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                     </div>
                   </div>
                 ) : songSort === 'date' ? (
-                  <div className="mypage-horizons-stack">
+                  <div className="profile-horizons-stack">
                     {horizonFolds.map((horizon) => {
                       const isHorizonCollapsed = Boolean(collapsedHorizons[horizon.key]);
                       const horizonEdits = horizon.families.reduce(
@@ -2292,10 +2327,10 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                         0
                       );
                       return (
-                        <div key={horizon.key} className="mypage-horizon-group">
+                        <div key={horizon.key} className="profile-horizon-group">
                           <button
                             type="button"
-                            className={`mypage-horizon-header ${isHorizonCollapsed ? 'collapsed' : ''}`}
+                            className={`profile-horizon-header ${isHorizonCollapsed ? 'collapsed' : ''}`}
                             onClick={() =>
                               setCollapsedHorizons((prev) => ({
                                 ...prev,
@@ -2305,10 +2340,10 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                             aria-expanded={!isHorizonCollapsed}
                           >
                             <ChevronDown size={12} className="board-section-chevron" />
-                            <span className="mypage-horizon-label">{horizon.label}</span>
+                            <span className="profile-horizon-label">{horizon.label}</span>
                             <span className="board-section-badge">{horizon.families.length}</span>
                             {horizonEdits > 0 && (
-                              <span className="mypage-horizon-edits-badge">
+                              <span className="profile-horizon-edits-badge">
                                 <GitBranch size={10} />
                                 <span>{horizonEdits}</span>
                               </span>
@@ -2335,7 +2370,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                 )}
 
                 {hasMoreSongs && (
-                  <div className="mypage-load-more-row">
+                  <div className="profile-load-more-row">
                     <Button
                       variant="secondary"
                       size="sm"
@@ -2369,7 +2404,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
             data-stage="licenses"
             aria-label="My Licenses"
           >
-            <div className="mypage-section workspace-stage-panel">
+            <div className="profile-section workspace-stage-panel">
               <div
                 className="board-section-separator workspace-stage-header"
                 data-guide="workspace.licenses-heading"
@@ -2377,27 +2412,27 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                 <div className="board-section-left">
                   <span className="market-stage-num">02</span>
                   <KeyRound size={12} />
-                  <span className="mypage-section-title">MY LICENSES</span>
+                  <span className="profile-section-title">MY LICENSES</span>
                   <span className="board-section-badge">{totalLicensesCount}</span>
                 </div>
 
                 {totalLicensesCount > 0 && (
                   <div
-                    className="board-section-actions mypage-header-controls"
+                    className="board-section-actions profile-header-controls"
                     onClick={(e) => e.stopPropagation()}
                     onKeyDown={(e) => e.stopPropagation()}
                   >
-                    <div className={`mypage-header-search ${licenseSearch ? 'expanded' : ''}`}>
+                    <div className={`profile-header-search ${licenseSearch ? 'expanded' : ''}`}>
                       <button
                         type="button"
-                        className="mypage-header-search-toggle"
+                        className="profile-header-search-toggle"
                         aria-label="Search licenses"
                       >
                         <Search size={12} />
                       </button>
                       <input
                         type="text"
-                        className="mypage-header-search-input"
+                        className="profile-header-search-input"
                         placeholder="Search licenses..."
                         value={licenseSearch}
                         onChange={(e) => setLicenseSearch(e.target.value)}
@@ -2405,7 +2440,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                       {licenseSearch && (
                         <button
                           type="button"
-                          className="mypage-header-search-clear"
+                          className="profile-header-search-clear"
                           onClick={() => setLicenseSearch('')}
                           aria-label="Clear search"
                         >
@@ -2417,16 +2452,16 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                 )}
               </div>
 
-              <div className="mypage-section-body workspace-stage-content">
+              <div className="profile-section-body workspace-stage-content">
                 {(publicSongsError || licensed.error) && (
                   <div role="alert">{(publicSongsError || licensed.error)?.message}</div>
                 )}
                 {totalLicensesCount === 0 ? (
-                  <div className="mypage-empty">
-                    <span className="mypage-empty-title">
+                  <div className="profile-empty">
+                    <span className="profile-empty-title">
                       {licensed.loading ? 'LOADING LICENSES…' : 'NO LICENSES PURCHASED'}
                     </span>
-                    <span className="mypage-empty-desc">
+                    <span className="profile-empty-desc">
                       {licensed.loading
                         ? 'Retrieving your on-chain licenses…'
                         : 'Licenses you purchase in the Market will appear here for remixing and stem extraction.'}
@@ -2434,8 +2469,8 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                   </div>
                 ) : filteredRemixSongs.length === 0 &&
                   filteredUnforkedLicensedSongs.length === 0 ? (
-                  <div className="mypage-empty">
-                    <span className="mypage-empty-title">NO MATCHING LICENSES</span>
+                  <div className="profile-empty">
+                    <span className="profile-empty-title">NO MATCHING LICENSES</span>
                   </div>
                 ) : (
                   <div className="market-grid">
@@ -2470,12 +2505,12 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
             data-stage="catalog"
             aria-label="Catalog and Voices"
           >
-            <div className="mypage-section workspace-stage-panel workspace-catalog-stage">
+            <div className="profile-section workspace-stage-panel workspace-catalog-stage">
               <div className="board-section-separator workspace-stage-header">
                 <div className="board-section-left">
                   <span className="market-stage-num">03</span>
                   <Layers size={12} />
-                  <span className="mypage-section-title">CATALOG</span>
+                  <span className="profile-section-title">CATALOG</span>
                   <span className="board-section-badge">
                     {albums.length + myPlaylists.length + voices.length}
                   </span>
@@ -2537,7 +2572,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                       <Tooltip title="Create Album in Album Studio">
                         <button
                           type="button"
-                          className="mypage-header-icon-btn"
+                          className="profile-header-icon-btn"
                           onClick={() => {
                             setEditingAlbum(null);
                             setAlbumStudioOpen(true);
@@ -2552,13 +2587,13 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
 
                   <div className="workspace-rack-body">
                     {loadingAlbums ? (
-                      <div className="mypage-empty">
-                        <span className="mypage-empty-title">LOADING ALBUMS...</span>
+                      <div className="profile-empty">
+                        <span className="profile-empty-title">LOADING ALBUMS...</span>
                       </div>
                     ) : albums.length === 0 ? (
-                      <div className="mypage-empty">
-                        <span className="mypage-empty-title">NO ALBUMS CREATED YET</span>
-                        <span className="mypage-empty-desc">
+                      <div className="profile-empty">
+                        <span className="profile-empty-title">NO ALBUMS CREATED YET</span>
+                        <span className="profile-empty-desc">
                           Bundle tracks with AI cover art, liner notes, and visual booklet plates.
                         </span>
                         {activeAddress && (
@@ -2727,7 +2762,12 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                                             type="button"
                                             className={`market-playlist-track-row ${isPlayingTrack ? 'active' : ''}`}
                                             onClick={() =>
-                                              store.playSong(s, resolvedSongs, album.id)
+                                              void store.playSong(s, resolvedSongs, null, `album:${album.id}`, false, {
+                                                domain: 'album',
+                                                id: `album:${album.id}`,
+                                                label: album.title,
+                                                isPrivate: resolvedSongs.every((item) => !item.public),
+                                              })
                                             }
                                           >
                                             <span className="market-playlist-track-idx">
@@ -2773,7 +2813,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                     </div>
 
                     <div
-                      className="mypage-header-controls"
+                      className="profile-header-controls"
                       onClick={(e) => e.stopPropagation()}
                       onKeyDown={(e) => e.stopPropagation()}
                     >
@@ -2781,12 +2821,12 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                         <>
                           {showCreatePlaylistInput ? (
                             <form
-                              className="mypage-header-inline-create"
+                              className="profile-header-inline-create"
                               onSubmit={handleCreatePlaylist}
                             >
                               <input
                                 type="text"
-                                className="mypage-header-search-input"
+                                className="profile-header-search-input"
                                 placeholder="Playlist title..."
                                 value={newPlaylistName}
                                 onChange={(e) => setNewPlaylistName(e.target.value)}
@@ -2795,7 +2835,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                               />
                               <button
                                 type="submit"
-                                className="mypage-header-icon-btn primary"
+                                className="profile-header-icon-btn primary"
                                 disabled={creatingPlaylist || !newPlaylistName.trim()}
                                 aria-label="Create playlist"
                               >
@@ -2803,7 +2843,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                               </button>
                               <button
                                 type="button"
-                                className="mypage-header-icon-btn"
+                                className="profile-header-icon-btn"
                                 onClick={() => {
                                   setShowCreatePlaylistInput(false);
                                   setNewPlaylistName('');
@@ -2817,7 +2857,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                             <Tooltip title="New Playlist">
                               <button
                                 type="button"
-                                className="mypage-header-icon-btn"
+                                className="profile-header-icon-btn"
                                 onClick={() => setShowCreatePlaylistInput(true)}
                                 aria-label="New playlist"
                               >
@@ -2859,7 +2899,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                   <div className="workspace-rack-body">
                     <div className="market-playlists-crate-grid">
                       {/* Pinned Top: LIKED TRACKS */}
-                      <div className="mypage-liked-crate-wrap">
+                      <div className="profile-liked-crate-wrap">
                         <div
                           className={`market-liked-crate ${state.isPlaying && state.activeContextId === 'liked-crate' && !state.activePlaylistId ? 'is-playing' : ''}`}
                           onClick={() =>
@@ -2965,13 +3005,13 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                       </div>
 
                       {loadingPlaylists ? (
-                        <div className="mypage-empty">
-                          <span className="mypage-empty-title">LOADING...</span>
+                        <div className="profile-empty">
+                          <span className="profile-empty-title">LOADING...</span>
                         </div>
                       ) : visibleMyPlaylists.length === 0 ? (
-                        <div className="mypage-empty">
-                          <span className="mypage-empty-title">NO PLAYLISTS YET</span>
-                          <span className="mypage-empty-desc">
+                        <div className="profile-empty">
+                          <span className="profile-empty-title">NO PLAYLISTS YET</span>
+                          <span className="profile-empty-desc">
                             Curate private or public playlists from your catalog and Market tracks.
                           </span>
                         </div>
@@ -3161,8 +3201,8 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
 
                   <div className="workspace-rack-body">
                     {voicesError && (
-                      <div className="mypage-empty" role="alert">
-                        <span className="mypage-empty-desc">{voicesError}</span>
+                      <div className="profile-empty" role="alert">
+                        <span className="profile-empty-desc">{voicesError}</span>
                         <Tooltip title="Retry Loading Voices">
                           <Button
                             variant="ghost"
@@ -3177,13 +3217,13 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                       </div>
                     )}
                     {loadingVoices ? (
-                      <div className="mypage-empty">
-                        <span className="mypage-empty-title">LOADING VOICES...</span>
+                      <div className="profile-empty">
+                        <span className="profile-empty-title">LOADING VOICES...</span>
                       </div>
                     ) : !voicesError && voices.length === 0 ? (
-                      <div className="mypage-empty">
-                        <span className="mypage-empty-title">NO CUSTOM VOICES</span>
-                        <span className="mypage-empty-desc">
+                      <div className="profile-empty">
+                        <span className="profile-empty-title">NO CUSTOM VOICES</span>
+                        <span className="profile-empty-desc">
                           Attach a vocal sample in the Studio or save a voice from one of your
                           songs.
                         </span>
@@ -3216,7 +3256,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                                 />
 
                                 {voice.status !== 'ready' && (
-                                  <div className="mypage-voice-status-badge">
+                                  <div className="profile-voice-status-badge">
                                     <Badge
                                       variant={voice.status === 'error' ? 'warning' : 'default'}
                                     >
@@ -3243,28 +3283,28 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                                   {voice.name}
                                 </div>
 
-                                {(['turbo', 'sft'] as const).map((mode) => {
-                                  const availability = voice.availability[mode];
-                                  return availability.step != null &&
-                                    ['queued', 'training'].includes(availability.status) ? (
-                                    <div key={mode} className="studio-voice-detail">
-                                      {mode === 'turbo' ? 'Fast' : 'Master'}: {availability.step}
-                                      {availability.total_steps != null
-                                        ? `/${availability.total_steps}`
-                                        : ''}
+                                {(() => {
+                                  const availability = voice.availability.sft;
+                                  if (!['queued', 'training'].includes(availability.status)) return null;
+                                  const hasSteps =
+                                    availability.total_steps != null && availability.total_steps > 0;
+                                  return (
+                                    <div className="studio-voice-detail">
+                                      Master:{' '}
+                                      {hasSteps
+                                        ? `${availability.step ?? 0}/${availability.total_steps}`
+                                        : availability.status === 'training'
+                                          ? 'Preparing'
+                                          : 'Queued'}
                                     </div>
-                                  ) : null;
-                                })}
+                                  );
+                                })()}
 
-                                {(voice.error ||
-                                  voice.availability.turbo.error ||
-                                  voice.availability.sft.error) && (
-                                    <div className="studio-voice-detail" role="alert">
-                                      {voice.error ||
-                                        voice.availability.turbo.error ||
-                                        voice.availability.sft.error}
-                                    </div>
-                                  )}
+                                {(voice.error || voice.availability.sft.error) && (
+                                  <div className="studio-voice-detail" role="alert">
+                                    {voice.error || voice.availability.sft.error}
+                                  </div>
+                                )}
 
                                 <div className="market-collection-meta">
                                   <Mic2 size={10} />
@@ -3296,7 +3336,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
         </div>
       ) : (
         /* EARN TAB: Published Catalog, Licenses & On-Chain x402 Streaming Analytics */
-        <div className="earn-dashboard" data-guide="mypage-sections">
+        <div className="earn-dashboard" data-guide="profile-sections">
           {/* Unified Top Filter & KPI Bar (persistent across LIST <> CHARTS transitions) */}
           {publishedSongsList.length > 0 && (
             <>
@@ -3315,7 +3355,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                   >
                     <button
                       type="button"
-                      className={`mypage-header-trigger ${earnNetDropdownOpen ? 'open' : ''}`}
+                      className={`profile-header-trigger ${earnNetDropdownOpen ? 'open' : ''}`}
                       onClick={() => {
                         setEarnSortDropdownOpen(false);
                         setEarnViewDropdownOpen(false);
@@ -3337,7 +3377,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                           className="earn-net-logo"
                         />
                       )}
-                      <span className="mypage-dropdown-label">
+                      <span className="profile-dropdown-label">
                         {earnNetworkFilter === 'all'
                           ? 'ALL'
                           : earnNetworkFilter.toUpperCase()}
@@ -3347,7 +3387,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                   </Tooltip>
 
                   {earnNetDropdownOpen && (
-                    <div className="market-popover-menu mypage-header-popover">
+                    <div className="market-popover-menu profile-header-popover">
                       <div className="market-popover-list" role="listbox">
                         <button
                           type="button"
@@ -3362,10 +3402,10 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                           <Globe size={12} />
                           <span>ALL</span>
                         </button>
-                        {(['base', 'solana', 'tempo'] as const).map((netKey) => {
-                          const label =
-                            netKey === 'base' ? 'BASE' : netKey === 'tempo' ? 'TEMPO' : 'SOLANA';
-                          const logo = getNetworkLogo(netKey);
+                        {activeNetworkFilters(activeChains).map((item) => {
+                          const netKey = item.family;
+                          const label = item.label.toUpperCase();
+                          const logo = item.logoUrl;
                           return (
                             <button
                               key={netKey}
@@ -3432,7 +3472,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                       >
                         <button
                           type="button"
-                          className={`mypage-header-trigger earn-kpi-trigger ${isSecondaryActive ? 'active' : ''} ${earnStatDropdownOpen ? 'open' : ''}`}
+                          className={`profile-header-trigger earn-kpi-trigger ${isSecondaryActive ? 'active' : ''} ${earnStatDropdownOpen ? 'open' : ''}`}
                           onClick={() => {
                             setEarnNetDropdownOpen(false);
                             setEarnSortDropdownOpen(false);
@@ -3455,7 +3495,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                   })()}
 
                   {earnStatDropdownOpen && (
-                    <div className="market-popover-menu mypage-header-popover earn-kpi-popover">
+                    <div className="market-popover-menu profile-header-popover earn-kpi-popover">
                       <div className="market-popover-list" role="listbox">
                         {secondaryEarnKpis.map((item) => {
                           const ItemIcon = item.icon;
@@ -3486,7 +3526,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                   <Tooltip title={activeEarnKpi.label} description={activeEarnKpi.tooltip}>
                     <button
                       type="button"
-                      className={`mypage-header-trigger earn-kpi-trigger ${earnStatDropdownOpen ? 'open' : ''}`}
+                      className={`profile-header-trigger earn-kpi-trigger ${earnStatDropdownOpen ? 'open' : ''}`}
                       onClick={() => {
                         setEarnNetDropdownOpen(false);
                         setEarnSortDropdownOpen(false);
@@ -3510,7 +3550,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                   </Tooltip>
 
                   {earnStatDropdownOpen && (
-                    <div className="market-popover-menu mypage-header-popover earn-kpi-popover">
+                    <div className="market-popover-menu profile-header-popover earn-kpi-popover">
                       <div className="market-popover-list" role="listbox">
                         {otherEarnKpis.map((item) => {
                           const ItemIcon = item.icon;
@@ -3550,7 +3590,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                       >
                         <button
                           type="button"
-                          className={`mypage-header-trigger ${earnSourceDropdownOpen ? 'open' : ''}`}
+                          className={`profile-header-trigger ${earnSourceDropdownOpen ? 'open' : ''}`}
                           onClick={() => {
                             setEarnNetDropdownOpen(false);
                             setEarnDateDropdownOpen(false);
@@ -3569,7 +3609,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                           ) : (
                             <Layers size={11} />
                           )}
-                          <span className="mypage-dropdown-label">
+                          <span className="profile-dropdown-label">
                             {SOURCE_OPTIONS.find((o) => o.value === earnSourceFilter)?.label ??
                               'ALL SOURCES'}
                           </span>
@@ -3578,7 +3618,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                       </Tooltip>
 
                       {earnSourceDropdownOpen && (
-                        <div className="market-popover-menu mypage-header-popover">
+                        <div className="market-popover-menu profile-header-popover">
                           <div className="market-popover-list" role="listbox">
                             {SOURCE_OPTIONS.map((opt) => (
                               <button
@@ -3618,7 +3658,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                       >
                         <button
                           type="button"
-                          className={`mypage-header-trigger ${earnDateDropdownOpen ? 'open' : ''}`}
+                          className={`profile-header-trigger ${earnDateDropdownOpen ? 'open' : ''}`}
                           onClick={() => {
                             setEarnNetDropdownOpen(false);
                             setEarnSourceDropdownOpen(false);
@@ -3631,7 +3671,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                           aria-label="Select chart time window"
                         >
                           <Calendar size={11} />
-                          <span className="mypage-dropdown-label">
+                          <span className="profile-dropdown-label">
                             {DATE_WINDOW_OPTIONS.find((o) => o.value === earnDateWindow)?.label ??
                               'LAST 30D'}
                           </span>
@@ -3640,7 +3680,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                       </Tooltip>
 
                       {earnDateDropdownOpen && (
-                        <div className="market-popover-menu mypage-header-popover">
+                        <div className="market-popover-menu profile-header-popover">
                           <div className="market-popover-list" role="listbox">
                             {DATE_WINDOW_OPTIONS.map((opt) => (
                               <button
@@ -3670,12 +3710,12 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                     <>
                       {/* Search inside Earn List */}
                       <div
-                        className={`mypage-header-search ${mobileSearchOpen || Boolean(songSearch) ? 'expanded' : ''}`}
+                        className={`profile-header-search ${mobileSearchOpen || Boolean(songSearch) ? 'expanded' : ''}`}
                       >
                         <Tooltip title="Search Releases">
                           <button
                             type="button"
-                            className="mypage-header-search-toggle"
+                            className="profile-header-search-toggle"
                             onClick={() => {
                               setMobileSearchOpen((prev) => {
                                 const next = !prev;
@@ -3693,7 +3733,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                         <input
                           ref={searchInputRef}
                           type="text"
-                          className="mypage-header-search-input"
+                          className="profile-header-search-input"
                           placeholder="Search releases..."
                           value={songSearch}
                           onChange={(e) => setSongSearch(e.target.value)}
@@ -3701,7 +3741,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                         {(songSearch || mobileSearchOpen) && (
                           <button
                             type="button"
-                            className="mypage-header-search-clear"
+                            className="profile-header-search-clear"
                             onClick={() => {
                               setSongSearch('');
                               setMobileSearchOpen(false);
@@ -3729,7 +3769,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                         >
                           <button
                             type="button"
-                            className={`mypage-header-trigger ${earnSortDropdownOpen ? 'open' : ''}`}
+                            className={`profile-header-trigger ${earnSortDropdownOpen ? 'open' : ''}`}
                             onClick={() => {
                               setEarnNetDropdownOpen(false);
                               setEarnViewDropdownOpen(false);
@@ -3749,7 +3789,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                             ) : (
                               <Clock size={11} />
                             )}
-                            <span className="mypage-dropdown-label">
+                            <span className="profile-dropdown-label">
                               {earnSort === 'profit'
                                 ? 'PROFIT'
                                 : earnSort === 'sold'
@@ -3763,7 +3803,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                         </Tooltip>
 
                         {earnSortDropdownOpen && (
-                          <div className="market-popover-menu mypage-header-popover">
+                          <div className="market-popover-menu profile-header-popover">
                             <div className="market-popover-list" role="listbox">
                               <button
                                 type="button"
@@ -3827,7 +3867,7 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                   <Tooltip title="Sync On-Chain Revenue">
                     <button
                       type="button"
-                      className="mypage-header-icon-btn"
+                      className="profile-header-icon-btn"
                       onClick={() => void refetchEarnings()}
                       aria-label="Sync on-chain revenue"
                     >
@@ -3864,12 +3904,12 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
           )}
 
           {/* Published Releases Catalog Ledger / Visual Charts */}
-          <div className="mypage-section earn-catalog-section">
-            <div className="mypage-section-body">
+          <div className="profile-section earn-catalog-section">
+            <div className="profile-section-body">
               {publishedSongsList.length === 0 ? (
-                <div className="mypage-empty">
-                  <span className="mypage-empty-title">NO PUBLISHED RELEASES YET</span>
-                  <span className="mypage-empty-desc">
+                <div className="profile-empty">
+                  <span className="profile-empty-title">NO PUBLISHED RELEASES YET</span>
+                  <span className="profile-empty-desc">
                     Publish a track to start earning from Streaming and Licenses.
                   </span>
                   {draftsCount > 0 && (
@@ -3898,16 +3938,21 @@ export const Mypage: React.FC<Props> = ({ onEditSong, onDirectVideo, className =
                   onSelectSong={(song) => {
                     const isPlayingThis = state.isPlaying && state.activeSong?.id === song.id;
                     if (isPlayingThis) {
-                      store.setPlaying(false);
+                      void store.setPlaying(false);
                     } else {
-                      store.playSong(song, state.songs, null);
+                      void store.playSong(song, filteredEarnSongs, null, 'workspace:published', false, {
+                        domain: 'workspace',
+                        id: 'workspace:published',
+                        label: 'Workspace · Published',
+                        isPrivate: false,
+                      });
                     }
                   }}
                 />
               ) : filteredEarnSongs.length === 0 ? (
-                <div className="mypage-empty">
-                  <span className="mypage-empty-title">NO MATCHING RELEASES</span>
-                  <span className="mypage-empty-desc">
+                <div className="profile-empty">
+                  <span className="profile-empty-title">NO MATCHING RELEASES</span>
+                  <span className="profile-empty-desc">
                     Try clearing your search or switching the network filter.
                   </span>
                 </div>

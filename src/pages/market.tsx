@@ -396,7 +396,7 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
   const uniqueGenres = useMemo(() => {
     const map = new Map<string, string>();
     for (const song of publicSongs) {
-      for (const tag of normalizeTags(song.tags)) {
+      for (const tag of normalizeTags(song.genres)) {
         const key = tag.toLowerCase();
         if (!map.has(key)) {
           map.set(key, tag);
@@ -510,7 +510,7 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
     if (selectedGenres.length > 0) {
       const targetSet = new Set(selectedGenres.map((g) => g.toLowerCase()));
       list = list.filter((s) =>
-        normalizeTags(s.tags).some((t) => targetSet.has(t.toLowerCase()))
+        normalizeTags(s.genres).some((t) => targetSet.has(t.toLowerCase()))
       );
     }
 
@@ -632,7 +632,7 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
   const genreItems = useMemo(() => {
     const map = new Map<string, { label: string; songs: Song[] }>();
     for (const song of popularPlayable) {
-      for (const tag of normalizeTags(song.tags)) {
+      for (const tag of normalizeTags(song.genres)) {
         const key = tag.toLowerCase();
         const existing = map.get(key);
         if (existing) {
@@ -756,11 +756,11 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
     }
   };
 
-  const handlePlaySong = (song: Song, contextSongs?: Song[], contextId: string = 'default') => {
+  const handlePlaySong = (song: Song, contextSongs?: Song[], contextId: string = 'market:feed') => {
     const isPlayingThis =
       playing.active &&
       playing.id === song.id &&
-      (playing.contextId ?? 'default') === contextId;
+      (playing.contextId ?? 'market:feed') === contextId;
     if (isPlayingThis) {
       void store.setPlaying(false);
       return;
@@ -769,9 +769,9 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
     void store.playSong(song, queueList, null, contextId);
   };
 
-  const handlePlayCollection = (songs: Song[], contextId: string, playlistId?: string | null) => {
+  const handlePlayCollection = (songs: Song[], contextId: string, playlistId?: string | null, label?: string) => {
     if (!songs || songs.length === 0) return;
-    void store.playCollection(songs, contextId, playlistId ?? null);
+    void store.playCollection(songs, contextId, playlistId ?? null, label ? { label } : undefined);
   };
 
   const handlePlayPlaylist = (playlist: Playlist) => {
@@ -783,7 +783,12 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
       return;
     }
     const wasPlayingThis = playing.active && playing.playlistId === playlist.id;
-    void store.playCollection(resolved, `playlist:${playlist.id}`, playlist.id);
+    void store.playCollection(resolved, `playlist:${playlist.id}`, playlist.id, {
+      domain: 'playlist',
+      id: `playlist:${playlist.id}`,
+      label: playlist.title,
+      isPrivate: !playlist.public,
+    });
     if (!wasPlayingThis) {
       recordPlaylistPlayApi(playlist.id);
     }
@@ -795,7 +800,12 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
       toast.error('No public tracks in this album.');
       return;
     }
-    void store.playCollection(albumSongs, `album:${album.id}`);
+    void store.playCollection(albumSongs, `album:${album.id}`, null, {
+      domain: 'album',
+      id: `album:${album.id}`,
+      label: album.title,
+      isPrivate: false,
+    });
   };
 
   const handleRemoveSongFromExpandedPlaylist = async (
@@ -889,9 +899,9 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
           setSelected((current) => ({ ...current, [family]: version.id }));
           if (
             versions.some((item) => item.id === playing.id) &&
-            (playing.contextId ?? 'default') === contextId
+            (playing.contextId ?? 'market:feed') === contextId
           ) {
-            store.setActiveSong(version, undefined, contextId);
+            store.setActiveSong(version, undefined, null, contextId);
           }
         }}
         selectedGenres={selectedGenres}
@@ -1101,9 +1111,9 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
                     setSelected((current) => ({ ...current, [family]: version.id }));
                     if (
                       versions.some((item) => item.id === playing.id) &&
-                      (playing.contextId ?? 'default') === creatorCtx
+                      (playing.contextId ?? 'market:feed') === creatorCtx
                     ) {
-                      store.setActiveSong(version, undefined, creatorCtx);
+                      store.setActiveSong(version, undefined, null, creatorCtx);
                     }
                   }}
                   onSelectGenre={(genre) => {
@@ -1247,7 +1257,7 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
         >
           <button
             type="button"
-            className="mypage-header-search-toggle market-search-toggle-btn"
+            className="profile-header-search-toggle market-search-toggle-btn"
             onClick={() => {
               setMobileSearchOpen((prev) => {
                 const next = !prev;
@@ -1743,6 +1753,7 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
         <div
           key="snap-deck"
           className="market-snap-deck panel"
+          data-active-stage={activeStage}
           ref={snapDeckRef}
           onScroll={handleSnapScroll}
         >
@@ -1763,6 +1774,7 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
               ========================================================= */}
               <section
                 ref={stagePulseRef}
+                data-stage="pulse"
                 className="market-snap-stage stage-pulse"
                 aria-label="Pulse: New and Popular Tracks"
               >
@@ -2024,6 +2036,7 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
               ========================================================= */}
               <section
                 ref={stageDiscoveryRef}
+                data-stage="discovery"
                 className="market-snap-stage stage-discovery"
                 aria-label="Discovery: Genres and Creators"
               >
@@ -2284,6 +2297,7 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
               ========================================================= */}
               <section
                 ref={stageCollectionsRef}
+                data-stage="collections"
                 className="market-snap-stage stage-collections"
                 aria-label="Collections: Albums and Playlists"
               >
@@ -2579,8 +2593,8 @@ export const Market: React.FC<Props> = ({ className = '' }) => {
                                     <button
                                       type="button"
                                       className={`market-playlist-track-row ${playing.id === s.id && playing.playlistId === pl.id
-                                          ? 'active'
-                                          : ''
+                                        ? 'active'
+                                        : ''
                                         }`}
                                       onClick={() =>
                                         store.playSong(
