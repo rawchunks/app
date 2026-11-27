@@ -648,3 +648,133 @@ export async function loadProject(songId: string): Promise<Bundle> {
   writeCachedVideoBundle(songId, bundle.score, bundle.wip);
   return bundle;
 }
+
+export async function runPlan(
+  params: { songId: string; instruction?: string; sectionId?: string; shotId?: string; quality?: Quality },
+  onEvent: (ev: Event) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const res = await api.fetch('/api/video/plan', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+    signal,
+  });
+  await readNdjson(res, onEvent, signal);
+}
+
+export async function updateBible(songId: string, patch: Partial<Omit<Bible, 'assets'>> & { quality?: Quality }): Promise<Wip> {
+  const res = await api.fetch('/api/video/bible', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ songId, ...patch }),
+  });
+  const data = await readJson<{ wip: Wip }>(res, 'Could not update visual style');
+  return data.wip;
+}
+
+export async function updateShot(
+  songId: string,
+  shotId: string,
+  patch: Partial<
+    Pick<
+      Shot,
+      | 'prompt'
+      | 'camera'
+      | 'motion'
+      | 'lipSync'
+      | 'vocalCue'
+      | 'continuity'
+      | 'audioTrack'
+      | 'mode'
+      | 'transition'
+      | 'accent'
+      | 'startFramePrompt'
+      | 'endFramePrompt'
+      | 'assetIds'
+      | 'approved'
+      | 'activeTakeId'
+      | 'trimInSec'
+      | 'syncNudgeMs'
+    >
+  > & {
+    splitAtSec?: number;
+    mergeWithNext?: boolean;
+    delete?: boolean;
+  }
+): Promise<Wip> {
+  const res = await api.fetch('/api/video/shot', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ songId, shotId, ...patch }),
+  });
+  const data = await readJson<{ wip: Wip }>(res, 'Could not update shot');
+  return data.wip;
+}
+
+export async function requestFrame(
+  songId: string,
+  body: {
+    target: 'start' | 'end' | 'asset';
+    shotId?: string;
+    assetId?: string;
+    label?: string;
+    role?: Asset['role'];
+    prompt: string;
+    edit?: boolean;
+    imageSize?: '1K' | '2K';
+  }
+): Promise<Wip> {
+  const res = await api.fetch('/api/video/frame', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ songId, ...body }),
+  });
+  const data = await readJson<{ wip: Wip }>(res, 'Could not generate frame');
+  return data.wip;
+}
+
+export async function uploadImage(
+  songId: string,
+  file: File,
+  opts: { target: 'asset' | 'start' | 'end'; shotId?: string; label?: string; role?: Asset['role'] }
+): Promise<Wip> {
+  const qs = new URLSearchParams({ songId, target: opts.target });
+  if (opts.shotId) qs.set('shotId', opts.shotId);
+  if (opts.label) qs.set('label', opts.label);
+  if (opts.role) qs.set('role', opts.role);
+
+  const form = new FormData();
+  form.append('file', file);
+
+  const res = await api.fetch(`/api/video/upload?${qs.toString()}`, {
+    method: 'POST',
+    body: form,
+  });
+  const data = await readJson<{ wip: Wip }>(res, 'Could not upload image');
+  return data.wip;
+}
+
+export async function removeAsset(songId: string, assetId: string): Promise<Wip> {
+  const res = await api.fetch(
+    `/api/video/asset/${encodeURIComponent(songId)}/${encodeURIComponent(assetId)}`,
+    { method: 'DELETE' }
+  );
+  const data = await readJson<{ wip: Wip }>(res, 'Could not remove reference');
+  return data.wip;
+}
+
+export async function runSketch(
+  songId: string,
+  params: { sectionId?: string; onlyUnsketched?: boolean },
+  onEvent: (ev: Event) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const res = await api.fetch('/api/video/sketch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ songId, ...params }),
+    signal,
+  });
+  await readNdjson(res, onEvent, signal);
+}
