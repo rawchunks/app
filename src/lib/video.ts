@@ -1148,4 +1148,53 @@ export class Deck {
     this.audio.loop = this.loop && !next.lockedShotId;
     this.syncVideo(false);
   }
+
+  public getTime(): number {
+    return this.audio.currentTime || 0;
+  }
+
+  public getDuration(fallback = 0): number {
+    return Number.isFinite(this.audio.duration) && this.audio.duration > 0 ? this.audio.duration : fallback;
+  }
+
+  public isPlaying(): boolean {
+    return !this.audio.paused && !this.audio.ended;
+  }
+
+  public async play(): Promise<void> {
+    if (this.disposed) return;
+    const locked = this.getLockedShot();
+    if (locked) {
+      const t = this.getTime();
+      if (t < locked.startSec - 0.05 || t >= locked.endSec - 0.05) {
+        this.audio.currentTime = locked.startSec;
+      }
+    }
+    bus.request('video');
+    try {
+      await this.audio.play();
+    } catch {
+      return;
+    }
+    this.syncVideo(true);
+    this.startLoop();
+    this.onTick(this.getTime(), true);
+  }
+
+  public pause(): void {
+    this.audio.pause();
+    this.slots[0]?.pause();
+    this.slots[1]?.pause();
+    this.stopLoop();
+    bus.release('video');
+    this.onTick(this.getTime(), false);
+  }
+
+  public seek(sec: number): void {
+    const dur = this.getDuration(sec);
+    const clamped = Math.max(0, Math.min(dur > 0 ? dur : sec, sec));
+    this.audio.currentTime = clamped;
+    this.syncVideo(true);
+    this.onTick(clamped, this.isPlaying());
+  }
 }
