@@ -888,3 +888,181 @@ export function formatClock(sec: number): string {
   const ds = Math.floor((sec % 1) * 10);
   return `${m}:${String(s).padStart(2, '0')}.${ds}`;
 }
+
+export interface TimelineSlot {
+  id: string;
+  sectionId: string;
+  startSec: number;
+  endSec: number;
+  clipUrl: string | null;
+  trimInSec: number;
+  syncNudgeMs?: number;
+  startFrameUrl: string | null;
+  status: Status;
+  transition?: Transition;
+  chainedFromPrev?: boolean;
+  lipSync?: boolean;
+}
+
+export interface DeckSource {
+  mode: 'master' | 'timeline';
+  masterUrl?: string | null;
+  timeline: TimelineSlot[];
+  lockedShotId?: string | null;
+}
+
+export interface DeckVisualState {
+  activeShotId: string | null;
+  activeSectionId: string | null;
+  hasVideo: boolean;
+}
+
+/**
+ * Isolated workstation double-buffered audio/video timeline synchronizer.
+ * Completely independent of global player `store.ts` queue-append & 0.38s auto-crossfade.
+ * Supports both single assembled master MP4 playback and live progressive multi-shot
+ * playback across ready clips while remaining shots render in the background.
+ */
+export class Deck {
+  private audio: HTMLAudioElement;
+  private slots: [HTMLVideoElement | null, HTMLVideoElement | null] = [null, null];
+  private activeSlot: 0 | 1 = 0;
+  private slotUrl: [string | null, string | null] = [null, null];
+  private slotCleanups: [(() => void) | null, (() => void) | null] = [null, null];
+  private source: DeckSource = { mode: 'timeline', masterUrl: null, timeline: [], lockedShotId: null };
+  private loop = false;
+  private rafId: number | null = null;
+  private onTick: (timeSec: number, playing: boolean) => void;
+  private onVisual?: (state: DeckVisualState) => void;
+  private lastVisual: DeckVisualState = { activeShotId: null, activeSectionId: null, hasVideo: false };
+  private disposed = false;
+
+  constructor(
+    audioUrl: string,
+    onTick: (timeSec: number, playing: boolean) => void,
+    onVisual?: (state: DeckVisualState) => void
+  ) {
+    this.onTick = onTick;
+    this.onVisual = onVisual;
+    this.audio = new Audio();
+    this.audio.crossOrigin = 'anonymous';
+    this.audio.preload = 'auto';
+    this.audio.src = audioUrl;
+
+    this.audio.addEventListener('ended', () => {
+      if (this.loop) {
+        const locked = this.getLockedShot();
+        this.seek(locked ? locked.startSec : 0);
+        void this.play();
+        return;
+      }
+      this.pause();
+      this.onTick(this.audio.duration || 0, false);
+    });
+
+    bus.registerVideo(() => {
+      this.pause();
+    });
+  }
+
+  private getLockedShot(): TimelineSlot | null {
+    if (!this.source.lockedShotId) return null;
+    return this.source.timeline.find((s) => s.id === this.source.lockedShotId) ?? null;
+  }
+
+  private findShotAt(timeSec: number): TimelineSlot | null {
+    const list = this.source.timeline;
+    if (list.length === 0) return null;
+    for (let i = 0; i < list.length; i++) {
+      const s = list[i];
+      if (timeSec >= s.startSec - 0.005 && timeSec < s.endSec) return s;
+    }
+    const last = list[list.length - 1];
+    if (timeSec >= last.startSec - 0.005) return last;
+    return list[0];
+  }
+
+  private emitVisual(next: DeckVisualState): void {
+    if (
+      next.activeShotId === this.lastVisual.activeShotId &&
+      next.activeSectionId === this.lastVisual.activeSectionId &&
+      next.hasVideo === this.lastVisual.hasVideo
+    ) {
+      return;
+    }
+    this.lastVisual = next;
+    this.onVisual?.(next);
+  }
+
+  private setSlotVisibility(idx: 0 | 1, visible: boolean, smooth = false): void {
+    const el = this.slots[idx];
+    if (!el) return;
+    el.dataset.fade = smooth ? 'true' : 'false';
+    el.dataset.active = visible ? 'true' : 'false';
+  }
+
+  private clearSlotListener(idx: 0 | 1): void {
+    const fn = this.slotCleanups[idx];
+    if (fn) {
+      fn();
+      this.slotCleanups[idx] = null;
+    }
+  }
+
+  private loadIntoSlot(idx: 0 | 1, url: string, desiredStartSec: number, isActiveTarget: boolean): void {
+    const el = this.slots[idx];
+    if (!el) return;
+    if (this.slotUrl[idx] === url) return;
+
+    this.clearSlotListener(idx);
+    el.pause();
+    el.muted = true;
+    el.playsInline = true;
+    el.preload = 'auto';
+    this.slotUrl[idx] = url;
+
+    const onLoadedMeta = () => {
+      if (this.disposed || this.slotUrl[idx] !== url) return;
+      if (!Number.isFinite(el.duration) || el.duration <= 0) return;
+      const maxT = Math.max(0, el.duration - 0.08);
+      const clamped = Math.max(0, Math.min(maxT, desiredStartSec));
+      try {
+        el.currentTime = clamped;
+      } catch {
+        // ignore unbuffered seek
+      }
+      if (isActiveTarget && this.activeSlot === idx) {
+        this.syncVideo(true);
+      }
+    };
+
+    const onCanPlay = () => {
+      if (this.disposed || this.slotUrl[idx] !== url) return;
+      if (isActiveTarget && this.activeSlot === idx) {
+        this.syncVideo(false);
+      }
+    };
+
+    const onSeeked = () => {
+      if (this.disposed || this.slotUrl[idx] !== url) return;
+      if (this.activeSlot === idx) {
+        this.setSlotVisibility(idx, true);
+        if (this.isPlaying() && el.paused && el.readyState >= 2) {
+          void el.play().catch(() => {});
+        }
+      }
+    };
+
+    el.addEventListener('loadedmetadata', onLoadedMeta, { once: true });
+    el.addEventListener('canplay', onCanPlay);
+    el.addEventListener('seeked', onSeeked);
+    this.slotCleanups[idx] = () => {
+      el.removeEventListener('loadedmetadata', onLoadedMeta);
+      el.removeEventListener('canplay', onCanPlay);
+      el.removeEventListener('seeked', onSeeked);
+    };
+
+    el.src = url;
+    el.load();
+  }
+}
