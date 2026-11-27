@@ -778,3 +778,113 @@ export async function runSketch(
   });
   await readNdjson(res, onEvent, signal);
 }
+
+export async function runRender(
+  songId: string,
+  params: { quality?: Quality; sectionId?: string; shotId?: string; onlyUnrendered?: boolean },
+  onEvent: (ev: Event) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const res = await api.fetch('/api/video/render', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ songId, ...params }),
+    signal,
+  });
+  await readNdjson(res, onEvent, signal);
+}
+
+export async function editClip(
+  songId: string,
+  shotId: string,
+  instruction: string,
+  opts?: { quality?: Quality; editKind?: EditKind; startTime?: number; endTime?: number }
+): Promise<Wip> {
+  const res = await api.fetch('/api/video/edit', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      songId,
+      shotId,
+      instruction,
+      quality: opts?.quality,
+      editKind: opts?.editKind,
+      startTime: opts?.startTime,
+      endTime: opts?.endTime,
+    }),
+  });
+  const data = await readJson<{ wip: Wip }>(res, 'Could not edit clip');
+  return data.wip;
+}
+
+export async function runAssemble(
+  songId: string,
+  params: { useProducer?: boolean; instruction?: string; upscale?: Master; saveAfter?: boolean },
+  onEvent: (ev: Event) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const res = await api.fetch('/api/video/assemble', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ songId, ...params }),
+    signal,
+  });
+  await readNdjson(res, onEvent, signal);
+}
+
+export async function attachJobStream(
+  songId: string,
+  onEvent: (ev: Event) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const res = await api.fetch(`/api/video/stream/${encodeURIComponent(songId)}`, {
+    method: 'GET',
+    signal,
+  });
+  await readNdjson(res, onEvent, signal);
+}
+
+export async function cancelRender(songId: string, jobId?: string): Promise<Wip | null> {
+  const res = await api.fetch('/api/video/cancel', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(jobId ? { songId, jobId } : { songId }),
+  });
+  const data = await readJson<{ wip: Wip | null }>(res, 'Could not cancel operation');
+  return data.wip;
+}
+
+export async function saveVideo(songId: string): Promise<{ video: string; wip: Wip }> {
+  const res = await api.fetch('/api/video/save', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ songId }),
+  });
+  return readJson<{ video: string; wip: Wip }>(res, 'Could not save video');
+}
+
+export async function discardProject(songId: string): Promise<Wip> {
+  const res = await api.fetch(`/api/video/wip/${encodeURIComponent(songId)}`, { method: 'DELETE' });
+  const data = await readJson<{ wip: Wip }>(res, 'Could not discard project');
+  return data.wip;
+}
+
+export async function removeVideo(songId: string): Promise<void> {
+  const res = await api.fetch(`/api/video/${encodeURIComponent(songId)}`, { method: 'DELETE' });
+  await readJson<{ ok: boolean }>(res, 'Could not remove saved video');
+}
+
+export function formatTime(sec: number): string {
+  if (!Number.isFinite(sec) || sec < 0) return '0:00';
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+export function formatClock(sec: number): string {
+  if (!Number.isFinite(sec) || sec < 0) return '0:00.0';
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  const ds = Math.floor((sec % 1) * 10);
+  return `${m}:${String(s).padStart(2, '0')}.${ds}`;
+}
