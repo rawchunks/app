@@ -1065,4 +1065,87 @@ export class Deck {
     el.src = url;
     el.load();
   }
+
+  private syncElement(el: HTMLVideoElement | null, localT: number, force: boolean): void {
+    if (!el || el.readyState < 1 || !Number.isFinite(el.duration) || el.duration <= 0) return;
+    const maxT = Math.max(0, el.duration - 0.08);
+    const clampedT = Math.max(0, Math.min(maxT, localT));
+
+    // Strict boundary guard: hold paused at end of clip so browser never resets to 0.00s in a 60fps loop
+    if (localT >= maxT) {
+      if (!el.paused) el.pause();
+      if (!el.seeking && Math.abs(el.currentTime - maxT) > 0.12) {
+        try {
+          el.currentTime = maxT;
+        } catch {
+          // ignore
+        }
+      }
+      return;
+    }
+
+    if (!el.seeking && (force || Math.abs(el.currentTime - clampedT) > 0.06)) {
+      try {
+        el.currentTime = clampedT;
+      } catch {
+        // ignore unbuffered seek
+      }
+    }
+
+    if (this.isPlaying() && el.paused && el.readyState >= 2) {
+      void el.play().catch(() => {});
+    } else if (!this.isPlaying() && !el.paused) {
+      el.pause();
+    }
+  }
+
+  public setLoop(enabled: boolean): void {
+    this.loop = enabled;
+    this.audio.loop = enabled && !this.source.lockedShotId;
+  }
+
+  public stop(): void {
+    this.pause();
+    const locked = this.getLockedShot();
+    this.seek(locked ? locked.startSec : 0);
+  }
+
+  public setAudioUrl(audioUrl: string): void {
+    if (this.audio.src === audioUrl) return;
+    const wasPlaying = !this.audio.paused;
+    const t = this.audio.currentTime;
+    this.audio.src = audioUrl;
+    this.audio.currentTime = t;
+    if (wasPlaying) void this.play();
+  }
+
+  public bindSlots(slotA: HTMLVideoElement | null, slotB: HTMLVideoElement | null): void {
+    if (this.slots[0] === slotA && this.slots[1] === slotB) return;
+
+    this.clearSlotListener(0);
+    this.clearSlotListener(1);
+    this.slots[0]?.pause();
+    this.slots[1]?.pause();
+
+    this.slots = [slotA, slotB];
+    this.slotUrl = [null, null];
+    this.activeSlot = 0;
+
+    for (const idx of [0, 1] as const) {
+      const el = this.slots[idx];
+      if (el) {
+        el.muted = true;
+        el.playsInline = true;
+        el.dataset.active = 'false';
+      }
+    }
+
+    this.syncVideo(true);
+  }
+
+  public setSource(next: DeckSource): void {
+    this.source = next;
+    this.audio.loop = this.loop && !next.lockedShotId;
+    this.syncVideo(false);
+  }
 }
