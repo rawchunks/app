@@ -1197,4 +1197,169 @@ export class Deck {
     this.syncVideo(true);
     this.onTick(clamped, this.isPlaying());
   }
+
+  public setVolume(v: number): void {
+    this.audio.volume = Math.max(0, Math.min(1, v));
+  }
+
+  private syncVideo(force = false): void {
+    const songT = this.getTime();
+    const locked = this.getLockedShot();
+
+    // Enforce single-shot playback end cleanly (respecting loop setting!)
+    if (locked && this.isPlaying() && songT >= locked.endSec - 0.03) {
+      if (this.loop) {
+        this.audio.currentTime = locked.startSec;
+        this.syncVideo(true);
+        return;
+      }
+      this.pause();
+      this.onTick(locked.endSec, false);
+      return;
+    }
+
+    const shotAtTime = locked ?? this.findShotAt(songT);
+
+    // Mode 1: Complete assembled master video
+    if (this.source.mode === 'master' && this.source.masterUrl && !locked) {
+      const standbyIdx: 0 | 1 = this.activeSlot === 0 ? 1 : 0;
+      this.slots[standbyIdx]?.pause();
+      this.setSlotVisibility(standbyIdx, false);
+
+      this.loadIntoSlot(this.activeSlot, this.source.masterUrl, songT, true);
+      const activeEl = this.slots[this.activeSlot];
+      const masterReady = Boolean(activeEl && (activeEl.readyState >= 2 || activeEl.videoWidth > 0));
+      this.setSlotVisibility(this.activeSlot, masterReady);
+      this.syncElement(activeEl, songT, force);
+      this.emitVisual({
+        activeShotId: shotAtTime?.id ?? null,
+        activeSectionId: shotAtTime?.sectionId ?? null,
+        hasVideo: masterReady,
+      });
+      return;
+    }
+
+    // Mode 2: Live Progressive Multi-Shot Sequencer (or isolated Single Shot)
+    if (shotAtTime && shotAtTime.clipUrl) {
+      const clipUrl = shotAtTime.clipUrl;
+      const nudgeSec = (shotAtTime.syncNudgeMs ?? 0) / 1000;
+      const localT = Math.max(0, songT - shotAtTime.startSec + shotAtTime.trimInSec + nudgeSec);
+      const standbyIdx: 0 | 1 = this.activeSlot === 0 ? 1 : 0;
+
+      if (this.slotUrl[this.activeSlot] === clipUrl) {
+        this.slots[standbyIdx]?.pause();
+        this.setSlotVisibility(standbyIdx, false);
+        const el = this.slots[this.activeSlot];
+        const ready = Boolean(el && (el.readyState >= 2 || el.videoWidth > 0));
+        this.setSlotVisibility(this.activeSlot, ready);
+        this.syncElement(el, localT, force);
+      } else if (this.slotUrl[standbyIdx] === clipUrl) {
+        // Instant zero-flicker swap (or 250ms crossfade on dissolve/fade) to pre-buffered standby slot
+        const smooth =
+          !shotAtTime.chainedFromPrev &&
+          !shotAtTime.lipSync &&
+          (shotAtTime.transition === 'dissolve' || shotAtTime.transition === 'fade');
+        const oldActive = this.activeSlot;
+        this.slots[oldActive]?.pause();
+        this.setSlotVisibility(oldActive, false, smooth);
+        this.activeSlot = standbyIdx;
+        const el = this.slots[this.activeSlot];
+        const ready = Boolean(el && (el.readyState >= 2 || el.videoWidth > 0));
+        this.setSlotVisibility(this.activeSlot, ready, smooth);
+        this.syncElement(el, localT, true);
+      } else {
+        this.slots[standbyIdx]?.pause();
+        this.setSlotVisibility(standbyIdx, false);
+        this.setSlotVisibility(this.activeSlot, false);
+        this.loadIntoSlot(this.activeSlot, clipUrl, localT, true);
+        const el = this.slots[this.activeSlot];
+        const ready = Boolean(el && (el.readyState >= 2 || el.videoWidth > 0));
+        this.setSlotVisibility(this.activeSlot, ready);
+        this.syncElement(el, localT, true);
+      }
+
+      // Lookahead pre-load next upcoming ready clip into standby slot
+      if (!locked) {
+        const nextStandby: 0 | 1 = this.activeSlot === 0 ? 1 : 0;
+        const nextReady = this.source.timeline.find(
+          (s) => s.startSec >= shotAtTime.endSec - 0.02 && Boolean(s.clipUrl)
+        );
+        if (nextReady?.clipUrl && nextReady.clipUrl !== clipUrl) {
+          this.loadIntoSlot(
+            nextStandby,
+            nextReady.clipUrl,
+            Math.max(0, nextReady.trimInSec + (nextReady.syncNudgeMs ?? 0) / 1000),
+            false
+          );
+        }
+      }
+
+      const activeEl = this.slots[this.activeSlot];
+      const activeReady = Boolean(activeEl && (activeEl.readyState >= 2 || activeEl.videoWidth > 0));
+      this.emitVisual({
+        activeShotId: shotAtTime.id,
+        activeSectionId: shotAtTime.sectionId,
+        hasVideo: activeReady,
+      });
+      return;
+    }
+
+    // Playhead is over an unrendered / rendering / failed slot: hide video cleanly so sketch/cover shows without stopping audio
+    this.slots[0]?.pause();
+    this.slots[1]?.pause();
+    this.setSlotVisibility(0, false);
+    this.setSlotVisibility(1, false);
+
+    // Pre-warm Slot 0 with the next upcoming ready clip so video resumes seamlessly at the next cut
+    if (!locked) {
+      const nextReady = this.source.timeline.find((s) => s.startSec >= songT - 0.02 && Boolean(s.clipUrl));
+      if (nextReady?.clipUrl) {
+        this.loadIntoSlot(
+          0,
+          nextReady.clipUrl,
+          Math.max(0, nextReady.trimInSec + (nextReady.syncNudgeMs ?? 0) / 1000),
+          false
+        );
+      }
+    }
+
+    this.emitVisual({
+      activeShotId: shotAtTime?.id ?? null,
+      activeSectionId: shotAtTime?.sectionId ?? null,
+      hasVideo: false,
+    });
+  }
+
+  private startLoop(): void {
+    if (this.rafId !== null) return;
+    const step = () => {
+      if (this.disposed || !this.isPlaying()) {
+        this.rafId = null;
+        return;
+      }
+      this.syncVideo(false);
+      this.onTick(this.getTime(), true);
+      this.rafId = requestAnimationFrame(step);
+    };
+    this.rafId = requestAnimationFrame(step);
+  }
+
+  private stopLoop(): void {
+    if (this.rafId !== null) {
+      cancelAnimationFrame(this.rafId);
+      this.rafId = null;
+    }
+  }
+
+  public dispose(): void {
+    this.disposed = true;
+    this.stopLoop();
+    this.clearSlotListener(0);
+    this.clearSlotListener(1);
+    this.slots[0]?.pause();
+    this.slots[1]?.pause();
+    this.audio.pause();
+    this.audio.src = '';
+    bus.release('video');
+  }
 }
