@@ -550,7 +550,7 @@ textarea.cyber-input-field {
     flex: 1 1 0;
   }
 
-  .modal-header-row.has-header-meta > .daw-tooltip-wrapper {
+  .modal-header-row.has-header-meta>.daw-tooltip-wrapper {
     order: 2;
     margin-left: auto;
   }
@@ -961,7 +961,9 @@ textarea.cyber-input-field {
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* ==========================================================================
@@ -1101,10 +1103,13 @@ textarea.cyber-input-field {
 }
 
 @keyframes session-pulse {
-  0%, 100% {
+
+  0%,
+  100% {
     opacity: 1;
     transform: scale(1);
   }
+
   50% {
     opacity: 0.35;
     transform: scale(0.8);
@@ -1117,7 +1122,7 @@ textarea.cyber-input-field {
 
 /* Backdrop overlay */
 div[data-state="open"].css-je1heg,
-div[data-radix-portal] > div[data-state="open"]:not(.tw-modal) {
+div[data-radix-portal]>div[data-state="open"]:not(.tw-modal) {
   background-color: rgba(0, 0, 0, 0.85) !important;
   backdrop-filter: blur(8px) !important;
 }
@@ -1139,7 +1144,7 @@ div[data-state][class*="tw-modal"] {
 }
 
 /* Override Thirdweb's fixed calculated container height */
-.tw-modal > div,
+.tw-modal>div,
 .tw-modal div[style*="transition: height"],
 .tw-modal div[style*="max-height: 660px"] {
   height: auto !important;
@@ -1496,6 +1501,7 @@ div[data-state][class*="tw-modal"] {
   from {
     opacity: 0;
   }
+
   to {
     opacity: 1;
   }
@@ -1890,12 +1896,12 @@ div[data-state][class*="tw-modal"] {
 }
 
 /* Tooltip wrappers inherit the layout role of the wrapped element */
-.session-duration-pills > .daw-tooltip-wrapper {
+.session-duration-pills>.daw-tooltip-wrapper {
   align-items: stretch;
   min-width: 0;
 }
 
-.session-duration-pills > .daw-tooltip-wrapper > .session-duration-btn {
+.session-duration-pills>.daw-tooltip-wrapper>.session-duration-btn {
   flex: 1 1 auto;
   width: 100%;
 }
@@ -2089,18 +2095,23 @@ div[data-state][class*="tw-modal"] {
 }
 
 @keyframes session-promo-flicker {
-  0%, 100% {
+
+  0%,
+  100% {
     border-color: var(--primary);
     box-shadow: 0 0 10px rgba(0, 255, 65, 0.35), inset 0 0 8px rgba(0, 255, 65, 0.08);
   }
+
   45% {
     border-color: rgba(0, 255, 65, 0.95);
     box-shadow: 0 0 16px rgba(0, 255, 65, 0.55), inset 0 0 12px rgba(0, 255, 65, 0.14);
   }
+
   50% {
     border-color: rgba(0, 255, 65, 0.35);
     box-shadow: 0 0 4px rgba(0, 255, 65, 0.15);
   }
+
   55% {
     border-color: var(--primary);
     box-shadow: 0 0 14px rgba(0, 255, 65, 0.5), inset 0 0 10px rgba(0, 255, 65, 0.12);
@@ -2773,7 +2784,7 @@ textarea.cyber-input-field.profile-modal-bio-input {
 
 /* ==========================================================================
    CANONICAL CREATOR PROFILE CARD (.creator-card-group)
-   Used across /my-page, /:creator, Header Account Connector, and ProfileModal
+   Used across /profile, /:creator, Header Account Connector, and ProfileModal
    ========================================================================== */
 .creator-card-group {
   position: relative;
@@ -2794,7 +2805,7 @@ textarea.cyber-input-field.profile-modal-bio-input {
   border-color: rgba(0, 255, 65, 0.28);
 }
 
-.creator-card-group.variant-mypage {
+.creator-card-group.variant-profile {
   flex: 1 1 auto;
   min-width: 0;
 }
@@ -3409,14 +3420,14 @@ textarea.cyber-input-field.profile-modal-bio-input {
   overflow: hidden;
 }
 
-.connector-card-form:not([data-ready]) .connector-card-field-slot > div,
+.connector-card-form:not([data-ready]) .connector-card-field-slot>div,
 .connector-card-form:not([data-ready]) .connector-card-field-slot iframe[name^="__zoid__"] {
   opacity: 0 !important;
   pointer-events: none !important;
 }
 
-.connector-card-field-slot > div,
-.connector-card-field-slot > div > div,
+.connector-card-field-slot>div,
+.connector-card-field-slot>div>div,
 .connector-card-field-slot iframe[name^="__zoid__"] {
   width: 100% !important;
   height: 38px !important;
@@ -3466,5 +3477,3 @@ textarea.cyber-input-field.profile-modal-bio-input {
   height: auto;
   opacity: 0.85;
 }
-
-

@@ -7,6 +7,7 @@
   :root {
     --board-header-w: clamp(172px, 28vw, 212px);
   }
+
   .editor-header-bar {
     gap: 0.5rem;
     padding-bottom: 0.25rem;
@@ -147,13 +148,14 @@
     padding-bottom: 0;
   }
 
-  .player-volume-wrap {
-    display: none; /* Hidden on mobile to make room for transport controls */
+  .player-volume-wrap,
+  .player-track-social {
+    display: none;
   }
 
   .player-transport-row {
-    padding: 0 10px 0 0;
-    gap: 8px;
+    padding: 0 8px 0 0;
+    gap: 6px;
   }
 
   .player-track-info {
@@ -162,7 +164,8 @@
     max-width: none;
   }
 
-  .player-time-readout {
+  .player-time-readout,
+  .player-queue-count {
     display: none !important;
   }
 
@@ -195,9 +198,9 @@
     max-height: min(380px, 58dvh);
   }
 
-  /* Market & MyPage */
+  /* Market & Profile */
   .market-container,
-  .mypage-container {
+  .profile-container {
     padding: clamp(6px, 1.8vw, 12px);
     gap: clamp(8px, 2vw, 12px);
   }
@@ -312,16 +315,16 @@
     padding: clamp(6px, 1.5vw, 10px);
   }
 
-  .mypage-profile-card {
+  .profile-profile-card {
     padding: var(--space-xs) var(--space-sm);
     gap: var(--space-xs);
   }
 
-  .mypage-profile-right {
+  .profile-profile-right {
     gap: 4px;
   }
 
-  .mypage-profile-mode-tab {
+  .profile-profile-mode-tab {
     width: 28px;
     height: 26px;
     padding: 0;
@@ -329,12 +332,12 @@
     gap: 0;
   }
 
-  .mypage-dropdown-label,
-  .mypage-tab-label {
+  .profile-dropdown-label,
+  .profile-tab-label {
     display: none !important;
   }
 
-  .mypage-section .board-section-separator.search-open .mypage-section-title,
+  .profile-section .board-section-separator.search-open .profile-section-title,
   .earn-toolbar.search-open .earn-kpi-label {
     display: none;
   }
@@ -350,17 +353,17 @@
     justify-content: flex-end;
   }
 
-  .mypage-header-search:not(.expanded) {
+  .profile-header-search:not(.expanded) {
     width: var(--daw-ctrl-h);
     padding: 0;
     justify-content: center;
   }
 
-  .mypage-header-search:not(.expanded) .mypage-header-search-input {
+  .profile-header-search:not(.expanded) .profile-header-search-input {
     display: none;
   }
 
-  .mypage-header-search.expanded .mypage-header-search-input {
+  .profile-header-search.expanded .profile-header-search-input {
     width: 24vw;
   }
 
@@ -372,13 +375,13 @@
   .earn-network-name,
   .earn-price-sub,
   .earn-chart-title,
-  .earn-toolbar .mypage-header-trigger:not(.earn-kpi-trigger) .market-popover-chevron,
+  .earn-toolbar .profile-header-trigger:not(.earn-kpi-trigger) .market-popover-chevron,
   .earn-chart-controls .market-popover-chevron {
     display: none !important;
   }
 
-  .earn-toolbar .mypage-header-trigger:not(.earn-kpi-trigger),
-  .earn-chart-controls .mypage-header-trigger {
+  .earn-toolbar .profile-header-trigger:not(.earn-kpi-trigger),
+  .earn-chart-controls .profile-header-trigger {
     width: 26px;
     min-width: 26px;
     padding: 0;
@@ -441,7 +444,7 @@
     display: none;
   }
 
-  .mypage-mobile-col-filter {
+  .profile-mobile-col-filter {
     display: inline-flex;
   }
 
@@ -627,7 +630,7 @@
     gap: 8px;
   }
 
-  .dialog-actions > * {
+  .dialog-actions>* {
     flex: 1 1 0;
     min-height: 38px;
   }
@@ -685,6 +688,7 @@
    THIRDWEB CONNECT MODAL MOBILE (Centered, sleek, compact)
    ========================================================================== */
 @media (max-width: 640px) {
+
   .tw-modal,
   .tw-modal__connect-wallet,
   [data-thirdweb="modal"],
@@ -712,6 +716,7 @@
    TOUCH TARGET FLOOR (COARSE POINTERS)
    ========================================================================== */
 @media (pointer: coarse) {
+
   .header-brand,
   .service-nav-btn,
   .player-controls .btn {
@@ -731,6 +736,6 @@
   }
 
   .player-scrubber {
-    height: 10px;
+    height: 3px;
   }
 }

@@ -5,7 +5,7 @@
 @import './components.css';
 @import './account.css';
 @import './market.css';
-@import './mypage.css';
+@import './profile.css';
 @import './studio.css';
 @import './editor.css';
 @import './board.css';
@@ -13,5 +13,5 @@
 @import './toolbox.css';
 @import './canvas.css';
 @import './song.css';
+@import './video.css';
 @import './responsive.css';
-
